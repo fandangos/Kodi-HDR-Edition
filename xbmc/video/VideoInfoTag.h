@@ -30,6 +30,7 @@ struct SActorInfo
   {
     return order < right.order;
   }
+  bool operator==(const SActorInfo &rhs) const;
   std::string strName;
   std::string strRole;
   CScraperUrl thumbUrl;
@@ -100,6 +101,18 @@ public:
    \param duration the duration to set
    */
   void SetDuration(int duration);
+
+  bool Equals(const CVideoInfoTag& rhs, bool metadataOnly = false) const;
+
+  bool operator==(const CVideoInfoTag& rhs) const
+  {
+    return Equals(rhs, false);
+  }
+
+  bool operator!=(const CVideoInfoTag& rhs) const
+  {
+    return !(*this == rhs);
+  }
 
   /*! \brief retrieve the duration in seconds.
    Prefers the duration from stream details if available.

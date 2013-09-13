@@ -24,6 +24,30 @@
 #include <string>
 #include <vector>
 
+bool operator==(const CRating& lhs, const CRating& rhs)
+{
+  return lhs.rating == rhs.rating && lhs.votes == rhs.votes;
+}
+
+bool operator!=(const CRating& lhs, const CRating& rhs)
+{
+  return !(lhs == rhs);
+}
+
+bool SActorInfo::operator==(const SActorInfo &rhs) const
+{
+  if (strName.compare(rhs.strName) != 0)
+    return false;
+  if (strRole.compare(rhs.strRole) != 0)
+    return false;
+  if (thumb.compare(rhs.thumb) != 0)
+    return false;
+  if (thumbUrl != rhs.thumbUrl)
+    return false;
+
+  return true;
+}
+
 void CVideoInfoTag::Reset()
 {
   m_director.clear();
@@ -1607,4 +1631,101 @@ bool CVideoInfoTag::SetResumePoint(double timeInSeconds, double totalTimeInSecon
 
   m_resumePoint = resumePoint;
   return true;
+}
+
+bool CVideoInfoTag::Equals(const CVideoInfoTag& rhs, bool metadataOnly /* = false */) const
+{
+  bool ret = true;
+
+  if (!metadataOnly)
+  {
+    // check paths
+    ret &= m_parentPathID == rhs.m_parentPathID;
+    ret &= StringUtils::EqualsNoCase(m_basePath, rhs.m_basePath);
+    ret &= StringUtils::EqualsNoCase(m_strFile, rhs.m_strFile);
+    ret &= StringUtils::EqualsNoCase(m_strPath, rhs.m_strPath);
+    ret &= StringUtils::EqualsNoCase(m_strFileNameAndPath, rhs.m_strFileNameAndPath);
+
+    // check IDs
+    ret &= m_set.id <= 0 || rhs.m_set.id <= 0 || m_set.id == rhs.m_set.id;
+    ret &= m_iBookmarkId == rhs.m_iBookmarkId;
+    ret &= m_iIdShow <= 0 || rhs.m_iIdShow <= 0 || m_iIdShow == rhs.m_iIdShow;
+    ret &= m_iIdSeason <= 0 || rhs.m_iIdSeason <= 0 || m_iIdSeason == rhs.m_iIdSeason;
+
+    ret &= m_parsedDetails == rhs.m_parsedDetails;
+  }
+
+  ret &= m_playCount == rhs.m_playCount;
+  ret &= m_lastPlayed == rhs.m_lastPlayed || !rhs.m_lastPlayed.IsValid();
+  ret &= m_iTop250 == rhs.m_iTop250;
+  ret &= GetYear() == rhs.GetYear();
+  ret &= m_ratings.size() == rhs.m_ratings.size() && std::equal(m_ratings.begin(), m_ratings.end(), rhs.m_ratings.begin());
+  ret &= m_iUserRating == rhs.m_iUserRating;
+  ret &= m_duration == rhs.m_duration;
+
+  ret &= m_strPlot == rhs.m_strPlot;
+  ret &= m_strTitle == rhs.m_strTitle;
+  ret &= m_strSortTitle == rhs.m_strSortTitle;
+  ret &= m_strOriginalTitle == rhs.m_strOriginalTitle;
+  ret &= m_strShowTitle == rhs.m_strShowTitle;
+  ret &= m_uniqueIDs.size() == rhs.m_uniqueIDs.size() && std::equal(m_uniqueIDs.begin(), m_uniqueIDs.end(), rhs.m_uniqueIDs.begin()) && m_strDefaultUniqueID == rhs.m_strDefaultUniqueID;
+  ret &= StringUtils::EqualsNoCase(m_type, rhs.m_type);
+
+  ret &= m_director == rhs.m_director;
+  ret &= m_writingCredits == rhs.m_writingCredits;
+  ret &= m_country == rhs.m_country;
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "musicvideo")
+  {
+    ret &= m_genre == rhs.m_genre;
+    ret &= m_tags == rhs.m_tags;
+    ret &= m_studio == rhs.m_studio;
+
+    if (m_type == "movie" || m_type == "tvshow")
+    {
+      ret &= m_strMPAARating == rhs.m_strMPAARating;
+
+      if (m_type == "movie")
+      {
+        ret &= m_strTagLine == rhs.m_strTagLine;
+        ret &= m_strPlotOutline == rhs.m_strPlotOutline;
+        ret &= m_strTrailer == rhs.m_strTrailer;
+        ret &= m_set.title == rhs.m_set.title;
+      }
+      else if (m_type == "tvshow")
+      {
+        ret &= m_premiered == rhs.m_premiered;
+        ret &= m_strStatus == rhs.m_strStatus;
+      }
+    }
+    else if (m_type == "musicvideo")
+    {
+      ret &= m_iTrack == rhs.m_iTrack;
+      ret &= m_strAlbum == rhs.m_strAlbum;
+      ret &= m_artist == rhs.m_artist;
+    }
+  }
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "episode")
+  {
+    ret &= m_cast == rhs.m_cast;
+  }
+
+  if (m_type == "season" || m_type == "episode")
+  {
+    ret &= m_iSeason == rhs.m_iSeason;
+    ret &= m_iSpecialSortSeason == rhs.m_iSpecialSortSeason;
+    ret &= m_iSpecialSortEpisode == rhs.m_iSpecialSortEpisode;
+
+    if (m_type == "episode")
+    {
+      // TODO: ret &= m_EpBookmark == rhs.m_EpBookmark;
+      ret &= m_iEpisode == rhs.m_iEpisode;
+      ret &= m_strEpisodeGuide == rhs.m_strEpisodeGuide;
+      ret &= m_strProductionCode == rhs.m_strProductionCode;
+      ret &= m_firstAired == rhs.m_firstAired;
+    }
+  }
+
+  return ret;
 }

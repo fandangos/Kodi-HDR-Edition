@@ -422,8 +422,8 @@ public:
   bool Open() override;
   bool CommitTransaction() override;
 
-  int AddMovie(const std::string& strFilenameAndPath);
-  int AddEpisode(int idShow, const std::string& strFilenameAndPath);
+  int AddMovie(const std::string& strFilenameAndPath, const CDateTime& dateAdded = CDateTime());
+  int AddEpisode(int idShow, const std::string& strFilenameAndPath, const CDateTime& dateAdded = CDateTime());
 
   // editing functions
   /*! \brief Set the playcount of an item

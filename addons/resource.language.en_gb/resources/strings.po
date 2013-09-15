@@ -22116,7 +22116,12 @@ msgctxt "#39564"
 msgid "Removing {:s}..."
 msgstr ""
 
-#empty string id 39565
+#. (container title): (media item title)
+#: xbmc/media/import/handler/EpisodeImportHandler.cpp
+#: xbmc/media/import/handler/SeasonImportHandler.cpp
+msgctxt "#39565"
+msgid "{:s}: {:s}"
+msgstr ""
 
 #. Removing import of (media type plural) from (media provider name)
 #: xbmc/media/import/task/MediaImportRemovalTask.cpp

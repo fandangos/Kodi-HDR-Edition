@@ -21,6 +21,12 @@
 #include "media/import/IMediaImportRepository.h"
 #include "media/import/MediaImport.h"
 #include "media/import/MediaImportSource.h"
+#include "media/import/handlers/EpisodeImportHandler.h"
+#include "media/import/handlers/MovieImportHandler.h"
+#include "media/import/handlers/MovieSetImportHandler.h"
+#include "media/import/handlers/MusicVideoImportHandler.h"
+#include "media/import/handlers/SeasonImportHandler.h"
+#include "media/import/handlers/TvShowImportHandler.h"
 #include "media/import/jobs/MediaImportSourceActivationJob.h"
 #include "media/import/jobs/MediaImportSourceJobBase.h"
 #include "media/import/jobs/MediaImportSourceReadyJob.h"
@@ -62,6 +68,12 @@ void CMediaImportManager::Initialize()
     return;
 
   // register media handlers
+  RegisterMediaImportHandler(std::make_shared<CMovieImportHandler>(this));
+  RegisterMediaImportHandler(std::make_shared<CMovieSetImportHandler>(this));
+  RegisterMediaImportHandler(std::make_shared<CTvShowImportHandler>(this));
+  RegisterMediaImportHandler(std::make_shared<CSeasonImportHandler>(this));
+  RegisterMediaImportHandler(std::make_shared<CEpisodeImportHandler>(this));
+  RegisterMediaImportHandler(std::make_shared<CMusicVideoImportHandler>(this));
 
   // start all registered importers
   {

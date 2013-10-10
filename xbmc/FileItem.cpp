@@ -386,6 +386,7 @@ CFileItem& CFileItem::operator=(const CFileItem& item)
     return *this;
 
   CGUIListItem::operator=(item);
+  m_enabled = item.m_enabled;
   m_bLabelPreformatted=item.m_bLabelPreformatted;
   FreeMemory();
   m_strPath = item.m_strPath;
@@ -481,6 +482,7 @@ void CFileItem::Initialize()
   m_videoInfoTag = NULL;
   m_pictureInfoTag = NULL;
   m_gameInfoTag = NULL;
+  m_enabled = true;
   m_bLabelPreformatted = false;
   m_bIsAlbum = false;
   m_dwSize = 0;
@@ -596,6 +598,8 @@ void CFileItem::Archive(CArchive& ar)
     }
     else
       ar << 0;
+
+    ar << m_enabled;
   }
   else
   {
@@ -639,6 +643,8 @@ void CFileItem::Archive(CArchive& ar)
     ar >> iType;
     if (iType == 1)
       ar >> *GetGameInfoTag();
+
+    ar >> m_enabled;
 
     SetInvalid();
   }

@@ -22117,6 +22117,7 @@ msgid "Removing {:s}..."
 msgstr ""
 
 #. (container title): (media item title)
+#: xbmc/filesystem/MediaImportDirectory.cpp
 #: xbmc/media/import/handler/EpisodeImportHandler.cpp
 #: xbmc/media/import/handler/SeasonImportHandler.cpp
 msgctxt "#39565"
@@ -22135,4 +22136,43 @@ msgstr ""
 #: xbmc/media/import/task/MediaImportCleanupTask.cpp
 msgctxt "#39569"
 msgid "Cleaning up {:s} from {:s}..."
+msgstr ""
+
+# empty strings from id 39570 to 39572
+
+#. Title of the node showing all available media providers
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39573"
+msgid "All media providers"
+msgstr ""
+
+#. Title of the node showing all active media providers
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39574"
+msgid "Active media providers"
+msgstr ""
+
+#. Title of the node showing all inactive media providers
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39575"
+msgid "Inactive media providers"
+msgstr ""
+
+#. Label of the state of an active media provider
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39576"
+msgid "Active"
+msgstr ""
+
+#. Label of the state of an inactive media provider
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39577"
+msgid "Inactive"
+msgstr ""
+
+# strings from id 39578 to 39599 reserved for media import
+
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39600"
+msgid "Media providers"
 msgstr ""

@@ -24,6 +24,7 @@ set(SOURCES AddonsDirectory.cpp
             IFile.cpp
             ImageFile.cpp
             LibraryDirectory.cpp
+            MediaImportDirectory.cpp
             MultiPathDirectory.cpp
             MultiPathFile.cpp
             MusicDatabaseDirectory.cpp
@@ -88,6 +89,7 @@ set(HEADERS AddonsDirectory.h
             IFileTypes.h
             ImageFile.h
             LibraryDirectory.h
+            MediaImportDirectory.h
             MultiPathDirectory.h
             MultiPathFile.h
             MusicDatabaseDirectory.h

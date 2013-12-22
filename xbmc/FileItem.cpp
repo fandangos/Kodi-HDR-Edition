@@ -1929,6 +1929,11 @@ CFileItemList::CFileItemList(const std::string& strPath)
 {
 }
 
+CFileItemList::CFileItemList(const CFileItemList &other)
+{
+  Copy(other, true);
+}
+
 CFileItemList::~CFileItemList()
 {
   Clear();

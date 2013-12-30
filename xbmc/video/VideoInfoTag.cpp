@@ -695,6 +695,7 @@ void CVideoInfoTag::ToSortable(SortItem& sortable, Field field) const
       sortable[FieldSortTitle] = m_strSortTitle;
     break;
   }
+  case FieldOriginalTitle:            sortable[FieldOriginalTitle] = m_strOriginalTitle; break;
   case FieldTvShowStatus:             sortable[FieldTvShowStatus] = m_strStatus; break;
   case FieldProductionCode:           sortable[FieldProductionCode] = m_strProductionCode; break;
   case FieldAirDate:                  sortable[FieldAirDate] = m_firstAired.IsValid() ? m_firstAired.GetAsDBDate() : (m_premiered.IsValid() ? m_premiered.GetAsDBDate() : StringUtils::Empty); break;
@@ -711,6 +712,7 @@ void CVideoInfoTag::ToSortable(SortItem& sortable, Field field) const
   case FieldNumberOfWatchedEpisodes:  sortable[FieldNumberOfWatchedEpisodes] = m_iEpisode; break;
   case FieldEpisodeNumberSpecialSort: sortable[FieldEpisodeNumberSpecialSort] = m_iSpecialSortEpisode; break;
   case FieldSeasonSpecialSort:        sortable[FieldSeasonSpecialSort] = m_iSpecialSortSeason; break;
+  case FieldUniqueId:                 sortable[FieldUniqueId] = GetUniqueID(); break;
   case FieldRating:                   sortable[FieldRating] = GetRating().rating; break;
   case FieldUserRating:               sortable[FieldUserRating] = m_iUserRating; break;
   case FieldId:                       sortable[FieldId] = m_iDbId; break;
@@ -1728,4 +1730,135 @@ bool CVideoInfoTag::Equals(const CVideoInfoTag& rhs, bool metadataOnly /* = fals
   }
 
   return ret;
+}
+
+bool CVideoInfoTag::GetDifferences(const CVideoInfoTag &rhs, std::set<Field> &fields, bool metadataOnly /* = false */) const
+{
+  fields.clear();
+
+  if (!metadataOnly)
+  {
+    // check IDs
+    if (m_iDbId > 0 && rhs.m_iDbId > 0 && m_iDbId != rhs.m_iDbId)
+      fields.insert(FieldId);
+
+    // check paths
+    if (!StringUtils::EqualsNoCase(m_strFile, rhs.m_strFile))
+      fields.insert(FieldFilename);
+    if (!StringUtils::EqualsNoCase(m_strPath, rhs.m_strPath))
+      fields.insert(FieldPath);
+  }
+
+  if (m_playCount != rhs.m_playCount)
+    fields.insert(FieldPlaycount);
+  if (m_lastPlayed != rhs.m_lastPlayed && !rhs.m_lastPlayed.IsValid())
+    fields.insert(FieldLastPlayed);
+  if (m_iTop250 != rhs.m_iTop250)
+    fields.insert(FieldTop250);
+  if (m_ratings.size() != rhs.m_ratings.size() ||
+      !std::equal(m_ratings.begin(), m_ratings.end(), rhs.m_ratings.begin()))
+    fields.insert(FieldRating);
+  if (m_iUserRating != rhs.m_iUserRating)
+    fields.insert(FieldUserRating);
+  if (m_duration != rhs.m_duration)
+    fields.insert(FieldTime);
+
+  if (m_strPlot != rhs.m_strPlot)
+    fields.insert(FieldPlot);
+  if (m_strTitle != rhs.m_strTitle)
+    fields.insert(FieldTitle);
+  if (m_strSortTitle != rhs.m_strSortTitle)
+    fields.insert(FieldSortTitle);
+  if (m_strOriginalTitle != rhs.m_strOriginalTitle)
+    fields.insert(FieldOriginalTitle);
+  if (m_strShowTitle != rhs.m_strShowTitle)
+    fields.insert(FieldTvShowTitle);
+
+ if (m_uniqueIDs.size() != rhs.m_uniqueIDs.size() || !std::equal(m_uniqueIDs.begin(), m_uniqueIDs.end(), rhs.m_uniqueIDs.begin()) || m_strDefaultUniqueID != rhs.m_strDefaultUniqueID)
+    fields.insert(FieldUniqueId);
+  if (!StringUtils::EqualsNoCase(m_type, rhs.m_type))
+    fields.insert(FieldMediaType);
+
+  if (m_director != rhs.m_director)
+    fields.insert(FieldDirector);
+  if (m_writingCredits != rhs.m_writingCredits)
+    fields.insert(FieldWriter);
+  if (m_country != rhs.m_country)
+    fields.insert(FieldCountry);
+
+  if (m_resumePoint.IsPartWay() != rhs.m_resumePoint.IsPartWay())
+    fields.insert(FieldInProgress);
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "musicvideo")
+  {
+    if (m_genre != rhs.m_genre)
+      fields.insert(FieldGenre);
+    if (m_tags != rhs.m_tags)
+      fields.insert(FieldTag);
+    if (m_studio != rhs.m_studio)
+      fields.insert(FieldStudio);
+
+    if (m_type == "movie" || m_type == "tvshow")
+    {
+      if (m_strMPAARating != rhs.m_strMPAARating)
+        fields.insert(FieldMPAA);
+
+      if (m_type == "movie")
+      {
+        if (m_strTagLine != rhs.m_strTagLine)
+          fields.insert(FieldTagline);
+        if (m_strPlotOutline != rhs.m_strPlotOutline)
+          fields.insert(FieldPlotOutline);
+        if (m_strTrailer != rhs.m_strTrailer)
+          fields.insert(FieldTrailer);
+        if (m_set.title != rhs.m_set.title ||
+           (m_set.id > 0 && rhs.m_set.id > 0 && m_set.id != rhs.m_set.id))
+          fields.insert(FieldSet);
+      }
+      else if (m_type == "tvshow")
+      {
+        if (m_premiered.GetAsDBDate() != rhs.m_premiered.GetAsDBDate())
+          fields.insert(FieldAirDate);
+        if (m_strStatus != rhs.m_strStatus)
+          fields.insert(FieldTvShowStatus);
+      }
+    }
+    else if (m_type == "musicvideo")
+    {
+      if (m_iTrack != rhs.m_iTrack)
+        fields.insert(FieldTrackNumber);
+      if (m_strAlbum != rhs.m_strAlbum)
+        fields.insert(FieldAlbum);
+      if (m_artist != rhs.m_artist)
+        fields.insert(FieldArtist);
+    }
+  }
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "episode")
+  {
+    if (m_cast != rhs.m_cast)
+      fields.insert(FieldActor);
+  }
+
+  if (m_type == "season" || m_type == "episode")
+  {
+    if (m_iSeason != rhs.m_iSeason)
+      fields.insert(FieldSeason);
+    if (m_iSpecialSortSeason != rhs.m_iSpecialSortSeason)
+      fields.insert(FieldSeasonSpecialSort);
+    if (m_iSpecialSortEpisode != rhs.m_iSpecialSortEpisode)
+      fields.insert(FieldEpisodeNumberSpecialSort);
+
+    if (m_type == "episode")
+    {
+      if (m_iEpisode != rhs.m_iEpisode)
+        fields.insert(FieldEpisodeNumber);
+      if (m_strProductionCode != rhs.m_strProductionCode)
+        fields.insert(FieldProductionCode);
+      if (m_firstAired.GetAsDBDate() != rhs.m_firstAired.GetAsDBDate())
+        fields.insert(FieldAirDate);
+    }
+  }
+
+  return !fields.empty();
 }

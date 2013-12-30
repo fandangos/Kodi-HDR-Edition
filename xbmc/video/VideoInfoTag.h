@@ -114,6 +114,8 @@ public:
     return !(*this == rhs);
   }
 
+  bool GetDifferences(const CVideoInfoTag &rhs, std::set<Field> &fields, bool metadataOnly = false) const;
+
   /*! \brief retrieve the duration in seconds.
    Prefers the duration from stream details if available.
    */

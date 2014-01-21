@@ -1,2 +1,3 @@
 xbmc/media                                      media
 xbmc/media/drm                                  drm
+xbmc/media/import                               media/import

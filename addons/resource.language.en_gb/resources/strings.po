@@ -8596,6 +8596,7 @@ msgctxt "#16000"
 msgid "General"
 msgstr ""
 
+#: system/settings/settings.xml
 #: xbmc/media/import/MediaImport.cpp
 msgctxt "#16001"
 msgid "Media Import"
@@ -20765,7 +20766,17 @@ msgctxt "#36631"
 msgid "Force weak SMBv1 security for compatibility with the USB sharing features on some WiFi routers and NAS devices."
 msgstr ""
 
-#empty strings from id 36632 to 36898
+#: system/settings/settings.xml
+msgctxt "#36632"
+msgid "Import media items from UPnP servers"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#36633"
+msgid "Adds newly detected UPnP servers to the list of available media providers with the possibility to import media items into the local library. It is possible to choose which media items to import and which not. The imported items appear in the library like any other media item except that it can only be played if the UPnP server they were imported from is available."
+msgstr ""
+
+#empty strings from id 36634 to 36898
 
 #. Description of setting with label #729 "Enable SSL"
 #: system/settings/settings.xml
@@ -22163,7 +22174,11 @@ msgctxt "#39567"
 msgid "New import added"
 msgstr ""
 
-# empty string id 39568
+#. Retrieving (media type plural)...
+#: xbmc/network/upnp/UPnPMediaImporter.cpp
+msgctxt "#39568"
+msgid "Retrieving {:s}..."
+msgstr ""
 
 #. Cleaning up (media type plural) from (media provider name)...
 #: xbmc/media/import/task/MediaImportCleanupTask.cpp

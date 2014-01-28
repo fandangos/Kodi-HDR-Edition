@@ -14,6 +14,8 @@
 
 #include <string>
 
+#include "media/import/IMediaImporter.h"
+
 class NPT_LogHandler;
 class PLT_UPnP;
 class PLT_SyncMediaBrowser;
@@ -97,6 +99,7 @@ private:
     CRendererReferenceHolder*   m_RendererHolder;
     CCtrlPointReferenceHolder*  m_CtrlPointHolder;
 
+    MediaImporterFactoryPtr     m_mediaImporterFactory;
 
     static CUPnP* upnp;
 };

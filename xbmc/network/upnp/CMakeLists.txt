@@ -1,5 +1,6 @@
 set(SOURCES UPnP.cpp
             UPnPInternal.cpp
+            UPnPMediaImporter.cpp
             UPnPPlayer.cpp
             UPnPRenderer.cpp
             UPnPServer.cpp
@@ -7,6 +8,7 @@ set(SOURCES UPnP.cpp
 
 set(HEADERS UPnP.h
             UPnPInternal.h
+            UPnPMediaImporter.h
             UPnPPlayer.h
             UPnPRenderer.h
             UPnPServer.h

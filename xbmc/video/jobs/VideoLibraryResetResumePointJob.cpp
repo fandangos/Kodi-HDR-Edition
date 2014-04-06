@@ -14,6 +14,7 @@
 #include "ServiceBroker.h"
 #include "Util.h"
 #include "filesystem/IDirectory.h"
+#include "media/import/MediaImportManager.h"
 #ifdef HAS_UPNP
 #include "network/upnp/UPnP.h"
 #endif
@@ -65,6 +66,9 @@ bool CVideoLibraryResetResumePointJob::Work(CVideoDatabase &db)
     if (item->HasPVRRecordingInfoTag() &&
         CServiceBroker::GetPVRManager().Recordings()->ResetResumePoint(item->GetPVRRecordingInfoTag()))
       continue;
+
+    if (item->IsImported())
+      CServiceBroker::GetMediaImportManager().UpdateImportedItemOnSource(*item);
 
     resetItems.emplace_back(item);
   }

@@ -10,8 +10,10 @@
 
 #include "VideoLibraryMarkWatchedJob.h"
 #include "FileItem.h"
+#include "ServiceBroker.h"
 #include "Util.h"
 #include "filesystem/Directory.h"
+#include "media/import/MediaImportManager.h"
 #ifdef HAS_UPNP
 #include "network/upnp/UPnP.h"
 #endif
@@ -96,11 +98,33 @@ bool CVideoLibraryMarkWatchedJob::Work(CVideoDatabase &db)
 
     // With both mark as watched and unwatched we want the resume bookmarks to be reset
     db.ClearBookMarksOfFile(path, CBookmark::RESUME);
+    // update the item itself
+    if (item->HasVideoInfoTag())
+      item->GetVideoInfoTag()->GetResumePoint().Reset();
 
     if (m_mark)
+    {
       db.IncrementPlayCount(*item);
+      // update the item's details in the database
+      db.ClearBookMarksOfFile(path, CBookmark::RESUME);
+      db.IncrementPlayCount(*item);
+
+      // update the item itself
+      if (item->HasVideoInfoTag())
+        item->GetVideoInfoTag()->IncrementPlayCount();
+    }
     else
+    {
+      // update the item's details in the database
       db.SetPlayCount(*item, 0);
+
+      // update the item itself
+      if (item->HasVideoInfoTag())
+        item->GetVideoInfoTag()->SetPlayCount(0);
+    }
+
+    if (item->IsImported())
+      CServiceBroker::GetMediaImportManager().UpdateImportedItemOnSource(*item);
   }
 
   db.CommitTransaction();

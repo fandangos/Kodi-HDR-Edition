@@ -354,6 +354,26 @@ bool CGUIWindowVideoBase::ShowIMDB(CFileItemPtr item, const ScraperPtr &info2, b
   }
   else if(item->HasVideoInfoTag())
   {
+    if (item->GetVideoInfoTag()->m_parsedDetails != VideoDbDetailsAll)
+    {
+      std::string path = item->GetPath();
+      CVideoInfoTag &videoInfo = *item->GetVideoInfoTag();
+      int dbId = videoInfo.m_iDbId;
+
+      m_database.Open();
+
+      if (item->GetVideoInfoTag()->m_type == MediaTypeMovie)
+        m_database.GetMovieInfo(path, videoInfo, dbId);
+      else if (item->GetVideoInfoTag()->m_type == MediaTypeEpisode)
+        m_database.GetEpisodeInfo(path, videoInfo, dbId);
+      else if (item->GetVideoInfoTag()->m_type == MediaTypeTvShow)
+        m_database.GetTvShowInfo(path, videoInfo, dbId);
+      else if (item->GetVideoInfoTag()->m_type == MediaTypeMusicVideo)
+        m_database.GetMusicVideoInfo(path, videoInfo, dbId);
+
+      m_database.Close();
+    }
+
     bHasInfo = true;
     movieDetails = *item->GetVideoInfoTag();
   }

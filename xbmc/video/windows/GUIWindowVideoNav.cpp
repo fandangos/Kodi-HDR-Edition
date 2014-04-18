@@ -15,6 +15,7 @@
 #include "ServiceBroker.h"
 #include "Util.h"
 #include "dialogs/GUIDialogMediaSource.h"
+#include "dialogs/GUIDialogOK.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/Directory.h"
 #include "filesystem/MultiPathDirectory.h"
@@ -44,6 +45,7 @@
 #include "LibraryQueue.h"
 #include "video/dialogs/GUIDialogVideoInfo.h"
 #include "view/GUIViewState.h"
+#include "media/import/MediaImportManager.h"
 
 #include <utility>
 
@@ -1115,7 +1117,17 @@ bool CGUIWindowVideoNav::OnAddMediaSource()
 bool CGUIWindowVideoNav::OnClick(int iItem, const std::string &player)
 {
   CFileItemPtr item = m_vecItems->Get(iItem);
-  if (!item->m_bIsFolder && item->IsVideoDb() && !item->Exists())
+  if (!item->m_bIsFolder && item->IsImported() && !CServiceBroker::GetMediaImportManager().IsSourceActive(item->GetSource()))
+  {
+    CMediaImportSource source(item->GetSource());
+    if (CServiceBroker::GetMediaImportManager().GetSource(source.GetIdentifier(), source))
+      KODI::MESSAGING::HELPERS::ShowOKDialogText("Media provider unavailable" /* TODO */, "The media provider " + source.GetFriendlyName() + " is currently not available." /* TODO */);
+    else
+      KODI::MESSAGING::HELPERS::ShowOKDialogText("Media provider unavailable" /* TODO */, "The media provider is currently not available." /* TODO */);
+
+    return true;
+  }
+  else if (!item->m_bIsFolder && item->IsVideoDb() && !item->Exists())
   {
     CLog::Log(LOGDEBUG, "%s called on '%s' but file doesn't exist", __FUNCTION__, item->GetPath().c_str());
 

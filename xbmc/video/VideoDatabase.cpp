@@ -3974,6 +3974,57 @@ bool CVideoDatabase::GetResumePoint(CVideoInfoTag& tag)
   return match;
 }
 
+void CVideoDatabase::DeleteFile(int idFile, const std::string &strFilenameAndPath /* = "" */)
+{
+  if (m_pDB.get() == NULL || m_pDS.get() == NULL ||
+    (idFile <= 0 && strFilenameAndPath.empty()))
+    return;
+
+  // if the file ID is invalid, try to get it from the path
+  if (idFile <= 0)
+    idFile = GetFileId(strFilenameAndPath);
+  // invalid file
+  if (idFile <= 0)
+    return;
+
+  std::string sql;
+  try
+  {
+    // finally delete the file itself
+    sql = PrepareSQL("DELETE FROM files WHERE idFile = %d", idFile);
+    m_pDS->exec(sql.c_str());
+  }
+  catch (...)
+  {
+    CLog::Log(LOGERROR, "%s(%d, %s) failed: %s", __FUNCTION__, idFile, strFilenameAndPath.c_str(), sql.c_str());
+  }
+}
+
+void CVideoDatabase::DeletePath(int idPath, const std::string &strPath /* = "" */)
+{
+  if (m_pDB.get() == NULL || m_pDS.get() == NULL ||
+    (idPath <= 0 && strPath.empty()))
+    return;
+
+  // if the path ID is invalid, try to get it from the path
+  if (idPath <= 0)
+    idPath = GetPathId(strPath);
+  // invalid path
+  if (idPath <= 0)
+    return;
+
+  std::string sql;
+  try
+  {
+    sql = PrepareSQL("DELETE FROM path WHERE idPath = %d", idPath);
+    m_pDS->exec(sql.c_str());
+  }
+  catch (...)
+  {
+    CLog::Log(LOGERROR, "%s(%d, %s) failed: %s", __FUNCTION__, idPath, strPath.c_str(), sql.c_str());
+  }
+}
+
 CVideoInfoTag CVideoDatabase::GetDetailsForMovie(std::unique_ptr<Dataset> &pDS, int getDetails /* = VideoDbDetailsNone */)
 {
   return GetDetailsForMovie(pDS->get_sql_record(), getDetails);

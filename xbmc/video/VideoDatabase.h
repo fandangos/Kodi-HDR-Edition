@@ -624,6 +624,9 @@ public:
   bool GetStreamDetails(CVideoInfoTag& tag) const;
   CVideoInfoTag GetDetailsByTypeAndId(VIDEODB_CONTENT_TYPE type, int id);
 
+  void DeleteFile(int idFile, const std::string &strFilenameAndPath = "");
+  void DeletePath(int idPath, const std::string &strPath = "");
+
   // scraper settings
   void SetScraperForPath(const std::string& filePath, const ADDON::ScraperPtr& info, const VIDEO::SScanSettings& settings);
   ADDON::ScraperPtr GetScraperForPath(const std::string& strPath);

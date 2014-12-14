@@ -541,8 +541,8 @@ public:
 
   void DeleteMovie(int idMovie, bool bKeepId = false);
   void DeleteMovie(const std::string& strFilenameAndPath, bool bKeepId = false);
-  void DeleteTvShow(int idTvShow, bool bKeepId = false);
-  void DeleteTvShow(const std::string& strPath);
+  void DeleteTvShow(int idTvShow, bool bKeepId = false, bool deleteChildren = true);
+  void DeleteTvShow(const std::string& strPath, bool deleteChildren = true);
   void DeleteSeason(int idSeason, bool bKeepId = false);
   void DeleteEpisode(int idEpisode, bool bKeepId = false);
   void DeleteEpisode(const std::string& strFilenameAndPath, bool bKeepId = false);

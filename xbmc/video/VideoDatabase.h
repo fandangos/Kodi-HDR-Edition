@@ -670,7 +670,8 @@ public:
   bool SetPathHash(const std::string &path, const std::string &hash);
   bool GetPathHash(const std::string &path, std::string &hash);
   bool GetPaths(std::set<std::string> &paths);
-  bool GetPathsForTvShow(int idShow, std::set<int>& paths);
+  bool GetPathsForTvShowFromEpisodes(int idShow, std::set<int>& paths);
+  bool GetPathsForTvShow(int idShow, std::map<int, std::string>& paths);
 
   /*! \brief return the paths linked to a tvshow.
    \param idShow the id of the tvshow.
@@ -878,6 +879,20 @@ public:
   void ClearMovieSet(int idMovie);
   void SetMovieSet(int idMovie, int idSet);
   bool SetVideoUserRating(int dbId, int rating, const MediaType& mediaType);
+
+  /*! \brief Removes the path from the tvshow link table.
+  \param idShow the id of the show.
+  \param path the path to remove.
+  \return true if successfully removed, false otherwise.
+  */
+  bool RemovePathFromTvShow(int idShow, const std::string &path);
+
+  /*! \brief Removes the path from the tvshow link table.
+  \param idShow the id of the show.
+  \param idPath the id of the path to remove.
+  \return true if successfully removed, false otherwise.
+  */
+  bool RemovePathFromTvShow(int idShow, int idPath);
 
 protected:
   int GetMovieId(const std::string& strFilenameAndPath);

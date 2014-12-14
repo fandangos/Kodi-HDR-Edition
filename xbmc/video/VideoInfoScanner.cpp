@@ -909,7 +909,7 @@ namespace VIDEO
       if (m_bClean)
       {
         m_pathsToClean.insert(m_database.GetPathId(item->GetPath()));
-        m_database.GetPathsForTvShow(m_database.GetTvShowId(item->GetPath()), m_pathsToClean);
+        m_database.GetPathsForTvShowFromEpisodes(m_database.GetTvShowId(item->GetPath()), m_pathsToClean);
       }
       item->SetProperty("hash", hash);
     }

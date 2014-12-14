@@ -664,7 +664,7 @@ bool CVideoDatabase::GetPathsLinkedToTvShow(int idShow, std::vector<std::string>
   return false;
 }
 
-bool CVideoDatabase::GetPathsForTvShow(int idShow, std::set<int>& paths)
+bool CVideoDatabase::GetPathsForTvShowFromEpisodes(int idShow, std::set<int>& paths)
 {
   std::string strSQL;
   try
@@ -693,6 +693,41 @@ bool CVideoDatabase::GetPathsForTvShow(int idShow, std::set<int>& paths)
   catch (...)
   {
     CLog::Log(LOGERROR, "%s error during query: %s",__FUNCTION__, strSQL.c_str());
+  }
+  return false;
+}
+
+bool CVideoDatabase::GetPathsForTvShow(int idShow, std::map<int, std::string>& paths)
+{
+  if (idShow <= 0)
+    return false;
+
+  std::string sql;
+  try
+  {
+    if (m_pDB.get() == NULL || m_pDS.get() == NULL)
+      return false;
+
+    sql = PrepareSQL("SELECT DISTINCT path.idPath, path.strPath FROM path "
+                     "JOIN tvshowlinkpath ON tvshowlinkpath.idPath = path.idPath "
+                     "WHERE tvshowlinkpath.idShow = %d",
+                     idShow);
+    int rows = RunQuery(sql);
+    if (rows <= 0)
+      return rows == 0;
+
+    while (!m_pDS->eof())
+    {
+      paths.insert(std::make_pair(m_pDS->fv(0).get_asInt(), m_pDS->fv(1).get_asString()));
+      m_pDS->next();
+    }
+
+    m_pDS->close();
+    return true;
+  }
+  catch (...)
+  {
+    CLog::Log(LOGERROR, "%s (%d) error during query: %s", __FUNCTION__, idShow, sql.c_str());
   }
   return false;
 }
@@ -1402,6 +1437,38 @@ bool CVideoDatabase::AddPathToTvShow(int idShow, const std::string &path, const 
   }
 
   return ExecuteQuery(PrepareSQL("REPLACE INTO tvshowlinkpath(idShow, idPath) VALUES (%i,%i)", idShow, idPath));
+}
+
+bool CVideoDatabase::RemovePathFromTvShow(int idShow, const std::string &path)
+{
+  if (idShow <= 0 || path.empty())
+    return false;
+
+  int idPath = GetPathId(path);
+  return RemovePathFromTvShow(idShow, idPath);
+}
+
+bool CVideoDatabase::RemovePathFromTvShow(int idShow, int idPath)
+{
+  if (idShow <= 0 || idPath <= 0)
+    return false;
+
+  std::string sql;
+  try
+  {
+    if (m_pDB.get() == NULL || m_pDS.get() == NULL)
+      return false;
+
+    sql = PrepareSQL("DELETE FROM tvshowlinkpath WHERE idShow = %d AND idPath = %d", idShow, idPath);
+    m_pDS->exec(sql);
+
+    return true;
+  }
+  catch (...)
+  {
+    CLog::Log(LOGERROR, "%s (%d, %d) error during query: %s", __FUNCTION__, idShow, idPath, sql.c_str());
+  }
+  return false;
 }
 
 int CVideoDatabase::AddTvShow()
@@ -3515,7 +3582,7 @@ void CVideoDatabase::DeleteTvShow(int idTvShow, bool bKeepId /* = false */, bool
 
     BeginTransaction();
 
-    std::set<int> paths;
+    std::map<int, std::string> paths;
     GetPathsForTvShow(idTvShow, paths);
 
     std::string strSQL;
@@ -3547,7 +3614,7 @@ void CVideoDatabase::DeleteTvShow(int idTvShow, bool bKeepId /* = false */, bool
 
       for (const auto &i : paths)
       {
-        std::string path = GetSingleValue(PrepareSQL("SELECT strPath FROM path WHERE idPath=%i", i));
+        std::string path = GetSingleValue(PrepareSQL("SELECT strPath FROM path WHERE idPath=%i", i.first));
         if (!path.empty())
           InvalidatePathHash(path);
       }

@@ -11,6 +11,9 @@
 #include "ServiceBroker.h"
 #include "TextureDatabase.h"
 #include "addons/AddonDatabase.h"
+#include "media/import/MediaImportManager.h"
+#include "media/import/MediaImportSource.h"
+#include "media/import/repositories/VideoImportRepository.h"
 #include "music/MusicDatabase.h"
 #include "pvr/PVRDatabase.h"
 #include "pvr/epg/EpgDatabase.h"
@@ -23,7 +26,8 @@
 using namespace PVR;
 
 CDatabaseManager::CDatabaseManager() :
-  m_bIsUpgrading(false)
+  m_bIsUpgrading(false),
+  m_videoImportRepository(new CVideoImportRepository())
 {
   // Initialize the addon database (must be before the addon manager is init'd)
   CAddonDatabase db;
@@ -48,13 +52,29 @@ void CDatabaseManager::Initialize()
   { CViewDatabase db; UpdateDatabase(db); }
   { CTextureDatabase db; UpdateDatabase(db); }
   { CMusicDatabase db; UpdateDatabase(db, &advancedSettings->m_databaseMusic); }
-  { CVideoDatabase db; UpdateDatabase(db, &advancedSettings->m_databaseVideo); }
+  {
+    CVideoDatabase db;
+    UpdateDatabase(db, &advancedSettings->m_databaseVideo);
+    db.SetImportItemsEnabled(false);
+    CServiceBroker::GetMediaImportManager().RegisterImportRepository(m_videoImportRepository);
+  }
   { CPVRDatabase db; UpdateDatabase(db, &advancedSettings->m_databaseTV); }
   { CPVREpgDatabase db; UpdateDatabase(db, &advancedSettings->m_databaseEpg); }
 
   CLog::Log(LOGDEBUG, "%s, updating databases... DONE", __FUNCTION__);
 
   m_bIsUpgrading = false;
+}
+
+void CDatabaseManager::Deinitialize()
+{
+  CVideoDatabase videodb;
+  if (videodb.Open())
+    videodb.SetImportItemsEnabled(false);
+  CServiceBroker::GetMediaImportManager().UnregisterImportRepository(m_videoImportRepository);
+
+  CSingleLock lock(m_section);
+  m_dbStatus.clear();
 }
 
 bool CDatabaseManager::CanOpen(const std::string &name)

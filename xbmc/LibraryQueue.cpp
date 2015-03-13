@@ -25,13 +25,15 @@
 
 CLibraryQueue::CLibraryQueue()
   : CJobQueue(false, 1, CJob::PRIORITY_LOW),
-    m_jobs()
+    m_jobs(),
+    m_callbacks()
 { }
 
 CLibraryQueue::~CLibraryQueue()
 {
   CSingleLock lock(m_critical);
   m_jobs.clear();
+  m_callbacks.clear();
 }
 
 CLibraryQueue& CLibraryQueue::GetInstance()
@@ -150,7 +152,7 @@ void CLibraryQueue::ResetResumePoint(const CFileItemPtr item)
   AddJob(new CVideoLibraryResetResumePointJob(item));
 }
 
-void CLibraryQueue::AddJob(CLibraryJob *job)
+void CLibraryQueue::AddJob(CLibraryJob *job, IJobCallback* callback /* = nullptr */)
 {
   if (job == NULL)
     return;
@@ -170,6 +172,10 @@ void CLibraryQueue::AddJob(CLibraryJob *job)
   }
   else
     jobsIt->second.insert(job);
+
+  // if there's a specific callback, add it to the callback map
+  if (callback != NULL)
+    m_callbacks.insert(std::make_pair(job, callback));
 }
 
 void CLibraryQueue::CancelJob(CLibraryJob* job)
@@ -195,6 +201,9 @@ void CLibraryQueue::CancelJob(CLibraryJob* job)
   LibraryJobMap::iterator jobsIt = m_jobs.find(jobType);
   if (jobsIt != m_jobs.end())
     jobsIt->second.erase(job);
+
+  // remove the job (and its callback) from the callback map
+  m_callbacks.erase(job);
 }
 
 void CLibraryQueue::CancelAllJobs()
@@ -202,8 +211,9 @@ void CLibraryQueue::CancelAllJobs()
   CSingleLock lock(m_critical);
   CJobQueue::CancelJobs();
 
-  // remove all scanning jobs
+  // remove all jobs
   m_jobs.clear();
+  m_callbacks.clear();
 }
 
 bool CLibraryQueue::IsRunning() const
@@ -211,11 +221,25 @@ bool CLibraryQueue::IsRunning() const
   return CJobQueue::IsProcessing() || m_modal;
 }
 
-  void CLibraryQueue::Refresh()
+void CLibraryQueue::Refresh()
 {
   CUtil::DeleteVideoDatabaseDirectoryCache();
   CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE);
   CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
+}
+
+void CLibraryQueue::OnJobProgress(unsigned int jobID, unsigned int progress, unsigned int total, const CJob* job)
+{
+  if (job == NULL)
+    return;
+
+  // check if we need to call a specific callback
+  LibraryJobCallbacks::iterator callback = m_callbacks.find(static_cast<const CLibraryJob*>(job));
+  if (callback != m_callbacks.end())
+    callback->second->OnJobProgress(jobID, progress, total, job);
+
+  // let the generic job queue do its work
+  CJobQueue::OnJobProgress(jobID, progress, total, job);
 }
 
 void CLibraryQueue::OnJobComplete(unsigned int jobID, bool success, CJob* job)
@@ -228,11 +252,19 @@ void CLibraryQueue::OnJobComplete(unsigned int jobID, bool success, CJob* job)
 
   {
     CSingleLock lock(m_critical);
+    CLibraryJob* libraryJob = static_cast<CLibraryJob*>(job);
+
+    // check if we need to call a specific callback
+    LibraryJobCallbacks::iterator callback = m_callbacks.find(libraryJob);
+    if (callback != m_callbacks.end())
+      callback->second->OnJobComplete(jobID, success, job);
+
     // remove the job from our list of queued/running jobs
     LibraryJobMap::iterator jobsIt = m_jobs.find(job->GetType());
     if (jobsIt != m_jobs.end())
-      jobsIt->second.erase(static_cast<CLibraryJob*>(job));
+      jobsIt->second.erase(libraryJob);
   }
 
+  // let the generic job queue do its work
   return CJobQueue::OnJobComplete(jobID, success, job);
 }

@@ -12,6 +12,7 @@
 #include "Autorun.h"
 #include "GUIPassword.h"
 #include "GUIUserMessages.h"
+#include "LibraryQueue.h"
 #include "PartyModeManager.h"
 #include "PlayListPlayer.h"
 #include "ServiceBroker.h"
@@ -51,7 +52,6 @@
 #include "utils/log.h"
 #include "video/VideoInfoDownloader.h"
 #include "video/VideoInfoScanner.h"
-#include "video/VideoLibraryQueue.h"
 #include "video/dialogs/GUIDialogVideoInfo.h"
 #include "view/GUIViewState.h"
 
@@ -436,7 +436,7 @@ bool CGUIWindowVideoBase::ShowIMDB(CFileItemPtr item, const ScraperPtr &info2, b
   // 3. Run a loop so that if we Refresh we re-run this block
   do
   {
-    if (!CVideoLibraryQueue::GetInstance().RefreshItemModal(item, needsRefresh, pDlgInfo->RefreshAll()))
+    if (!CLibraryQueue::GetInstance().RefreshItemModal(item, needsRefresh, pDlgInfo->RefreshAll()))
       return listNeedsUpdating;
 
     // remove directory caches and reload images

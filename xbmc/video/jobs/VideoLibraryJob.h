@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "utils/Job.h"
+#include "LibraryQueue.h"
 
 class CVideoDatabase;
 
@@ -16,22 +16,10 @@ class CVideoDatabase;
  \brief Basic implementation/interface of a CJob which interacts with the
  video database.
  */
-class CVideoLibraryJob : public CJob
+class CVideoLibraryJob : public CLibraryJob
 {
 public:
   ~CVideoLibraryJob() override;
-
-  /*!
-   \brief Whether the job can be cancelled or not.
-   */
-  virtual bool CanBeCancelled() const { return false; }
-
-  /*!
-   \brief Tries to cancel the running job.
-
-   \return True if the job was cancelled, false otherwise
-  */
-  virtual bool Cancel() { return false; }
 
   // implementation of CJob
   bool DoWork() override;

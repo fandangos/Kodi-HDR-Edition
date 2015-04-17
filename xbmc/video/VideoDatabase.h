@@ -975,7 +975,7 @@ private:
   void CreateTables() override;
   void CreateAnalytics() override;
   void UpdateTables(int version) override;
-  void CreateLinkIndex(const char *table);
+  void CreateLinkIndex(const char *table, bool createNameIndex = true);
   void CreateForeignLinkIndex(const char *table, const char *foreignkey);
 
   /*! \brief (Re)Create the generic database views for movies, tvshows,

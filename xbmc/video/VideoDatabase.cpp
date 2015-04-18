@@ -896,7 +896,7 @@ bool CVideoDatabase::GetSourcePath(const std::string &path, std::string &sourceP
 }
 
 //********************************************************************************************************************************
-int CVideoDatabase::AddFile(const std::string& strFileNameAndPath)
+int CVideoDatabase::AddFile(const std::string& strFileNameAndPath, const std::string &parentPath /* = "" */)
 {
   std::string strSQL = "";
   try
@@ -910,7 +910,7 @@ int CVideoDatabase::AddFile(const std::string& strFileNameAndPath)
     std::string strFileName, strPath;
     SplitPath(strFileNameAndPath,strPath,strFileName);
 
-    int idPath = AddPath(strPath);
+    int idPath = AddPath(strPath, parentPath);
     if (idPath < 0)
       return -1;
 

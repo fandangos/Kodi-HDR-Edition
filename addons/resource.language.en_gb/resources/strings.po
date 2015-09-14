@@ -22073,6 +22073,33 @@ msgstr ""
 
 # empty strings from id 39537 to 39549 are reserved for media import settings
 
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39550"
+msgid "New media provider detected"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39551"
+msgid "Media provider removed"
+msgstr ""
+
+#: xbmc/events/MediaImportEvent.cpp
+msgctxt "#39552"
+msgid "Add imports"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39553"
+msgid "Synchronisation failed"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39554"
+msgid "Synchronisation successful"
+msgstr ""
+
+# empty strings from id 39555 to 39557
+
 #. Retrieving media items from (media provider name)
 #: xbmc/media/import/task/MediaImportImportItemsRetrievalTask.cpp
 #: xbmc/media/import/task/MediaImportLocalItemsRetrievalTask.cpp
@@ -22117,6 +22144,7 @@ msgid "Removing {:s}..."
 msgstr ""
 
 #. (container title): (media item title)
+#: xbmc/events/MediaImportEvent.cpp
 #: xbmc/filesystem/MediaImportDirectory.cpp
 #: xbmc/media/import/handler/EpisodeImportHandler.cpp
 #: xbmc/media/import/handler/SeasonImportHandler.cpp
@@ -22130,7 +22158,12 @@ msgctxt "#39566"
 msgid "Removing import of {:s} from {:s}..."
 msgstr ""
 
-# empty strings from id 39567 to 39568
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39567"
+msgid "New import added"
+msgstr ""
+
+# empty string id 39568
 
 #. Cleaning up (media type plural) from (media provider name)...
 #: xbmc/media/import/task/MediaImportCleanupTask.cpp
@@ -22170,9 +22203,27 @@ msgctxt "#39577"
 msgid "Inactive"
 msgstr ""
 
-# strings from id 39578 to 39599 reserved for media import
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39578"
+msgid "Removal failed"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39579"
+msgid "Removal successful"
+msgstr ""
+
+# strings from id 39580 to 39599 reserved for media import
 
 #: xbmc/filesystem/MediaImportDirectory.cpp
 msgctxt "#39600"
 msgid "Media providers"
+msgstr ""
+
+# empty string ids from 39601 to 39606
+
+#. Context button label to synchronise a media provider/import
+#: xbmc/events/MediaImportEvent.cpp
+msgctxt "#39607"
+msgid "Synchronise"
 msgstr ""

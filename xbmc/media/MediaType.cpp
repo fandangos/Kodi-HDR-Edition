@@ -13,6 +13,8 @@
 
 #include <utility>
 
+static const std::string MediaTypeStringSeparator = ",";
+
 static std::map<std::string, CMediaTypes::MediaTypeInfo> fillDefaultMediaTypes()
 {
   std::map<std::string, CMediaTypes::MediaTypeInfo> mediaTypes;
@@ -131,4 +133,19 @@ std::string CMediaTypes::GetCapitalPluralLocalization(const MediaType &mediaType
     return "";
 
   return g_localizeStrings.Get(mediaTypeIt->second.localizationPluralCapital);
+}
+
+std::string CMediaTypes::Join(const MediaTypes& mediaTypes)
+{
+  return Join(std::vector<std::string>(mediaTypes.begin(), mediaTypes.end()));
+}
+
+std::string CMediaTypes::Join(const GroupedMediaTypes& mediaTypes)
+{
+  return StringUtils::Join(mediaTypes, MediaTypeStringSeparator);
+}
+
+GroupedMediaTypes CMediaTypes::Split(const std::string& mediaTypes)
+{
+  return StringUtils::Split(mediaTypes, MediaTypeStringSeparator);
 }

@@ -45,6 +45,10 @@ public:
   static std::string GetCapitalLocalization(const MediaType &mediaType);
   static std::string GetCapitalPluralLocalization(const MediaType &mediaType);
 
+  static std::string Join(const MediaTypes& mediaTypes);
+  static std::string Join(const GroupedMediaTypes& mediaTypes);
+  static GroupedMediaTypes Split(const std::string& mediaTypes);
+
   typedef struct MediaTypeInfo {
     MediaTypeInfo(const MediaType &mediaType, const std::string &plural, bool container,
                   int localizationSingular, int localizationPlural,

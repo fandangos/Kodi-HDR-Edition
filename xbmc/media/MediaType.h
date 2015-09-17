@@ -11,8 +11,11 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 using MediaType = std::string;
+using MediaTypes = std::set<MediaType>;
+using GroupedMediaTypes = std::vector<MediaType>;
 
 #define MediaTypeNone             ""
 #define MediaTypeMusic            "music"

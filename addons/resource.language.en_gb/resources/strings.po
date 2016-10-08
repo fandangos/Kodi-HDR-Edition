@@ -3410,7 +3410,10 @@ msgctxt "#752"
 msgid "Opacity"
 msgstr ""
 
-#empty string with id 753
+#: addons/skin.estuary/xml/Settings.xml
+msgctxt "#753"
+msgid "Media sources"
+msgstr ""
 
 msgctxt "#754"
 msgid "Add program link"

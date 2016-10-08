@@ -81,6 +81,11 @@
 						<icon>icons/settings/media.png</icon>
 					</item>
 					<item>
+						<label>$LOCALIZE[753]</label>
+						<onclick>ActivateWindow(MediaSourceBrowser)</onclick>
+						<icon>icons/settings/mediasources.png</icon>
+					</item>
+					<item>
 						<label>$LOCALIZE[14204]</label>
 						<onclick>ActivateWindow(PVRSettings)</onclick>
 						<icon>icons/settings/livetv.png</icon>

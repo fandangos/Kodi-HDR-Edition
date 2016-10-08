@@ -3411,6 +3411,7 @@ msgid "Opacity"
 msgstr ""
 
 #: addons/skin.estuary/xml/Settings.xml
+#: addons/skin.estuary/xml/MediaSourceBrowser.xml
 msgctxt "#753"
 msgid "Media sources"
 msgstr ""

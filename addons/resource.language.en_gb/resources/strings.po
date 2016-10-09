@@ -22376,4 +22376,29 @@ msgctxt "#39701"
 msgid "Media import information"
 msgstr ""
 
-#strings from 39702 to 39799 are reserved for media import GUI info
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39702"
+msgid "Provider"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39703"
+msgid "Media type"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39704"
+msgid "Status"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39705"
+msgid "Last synced"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39706"
+msgid "Available media types"
+msgstr ""
+
+#strings from 39707 to 39799 are reserved for media import GUI info

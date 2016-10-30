@@ -142,3 +142,11 @@ GroupedMediaTypes CMediaTypes::Split(const std::string& mediaTypes)
 {
   return StringUtils::Split(mediaTypes, MediaTypeStringSeparator);
 }
+
+std::string CMediaTypes::ToLabel(const GroupedMediaTypes& mediaTypes)
+{
+  if (mediaTypes.empty())
+    return "";
+
+  return GetCapitalPluralLocalization(mediaTypes.front());
+}

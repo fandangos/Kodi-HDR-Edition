@@ -49,6 +49,8 @@ public:
   static std::string Join(const GroupedMediaTypes& mediaTypes);
   static GroupedMediaTypes Split(const std::string& mediaTypes);
 
+  static std::string ToLabel(const GroupedMediaTypes& mediaTypes);
+
 private:
   typedef struct MediaTypeInfo {
     MediaTypeInfo(const MediaType &mediaType, const std::string &plural, bool container,

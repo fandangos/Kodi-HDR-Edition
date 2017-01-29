@@ -265,6 +265,8 @@ public:
   bool SortsOnBottom() const { return m_specialSort == SortSpecialOnBottom; }
   void SetSpecialSort(SortSpecial sort) { m_specialSort = sort; }
 
+  MediaType GetMediaType() const;
+
   inline bool HasMusicInfoTag() const
   {
     return m_musicInfoTag != NULL;

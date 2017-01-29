@@ -3508,6 +3508,26 @@ void CFileItemList::ClearSortState()
   m_sortDescription.sortAttributes = SortAttributeNone;
 }
 
+MediaType CFileItem::GetMediaType() const
+{
+  if (HasVideoInfoTag())
+  {
+    if (GetVideoInfoTag()->m_type != MediaTypeNone)
+      return GetVideoInfoTag()->m_type;
+
+    return MediaTypeVideo;
+  }
+  if (HasMusicInfoTag())
+  {
+    if (GetMusicInfoTag()->GetType() != MediaTypeNone)
+      return GetMusicInfoTag()->GetType();
+
+    return MediaTypeMusic;
+  }
+  
+  return MediaTypeNone;
+}
+
 bool CFileItem::HasVideoInfoTag() const
 {
   // Note: CPVRRecording is derived from CVideoInfoTag

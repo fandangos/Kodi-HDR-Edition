@@ -101,6 +101,104 @@ TEST(TestUrlOptions, AddOption)
   }
 }
 
+TEST(TestUrlOptions, AddArrayOption)
+{
+  const char *keyChar = "char";
+  const char *keyString = "string";
+  const char *keyInt = "int";
+  const char *keyFloat = "float";
+  const char *keyDouble = "double";
+  const char *keyBool = "bool";
+
+  const char *valueChar = "valueChar";
+  std::vector<const char*> valuesChar(2, valueChar);
+  const std::string valueString = "valueString";
+  std::vector<std::string> valuesString(2, valueString);
+  int valueInt = 1;
+  std::vector<int> valuesInt(2, valueInt);
+  float valueFloat = 1.0f;
+  std::vector<float> valuesFloat(2, valueFloat);
+  double valueDouble = 1.0;
+  std::vector<double> valuesDouble(2, valueDouble);
+  bool valueBool = true;
+  std::vector<bool> valuesBool(2, valueBool);
+
+  CVariant variantValue;
+
+  CUrlOptions urlOptions;
+  urlOptions.AddOption(keyChar, valuesChar);
+  {
+    CVariant variantValues;
+    EXPECT_TRUE(urlOptions.GetOption(keyChar, variantValues));
+    EXPECT_TRUE(variantValues.isArray());
+    for (auto value = variantValues.begin_array(); value != variantValues.end_array(); ++value)
+    {
+      EXPECT_TRUE(value->isString());
+      EXPECT_STREQ(valueChar, value->asString().c_str());
+    }
+  }
+
+  urlOptions.AddOption(keyString, valuesString);
+  {
+    CVariant variantValues;
+    EXPECT_TRUE(urlOptions.GetOption(keyString, variantValues));
+    EXPECT_TRUE(variantValues.isArray());
+    for (auto value = variantValues.begin_array(); value != variantValues.end_array(); ++value)
+    {
+      EXPECT_TRUE(value->isString());
+      EXPECT_STREQ(valueString.c_str(), value->asString().c_str());
+    }
+  }
+
+  urlOptions.AddOption(keyInt, valuesInt);
+  {
+    CVariant variantValues;
+    EXPECT_TRUE(urlOptions.GetOption(keyInt, variantValues));
+    EXPECT_TRUE(variantValues.isArray());
+    for (auto value = variantValues.begin_array(); value != variantValues.end_array(); ++value)
+    {
+      EXPECT_TRUE(value->isInteger());
+      EXPECT_EQ(valueInt, static_cast<int>(value->asInteger()));
+    }
+  }
+
+  urlOptions.AddOption(keyFloat, valuesFloat);
+  {
+    CVariant variantValues;
+    EXPECT_TRUE(urlOptions.GetOption(keyFloat, variantValues));
+    EXPECT_TRUE(variantValues.isArray());
+    for (auto value = variantValues.begin_array(); value != variantValues.end_array(); ++value)
+    {
+      EXPECT_TRUE(value->isDouble());
+      EXPECT_EQ(valueFloat, value->asFloat());
+    }
+  }
+
+  urlOptions.AddOption(keyDouble, valuesDouble);
+  {
+    CVariant variantValues;
+    EXPECT_TRUE(urlOptions.GetOption(keyDouble, variantValues));
+    EXPECT_TRUE(variantValues.isArray());
+    for (auto value = variantValues.begin_array(); value != variantValues.end_array(); ++value)
+    {
+      EXPECT_TRUE(value->isDouble());
+      EXPECT_EQ(valueDouble, value->asDouble());
+    }
+  }
+
+  urlOptions.AddOption(keyBool, valuesBool);
+  {
+    CVariant variantValues;
+    EXPECT_TRUE(urlOptions.GetOption(keyBool, variantValues));
+    EXPECT_TRUE(variantValues.isArray());
+    for (auto value = variantValues.begin_array(); value != variantValues.end_array(); ++value)
+    {
+      EXPECT_TRUE(value->isBoolean());
+      EXPECT_EQ(valueBool, value->asBoolean());
+    }
+  }
+}
+
 TEST(TestUrlOptions, AddOptions)
 {
   std::string ref = "foo=bar&key=value";
@@ -185,7 +283,7 @@ TEST(TestUrlOptions, GetOptions)
 
 TEST(TestUrlOptions, GetOptionsString)
 {
-  const char *ref = "foo=bar&key";
+  const char *ref = "array[]=1&array[]=2&foo=bar&key";
 
   CUrlOptions urlOptions(ref);
   std::string value = urlOptions.GetOptionsString();

@@ -196,6 +196,56 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ getDateTime() }
+      ///-----------------------------------------------------------------------
+      /// Returns the listitem datetime (ISO 8601).
+      ///
+      /// @return                       datetime (ISO 8601) of item
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// # getDateTime()
+      /// dateTime = listitem.getDateTime()
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      getDateTime();
+#else
+      String getDateTime();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ setDateTime(dateTime) }
+      ///-----------------------------------------------------------------------
+      /// Sets the listitem's datetime (ISO 8601).
+      ///
+      /// @param label              string or unicode - datetime string (ISO 8601).
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// # setDate(dateTime)
+      /// listitem.setDateTime('TODO')
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      setDateTime(...);
+#else
+      void setDateTime(const String& dateTime);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
       /// @brief \python_func{ setArt(values) }
       ///-----------------------------------------------------------------------
       /// Sets the listitem's art

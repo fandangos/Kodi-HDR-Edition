@@ -101,6 +101,30 @@ namespace XBMCAddon
       }
     }
 
+    String ListItem::getDateTime()
+    {
+      if (!item) return "";
+
+      String ret;
+      {
+        XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+        if (item->m_dateTime.IsValid())
+          ret = item->m_dateTime.GetAsW3CDateTime();
+      }
+
+      return ret;
+    }
+
+    void ListItem::setDateTime(const String& dateTime)
+    {
+      if (!item) return;
+      // set label
+      {
+        XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+        item->m_dateTime.SetFromW3CDateTime(dateTime);
+      }
+    }
+
     void ListItem::setArt(const Properties& dictionary)
     {
       if (!item) return;

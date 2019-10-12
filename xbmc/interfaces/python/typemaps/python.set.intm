@@ -1,0 +1,35 @@
+<%
+/*
+ *  Copyright (C) 2017-2019 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+    List templateArgs = swigTypeParser.SwigType_templateparmlist(ltype)
+    settype = templateArgs[0]
+    boolean ispointer = swigTypeParser.SwigType_ispointer(type)
+    String accessor = ispointer ? '->' : '.'
+    int seq = sequence.increment()
+%>
+    if (${slarg})
+    {
+      bool isList = PyObject_TypeCheck(${slarg},&PyList_Type);
+      if (!isList && !PyObject_TypeCheck(${slarg},&PySet_Type))
+        throw WrongTypeException("The parameter \"${api}\" must be a set.");
+
+      <%  if (ispointer) print("${api} = new std::set<${swigTypeParser.SwigType_str(settype)}>();") %>
+      PyObject *pyentry${seq} = NULL;
+      int setSize = isList ? PyList_Size(${slarg}) : PySet_Size(${slarg});
+      for(int i = 0; i < setSize; i++)
+      {
+        pyentry${seq} = isList ? PyList_GetItem(${slarg}, i) : PySet_Pop(${slarg});
+        ${swigTypeParser.SwigType_str(swigTypeParser.SwigType_ltype(settype))} entry${seq};
+        ${helper.getInConversion(settype, 'entry' + seq, 'pyentry' + seq, method,
+                                 [ 'type' : settype,
+                                   'ltype' : swigTypeParser.SwigType_ltype(settype),
+                                   'sequence' : sequence
+                                   ])}
+        ${api}${accessor}insert(entry${seq});
+      }
+    }

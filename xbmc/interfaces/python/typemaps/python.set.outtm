@@ -1,0 +1,41 @@
+<%
+/*
+ *  Copyright (C) 2017-2019 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+    List templateArgs = swigTypeParser.SwigType_templateparmlist(type)
+    settype = templateArgs[0]
+    boolean ispointer = swigTypeParser.SwigType_ispointer(type)
+    String settype_modifier = "const"
+    if (swigTypeParser.SwigType_ispointer(settype))
+    {
+      settype_modifier = ""
+    }
+    String accessor = ispointer ? '->' : '.'
+    seq = sequence.increment()
+
+    if (ispointer)
+    {
+%>
+    if (${api} != NULL)
+    { 
+<%  }  %>
+      ${result} = PySet_New(0);
+
+      for (std::set<${swigTypeParser.SwigType_str(settype)}>::iterator iter = ${api}${accessor}begin(); iter != ${api}${accessor}end(); ++iter)
+      {
+        ${settype_modifier} ${swigTypeParser.SwigType_str(swigTypeParser.SwigType_lrtype(settype))} entry${seq} = *iter;
+        PyObject* pyentry${seq};
+        ${helper.getOutConversion(settype,'result',method,[ 'result' : 'pyentry' + seq, 'api' : 'entry' + seq, 'sequence' : sequence ])}
+        PySet_Add(${result}, pyentry${seq});
+        Py_DECREF(pyentry${seq});
+      }
+<%
+    if (ispointer)
+    {
+%>
+    }
+<%  }  %>

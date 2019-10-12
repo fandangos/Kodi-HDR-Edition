@@ -31,6 +31,7 @@
 
 #include "interfaces/legacy/Monitor.h"
 #include "interfaces/legacy/AddonUtils.h"
+#include "interfaces/legacy/mediaimport/Observer.h"
 #include "interfaces/python/AddonPythonInvoker.h"
 #include "interfaces/python/PythonInvoker.h"
 #include "ServiceBroker.h"
@@ -46,6 +47,7 @@ XBPython::XBPython()
   m_pDll              = NULL;
   m_vecPlayerCallbackList.clear();
   m_vecMonitorCallbackList.clear();
+  m_mapMediaImporterObserverCallbackList.clear();
 
   CServiceBroker::GetAnnouncementManager()->AddAnnouncer(this);
 }
@@ -406,6 +408,112 @@ void XBPython::OnNotification(const std::string &sender, const std::string &meth
   {
     if (CHECK_FOR_ENTRY(m_vecMonitorCallbackList, it))
       it->OnNotification(sender, method, data);
+  }
+}
+
+void XBPython::RegisterPythonMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer)
+{
+  XBMC_TRACE;
+  CSingleLock lock(m_mapMediaImporterObserverCallbackList);
+  m_mapMediaImporterObserverCallbackList.emplace(importerId, observer);
+}
+
+void XBPython::UnregisterPythonMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer)
+{
+  XBMC_TRACE;
+  CSingleLock lock(m_mapMediaImporterObserverCallbackList);
+  if (m_mapMediaImporterObserverCallbackList.erase(importerId) > 0)
+    m_mapMediaImporterObserverCallbackList.hadSomethingRemoved = true;
+}
+
+// this is necessary because we can't pass a type containing a comma as a single argument to a macro
+#define XBMC_SINGLE_ARG(...) __VA_ARGS__
+
+void XBPython::OnSourceAdded(const std::string& addonId, const CMediaImportSource& source)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnSourceAdded(source);
+  }
+}
+
+void XBPython::OnSourceUpdated(const std::string& addonId, const CMediaImportSource& source)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnSourceUpdated(source);
+  }
+}
+
+void XBPython::OnSourceRemoved(const std::string& addonId, const CMediaImportSource& source)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnSourceRemoved(source);
+  }
+}
+
+void XBPython::OnSourceActivated(const std::string& addonId, const CMediaImportSource& source)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnSourceActivated(source);
+  }
+}
+
+void XBPython::OnSourceDeactivated(const std::string& addonId, const CMediaImportSource& source)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnSourceDeactivated(source);
+  }
+}
+
+void XBPython::OnImportAdded(const std::string& addonId, const CMediaImport& import)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnImportAdded(import);
+  }
+}
+
+void XBPython::OnImportUpdated(const std::string& addonId, const CMediaImport& import)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnImportUpdated(import);
+  }
+}
+
+void XBPython::OnImportRemoved(const std::string& addonId, const CMediaImport& import)
+{
+  XBMC_TRACE;
+  LOCK_AND_COPY(XBMC_SINGLE_ARG(std::unordered_map<std::string, XBMCAddon::xbmcmediaimport::Observer*>), tmp, m_mapMediaImporterObserverCallbackList);
+  for (auto& it : tmp)
+  {
+    if (CHECK_FOR_ENTRY(m_mapMediaImporterObserverCallbackList, it) && it.first == addonId)
+      it.second->OnImportRemoved(import);
   }
 }
 

@@ -16,6 +16,7 @@ set(SOURCES AddonCallback.cpp
             ListItem.cpp
             ModuleXbmc.cpp
             ModuleXbmcgui.cpp
+            ModuleXbmcmediaimport.cpp
             ModuleXbmcplugin.cpp
             ModuleXbmcvfs.cpp
             Monitor.cpp
@@ -52,6 +53,7 @@ set(HEADERS Addon.h
             ListItem.h
             ModuleXbmc.h
             ModuleXbmcgui.h
+            ModuleXbmcmediaimport.h
             ModuleXbmcplugin.h
             ModuleXbmcvfs.h
             Monitor.h

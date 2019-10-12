@@ -126,6 +126,11 @@ CMediaImportManager& CServiceBroker::GetMediaImportManager()
   return g_application.m_ServiceManager->GetMediaImportManager();
 }
 
+ADDON::CMediaImportAddonManager& CServiceBroker::GetMediaImportAddons()
+{
+  return g_application.m_ServiceManager->GetMediaImportAddons();
+}
+
 PERIPHERALS::CPeripherals& CServiceBroker::GetPeripherals()
 {
   return g_application.m_ServiceManager->GetPeripherals();

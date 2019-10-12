@@ -14,6 +14,7 @@ namespace ADDON {
 class CAddonMgr;
 class CBinaryAddonManager;
 class CBinaryAddonCache;
+class CMediaImportAddonManager;
 class CVFSAddonCache;
 class CServiceAddonManager;
 class CRepositoryUpdater;
@@ -100,6 +101,7 @@ public:
   static KODI::GAME::CGameServices& GetGameServices();
   static KODI::RETRO::CGUIGameRenderManager& GetGameRenderManager();
   static CMediaImportManager& GetMediaImportManager();
+  static ADDON::CMediaImportAddonManager& GetMediaImportAddons();
   static PERIPHERALS::CPeripherals& GetPeripherals();
   static CFavouritesService& GetFavouritesService();
   static ADDON::CServiceAddonManager& GetServiceAddons();

@@ -22,6 +22,7 @@ namespace ADDON
   class CVFSAddonCache;
   class CServiceAddonManager;
   class CRepositoryUpdater;
+  class CMediaImportAddonManager;
 }
 
 namespace PVR
@@ -94,6 +95,7 @@ public:
   ADDON::CVFSAddonCache& GetVFSAddonCache();
   ADDON::CServiceAddonManager& GetServiceAddons();
   ADDON::CRepositoryUpdater& GetRepositoryUpdater();
+  ADDON::CMediaImportAddonManager& GetMediaImportAddons();
   CNetworkBase& GetNetwork();
 #ifdef HAS_PYTHON
   XBPython& GetXBPython();
@@ -150,6 +152,7 @@ protected:
   std::unique_ptr<ADDON::CVFSAddonCache> m_vfsAddonCache;
   std::unique_ptr<ADDON::CServiceAddonManager> m_serviceAddons;
   std::unique_ptr<ADDON::CRepositoryUpdater> m_repositoryUpdater;
+  std::unique_ptr<ADDON::CMediaImportAddonManager> m_mediaImportAddons;
 #ifdef HAS_PYTHON
   std::unique_ptr<XBPython> m_XBPython;
 #endif

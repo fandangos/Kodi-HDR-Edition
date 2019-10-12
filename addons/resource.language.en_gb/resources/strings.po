@@ -21916,7 +21916,12 @@ msgctxt "#39027"
 msgid "Sortname"
 msgstr ""
 
-#empty strings from id 39028 to 39029
+#empty string with id 39028
+
+#: /xbmc/addons/Addon.cpp
+msgctxt "#39029"
+msgid "Media importer"
+msgstr ""
 
 #. Media source, a filter and smart playlist rule option
 #: xbmc/dialogs/GUIDialogMediaFilter.cpp

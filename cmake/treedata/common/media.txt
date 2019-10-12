@@ -4,3 +4,4 @@ xbmc/media/import                               media/import
 xbmc/media/import/handlers                      media/import/handlers
 xbmc/media/import/jobs                          media/import/jobs
 xbmc/media/import/jobs/tasks                    media/import/jobs/tasks
+xbmc/media/import/repositories                  media/import/repositories

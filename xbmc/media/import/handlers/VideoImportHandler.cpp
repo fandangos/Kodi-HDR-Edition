@@ -9,6 +9,8 @@
 #include "VideoImportHandler.h"
 
 #include "FileItem.h"
+#include "ServiceBroker.h"
+#include "interfaces/AnnouncementManager.h"
 #include "media/import/MediaImport.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -76,7 +78,7 @@ CFileItemPtr CVideoImportHandler::FindMatchingLocalItem(const CMediaImport &impo
 MediaImportChangesetType CVideoImportHandler::DetermineChangeset(const CMediaImport &import, const CFileItem* item, const CFileItemPtr& localItem)
 {
   if (item == nullptr || localItem == nullptr ||
-    !localItem->HasVideoInfoTag() || !localItem->HasVideoInfoTag())
+      !localItem->HasVideoInfoTag() || !localItem->HasVideoInfoTag())
     return MediaImportChangesetTypeNone;
 
   const auto& settings = import.Settings();
@@ -122,6 +124,8 @@ bool CVideoImportHandler::StartSynchronisation(const CMediaImport &import)
 
   // TODO(Montellese): is a transaction really needed?
   m_db.BeginTransaction();
+
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnScanStarted");
   return true;
 }
 
@@ -139,6 +143,8 @@ bool CVideoImportHandler::FinishSynchronisation(const CMediaImport &import)
 
   m_sourcePaths.clear();
   m_importPathIds.clear();
+
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnScanFinished");
 
   return true;
 }
@@ -221,7 +227,7 @@ void CVideoImportHandler::SetDetailsForFile(const CFileItem *pItem, bool reset)
   const auto videoInfoTag = pItem->GetVideoInfoTag();
 
   // update playcount and lastplayed
-  m_db.SetPlayCount(*pItem, videoInfoTag->GetPlayCount(), videoInfoTag->m_lastPlayed);
+  m_db.SetPlayCount(*pItem, videoInfoTag->GetPlayCount(), videoInfoTag->m_lastPlayed, false);
 
   // clean resume bookmark
   if (reset)

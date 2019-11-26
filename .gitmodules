@@ -1,3 +1,6 @@
 [submodule "addons/mediaimporter.emby"]
 	path = addons/mediaimporter.emby
 	url = git@github.com:Montellese/mediaimporter.emby
+[submodule "addons/mediaimporter.plex"]
+	path = addons/mediaimporter.plex
+	url = git@github.com:Montellese/mediaimporter.plex

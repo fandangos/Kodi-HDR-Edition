@@ -431,9 +431,10 @@ public:
    \param item CFileItem to set the playcount for
    \param count The playcount to set.
    \param date The date the file was last viewed (does not denote the video was watched to completion).  If empty we current datetime (if count > 0) or never viewed (if count = 0).
+   \param announceUpdate Whether or not to announce the changes.
    \sa GetPlayCount, IncrementPlayCount, UpdateLastPlayed
    */
-  void SetPlayCount(const CFileItem &item, int count, const CDateTime &date = CDateTime());
+  void SetPlayCount(const CFileItem &item, int count, const CDateTime &date = CDateTime(), bool announceUpdate = true);
 
   /*! \brief Increment the playcount of an item
    Increments the playcount and updates the last played date

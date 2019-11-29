@@ -5983,7 +5983,7 @@ void CVideoDatabase::UpdateFanart(const CFileItem &item, VIDEODB_CONTENT_TYPE ty
   }
 }
 
-void CVideoDatabase::SetPlayCount(const CFileItem &item, int count, const CDateTime &date)
+void CVideoDatabase::SetPlayCount(const CFileItem &item, int count, const CDateTime &date, bool announceUpdate /* = true */)
 {
   int id;
   if (item.HasProperty("original_listitem_url") &&
@@ -6033,7 +6033,9 @@ void CVideoDatabase::SetPlayCount(const CFileItem &item, int count, const CDateT
       // Only provide the "playcount" value if it has actually changed
       if (item.GetVideoInfoTag()->GetPlayCount() != count)
         data["playcount"] = count;
-      CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnUpdate", CFileItemPtr(new CFileItem(item)), data);
+
+      if (announceUpdate)
+        CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnUpdate", CFileItemPtr(new CFileItem(item)), data);
     }
   }
   catch (...)

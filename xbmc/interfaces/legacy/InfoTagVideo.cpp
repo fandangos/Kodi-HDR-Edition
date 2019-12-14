@@ -18,19 +18,24 @@ namespace XBMCAddon
   namespace xbmc
   {
     InfoTagVideo::InfoTagVideo()
-    {
-      infoTag = new CVideoInfoTag();
-    }
+      : infoTag(new CVideoInfoTag)
+      , owned(true)
+    { }
 
-    InfoTagVideo::InfoTagVideo(const CVideoInfoTag& tag)
-    {
-      infoTag = new CVideoInfoTag();
-      *infoTag = tag;
-    }
+    InfoTagVideo::InfoTagVideo(const CVideoInfoTag* tag)
+      : infoTag(new CVideoInfoTag(*tag))
+      , owned(true)
+    { }
+
+    InfoTagVideo::InfoTagVideo(CVideoInfoTag* tag)
+      : infoTag(tag)
+      , owned(false)
+    { }
 
     InfoTagVideo::~InfoTagVideo()
     {
-      delete infoTag;
+      if (owned)
+        delete infoTag;
     }
 
     int InfoTagVideo::getDbId()

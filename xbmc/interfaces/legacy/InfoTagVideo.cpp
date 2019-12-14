@@ -192,5 +192,21 @@ namespace XBMCAddon
     {
       return infoTag->GetDuration();
     }
+
+    String InfoTagVideo::getUniqueID(const char* key)
+    {
+      return infoTag->GetUniqueID(key);
+    }
+
+    void InfoTagVideo::setUniqueIDs(const XBMCAddon::Properties& dictionary, const String& defaultUniqueID /* = "" */)
+    {
+      infoTag->SetUniqueIDs(dictionary);
+      if (!defaultUniqueID.empty())
+      {
+        const auto& uniqueID = dictionary.find(defaultUniqueID);
+        if (uniqueID != dictionary.end())
+          infoTag->SetUniqueID(uniqueID->second, uniqueID->first, true);
+      }
+    }
   }
 }

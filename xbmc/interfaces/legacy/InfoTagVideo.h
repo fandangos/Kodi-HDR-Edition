@@ -338,6 +338,24 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_InfoTagVideo
+      /// @brief \python_func{ getFilenameAndPath() }
+      ///-----------------------------------------------------------------------
+      /// To get the full path where the video is available.
+      ///
+      /// @return [string] Path
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getFilenameAndPath();
+#else
+      String getFilenameAndPath();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_InfoTagVideo
       /// @brief \python_func{ getIMDBNumber() }
       ///-----------------------------------------------------------------------
       /// To get the [IMDb](https://en.wikipedia.org/wiki/Internet_Movie_Database)

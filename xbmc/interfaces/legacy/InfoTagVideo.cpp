@@ -108,6 +108,11 @@ namespace XBMCAddon
       return infoTag->m_strPath;
     }
 
+    String InfoTagVideo::getFilenameAndPath()
+    {
+      return infoTag->m_strFileNameAndPath;
+    }
+
     String InfoTagVideo::getIMDBNumber()
     {
       return infoTag->GetUniqueID();

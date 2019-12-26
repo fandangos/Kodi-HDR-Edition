@@ -327,6 +327,7 @@ void CVideoDatabase::CreateAnalytics()
               "DELETE FROM studio_link WHERE media_id=old.idMVideo AND media_type='musicvideo'; "
               "DELETE FROM art WHERE media_id=old.idMVideo AND media_type='musicvideo'; "
               "DELETE FROM tag_link WHERE media_id=old.idMVideo AND media_type='musicvideo'; "
+              "DELETE FROM uniqueid WHERE media_id=old.idMVideo AND media_type='musicvideo'; "
               "DELETE FROM import_link WHERE media_id=old.idMVideo AND media_type='musicvideo'; "
               "END");
   m_pDS->exec("CREATE TRIGGER delete_episode AFTER DELETE ON episode FOR EACH ROW BEGIN "
@@ -549,36 +550,42 @@ void CVideoDatabase::CreateViews()
   m_pDS->exec(seasonview);
 
   CLog::Log(LOGINFO, "create musicvideo_view");
-  m_pDS->exec("CREATE VIEW musicvideo_view AS SELECT"
-              "  musicvideo.*,"
-              "  files.strFileName as strFileName,"
-              "  path.strPath as strPath,"
-              "  files.playCount as playCount,"
-              "  files.lastPlayed as lastPlayed,"
-              "  files.dateAdded as dateAdded, "
-              "  bookmark.timeInSeconds AS resumeTimeInSeconds, "
-              "  bookmark.totalTimeInSeconds AS totalTimeInSeconds, "
-              "  bookmark.playerState AS playerState, "
-              "  source.identifier AS strSource,"
-              "  import_link.enabled AS enabled,"
-              "  importsPath.strPath AS importPath,"
-              "  1 - LEAST(IFNULL(import_link.import_id, 0), 1) AS local," // 1 if the item is local, otherwise 0
-              "  LEAST(IFNULL(import_link.import_id, 0), 1) AS imported " // 1 if the item is imported, otherwise 0
-              "FROM musicvideo"
-              "  JOIN files ON"
-              "    files.idFile=musicvideo.idFile"
-              "  JOIN path ON"
-              "    path.idPath=files.idPath"
-              "  LEFT JOIN bookmark ON"
-              "    bookmark.idFile=musicvideo.idFile AND bookmark.type=1"
-              "  LEFT JOIN import_link ON"
-              "    import_link.media_id = musicvideo.idMVideo AND import_link.media_type = 'musicvideo'"
-              "  LEFT JOIN import ON"
-              "    import.import_id = import_link.import_id"
-              "  LEFT JOIN source ON"
-              "    source.source_id = import.source_id"
-              "  LEFT JOIN path AS importsPath ON"
-              "    importsPath.idPath = import.idPath");
+  std::string musicvideoview = PrepareSQL("CREATE VIEW musicvideo_view AS SELECT"
+                                          "  musicvideo.*,"
+                                          "  files.strFileName as strFileName,"
+                                          "  path.strPath as strPath,"
+                                          "  files.playCount as playCount,"
+                                          "  files.lastPlayed as lastPlayed,"
+                                          "  files.dateAdded as dateAdded, "
+                                          "  bookmark.timeInSeconds AS resumeTimeInSeconds, "
+                                          "  bookmark.totalTimeInSeconds AS totalTimeInSeconds, "
+                                          "  bookmark.playerState AS playerState, "
+                                          "  uniqueid.value AS uniqueid_value,"
+                                          "  uniqueid.type AS uniqueid_type,"
+                                          "  source.identifier AS strSource,"
+                                          "  import_link.enabled AS enabled,"
+                                          "  importsPath.strPath AS importPath,"
+                                          "  1 - LEAST(IFNULL(import_link.import_id, 0), 1) AS local," // 1 if the item is local, otherwise 0
+                                          "  LEAST(IFNULL(import_link.import_id, 0), 1) AS imported " // 1 if the item is imported, otherwise 0
+                                          "FROM musicvideo"
+                                          "  JOIN files ON"
+                                          "    files.idFile=musicvideo.idFile"
+                                          "  JOIN path ON"
+                                          "    path.idPath=files.idPath"
+                                          "  LEFT JOIN bookmark ON"
+                                          "    bookmark.idFile=musicvideo.idFile AND bookmark.type=1"
+                                          "  LEFT JOIN uniqueid ON"
+                                          "    uniqueid.uniqueid_id=musicvideo.c%02d"
+                                          "  LEFT JOIN import_link ON"
+                                          "    import_link.media_id = musicvideo.idMVideo AND import_link.media_type = 'musicvideo'"
+                                          "  LEFT JOIN import ON"
+                                          "    import.import_id = import_link.import_id"
+                                          "  LEFT JOIN source ON"
+                                          "    source.source_id = import.source_id"
+                                          "  LEFT JOIN path AS importsPath ON"
+                                          "    importsPath.idPath = import.idPath",
+                                          VIDEODB_ID_MUSICVIDEO_IDENT_ID);
+  m_pDS->exec(musicvideoview);
 
   CLog::Log(LOGINFO, "create movie_view");
   std::string movieview = PrepareSQL("CREATE VIEW movie_view AS SELECT"
@@ -3180,7 +3187,7 @@ int CVideoDatabase::AddSeason(int showID, int season, const std::string& name /*
   return seasonId;
 }
 
-int CVideoDatabase::SetDetailsForMusicVideo(const std::string& strFilenameAndPath, const CVideoInfoTag& details,
+int CVideoDatabase::SetDetailsForMusicVideo(const std::string& strFilenameAndPath, CVideoInfoTag& details,
     const std::map<std::string, std::string> &artwork, int idMVideo /* = -1 */)
 {
   try
@@ -3220,6 +3227,9 @@ int CVideoDatabase::SetDetailsForMusicVideo(const std::string& strFilenameAndPat
     AddLinksToItem(idMVideo, MediaTypeMusicVideo, "genre", details.m_genre);
     AddLinksToItem(idMVideo, MediaTypeMusicVideo, "studio", details.m_studio);
     AddLinksToItem(idMVideo, MediaTypeMusicVideo, "tag", details.m_tags);
+
+    // add unique ids
+    details.m_iIdUniqueID = UpdateUniqueIDs(idMVideo, MediaTypeMusicVideo, details);
 
     if (details.HasStreamDetails())
       SetStreamDetailsForFileId(details.m_streamDetails, GetFileId(strFilenameAndPath));
@@ -4569,6 +4579,7 @@ CVideoInfoTag CVideoDatabase::GetDetailsForMusicVideo(const dbiplus::sql_record*
                          record->at(VIDEODB_DETAILS_MUSICVIDEO_TOTAL_TIME).get_asInt(),
                          record->at(VIDEODB_DETAILS_MUSICVIDEO_PLAYER_STATE).get_asString());
   details.m_iUserRating = record->at(VIDEODB_DETAILS_MUSICVIDEO_USER_RATING).get_asInt();
+  details.SetUniqueID(record->at(VIDEODB_DETAILS_MUSICVIDEO_UNIQUEID_VALUE).get_asString(), record->at(VIDEODB_DETAILS_MUSICVIDEO_UNIQUEID_TYPE).get_asString(), true);
   std::string premieredString = record->at(VIDEODB_DETAILS_MUSICVIDEO_PREMIERED).get_asString();
   if (premieredString.size() == 4)
     details.SetYear(record->at(VIDEODB_DETAILS_MUSICVIDEO_PREMIERED).get_asInt());
@@ -4581,6 +4592,9 @@ CVideoInfoTag CVideoDatabase::GetDetailsForMusicVideo(const dbiplus::sql_record*
   {
     if (getDetails & VideoDbDetailsTag)
       GetTags(details.m_iDbId, MediaTypeMusicVideo, details.m_tags);
+
+    if (getDetails & VideoDbDetailsUniqueID)
+      GetUniqueIDs(details.m_iDbId, MediaTypeMusicVideo, details);
 
     details.m_strPictureURL.Parse();
 
@@ -5980,7 +5994,7 @@ void CVideoDatabase::UpdateTables(int iVersion)
     m_pDS->close();
   }
 
-  if (iVersion < 117)
+  if (iVersion < 118)
   {
     m_pDS->exec("CREATE TABLE source (source_id integer primary key, identifier text NOT NULL, idPath integer NOT NULL, name text NOT NULL, media_types text NOT NULL, settings text, manually_added bool, importer_id text NOT NULL)");
     m_pDS->exec("CREATE TABLE import (import_id integer primary key, idPath integer NOT NULL, source_id integer NOT NULL, media_type text NOT NULL, recursive bool, last_sync text, settings text)");

@@ -121,6 +121,11 @@ KODI::RETRO::CGUIGameRenderManager& CServiceBroker::GetGameRenderManager()
   return g_application.m_ServiceManager->GetGameRenderManager();
 }
 
+CMediaImportManager& CServiceBroker::GetMediaImportManager()
+{
+  return g_application.m_ServiceManager->GetMediaImportManager();
+}
+
 PERIPHERALS::CPeripherals& CServiceBroker::GetPeripherals()
 {
   return g_application.m_ServiceManager->GetPeripherals();

@@ -39,6 +39,7 @@ class CContextMenuManager;
 class XBPython;
 #endif
 class CDataCacheCore;
+class CMediaImportManager;
 class CFavouritesService;
 class CNetworkBase;
 class CWinSystemBase;
@@ -111,6 +112,8 @@ public:
   PLAYLIST::CPlayListPlayer& GetPlaylistPlayer();
   int init_level = 0;
 
+  CMediaImportManager& GetMediaImportManager();
+
   CFavouritesService& GetFavouritesService();
   CInputManager &GetInputManager();
   CFileExtensionProvider &GetFileExtensionProvider();
@@ -158,6 +161,7 @@ protected:
   std::unique_ptr<KODI::GAME::CControllerManager> m_gameControllerManager;
   std::unique_ptr<KODI::GAME::CGameServices> m_gameServices;
   std::unique_ptr<KODI::RETRO::CGUIGameRenderManager> m_gameRenderManager;
+  std::unique_ptr<CMediaImportManager> m_mediaImportManager;
   std::unique_ptr<PERIPHERALS::CPeripherals> m_peripherals;
   std::unique_ptr<CFavouritesService, delete_favouritesService> m_favouritesService;
   std::unique_ptr<CInputManager> m_inputManager;

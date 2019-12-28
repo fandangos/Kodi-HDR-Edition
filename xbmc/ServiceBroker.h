@@ -37,6 +37,7 @@ namespace PLAYLIST
 class CContextMenuManager;
 class XBPython;
 class CDataCacheCore;
+class CMediaImportManager;
 class IAE;
 class CFavouritesService;
 class CInputManager;
@@ -98,6 +99,7 @@ public:
   static KODI::GAME::CControllerManager& GetGameControllerManager();
   static KODI::GAME::CGameServices& GetGameServices();
   static KODI::RETRO::CGUIGameRenderManager& GetGameRenderManager();
+  static CMediaImportManager& GetMediaImportManager();
   static PERIPHERALS::CPeripherals& GetPeripherals();
   static CFavouritesService& GetFavouritesService();
   static ADDON::CServiceAddonManager& GetServiceAddons();

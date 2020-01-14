@@ -2107,6 +2107,21 @@ bool CVideoDatabase::LoadVideoInfo(const std::string& strFilenameAndPath, CVideo
   return false;
 }
 
+bool CVideoDatabase::LoadVideoInfo(const std::string& strFilenameAndPath, CFileItem& item, int getDetails /* = VideoDbDetailsAll */)
+{
+  if (!LoadVideoInfo(strFilenameAndPath, *item.GetVideoInfoTag(), getDetails))
+    return false;
+
+  // make sure the label is set
+  if (item.GetLabel().empty())
+    item.SetLabel(item.GetVideoInfoTag()->GetTitle());
+
+  // try to load media import details
+  LoadImportInfo(item);
+
+  return true;
+}
+
 bool CVideoDatabase::HasMovieInfo(const std::string& strFilenameAndPath)
 {
   try
@@ -10883,6 +10898,45 @@ int CVideoDatabase::AddImport(const CMediaImport &import)
   catch (...)
   {
     CLog::Log(LOGERROR, "%s unable to AddImport (%s)", __FUNCTION__, strSQL.c_str());
+  }
+  return -1;
+}
+
+bool CVideoDatabase::LoadImportInfo(CFileItem& item)
+{
+  if (!item.HasVideoInfoTag())
+    return false;
+
+  const auto details = item.GetVideoInfoTag();
+  if (details->m_iDbId < 0 || details->m_type.empty())
+    return false;
+
+  std::string strSQL;
+  try
+  {
+    if (m_pDB.get() == NULL || m_pDS.get() == NULL)
+      return false;
+
+    strSQL = PrepareSQL("SELECT source.identifier, path.strPath, import_link.enabled "
+                        "FROM import_link "
+                        "JOIN import ON import.import_id = import_link.import_id "
+                        "JOIN source ON source.source_id = import.source_id "
+                        "JOIN path ON path.idPath = import.idPath "
+                        "WHERE import_link.media_id = %d AND import_link.media_type = '%s'",
+      details->m_iDbId, details->m_type.c_str());
+    m_pDS->query(strSQL.c_str());
+    if (m_pDS->num_rows() == 1)
+    {
+      item.SetSource(m_pDS->fv(0).get_asString());
+      item.SetImportPath(m_pDS->fv(1).get_asString());
+      item.SetEnabled(m_pDS->fv(2).get_asBool());
+    }
+
+    return true;
+  }
+  catch (...)
+  {
+    CLog::Log(LOGERROR, "%s(%d, %s) failed: %s", __FUNCTION__, details->m_iDbId, details->m_type.c_str(), strSQL.c_str());
   }
   return -1;
 }

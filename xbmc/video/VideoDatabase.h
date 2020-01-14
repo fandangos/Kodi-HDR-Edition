@@ -515,6 +515,7 @@ public:
   int GetSeasonForEpisode(int idEpisode);
 
   bool LoadVideoInfo(const std::string& strFilenameAndPath, CVideoInfoTag& details, int getDetails = VideoDbDetailsAll);
+  bool LoadVideoInfo(const std::string& strFilenameAndPath, CFileItem& item, int getDetails = VideoDbDetailsAll);
   bool GetMovieInfo(const std::string& strFilenameAndPath, CVideoInfoTag& details, int idMovie = -1, int getDetails = VideoDbDetailsAll);
   bool GetTvShowInfo(const std::string& strPath, CVideoInfoTag& details, int idTvShow = -1, CFileItem* item = NULL, int getDetails = VideoDbDetailsAll);
   bool GetSeasonInfo(int idSeason, CVideoInfoTag& details, bool allDetails = true);
@@ -841,6 +842,12 @@ public:
    \return id of the import, -1 if it could not be added.
    */
   int AddImport(const CMediaImport &import);
+
+  /*! \brief Loads the import information of the given video item.
+   \param item Video item to store the import information in
+   \return true on success, false otherwise
+   */
+  bool LoadImportInfo(CFileItem& item);
 
   /*! \brief Updates the values of the given import.
    \param import Import with updated values

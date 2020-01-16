@@ -1,0 +1,12 @@
+[B]Version 0.0.4[/B]
+- Support direct play and direct stream in mediaimporter.emby
+
+[B]Version 0.0.3[/B]
+- Update to Python 2 and 3 compatible version of mediaimporter.emby
+- Update to Python 2 and 3 compatible version of mediaimporter.plex
+
+[B]Version 0.0.2[/B]
+- Add script.module.websocket_client (thanks enen92)
+
+[B]Version 0.0.1[/B]
+- Initial version

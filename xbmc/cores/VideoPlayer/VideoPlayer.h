@@ -269,6 +269,8 @@ public:
   bool GetSubtitleVisible() override;
   void SetSubtitleVisible(bool bVisible) override;
   void AddSubtitle(const std::string& strSubPath) override;
+  void AddSubtitle(const std::string& strSubPath, const std::string& name,
+    const std::string& language, bool activate = true) override;
 
   int GetAudioStreamCount() override;
   int GetAudioStream() override;
@@ -378,7 +380,8 @@ protected:
   void ProcessTeletextData(CDemuxStream* pStream, DemuxPacket* pPacket);
   void ProcessRadioRDSData(CDemuxStream* pStream, DemuxPacket* pPacket);
 
-  int  AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
+  int  AddSubtitleFile(const std::string& filename, const std::string& subfilename = "",
+    const std::string& name = "", const std::string& language = "");
   void SetSubtitleVisibleInternal(bool bVisible);
 
   /**

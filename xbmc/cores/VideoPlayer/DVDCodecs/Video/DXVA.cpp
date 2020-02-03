@@ -285,24 +285,25 @@ bool CContext::CreateContext()
   {
     CLog::LogF(LOGWARNING, "creating discrete d3d11va device for decoding.");
 
-    D3D_FEATURE_LEVEL featureLevels[] =
-    {
-      D3D_FEATURE_LEVEL_11_1,
-      D3D_FEATURE_LEVEL_11_0,
-      D3D_FEATURE_LEVEL_10_1,
-      D3D_FEATURE_LEVEL_10_0,
-      D3D_FEATURE_LEVEL_9_3,
-      D3D_FEATURE_LEVEL_9_2,
-      D3D_FEATURE_LEVEL_9_1
-    };
+    std::vector<D3D_FEATURE_LEVEL> featureLevels;
+    if (CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin10))
+      featureLevels.push_back(D3D_FEATURE_LEVEL_12_0);
+    if (CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin8))
+      featureLevels.push_back(D3D_FEATURE_LEVEL_11_1);
+    featureLevels.push_back(D3D_FEATURE_LEVEL_11_0);
+    featureLevels.push_back(D3D_FEATURE_LEVEL_10_1);
+    featureLevels.push_back(D3D_FEATURE_LEVEL_10_0);
+    featureLevels.push_back(D3D_FEATURE_LEVEL_9_3);
+    featureLevels.push_back(D3D_FEATURE_LEVEL_9_2);
+    featureLevels.push_back(D3D_FEATURE_LEVEL_9_1);
 
     hr = D3D11CreateDevice(
         DX::DeviceResources::Get()->GetAdapter(),
         D3D_DRIVER_TYPE_UNKNOWN,
         nullptr,
         D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-        featureLevels,
-        ARRAYSIZE(featureLevels),
+        featureLevels.data(),
+        featureLevels.size(),
         D3D11_SDK_VERSION,
         &pD3DDevice,
         nullptr,

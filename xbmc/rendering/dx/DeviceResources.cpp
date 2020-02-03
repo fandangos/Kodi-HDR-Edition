@@ -309,9 +309,10 @@ void DX::DeviceResources::CreateDeviceResources()
   // Don't forget to declare your application's minimum required feature level in its
   // description.  All applications are assumed to support 9.1 unless otherwise stated.
   std::vector<D3D_FEATURE_LEVEL> featureLevels;
+  if (CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin10))
+    featureLevels.push_back(D3D_FEATURE_LEVEL_12_0);
   if (CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin8))
     featureLevels.push_back(D3D_FEATURE_LEVEL_11_1);
-
   featureLevels.push_back(D3D_FEATURE_LEVEL_11_0);
   featureLevels.push_back(D3D_FEATURE_LEVEL_10_1);
   featureLevels.push_back(D3D_FEATURE_LEVEL_10_0);
@@ -579,13 +580,15 @@ void DX::DeviceResources::ResizeBuffers()
     swapChainDesc.Stereo = bHWStereoEnabled;
     swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapChainDesc.BufferCount = 3 * (1 + bHWStereoEnabled);
-    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    swapChainDesc.SwapEffect = (m_d3dFeatureLevel >= D3D_FEATURE_LEVEL_12_0)
+                                   ? DXGI_SWAP_EFFECT_FLIP_DISCARD
+                                   : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
     swapChainDesc.Flags = windowed ? 0 : DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
     swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     swapChainDesc.SampleDesc.Count = 1;
     swapChainDesc.SampleDesc.Quality = 0;
 
-    DXGI_SWAP_CHAIN_FULLSCREEN_DESC scFSDesc = { 0 }; // unused for uwp
+    DXGI_SWAP_CHAIN_FULLSCREEN_DESC scFSDesc = {}; // unused for uwp
     scFSDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
     scFSDesc.Windowed = windowed;
 
@@ -595,11 +598,13 @@ void DX::DeviceResources::ResizeBuffers()
       && CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bTry10bitOutput)
     {
       swapChainDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+      swapChainDesc.BufferCount = 6; // HDR 60 fps needs 6 buffers to avoid frame drops
       hr = CreateSwapChain(swapChainDesc, scFSDesc, &swapChain);
       if (FAILED(hr))
       {
         CLog::LogF(LOGWARNING, "creating 10bit swapchain failed, fallback to 8bit.");
         swapChainDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        swapChainDesc.BufferCount = 3 * (1 + bHWStereoEnabled);
       }
     }
 
@@ -627,11 +632,18 @@ void DX::DeviceResources::ResizeBuffers()
       return;
     }
 
-  if (swapChainDesc.Format == DXGI_FORMAT_R10G10B10A2_UNORM)
-     m_is10bitswapchain = true;
+    if (swapChainDesc.Format == DXGI_FORMAT_R10G10B10A2_UNORM)
+    {
+      m_is10bitswapchain = true;
+      CLog::LogF(LOGNOTICE, "10 bit swapchain is used with {0:d} buffers",
+                 swapChainDesc.BufferCount);
+    }
     else
-    m_is10bitswapchain = false;
-
+    {
+      m_is10bitswapchain = false;
+      CLog::LogF(LOGNOTICE, "8 bit swapchain is used with {0:d} buffers and SDR output",
+                 swapChainDesc.BufferCount);
+    }
 
     hr = swapChain.As(&m_swapChain); CHECK_ERR();
     m_stereoEnabled = bHWStereoEnabled;
@@ -640,7 +652,7 @@ void DX::DeviceResources::ResizeBuffers()
     // ensures that the application will only render after each VSync, minimizing power consumption.
     ComPtr<IDXGIDevice1> dxgiDevice;
     hr = m_d3dDevice.As(&dxgiDevice); CHECK_ERR();
-    dxgiDevice->SetMaximumFrameLatency(3);
+    dxgiDevice->SetMaximumFrameLatency(1);
   }
 }
 
@@ -1032,6 +1044,12 @@ bool DX::DeviceResources::DoesTextureSharingWork()
 {
   if (m_d3dFeatureLevel < D3D_FEATURE_LEVEL_10_0 ||
     CSysInfo::GetWindowsDeviceFamily() != CSysInfo::Desktop)
+    return false;
+
+  DXGI_ADAPTER_DESC ad = {};
+  GetAdapterDesc(&ad);
+
+  if (m_d3dFeatureLevel >= D3D_FEATURE_LEVEL_12_0 && ad.VendorId == 0x10DE)
     return false;
 
   if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_allowUseSeparateDeviceForDecoding)

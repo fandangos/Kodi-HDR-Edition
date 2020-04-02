@@ -988,6 +988,35 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ setDynamicPath(path) }
+      ///-----------------------------------------------------------------------
+      /// Sets the listitem's dynamic path.
+      ///
+      /// @param path           string or unicode - dynamic path.
+      ///
+      /// @note You can use the above as keywords for arguments.
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// listitem.setDynamicPath(path='/path/to/some/file.ext')
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      setDynamicPath(...);
+#else
+      void setDynamicPath(const String& path);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
       /// @brief \python_func{ setMimeType(mimetype) }
       ///-----------------------------------------------------------------------
       /// Sets the listitem's mimetype if known.

@@ -8,32 +8,30 @@
 
 #include "DVDDemuxFFmpeg.h"
 
-#include <sstream>
-#include <utility>
-
-#include "commons/Exception.h"
-#include "cores/FFmpeg.h"
-#include "cores/VideoPlayer/Interface/Addon/TimingConstants.h" // for DVD_TIME_BASE
 #include "DVDDemuxUtils.h"
 #include "DVDInputStreams/DVDInputStream.h"
 #include "DVDInputStreams/DVDInputStreamFFmpeg.h"
 #include "ServiceBroker.h"
+#include "URL.h"
+#include "commons/Exception.h"
+#include "cores/FFmpeg.h"
+#include "cores/VideoPlayer/Interface/Addon/TimingConstants.h" // for DVD_TIME_BASE
 #include "filesystem/CurlFile.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "threads/SystemClock.h"
 #include "threads/SingleLock.h"
-#include "URL.h"
-#include "utils/log.h"
+#include "threads/SystemClock.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "utils/XTimeUtils.h"
+#include "utils/log.h"
+#include "Util.h"
 
-#ifdef TARGET_POSIX
-#include "platform/posix/XTimeUtils.h"
-#endif
+#include <sstream>
+#include <utility>
 
 #ifdef HAVE_LIBBLURAY
 #include "DVDInputStreams/DVDInputStreamBluray.h"
@@ -262,6 +260,35 @@ bool CDVDDemuxFFmpeg::Open(std::shared_ptr<CDVDInputStream> pInput, bool streami
       {
         url.SetProtocol("mmst");
         strFile = url.Get();
+      }
+    }
+    else if (url.IsProtocol("udp") || url.IsProtocol("rtp"))
+    {
+      std::string strURL = url.Get();
+      CLog::Log(LOGDEBUG,
+                "CDVDDemuxFFmpeg::Open() UDP/RTP Original URL '%s'",
+                strURL.c_str());
+      size_t found = strURL.find("://");
+      if (found != std::string::npos)
+      {
+        size_t start = found + 3;
+        found = strURL.find("@");
+
+        if (found != std::string::npos && found > start)
+        {
+          // sourceip found
+          std::string strSourceIp = strURL.substr(start, found - start);
+
+          strFile = strURL.substr(0, start);
+          strFile += strURL.substr(found);
+          if (strFile.back() == '/')
+            strFile.pop_back();
+          strFile += "?sources=";
+          strFile += strSourceIp;
+          CLog::Log(LOGDEBUG,
+                    "CDVDDemuxFFmpeg::Open() UDP/RTP URL '%s'",
+                    strFile.c_str());
+        }
       }
     }
     if (result < 0)
@@ -687,15 +714,9 @@ void CDVDDemuxFFmpeg::SetSpeed(int iSpeed)
     return;
 
   if (m_speed != DVD_PLAYSPEED_PAUSE && iSpeed == DVD_PLAYSPEED_PAUSE)
-  {
-    m_pInput->Pause(m_currentPts);
     av_read_pause(m_pFormatContext);
-  }
   else if (m_speed == DVD_PLAYSPEED_PAUSE && iSpeed != DVD_PLAYSPEED_PAUSE)
-  {
-    m_pInput->Pause(m_currentPts);
     av_read_play(m_pFormatContext);
-  }
   m_speed = iSpeed;
 
   AVDiscard discard = AVDISCARD_NONE;
@@ -1199,7 +1220,7 @@ bool CDVDDemuxFFmpeg::SeekTime(double time, bool backwards, double* startpts)
       if (pkt)
         CDVDDemuxUtils::FreeDemuxPacket(pkt);
       else
-        Sleep(10);
+        KODI::TIME::Sleep(10);
       m_pkt.result = -1;
       av_packet_unref(&m_pkt.pkt);
 
@@ -1649,7 +1670,7 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
           }
           else
           {
-            fileName += nameTag->value;
+            fileName += CUtil::MakeLegalFileName(nameTag->value, LEGAL_WIN32_COMPAT);
             XFILE::CFile file;
             if (pStream->codecpar->extradata && file.OpenForWrite(fileName))
             {
@@ -1733,6 +1754,7 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
       {
         CLog::Log(LOGDEBUG, "CDVDDemuxFFmpeg::AddStream - discarding Dolby Vision stream");
         pStream->discard = AVDISCARD_ALL;
+        delete stream;
         return nullptr;
       }
       stream->dvdNavId = pStream->id;
@@ -2355,3 +2377,4 @@ void CDVDDemuxFFmpeg::GetL16Parameters(int &channels, int &samplerate)
     }
   }
 }
+

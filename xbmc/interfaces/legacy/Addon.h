@@ -11,6 +11,7 @@
 #include "AddonClass.h"
 #include "AddonString.h"
 #include "Exception.h"
+#include "Settings.h"
 #include "addons/IAddon.h"
 
 namespace XBMCAddon
@@ -95,6 +96,33 @@ namespace XBMCAddon
       getLocalizedString(...);
 #else
       String getLocalizedString(int id);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcaddon
+      /// @brief \python_func{ xbmcaddon.Addon([id]).getSettings() }
+      ///-----------------------------------------------------------------------
+      /// TODO
+      ///
+      /// @return                        TODO
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19
+      /// **id** is optional as it will be auto detected for this add-on instance.
+      ///
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ..
+      /// settings = self.Addon.getSettings()
+      /// ..
+      /// ~~~~~~~~~~~~~
+      ///
+      getSettings(...);
+#else
+      Settings* getSettings();
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS

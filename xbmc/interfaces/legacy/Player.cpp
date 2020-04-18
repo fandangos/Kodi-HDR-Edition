@@ -350,6 +350,16 @@ namespace XBMCAddon
       return g_application.CurrentFileItem().GetDynPath();
     }
 
+    XBMCAddon::xbmcgui::ListItem* Player::getPlayingItem()
+    {
+      XBMC_TRACE;
+      if (!g_application.GetAppPlayer().IsPlaying())
+        throw PlayerException("XBMC is not playing any item");
+
+      CFileItemPtr itemPtr = std::make_shared<CFileItem>(g_application.CurrentFileItem());
+      return new XBMCAddon::xbmcgui::ListItem(itemPtr);
+    }
+
     InfoTagVideo* Player::getVideoInfoTag()
     {
       XBMC_TRACE;
@@ -358,7 +368,7 @@ namespace XBMCAddon
 
       const CVideoInfoTag* movie = CServiceBroker::GetGUI()->GetInfoManager().GetCurrentMovieTag();
       if (movie)
-        return new InfoTagVideo(*movie);
+        return new InfoTagVideo(movie);
 
       return new InfoTagVideo();
     }
@@ -424,6 +434,19 @@ namespace XBMCAddon
         throw PlayerException("XBMC is not playing any media file");
 
       g_application.SeekTime( pTime );
+    }
+
+    void Player::addSubtitle(const char* subtitleFile, const char* name, const char* language,
+      bool activate /* = true */)
+    {
+      XBMC_TRACE;
+      if (subtitleFile == nullptr || name == nullptr || language == nullptr)
+        return;
+
+      if (g_application.GetAppPlayer().HasPlayer())
+      {
+        g_application.GetAppPlayer().AddSubtitle(subtitleFile, name, language, activate);
+      }
     }
 
     void Player::setSubtitles(const char* cLine)

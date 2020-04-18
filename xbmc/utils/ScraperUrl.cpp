@@ -46,6 +46,46 @@ CScraperUrl::CScraperUrl()
 
 CScraperUrl::~CScraperUrl() = default;
 
+bool CScraperUrl::operator==(const CScraperUrl& rhs) const
+{
+  if (m_xml != rhs.m_xml)
+    return false;
+  if (m_spoof != rhs.m_spoof)
+    return false;
+  if (strTitle != rhs.strTitle)
+    return false;
+  if (strId != rhs.strId)
+    return false;
+  if (relevance != rhs.relevance)
+    return false;
+  if (m_url != rhs.m_url)
+    return false;
+
+  return true;
+}
+
+bool CScraperUrl::SUrlEntry::operator==(const SUrlEntry& rhs) const
+{
+  if (m_spoof != rhs.m_spoof)
+    return false;
+  if (m_url != rhs.m_url)
+    return false;
+  if (m_cache != rhs.m_cache)
+    return false;
+  if (m_aspect != rhs.m_aspect)
+    return false;
+  if (m_type != rhs.m_type)
+    return false;
+  if (m_post != rhs.m_post)
+    return false;
+  if (m_isgz != rhs.m_isgz)
+    return false;
+  if (m_season != rhs.m_season)
+    return false;
+
+  return true;
+}
+
 void CScraperUrl::Clear()
 {
   m_url.clear();

@@ -827,4 +827,15 @@
       <t>ToggleFont</t>
     </keyboard>
   </TextViewer>
+  <MediaSourceBrowser>
+    <keyboard>
+      <delete>Delete</delete>
+      <i>Info</i>
+    </keyboard>
+  </MediaSourceBrowser>
+  <MediaImportInformation>
+    <keyboard>
+      <i>Back</i>
+    </keyboard>
+  </MediaImportInformation>
 </keymap>

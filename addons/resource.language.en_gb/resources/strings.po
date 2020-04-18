@@ -2702,7 +2702,10 @@ msgctxt "#578"
 msgid "Artist / Year"
 msgstr ""
 
-#empty string with id 579
+#: xbmc/media/import/windows/GUIViewStateMediaSourceBrowser.cpp
+msgctxt "#579"
+msgid "Last synced"
+msgstr ""
 
 msgctxt "#580"
 msgid "Sort direction"
@@ -3407,7 +3410,11 @@ msgctxt "#752"
 msgid "Opacity"
 msgstr ""
 
-#empty string with id 753
+#: addons/skin.estuary/xml/Settings.xml
+#: addons/skin.estuary/xml/MediaSourceBrowser.xml
+msgctxt "#753"
+msgid "Media sources"
+msgstr ""
 
 msgctxt "#754"
 msgid "Add program link"
@@ -8405,6 +8412,7 @@ msgid "Keep"
 msgstr ""
 
 #: xbmc/dialogs/GUIDialogFavourites.cpp
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
 #: xbmc/video/VideoDatabase.cpp
 msgctxt "#15015"
 msgid "Remove"
@@ -8596,7 +8604,11 @@ msgctxt "#16000"
 msgid "General"
 msgstr ""
 
-#empty string with id 16001
+#: system/settings/settings.xml
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#16001"
+msgid "Media Import"
+msgstr ""
 
 msgctxt "#16002"
 msgid "Internet lookup"
@@ -9326,6 +9338,7 @@ msgstr ""
 
 #. generic 'information' label used in different places, like labels for message box headers
 #: xbmc/event/windows/GUIWindowEventLog.cpp
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
 #: xbmc/pvr/dialogs/GUIDialogPVRChannelManager.cpp
 #: xbmc/pvr/dialogs/GUIDialogPVRGroupManager.cpp
 #: xbmc/pvr/dialogs/GUIDialogPVRGuideInfo.cpp
@@ -20762,7 +20775,17 @@ msgctxt "#36631"
 msgid "Force weak SMBv1 security for compatibility with the USB sharing features on some WiFi routers and NAS devices."
 msgstr ""
 
-#empty strings from id 36632 to 36898
+#: system/settings/settings.xml
+msgctxt "#36632"
+msgid "Import media items from UPnP servers"
+msgstr ""
+
+#: system/settings/settings.xml
+msgctxt "#36633"
+msgid "Adds newly detected UPnP servers to the list of available media providers with the possibility to import media items into the local library. It is possible to choose which media items to import and which not. The imported items appear in the library like any other media item except that it can only be played if the UPnP server they were imported from is available."
+msgstr ""
+
+#empty strings from id 36634 to 36898
 
 #. Description of setting with label #729 "Enable SSL"
 #: system/settings/settings.xml
@@ -21897,7 +21920,12 @@ msgctxt "#39027"
 msgid "Sortname"
 msgstr ""
 
-#empty strings from id 39028 to 39029
+#empty string with id 39028
+
+#: /xbmc/addons/Addon.cpp
+msgctxt "#39029"
+msgid "Media importer"
+msgstr ""
 
 #. Media source, a filter and smart playlist rule option
 #: xbmc/dialogs/GUIDialogMediaFilter.cpp
@@ -22028,3 +22056,349 @@ msgstr ""
 msgctxt "#39118"
 msgid "Share debug log"
 msgstr ""
+
+# empty strings from id 39119 to 39500
+
+# empty strings from id 39500 to 39529 are reserved for media import
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39530"
+msgid "Synchronisation"
+msgstr ""
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39531"
+msgid "Update imported media items"
+msgstr ""
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39532"
+msgid "Update playback-related metadata"
+msgstr ""
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39533"
+msgid "Update playback-related metadata on the media provider"
+msgstr ""
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39534"
+msgid "Start synchronisation"
+msgstr ""
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39535"
+msgid "Automatically"
+msgstr ""
+
+#: xbmc/media/import/MediaImport.cpp
+msgctxt "#39536"
+msgid "Manually"
+msgstr ""
+
+# empty strings from id 39537 to 39549 are reserved for media import settings
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39550"
+msgid "New media provider detected"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39551"
+msgid "Media provider removed"
+msgstr ""
+
+#: xbmc/events/MediaImportEvent.cpp
+msgctxt "#39552"
+msgid "Add imports"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39553"
+msgid "Synchronisation failed"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39554"
+msgid "Synchronisation successful"
+msgstr ""
+
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39555"
+msgid "Media types available for import:"
+msgstr ""
+
+# empty strings from id 39556 to 39557
+
+#. Retrieving media items from (media provider name)
+#: xbmc/media/import/task/MediaImportImportItemsRetrievalTask.cpp
+#: xbmc/media/import/task/MediaImportLocalItemsRetrievalTask.cpp
+msgctxt "#39558"
+msgid "Retrieving media items from {:s}..."
+msgstr ""
+
+#. Retrieving media items from (media provider name)
+#: xbmc/media/import/task/MediaImportChangesetTask.cpp
+msgctxt "#39559"
+msgid "Processing media items from {:s}..."
+msgstr ""
+
+#. Processing (media type plural)...
+#: xbmc/media/import/task/MediaImportChangesetTask.cpp
+msgctxt "#39560"
+msgid "Processing {:s}..."
+msgstr ""
+
+#. Importing (media type plural) from (media provider name)...
+#: xbmc/media/import/task/MediaImportSynchronisationTask.cpp
+msgctxt "#39561"
+msgid "Importing {:s} from {:s}..."
+msgstr ""
+
+#. Adding (media item title)...
+#: xbmc/media/import/task/MediaImportSynchronisationTask.cpp
+msgctxt "#39562"
+msgid "Adding {:s}..."
+msgstr ""
+
+#. Updating (media item title)...
+#: xbmc/media/import/task/MediaImportSynchronisationTask.cpp
+msgctxt "#39563"
+msgid "Updating {:s}..."
+msgstr ""
+
+#. Removing (media item title)...
+#: xbmc/media/import/task/MediaImportSynchronisationTask.cpp
+msgctxt "#39564"
+msgid "Removing {:s}..."
+msgstr ""
+
+#. (container title): (media item title)
+#: xbmc/events/MediaImportEvent.cpp
+#: xbmc/filesystem/MediaImportDirectory.cpp
+#: xbmc/media/import/handler/EpisodeImportHandler.cpp
+#: xbmc/media/import/handler/SeasonImportHandler.cpp
+msgctxt "#39565"
+msgid "{:s}: {:s}"
+msgstr ""
+
+#. Removing import of (media type plural) from (media provider name)
+#: xbmc/media/import/task/MediaImportRemovalTask.cpp
+msgctxt "#39566"
+msgid "Removing import of {:s} from {:s}..."
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39567"
+msgid "New import added"
+msgstr ""
+
+#. Retrieving (media type plural)...
+#: xbmc/network/upnp/UPnPMediaImporter.cpp
+msgctxt "#39568"
+msgid "Retrieving {:s}..."
+msgstr ""
+
+#. Cleaning up (media type plural) from (media provider name)...
+#: xbmc/media/import/task/MediaImportCleanupTask.cpp
+msgctxt "#39569"
+msgid "Cleaning up {:s} from {:s}..."
+msgstr ""
+
+# empty strings from id 39570 to 39572
+
+#. Title of the node showing all available media providers
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39573"
+msgid "All media providers"
+msgstr ""
+
+#. Title of the node showing all active media providers
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39574"
+msgid "Active media providers"
+msgstr ""
+
+#. Title of the node showing all inactive media providers
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39575"
+msgid "Inactive media providers"
+msgstr ""
+
+#. Label of the state of an active media provider
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39576"
+msgid "Active"
+msgstr ""
+
+#. Label of the state of an inactive media provider
+#: xbmc/filesystem/MediaImportDirectory.cpp
+msgctxt "#39577"
+msgid "Inactive"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39578"
+msgid "Removal failed"
+msgstr ""
+
+#: xbmc/media/import/MediaImportManager.cpp
+msgctxt "#39579"
+msgid "Removal successful"
+msgstr ""
+
+# strings from id 39580 to 39599 reserved for media import
+
+#: xbmc/filesystem/MediaImportDirectory.cpp
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39600"
+msgid "Media providers"
+msgstr ""
+
+#empty string with id 39601
+
+#. Title of the dialog asking whether to really remove a media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39602"
+msgid "Remove media provider"
+msgstr ""
+
+#. Text of the dialog asking whether to really remove a media provider/import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39603"
+msgid "Are you sure you want to remove %s and all of its items?"
+msgstr ""
+
+#. Title of the dialog asking whether to really remove a media import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39604"
+msgid "Remove media import"
+msgstr ""
+
+#. Label of the button to add a new media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39605"
+msgid "Add provider..."
+msgstr ""
+
+#. Label of the button to add a new import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39606"
+msgid "Add import..."
+msgstr ""
+
+#. Context button label to synchronise a media provider/import
+#: xbmc/event/MediaImportEvent.cpp
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39607"
+msgid "Synchronise"
+msgstr ""
+
+#. Title of the dialog reporting an error adding a new media import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39608"
+msgid "New media import"
+msgstr ""
+
+#. Text of the dialog reporting an error adding a new media import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39609"
+msgid "Adding a new media import failed!"
+msgstr ""
+
+#. Title of the dialog reporting an error synchronising a media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39610"
+msgid "Synchronising media provider failed!"
+msgstr ""
+
+#. Text of the dialog reporting an error synchronising a media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39611"
+msgid "Synchronising with the media provider %s failed!"
+msgstr ""
+
+#. Title of the dialog reporting an error synchronising a media import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39612"
+msgid "Synchronising media import failed!"
+msgstr ""
+
+#. Text of the dialog reporting an error synchronising a media import
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39613"
+msgid "Synchronising with the media import %s failed!"
+msgstr ""
+
+#. Text of the dialog reporting an error trying to open the info dialog for an inactive media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39614"
+msgid "Unable to configure the inactive media provider %s."
+msgstr ""
+
+#. Text of the dialog reporting an error trying to open the info dialog for a media import of an inactive media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39615"
+msgid "Unable to configure the inactive media import %s."
+msgstr ""
+
+#. Text of the dialog reporting an error trying to view media imports of a media provider that isn't fully configured yet
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39616"
+msgid "Unable to view media imports of unconfigured media provider %s."
+msgstr ""
+
+#empty string with id 39617
+
+#. Text of the dialog reporting an error adding a new media provider
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39618"
+msgid "Adding a new media provider failed!"
+msgstr ""
+
+#. Text of the dialog reporting that the media provider already exists
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39619"
+msgid "Discovered media provider \"%s\" already exists!"
+msgstr ""
+
+# strings from id 39620 to 39699 reserved for media import GUI integration
+
+#: xbmc/media/import/dialogs/GUIDialogMediaImportInfo.cpp
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39700"
+msgid "Media provider information"
+msgstr ""
+
+#: xbmc/media/import/dialogs/GUIDialogMediaImportInfo.cpp
+#: xbmc/media/import/windows/GUIWindowMediaSourceBrowser.cpp
+msgctxt "#39701"
+msgid "Media import information"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39702"
+msgid "Provider"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39703"
+msgid "Media type"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39704"
+msgid "Status"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39705"
+msgid "Last synced"
+msgstr ""
+
+#: addons/skin.estuary/xml/DialogMediaImportInfo.xml
+msgctxt "#39706"
+msgid "Available media types"
+msgstr ""
+
+#strings from 39707 to 39799 are reserved for media import GUI info

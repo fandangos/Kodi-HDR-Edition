@@ -101,6 +101,30 @@ namespace XBMCAddon
       }
     }
 
+    String ListItem::getDateTime()
+    {
+      if (!item) return "";
+
+      String ret;
+      {
+        XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+        if (item->m_dateTime.IsValid())
+          ret = item->m_dateTime.GetAsW3CDateTime();
+      }
+
+      return ret;
+    }
+
+    void ListItem::setDateTime(const String& dateTime)
+    {
+      if (!item) return;
+      // set label
+      {
+        XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+        item->m_dateTime.SetFromW3CDateTime(dateTime);
+      }
+    }
+
     void ListItem::setArt(const Properties& dictionary)
     {
       if (!item) return;
@@ -248,6 +272,12 @@ namespace XBMCAddon
       return item->GetArt(key);
     }
 
+    bool ListItem::isFolder() const
+    {
+      XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+      return item->m_bIsFolder;
+    }
+
     String ListItem::getUniqueID(const char* key)
     {
       XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
@@ -270,6 +300,12 @@ namespace XBMCAddon
     {
       XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
       item->SetPath(path);
+    }
+
+    void ListItem::setDynamicPath(const String& path)
+    {
+      XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+      item->SetDynPath(path);
     }
 
     void ListItem::setMimeType(const String& mimetype)
@@ -655,7 +691,11 @@ namespace XBMCAddon
           else if (key == "role")
             info.strRole = value;
           else if (key == "thumbnail")
+          {
             info.thumbUrl = CScraperUrl(value);
+            if (!info.thumbUrl.GetFirstThumb().m_url.empty())
+              info.thumb = CScraperUrl::GetThumbURL(info.thumbUrl.GetFirstThumb());
+          }
           else if (key == "order")
             info.order = strtol(value.c_str(), nullptr, 10);
         }
@@ -784,9 +824,7 @@ namespace XBMCAddon
     xbmc::InfoTagVideo* ListItem::getVideoInfoTag()
     {
       XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
-      if (item->HasVideoInfoTag())
-        return new xbmc::InfoTagVideo(*GetVideoInfoTag());
-      return new xbmc::InfoTagVideo();
+      return new xbmc::InfoTagVideo(GetVideoInfoTag());
     }
 
     xbmc::InfoTagMusic* ListItem::getMusicInfoTag()
@@ -828,6 +866,16 @@ namespace XBMCAddon
     const CVideoInfoTag* ListItem::GetVideoInfoTag() const
     {
       return item->GetVideoInfoTag();
+    }
+
+    String ListItem::getMediaProviderId() const
+    {
+      return item->GetSource();
+    }
+
+    String ListItem::getMediaImportPath() const
+    {
+      return item->GetImportPath();
     }
   }
 }

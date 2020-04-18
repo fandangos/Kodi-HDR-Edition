@@ -32,7 +32,7 @@ bool CPosixUDPSocket::Bind(bool localOnly, int port, int range)
   // If we can, create a socket that works with IPv6 and IPv4.
   // If not, try an IPv4-only socket (we don't want to end up
   // with an IPv6-only socket).
-  if (!localOnly) // Only bind loopback to ipv4. TODO : Implement dual bindinds.
+  if (!localOnly && !m_ipv4Only) // Only bind loopback to ipv4. TODO : Implement dual bindinds.
   {
     m_iSock = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
     if (m_iSock != INVALID_SOCKET)
@@ -103,10 +103,21 @@ bool CPosixUDPSocket::Bind(bool localOnly, int port, int range)
 #else
   int yes = 1;
 #endif
-  if (setsockopt(m_iSock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int))==-1)
+  if (setsockopt(m_iSock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes))==-1)
   {
     CLog::Log(LOGWARNING, "UDP: Could not enable the address reuse options");
     CLog::Log(LOGWARNING, "UDP: %s", strerror(errno));
+  }
+
+  // enable broadcasting support if necessary
+  if (m_broadcast)
+  {
+    if (setsockopt(m_iSock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes)) == -1)
+    {
+      CLog::Log(LOGERROR, "UDP: Unable to enable broadcasting");
+      Close();
+      return false;
+    }
   }
 
   // bind to any address or localhost

@@ -198,7 +198,8 @@ std::string URIUtils::GetFileName(const std::string& strFileNameAndPath)
 }
 
 void URIUtils::Split(const std::string& strFileNameAndPath,
-                     std::string& strPath, std::string& strFileName)
+                     std::string& strPath, std::string& strFileName,
+                     bool ignoreOptions /* = true */)
 {
   //Splits a full filename in path and file.
   //ex. smb://computer/share/directory/filename.ext -> strPath:smb://computer/share/directory/ and strFileName:filename.ext
@@ -221,8 +222,8 @@ void URIUtils::Split(const std::string& strFileNameAndPath,
   // everything to the right of the directory separator
   strFileName = strFileNameAndPath.substr(i+1);
 
-  // if actual uri, ignore options
-  if (IsURL(strFileNameAndPath))
+  // ignore options
+  if (IsURL(strFileNameAndPath) && ignoreOptions)
   {
     i = strFileName.size() - 1;
     while (i > 0)

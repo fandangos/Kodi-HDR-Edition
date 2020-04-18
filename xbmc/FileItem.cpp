@@ -386,6 +386,7 @@ CFileItem& CFileItem::operator=(const CFileItem& item)
     return *this;
 
   CGUIListItem::operator=(item);
+  m_enabled = item.m_enabled;
   m_bLabelPreformatted=item.m_bLabelPreformatted;
   FreeMemory();
   m_strPath = item.m_strPath;
@@ -472,6 +473,8 @@ CFileItem& CFileItem::operator=(const CFileItem& item)
   m_specialSort = item.m_specialSort;
   m_bIsAlbum = item.m_bIsAlbum;
   m_doContentLookup = item.m_doContentLookup;
+  m_source = item.m_source;
+  m_importPath = item.m_importPath;
   return *this;
 }
 
@@ -481,6 +484,7 @@ void CFileItem::Initialize()
   m_videoInfoTag = NULL;
   m_pictureInfoTag = NULL;
   m_gameInfoTag = NULL;
+  m_enabled = true;
   m_bLabelPreformatted = false;
   m_bIsAlbum = false;
   m_dwSize = 0;
@@ -510,6 +514,8 @@ void CFileItem::Reset()
   m_bSelected = false;
   m_bIsFolder = false;
 
+  m_source.clear();
+  m_importPath.clear();
   m_strDVDLabel.clear();
   m_strTitle.clear();
   m_strPath.clear();
@@ -596,6 +602,10 @@ void CFileItem::Archive(CArchive& ar)
     }
     else
       ar << 0;
+
+    ar << m_enabled;
+    ar << m_source;
+    ar << m_importPath;
   }
   else
   {
@@ -639,6 +649,10 @@ void CFileItem::Archive(CArchive& ar)
     ar >> iType;
     if (iType == 1)
       ar >> *GetGameInfoTag();
+
+    ar >> m_enabled;
+    ar >> m_source;
+    ar >> m_importPath;
 
     SetInvalid();
   }
@@ -1303,6 +1317,11 @@ bool CFileItem::IsReadOnly() const
   return !CUtil::SupportsWriteFileOperations(m_strPath);
 }
 
+bool CFileItem::IsImported() const
+{
+  return !m_source.empty() && !m_importPath.empty();
+}
+
 void CFileItem::FillInDefaultIcon()
 {
   if (URIUtils::IsPVRGuideItem(m_strPath))
@@ -1921,6 +1940,11 @@ CFileItemList::CFileItemList()
 CFileItemList::CFileItemList(const std::string& strPath)
 : CFileItem(strPath, true)
 {
+}
+
+CFileItemList::CFileItemList(const CFileItemList &other)
+{
+  Copy(other, true);
 }
 
 CFileItemList::~CFileItemList()
@@ -3500,6 +3524,26 @@ void CFileItemList::ClearSortState()
   m_sortDescription.sortBy = SortByNone;
   m_sortDescription.sortOrder = SortOrderNone;
   m_sortDescription.sortAttributes = SortAttributeNone;
+}
+
+MediaType CFileItem::GetMediaType() const
+{
+  if (HasVideoInfoTag())
+  {
+    if (GetVideoInfoTag()->m_type != MediaTypeNone)
+      return GetVideoInfoTag()->m_type;
+
+    return MediaTypeVideo;
+  }
+  if (HasMusicInfoTag())
+  {
+    if (GetMusicInfoTag()->GetType() != MediaTypeNone)
+      return GetMusicInfoTag()->GetType();
+
+    return MediaTypeMusic;
+  }
+  
+  return MediaTypeNone;
 }
 
 bool CFileItem::HasVideoInfoTag() const

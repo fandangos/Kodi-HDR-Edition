@@ -9,7 +9,6 @@
 #pragma once
 
 #include "ContextMenuItem.h"
-#include "VideoLibraryQueue.h"
 
 namespace CONTEXTMENU
 {

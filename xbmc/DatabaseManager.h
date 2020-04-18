@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "media/import/IMediaImportRepository.h"
 #include "threads/CriticalSection.h"
 
 #include <atomic>
@@ -38,6 +39,10 @@ public:
    */
   void Initialize();
 
+  /*! \brief Deinitialize the database manager
+   */
+  void Deinitialize();
+
   /*! \brief Check whether we can open a database.
 
    Checks whether the database has been updated correctly, if so returns true.
@@ -62,4 +67,6 @@ private:
 
   CCriticalSection            m_section;     ///< Critical section protecting m_dbStatus.
   std::map<std::string, DB_STATUS> m_dbStatus;    ///< Our database status map.
+
+  MediaImportRepositoryPtr m_videoImportRepository;
 };

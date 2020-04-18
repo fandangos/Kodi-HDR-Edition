@@ -124,6 +124,8 @@ private:
         return file_path.Left(index);
     }
 
+    static int GetRequiredVideoDbDetails(const NPT_String& filter);
+
     NPT_Mutex m_CacheMutex;
 
     NPT_Mutex m_FileMutex;

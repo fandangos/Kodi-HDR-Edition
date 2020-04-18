@@ -12,6 +12,7 @@
 #include "LanguageHook.h"
 #include "ServiceBroker.h"
 #include "addons/AddonManager.h"
+#include "addons/settings/AddonSettings.h"
 #include "addons/settings/GUIDialogAddonSettings.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
@@ -75,6 +76,11 @@ namespace XBMCAddon
     String Addon::getLocalizedString(int id)
     {
       return g_localizeStrings.GetAddonString(pAddon->ID(), id);
+    }
+
+    Settings* Addon::getSettings()
+    {
+      return new Settings(pAddon->GetSettings(), pAddon->ID(), nullptr /* TODO(Montellese) */);
     }
 
     String Addon::getSetting(const char* id)

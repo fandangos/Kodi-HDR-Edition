@@ -9,6 +9,7 @@
 #include "GUIWindowPVRRecordings.h"
 
 #include "GUIInfoManager.h"
+#include "LibraryQueue.h"
 #include "ServiceBroker.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIMessage.h"
@@ -27,7 +28,6 @@
 #include "settings/SettingsComponent.h"
 #include "threads/SingleLock.h"
 #include "utils/URIUtils.h"
-#include "video/VideoLibraryQueue.h"
 #include "video/windows/GUIWindowVideoNav.h"
 
 #include <memory>
@@ -114,7 +114,7 @@ bool CGUIWindowPVRRecordingsBase::OnAction(const CAction& action)
     else
       return false;
 
-    CVideoLibraryQueue::GetInstance().MarkAsWatched(pItem, bUnWatched);
+    CLibraryQueue::GetInstance().MarkAsWatched(pItem, bUnWatched);
     return true;
   }
 

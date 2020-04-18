@@ -3,6 +3,7 @@ set(SOURCES AddonEvent.cpp
             BaseEvent.cpp
             EventLog.cpp
             EventLogManager.cpp
+            MediaImportEvent.cpp
             MediaLibraryEvent.cpp)
 
 set(HEADERS AddonEvent.h
@@ -11,6 +12,7 @@ set(HEADERS AddonEvent.h
             EventLog.h
             EventLogManager.h
             IEvent.h
+            MediaImportEvent.h
             MediaLibraryEvent.h
             NotificationEvent.h
             UniqueEvent.h)

@@ -196,6 +196,56 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ getDateTime() }
+      ///-----------------------------------------------------------------------
+      /// Returns the listitem datetime (ISO 8601).
+      ///
+      /// @return                       datetime (ISO 8601) of item
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// # getDateTime()
+      /// dateTime = listitem.getDateTime()
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      getDateTime();
+#else
+      String getDateTime();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ setDateTime(dateTime) }
+      ///-----------------------------------------------------------------------
+      /// Sets the listitem's datetime (ISO 8601).
+      ///
+      /// @param label              string or unicode - datetime string (ISO 8601).
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// # setDate(dateTime)
+      /// listitem.setDateTime('TODO')
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      setDateTime(...);
+#else
+      void setDateTime(const String& dateTime);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
       /// @brief \python_func{ setArt(values) }
       ///-----------------------------------------------------------------------
       /// Sets the listitem's art
@@ -392,6 +442,28 @@ namespace XBMCAddon
       getArt(key);
 #else
       String getArt(const char* key);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ isFolder() }
+      ///-----------------------------------------------------------------------
+      /// Returns whether the item is a folder or not.
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// isFolder = listitem.isFolder()
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      isFolder();
+#else
+      bool isFolder() const;
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
@@ -988,6 +1060,35 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ setDynamicPath(path) }
+      ///-----------------------------------------------------------------------
+      /// Sets the listitem's dynamic path.
+      ///
+      /// @param path           string or unicode - dynamic path.
+      ///
+      /// @note You can use the above as keywords for arguments.
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// listitem.setDynamicPath(path='/path/to/some/file.ext')
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      setDynamicPath(...);
+#else
+      void setDynamicPath(const String& path);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
       /// @brief \python_func{ setMimeType(mimetype) }
       ///-----------------------------------------------------------------------
       /// Sets the listitem's mimetype if known.
@@ -1101,6 +1202,42 @@ namespace XBMCAddon
       getMusicInfoTag();
 #else
       xbmc::InfoTagMusic* getMusicInfoTag();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ getMediaProviderId() }
+      ///-----------------------------------------------------------------------
+      /// Returns the identifier of the media provider this item was imported from.
+      ///
+      /// @return    media provider identifer
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getMediaProviderId();
+#else
+      String getMediaProviderId() const;
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ getMediaImportPath() }
+      ///-----------------------------------------------------------------------
+      /// Returns the path of the media import this item was imported from.
+      ///
+      /// @return    media import path
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getMediaImportPath();
+#else
+      String getMediaImportPath() const;
 #endif
 
 private:

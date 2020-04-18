@@ -19,6 +19,7 @@ set(SOURCES Application.cpp
             GUIPassword.cpp
             InfoScanner.cpp
             LangInfo.cpp
+            LibraryQueue.cpp
             MediaSource.cpp
             NfoFile.cpp
             PasswordManager.cpp
@@ -65,6 +66,7 @@ set(HEADERS AppParamParser.h
             IProgressCallback.h
             InfoScanner.h
             LangInfo.h
+            LibraryQueue.h
             LockType.h
             MediaSource.h
             NfoFile.h

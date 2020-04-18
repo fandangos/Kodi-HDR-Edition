@@ -533,6 +533,21 @@ std::string SqliteDatabase::vprepare(const char *format, va_list args)
     sqlite3_free(p);
   }
 
+  //  GREATEST(x,y,...) is the mysql form of MAX(x,y,...)
+  pos = 0;
+  while ((pos = strResult.find("GREATEST(", pos)) != std::string::npos)
+  {
+    strResult.replace(pos++, 9, "MAX(");
+    pos += 4;
+  }
+  //  LEAST(x,y,...) is the mysql form of MIN(x,y,...)
+  pos = 0;
+  while ((pos = strResult.find("LEAST(", pos)) != std::string::npos)
+  {
+    strResult.replace(pos++, 6, "MIN(");
+    pos += 4;
+  }
+
   // Strip SEPARATOR from all GROUP_CONCAT statements:
   // before: GROUP_CONCAT(field SEPARATOR '; ')
   // after:  GROUP_CONCAT(field, '; ')

@@ -18,6 +18,7 @@
 #include "MusicSearchDirectory.h"
 #include "VideoDatabaseDirectory.h"
 #include "FavouritesDirectory.h"
+#include "MediaImportDirectory.h"
 #include "LibraryDirectory.h"
 #include "EventsDirectory.h"
 #include "AddonsDirectory.h"
@@ -152,6 +153,7 @@ IDirectory* CDirectoryFactory::Create(const CURL& url)
   if (url.IsProtocol("musicsearch")) return new CMusicSearchDirectory();
   if (url.IsProtocol("videodb")) return new CVideoDatabaseDirectory();
   if (url.IsProtocol("library")) return new CLibraryDirectory();
+  if (url.IsProtocol("import")) return new CMediaImportDirectory();
   if (url.IsProtocol("favourites")) return new CFavouritesDirectory();
 #if defined(TARGET_ANDROID)
   if (url.IsProtocol("androidapp")) return new CAndroidAppDirectory();

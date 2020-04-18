@@ -132,7 +132,7 @@ bool CVideoInfoTag::Save(TiXmlNode *node, const std::string &tag, bool savePathI
   if (m_EpBookmark.timeInSeconds > 0)
   {
     TiXmlElement epbookmark("episodebookmark");
-    XMLUtils::SetFloat(&epbookmark, "position", (float)m_EpBookmark.timeInSeconds);
+    XMLUtils::SetDouble(&epbookmark, "position", m_EpBookmark.timeInSeconds);
     if (!m_EpBookmark.playerState.empty())
     {
       TiXmlElement playerstate("playerstate");
@@ -291,8 +291,8 @@ bool CVideoInfoTag::Save(TiXmlNode *node, const std::string &tag, bool savePathI
   }
 
   TiXmlElement resume("resume");
-  XMLUtils::SetFloat(&resume, "position", (float)m_resumePoint.timeInSeconds);
-  XMLUtils::SetFloat(&resume, "total", (float)m_resumePoint.totalTimeInSeconds);
+  XMLUtils::SetDouble(&resume, "position", m_resumePoint.timeInSeconds);
+  XMLUtils::SetDouble(&resume, "total", m_resumePoint.totalTimeInSeconds);
   if (!m_resumePoint.playerState.empty())
   {
     TiXmlElement playerstate("playerstate");
@@ -617,8 +617,8 @@ void CVideoInfoTag::Serialize(CVariant& value) const
   value["showlink"] = m_showLink;
   m_streamDetails.Serialize(value["streamdetails"]);
   CVariant resume = CVariant(CVariant::VariantTypeObject);
-  resume["position"] = (float)m_resumePoint.timeInSeconds;
-  resume["total"] = (float)m_resumePoint.totalTimeInSeconds;
+  resume["position"] = m_resumePoint.timeInSeconds;
+  resume["total"] = m_resumePoint.totalTimeInSeconds;
   value["resume"] = resume;
   value["tvshowid"] = m_iIdShow;
   value["dateadded"] = m_dateAdded.IsValid() ? m_dateAdded.GetAsDBDateTime() : StringUtils::Empty;
@@ -834,7 +834,10 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
         r.rating = r.rating / max_value * 10; // Normalise the Movie Rating to between 1 and 10
       SetRating(r, name);
       bool isDefault = false;
-      if ((child->QueryBoolAttribute("default", &isDefault) == TIXML_SUCCESS) && isDefault)
+      // guard against assert in tinyxml
+      const char* rAtt = child->Attribute("default", static_cast<int*>(nullptr));
+      if (rAtt && strlen(rAtt) != 0 &&
+          (child->QueryBoolAttribute("default", &isDefault) == TIXML_SUCCESS) && isDefault)
         m_strDefaultRating = name;
     }
   }
@@ -1050,7 +1053,7 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
         thumb = thumb->NextSiblingElement("thumb");
       }
       const char* clear=node->Attribute("clear");
-      if (clear && stricmp(clear,"true"))
+      if (clear && StringUtils::CompareNoCase(clear, "true"))
         m_cast.clear();
       m_cast.push_back(info);
     }
@@ -1099,7 +1102,7 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
     if (pValue)
     {
       const char* clear=node->Attribute("clear");
-      if (clear && stricmp(clear,"true")==0)
+      if (clear && StringUtils::CompareNoCase(clear, "true") == 0)
         artist.clear();
       std::vector<std::string> newArtists = StringUtils::Split(pValue, itemSeparator);
       artist.insert(artist.end(), newArtists.begin(), newArtists.end());
@@ -1168,7 +1171,8 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
   if (epguide)
   {
     // DEPRECIATE ME - support for old XML-encoded <episodeguide> blocks.
-    if (epguide->FirstChild() && strnicmp("<episodeguide", epguide->FirstChild()->Value(), 13) == 0)
+    if (epguide->FirstChild() &&
+        StringUtils::CompareNoCase("<episodeguide", epguide->FirstChild()->Value(), 13) == 0)
       m_strEpisodeGuide = epguide->FirstChild()->Value();
     else
     {

@@ -2290,8 +2290,8 @@ bool CVideoDatabase::GetFileInfo(const std::string& strFilenameAndPath, CVideoIn
       details.m_dateAdded.SetFromDBDateTime(m_pDS->fv("files.dateAdded").get_asString());
     if (!details.GetResumePoint().IsSet())
     {
-      details.SetResumePoint(m_pDS->fv("bookmark.timeInSeconds").get_asInt(),
-                             m_pDS->fv("bookmark.totalTimeInSeconds").get_asInt(),
+      details.SetResumePoint(m_pDS->fv("bookmark.timeInSeconds").get_asDouble(),
+                             m_pDS->fv("bookmark.totalTimeInSeconds").get_asDouble(),
                              m_pDS->fv("bookmark.playerState").get_asString());
     }
 
@@ -7136,7 +7136,13 @@ bool CVideoDatabase::GetItems(const std::string &strBaseDir, VIDEODB_CONTENT_TYP
   if (StringUtils::EqualsNoCase(itemType, "movies") && (mediaType == VIDEODB_CONTENT_MOVIES || mediaType == VIDEODB_CONTENT_MOVIE_SETS))
     return GetMoviesByWhere(strBaseDir, filter, items, sortDescription);
   else if (StringUtils::EqualsNoCase(itemType, "tvshows") && mediaType == VIDEODB_CONTENT_TVSHOWS)
-    return GetTvShowsByWhere(strBaseDir, filter, items, sortDescription);
+  {
+    Filter extFilter = filter;
+    if (!CServiceBroker::GetSettingsComponent()->GetSettings()->
+        GetBool(CSettings::SETTING_VIDEOLIBRARY_SHOWEMPTYTVSHOWS))
+      extFilter.AppendWhere("totalCount IS NOT NULL AND totalCount > 0");
+    return GetTvShowsByWhere(strBaseDir, extFilter, items, sortDescription);
+  }
   else if (StringUtils::EqualsNoCase(itemType, "musicvideos") && mediaType == VIDEODB_CONTENT_MUSICVIDEOS)
     return GetMusicVideosByWhere(strBaseDir, filter, items, true, sortDescription);
   else if (StringUtils::EqualsNoCase(itemType, "episodes") && mediaType == VIDEODB_CONTENT_EPISODES)
@@ -10065,9 +10071,9 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
     // first count the number of items...
     while (movie)
     {
-      if (strnicmp(movie->Value(), MediaTypeMovie, 5)==0 ||
-          strnicmp(movie->Value(), MediaTypeTvShow, 6)==0 ||
-          strnicmp(movie->Value(), MediaTypeMusicVideo,10)==0 )
+      if (StringUtils::CompareNoCase(movie->Value(), MediaTypeMovie, 5) == 0 ||
+          StringUtils::CompareNoCase(movie->Value(), MediaTypeTvShow, 6) == 0 ||
+          StringUtils::CompareNoCase(movie->Value(), MediaTypeMusicVideo, 10) == 0)
         total++;
       movie = movie->NextSiblingElement();
     }
@@ -10110,7 +10116,7 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
     while (movie)
     {
       CVideoInfoTag info;
-      if (strnicmp(movie->Value(), MediaTypeMovie, 5) == 0)
+      if (StringUtils::CompareNoCase(movie->Value(), MediaTypeMovie, 5) == 0)
       {
         info.Load(movie);
         CFileItem item(info);
@@ -10144,7 +10150,7 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
         scanner.AddVideo(&item, CONTENT_MOVIES, useFolders, true, NULL, true);
         current++;
       }
-      else if (strnicmp(movie->Value(), MediaTypeMusicVideo, 10) == 0)
+      else if (StringUtils::CompareNoCase(movie->Value(), MediaTypeMusicVideo, 10) == 0)
       {
         info.Load(movie);
         CFileItem item(info);
@@ -10159,7 +10165,7 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
         scanner.AddVideo(&item, CONTENT_MUSICVIDEOS, useFolders, true, NULL, true);
         current++;
       }
-      else if (strnicmp(movie->Value(), MediaTypeTvShow, 6) == 0)
+      else if (StringUtils::CompareNoCase(movie->Value(), MediaTypeTvShow, 6) == 0)
       {
         // load the TV show in.  NOTE: This deletes all episodes under the TV Show, which may not be
         // what we desire.  It may make better sense to only delete (or even better, update) the show information

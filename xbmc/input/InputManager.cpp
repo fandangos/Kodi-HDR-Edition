@@ -418,12 +418,6 @@ bool CInputManager::OnEvent(XBMC_Event& newEvent)
         CApplicationMessenger::GetInstance().PostMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1, static_cast<void*>(new CAction(actionId)));
     }
 
-    // Post an unfocus message for touch device after the action.
-    if (newEvent.touch.action == ACTION_GESTURE_END || newEvent.touch.action == ACTION_TOUCH_TAP)
-    {
-      CGUIMessage msg(GUI_MSG_UNFOCUS_ALL, 0, 0, 0, 0);
-      CApplicationMessenger::GetInstance().SendGUIMessage(msg);
-    }
     break;
   } //case
   case XBMC_BUTTON:
@@ -554,7 +548,8 @@ bool CInputManager::HandleKey(const CKey& key)
 
         // If the key pressed is shift-A to shift-Z set usekeyboard to true.
         // This causes the keypress to be used for list navigation.
-        if (control->IsContainer() && key.GetModifiers() == CKey::MODIFIER_SHIFT && key.GetVKey() >= XBMCVK_A && key.GetVKey() <= XBMCVK_Z)
+        if (control->IsContainer() && key.GetModifiers() == CKey::MODIFIER_SHIFT &&
+            key.GetUnicode())
           useKeyboard = true;
       }
     }
@@ -607,7 +602,7 @@ bool CInputManager::HandleKey(const CKey& key)
             action = CAction(ACTION_PASTE);
           // If the unicode is non-zero the keypress is a non-printing character
           else if (key.GetUnicode())
-            action = CAction(key.GetAscii() | KEY_ASCII, key.GetUnicode());
+            action = CAction(KEY_UNICODE, key.GetUnicode());
           // The keypress is a non-printing character
           else
             action = CAction(key.GetVKey() | KEY_VKEY);

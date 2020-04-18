@@ -6,7 +6,7 @@
 		<value condition="ListItem.HasArchive">windows/pvr/archive.png</value>
 	</variable>
 	<variable name="AutoCompletionContentVar">
-		<value condition="System.HasAddon(plugin.program.autocompletion) + !System.HasHiddenInput">plugin://plugin.program.autocompletion?info=autocomplete&amp;&amp;id=$INFO[Control.GetLabel(312).index(1)]&amp;&amp;limit=9</value>
+		<value condition="System.AddonIsEnabled(plugin.program.autocompletion) + !System.HasHiddenInput">plugin://plugin.program.autocompletion?info=autocomplete&amp;&amp;id=$INFO[Control.GetLabel(312).index(1)]&amp;&amp;limit=9</value>
 	</variable>
 	<variable name="InfoListPathVar">
 		<value condition="String.IsEmpty(Container.PluginName)">$INFO[ListItem.FolderPath]</value>
@@ -303,6 +303,7 @@
 		<value>$INFO[ListItem.PictureDateTime]</value>
 	</variable>
 	<variable name="NowPlayingBreadcrumbsVar">
+  		<value condition="MusicPlayer.Content(livetv) + Player.HasAudio">$INFO[MusicPlayer.Title]</value> 
 		<value condition="VideoPlayer.Content(livetv)">$INFO[VideoPlayer.Title]</value>
 		<value condition="VideoPlayer.Content(episodes) + !String.IsEmpty(Player.Art(tvshow.clearlogo))">$INFO[VideoPlayer.Season,[COLOR button_focus]S,[/COLOR]]$INFO[VideoPlayer.Episode,[COLOR button_focus]E,: [/COLOR]]$INFO[VideoPlayer.Title]</value>
 		<value condition="VideoPlayer.Content(episodes) + Window.IsActive(fullscreenvideo)">$INFO[VideoPlayer.TVShowTitle]$INFO[VideoPlayer.Year, ([COLOR button_focus],[/COLOR])]</value>
@@ -323,13 +324,13 @@
 	</variable>
 	<variable name="AddonsFanartVar">
 		<value condition="Skin.HasSetting(no_fanart)"></value>
-		<value condition="Window.IsActive(musicinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo) | Window.IsVisible(script-script.extendedinfo-DialogVideoInfo.xml) | Window.IsVisible(script-script.extendedinfo-DialogInfo.xml) | Window.IsVisible(script-script.extendedinfo-VideoList.xml)">$INFO[Window(home).Property(infobackground)]</value>
+		<value condition="Window.IsActive(musicinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo)">$INFO[Window(home).Property(infobackground)]</value>
 		<value condition="!String.IsEmpty(Container.ListItem.Art(fanart))">$INFO[Container.ListItem.Art(fanart)]</value>
 		<value condition="!String.IsEmpty(Skin.String(HomeFanart.path))">$INFO[Skin.String(HomeFanart.path)]$INFO[Container(9000).ListItem.Property(id)]$INFO[Skin.String(HomeFanart.ext)]</value>
 	</variable>
 	<variable name="HomeFanartVar">
 		<value condition="Skin.HasSetting(no_fanart)"></value>
-		<value condition="Window.IsActive(musicinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo) | Window.IsVisible(script-script.extendedinfo-DialogVideoInfo.xml) | Window.IsVisible(script-script.extendedinfo-DialogInfo.xml) | Window.IsVisible(script-script.extendedinfo-VideoList.xml)">$INFO[Window(home).Property(infobackground)]</value>
+		<value condition="Window.IsActive(musicinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo)">$INFO[Window(home).Property(infobackground)]</value>
 		<value condition="!String.IsEmpty(Container.ListItem.Art(fanart))">$INFO[Container.ListItem.Art(fanart)]</value>
 		<value condition="!String.IsEmpty(Container.ListItem.Property(FanartCode))">$INFO[Skin.String(WeatherFanart.path)]$INFO[Container.ListItem.Property(FanartCode)]$INFO[Skin.String(WeatherFanart.ext)]</value>
 		<value condition="!String.IsEmpty(Skin.String(HomeFanart.path)) + Control.HasFocus(804)">$INFO[Skin.String(HomeFanart.path)]power$INFO[Skin.String(HomeFanart.ext)]</value>
@@ -340,7 +341,7 @@
 	</variable>
 	<variable name="MediaFanartVar">
 		<value condition="Skin.HasSetting(no_fanart)"></value>
-		<value condition="Window.IsActive(musicinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo) | Window.IsVisible(script-script.extendedinfo-DialogVideoInfo.xml) | Window.IsVisible(script-script.extendedinfo-DialogInfo.xml) | Window.IsVisible(script-script.extendedinfo-VideoList.xml)">$INFO[Window(home).Property(infobackground)]</value>
+		<value condition="Window.IsActive(musicinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo)">$INFO[Window(home).Property(infobackground)]</value>
 		<value condition="Container.Content(genres) + Window.IsActive(videos)">$INFO[Skin.String(MovieGenreFanart.path)]$INFO[ListItem.Label]$INFO[Skin.String(MovieGenreFanart.ext)]</value>
 		<value condition="Window.IsActive(pictures) + String.IsEmpty(ListItem.Art(fanart))">$INFO[ListItem.FolderPath]</value>
 		<value condition="!String.IsEmpty(ListItem.Art(fanart))">$INFO[ListItem.Art(fanart)]</value>
@@ -469,8 +470,30 @@
 		<value>$INFO[ListItem.Season,S]$INFO[ListItem.Episode,E,: ]</value>
 	</variable>
 	<variable name="PremieredLabel">
-		<value condition="!String.IsEmpty(ListItem.Premiered) + ListItem.IsNew">[COLOR grey]$LOCALIZE[20416]:[/COLOR] $INFO[ListItem.Premiered] [B]([COLOR button_focus]$LOCALIZE[842][/COLOR])[/B][CR]</value>
 		<value>$INFO[ListItem.Premiered,[COLOR grey]$LOCALIZE[20416]:[/COLOR] ,[CR]]</value>
+	</variable>
+	<variable name="FlagLabel">
+		<value condition="ListItem.IsPremiere">[B][[COLOR button_focus]$LOCALIZE[838][/COLOR][/B]</value>
+		<value condition="ListItem.IsFinale">[B][COLOR button_focus]$LOCALIZE[849][/COLOR][/B]</value>
+		<value condition="ListItem.IsLive">[B][COLOR button_focus]$LOCALIZE[839][/COLOR][/B]</value>
+		<value condition="ListItem.IsNew">[B][COLOR button_focus]$LOCALIZE[842][/COLOR][/B]</value>
+	</variable>
+	<variable name="FlagDashLabel">
+		<value condition="ListItem.IsPremiere + String.IsEmpty(ListItem.Season) + String.IsEmpty(ListItem.Episode) + String.IsEmpty(ListItem.EpisodeName)">[B][COLOR button_focus]$LOCALIZE[838][/COLOR][/B]</value>
+		<value condition="ListItem.IsPremiere">[B][[COLOR button_focus]$LOCALIZE[838][/COLOR][/B] - </value>
+		<value condition="ListItem.IsFinale + String.IsEmpty(ListItem.Season) + String.IsEmpty(ListItem.Episode) + String.IsEmpty(ListItem.EpisodeName)">[B][COLOR button_focus]$LOCALIZE[849][/COLOR][/B]</value>
+		<value condition="ListItem.IsFinale">[B][COLOR button_focus]$LOCALIZE[849][/COLOR][/B] - </value>
+		<value condition="ListItem.IsLive + String.IsEmpty(ListItem.Season) + String.IsEmpty(ListItem.Episode) + String.IsEmpty(ListItem.EpisodeName)">[B][COLOR button_focus]$LOCALIZE[839][/COLOR][/B]</value>
+		<value condition="ListItem.IsLive">[B][COLOR button_focus]$LOCALIZE[839][/COLOR][/B] - </value>
+		<value condition="ListItem.IsNew + String.IsEmpty(ListItem.Season) + String.IsEmpty(ListItem.Episode) + String.IsEmpty(ListItem.EpisodeName)">[B][COLOR button_focus]$LOCALIZE[842][/COLOR][/B]</value>
+		<value condition="ListItem.IsNew">[B][COLOR button_focus]$LOCALIZE[842][/COLOR][/B] - </value>
+	</variable>
+	<variable name="RecordingSizeLabel">
+		<value condition="!String.IsEmpty(ListItem.Size) + !String.IsEqual(ListItem.Size,0 B)">$INFO[ListItem.Size,[COLOR grey]$LOCALIZE[22031]:[/COLOR] ,[CR]]</value>
+	</variable>
+	<variable name="RecordingDateSizeLabel">
+		<value condition="!String.IsEmpty(ListItem.Size) + !String.IsEqual(ListItem.Size,0 B)">$INFO[ListItem.Date,[COLOR grey],[/COLOR]]$INFO[ListItem.Size, (,)[CR]]</value>
+		<value>$INFO[ListItem.Date,[COLOR grey],[/COLOR][CR]]</value>
 	</variable>
 	<variable name="ExpirationDateTimeLabel">
 		<value condition="!String.IsEmpty(ListItem.ExpirationDate)">[COLOR grey]$LOCALIZE[19299]:[/COLOR] $INFO[ListItem.ExpirationDate] $INFO[ListItem.ExpirationTime][CR]</value>

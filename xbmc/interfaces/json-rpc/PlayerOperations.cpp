@@ -411,11 +411,11 @@ JSONRPC_STATUS CPlayerOperations::Seek(const std::string &method, ITransportLaye
         return FailedToExecute;
 
       const CVariant& value = parameterObject["value"];
-      if (IsType(value, NumberValue) || value.isMember("percentage"))
-        g_application.SeekPercentage(IsType(value, NumberValue) ? value.asFloat() : value["percentage"].asFloat());
-      else if (value.isString() || value.isMember("step"))
+      if (value.isMember("percentage"))
+        g_application.SeekPercentage(value["percentage"].asFloat());
+      else if (value.isMember("step"))
       {
-        std::string step = value.isString() ? value.asString() : value["step"].asString();
+        std::string step = value["step"].asString();
         if (step == "smallforward")
           CBuiltins::GetInstance().Execute("playercontrol(smallskipforward)");
         else if (step == "smallbackward")
@@ -427,10 +427,10 @@ JSONRPC_STATUS CPlayerOperations::Seek(const std::string &method, ITransportLaye
         else
           return InvalidParams;
       }
-      else if (value.isMember("seconds") && value.size() == 1)
+      else if (value.isMember("seconds"))
         g_application.GetAppPlayer().GetSeekHandler().SeekSeconds(static_cast<int>(value["seconds"].asInteger()));
-      else if (value.isObject())
-        g_application.SeekTime(ParseTimeInSeconds(value.isMember("time") ? value["time"] : value));
+      else if (value.isMember("time"))
+        g_application.SeekTime(ParseTimeInSeconds(value["time"]));
       else
         return InvalidParams;
 
@@ -1697,6 +1697,7 @@ JSONRPC_STATUS CPlayerOperations::GetPropertyValue(PlayerType player, const std:
             result["codec"] = info.codecName;
             result["bitrate"] = info.bitrate;
             result["channels"] = info.channels;
+            result["samplerate"] = info.samplerate;
             AppendAudioStreamFlagsAsBooleans(result, info.flags);
           }
         }
@@ -1716,6 +1717,7 @@ JSONRPC_STATUS CPlayerOperations::GetPropertyValue(PlayerType player, const std:
     switch (player)
     {
       case Video:
+      case Audio:
         if (g_application.GetAppPlayer().HasPlayer())
         {
           for (int index = 0; index < g_application.GetAppPlayer().GetAudioStreamCount(); index++)
@@ -1730,6 +1732,7 @@ JSONRPC_STATUS CPlayerOperations::GetPropertyValue(PlayerType player, const std:
             audioStream["codec"] = info.codecName;
             audioStream["bitrate"] = info.bitrate;
             audioStream["channels"] = info.channels;
+            audioStream["samplerate"] = info.samplerate;
             AppendAudioStreamFlagsAsBooleans(audioStream, info.flags);
 
             result.append(audioStream);
@@ -1737,7 +1740,6 @@ JSONRPC_STATUS CPlayerOperations::GetPropertyValue(PlayerType player, const std:
         }
         break;
 
-      case Audio:
       case Picture:
       default:
         break;

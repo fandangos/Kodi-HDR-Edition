@@ -23,8 +23,9 @@
 #include "platform/posix/ConvUtils.h"
 #endif
 
-#include <cassert>
 #include <algorithm>
+#include <cassert>
+#include <inttypes.h>
 #include <memory>
 
 #ifdef TARGET_POSIX
@@ -240,7 +241,6 @@ void CFileCache::Process()
 
   CWriteRate limiter;
   CWriteRate average;
-  bool cacheReachEOF = false;
 
   while (!m_bStop)
   {
@@ -252,7 +252,7 @@ void CFileCache::Process()
     {
       m_seekEvent.Reset();
       int64_t cacheMaxPos = m_pCache->CachedDataEndPosIfSeekTo(m_seekPos);
-      cacheReachEOF = (cacheMaxPos == m_fileSize);
+      const bool cacheReachEOF = (cacheMaxPos == m_fileSize);
       bool sourceSeekFailed = false;
       if (!cacheReachEOF)
       {
@@ -315,7 +315,7 @@ void CFileCache::Process()
     /* Only read from source if there's enough write space in the cache
      * else we may keep disposing data and seeking back on (slow) source
      */
-    if (maxWrite < maxSourceRead && !cacheReachEOF)
+    if (maxWrite < maxSourceRead)
     {
       // Wait until sufficient cache write space is available
       m_pCache->m_space.WaitMSec(5);
@@ -323,7 +323,7 @@ void CFileCache::Process()
     }
 
     ssize_t iRead = 0;
-    if (!cacheReachEOF)
+    if (maxSourceRead > 0)
       iRead = m_source.Read(buffer.get(), maxSourceRead);
     if (iRead == 0)
     {
@@ -362,6 +362,8 @@ void CFileCache::Process()
     else if (iRead < 0) // Fatal error
     {
       CLog::Log(LOGDEBUG, "CFileCache::Process - Source read returned a fatal error! Will wait for buffer to empty.");
+
+      m_pCache->EndOfInput();
 
       while (m_pCache->WaitForData(0, 0) > 0)
       {
@@ -531,10 +533,11 @@ int64_t CFileCache::Seek(int64_t iFilePosition, int iWhence)
     m_seekPos = std::min(iTarget, std::max((int64_t)0, m_fileSize - m_chunkSize));
 
     m_seekEvent.Set();
-    if (!m_seekEnded.Wait())
+    while (!m_seekEnded.WaitMSec(100))
     {
-      CLog::Log(LOGWARNING,"%s - seek to %" PRId64" failed.", __FUNCTION__, m_seekPos);
-      return -1;
+      // SeekEnded will never be set if FileCache thread is not running
+      if (!CThread::IsRunning())
+        return -1;
     }
 
     /* wait for any remaining data */

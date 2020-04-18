@@ -73,7 +73,7 @@ void CPVRClient::StopRunningInstance()
   {
     // stop the pvr manager and stop and unload the running pvr addon. pvr manager will be restarted on demand.
     CServiceBroker::GetPVRManager().Stop();
-    CServiceBroker::GetPVRManager().Clients()->StopClient(addon, false);
+    CServiceBroker::GetPVRManager().Clients()->StopClient(addon->ID(), false);
   }
 }
 
@@ -301,6 +301,9 @@ void CPVRClient::WriteClientRecordingInfo(const CPVRRecording& xbmcRecording, PV
   addonRecording.bIsDeleted = xbmcRecording.IsDeleted();
   addonRecording.iChannelUid = xbmcRecording.ChannelUid();
   addonRecording.channelType = xbmcRecording.IsRadio() ? PVR_RECORDING_CHANNEL_TYPE_RADIO : PVR_RECORDING_CHANNEL_TYPE_TV;
+  if (xbmcRecording.FirstAired().IsValid())
+    strncpy(addonRecording.strFirstAired, xbmcRecording.FirstAired().GetAsW3CDate().c_str(),
+            sizeof(addonRecording.strFirstAired) - 1);
 }
 
 /*!
@@ -649,8 +652,11 @@ public:
     startTime = t;
     kodiTag->EndAsUTC().GetAsTime(t);
     endTime = t;
-    kodiTag->FirstAiredAsUTC().GetAsTime(t);
-    firstAired = t;
+
+    const CDateTime firstAired = kodiTag->FirstAired();
+    if (firstAired.IsValid())
+      m_strFirstAired = firstAired.GetAsW3CDate();
+
     iUniqueBroadcastId = kodiTag->UniqueBroadcastID();
     iUniqueChannelId = kodiTag->UniqueChannelID();
     iParentalRating = kodiTag->ParentalRating();
@@ -674,6 +680,7 @@ public:
     strIconPath = m_strIconPath.c_str();
     strSeriesLink = m_strSeriesLink.c_str();
     strGenreDescription = m_strGenreDescription.c_str();
+    strFirstAired = m_strFirstAired.c_str();
   }
 
   virtual ~CAddonEpgTag() = default;
@@ -691,6 +698,7 @@ private:
   std::string m_strIconPath;
   std::string m_strSeriesLink;
   std::string m_strGenreDescription;
+  std::string m_strFirstAired;
 };
 
 PVR_ERROR CPVRClient::IsRecordable(const std::shared_ptr<const CPVREpgInfoTag>& tag, bool& bIsRecordable) const
@@ -913,6 +921,15 @@ PVR_ERROR CPVRClient::GetRecordingEdl(const CPVRRecording& recording, std::vecto
     }
     return error;
   }, m_clientCapabilities.SupportsRecordingsEdl());
+}
+
+PVR_ERROR CPVRClient::GetRecordingSize(const CPVRRecording& recording, int64_t& sizeInBytes)
+{
+  return DoAddonCall(__FUNCTION__, [&recording, &sizeInBytes](const AddonInstance* addon) {
+    PVR_RECORDING tag;
+    WriteClientRecordingInfo(recording, tag);
+    return addon->GetRecordingSize(&tag, &sizeInBytes);
+  }, m_clientCapabilities.SupportsRecordingsSize());
 }
 
 PVR_ERROR CPVRClient::GetTimersAmount(int& iTimers)

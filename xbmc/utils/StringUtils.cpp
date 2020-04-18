@@ -26,23 +26,30 @@
 #include <androidjni/JNIThreading.h>
 #endif
 
-#include "StringUtils.h"
 #include "CharsetConverter.h"
 #include "LangInfo.h"
+#include "StringUtils.h"
 #include "Util.h"
-#include <fstrcmp.h>
-#include <functional>
+
+#include <algorithm>
 #include <array>
-#include <iomanip>
 #include <assert.h>
+#include <functional>
+#include <inttypes.h>
+#include <iomanip>
 #include <math.h>
-#include <time.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
+#include <time.h>
+
+#include <fstrcmp.h>
 #include <memory.h>
-#include <algorithm>
-#include "utils/RegExp.h" // don't move or std functions end up in PCRE namespace
+
+// don't move or std functions end up in PCRE namespace
+// clang-format off
+#include "utils/RegExp.h"
+// clang-format on
 
 #define FORMAT_BLOCK_SIZE 512 // # of bytes for initial allocation for printf
 
@@ -401,21 +408,24 @@ bool StringUtils::EqualsNoCase(const char *s1, const char *s2)
   return true;
 }
 
-int StringUtils::CompareNoCase(const std::string &str1, const std::string &str2)
+int StringUtils::CompareNoCase(const std::string& str1, const std::string& str2, size_t n /* = 0 */)
 {
-  return CompareNoCase(str1.c_str(), str2.c_str());
+  return CompareNoCase(str1.c_str(), str2.c_str(), n);
 }
 
-int StringUtils::CompareNoCase(const char *s1, const char *s2)
+int StringUtils::CompareNoCase(const char* s1, const char* s2, size_t n /* = 0 */)
 {
   char c2; // we need only one char outside the loop
+  size_t index = 0;
   do
   {
     const char c1 = *s1++; // const local variable should help compiler to optimize
     c2 = *s2++;
+    index++;
     if (c1 != c2 && ::tolower(c1) != ::tolower(c2)) // This includes the possibility that one of the characters is the null-terminator, which implies a string mismatch.
       return ::tolower(c1) - ::tolower(c2);
-  } while (c2 != '\0'); // At this point, we know c1 == c2, so there's no need to test them both.
+  } while (c2 != '\0' &&
+           index != n); // At this point, we know c1 == c2, so there's no need to test them both.
   return 0;
 }
 
@@ -833,6 +843,45 @@ int StringUtils::DateStringToYYYYMMDD(const std::string &dateString)
     return atoi(days[0].c_str())*10000+atoi(days[1].c_str())*100+atoi(days[2].c_str());
   else
     return -1;
+}
+
+std::string StringUtils::ISODateToLocalizedDate(const std::string& strIsoDate)
+{
+  // Convert ISO8601 date strings YYYY, YYYY-MM, or YYYY-MM-DD to (partial) localized date strings
+  CDateTime date;
+  std::string formattedDate = strIsoDate;
+  if (formattedDate.size() == 10)
+  {
+    date.SetFromDBDate(strIsoDate);
+    formattedDate = date.GetAsLocalizedDate();
+  }
+  else if (formattedDate.size() == 7)
+  {
+    std::string strFormat = date.GetAsLocalizedDate(false);
+    std::string tempdate;
+    // find which date separator we are using.  Can be -./
+    size_t pos = strFormat.find_first_of("-./");
+    if (pos != std::string::npos)
+    {
+      bool yearFirst = strFormat.find("1601") == 0; // true if year comes first
+      std::string sep = strFormat.substr(pos, 1);
+      if (yearFirst)
+      { // build formatted date with year first, then separator and month
+        tempdate = formattedDate.substr(0, 4);
+        tempdate += sep;
+        tempdate += formattedDate.substr(5, 2);
+      }
+      else
+      {
+        tempdate = formattedDate.substr(5, 2);
+        tempdate += sep;
+        tempdate += formattedDate.substr(0, 4);
+      }
+      formattedDate = tempdate;
+    }
+  // return either just the year or the locally formatted version of the ISO date
+  }
+  return formattedDate;
 }
 
 long StringUtils::TimeStringToSeconds(const std::string &timeString)

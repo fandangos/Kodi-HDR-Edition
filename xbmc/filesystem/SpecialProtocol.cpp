@@ -122,8 +122,8 @@ std::string CSpecialProtocol::TranslatePath(const CURL &url)
     std::string path(url.Get());
     if (path.length() >= 2 && path[1] == ':')
     {
-      CLog::Log(LOGWARNING, "Trying to access old style dir: %s\n", path.c_str());
-     // printf("Trying to access old style dir: %s\n", path.c_str());
+      CLog::Log(LOGWARNING, "Trying to access old style dir: %s", path.c_str());
+      // printf("Trying to access old style dir: %s\n", path.c_str());
     }
 #endif
 
@@ -240,7 +240,7 @@ std::string CSpecialProtocol::TranslatePathConvertCase(const std::string& path)
         while ((de = readdir(dir)) != NULL)
         {
           // check if there's a file with same name but different case
-          if (strcasecmp(de->d_name, tokens[i].c_str()) == 0)
+          if (StringUtils::CompareNoCase(de->d_name, tokens[i]) == 0)
           {
             result += "/";
             result += de->d_name;

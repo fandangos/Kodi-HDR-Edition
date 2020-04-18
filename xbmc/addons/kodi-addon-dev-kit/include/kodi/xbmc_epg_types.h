@@ -56,8 +56,12 @@ extern "C" {
 #endif
 
   /* EPG_TAG.iFlags values */
-  const unsigned int EPG_TAG_FLAG_UNDEFINED = 0x00000000; /*!< @brief nothing special to say about this entry */
-  const unsigned int EPG_TAG_FLAG_IS_SERIES = 0x00000001; /*!< @brief this EPG entry is part of a series */
+  const unsigned int EPG_TAG_FLAG_UNDEFINED   = 0x00000000; /*!< @brief nothing special to say about this entry */
+  const unsigned int EPG_TAG_FLAG_IS_SERIES   = 0x00000001; /*!< @brief this EPG entry is part of a series */
+  const unsigned int EPG_TAG_FLAG_IS_NEW      = 0x00000002; /*!< @brief this EPG entry will be flagged as new */
+  const unsigned int EPG_TAG_FLAG_IS_PREMIERE = 0x00000004; /*!< @brief this EPG entry will be flagged as a premiere */
+  const unsigned int EPG_TAG_FLAG_IS_FINALE   = 0x00000008; /*!< @brief this EPG entry will be flagged as a finale */
+  const unsigned int EPG_TAG_FLAG_IS_LIVE     = 0x00000010; /*!< @brief this EPG entry will be flagged as live */
 
   /* Special EPG_TAG.iUniqueBroadcastId value */
 
@@ -65,6 +69,11 @@ extern "C" {
    * @brief special EPG_TAG.iUniqueBroadcastId value to indicate that a tag has not a valid EPG event uid.
    */
   const unsigned int EPG_TAG_INVALID_UID = 0;
+
+  /*!
+   * @brief special EPG_TAG.iSeriesNumber, EPG_TAG.iEpisodeNumber and EPG_TAG.iEpisodePartNumber value to indicate it is not to be used
+   */
+  const int EPG_TAG_INVALID_SERIES_EPISODE = -1;
 
   /*!
    * @brief EPG event states. Used with EpgEventStateChange callback.
@@ -97,12 +106,12 @@ extern "C" {
     int           iGenreType;          /*!< @brief (optional) genre type */
     int           iGenreSubType;       /*!< @brief (optional) genre sub type */
     const char *  strGenreDescription; /*!< @brief (optional) genre. Will be used only when iGenreType == EPG_GENRE_USE_STRING or iGenreSubType == EPG_GENRE_USE_STRING. Use EPG_STRING_TOKEN_SEPARATOR to separate different genres. */
-    time_t        firstAired;          /*!< @brief (optional) first aired in UTC */
+    const char *  strFirstAired;       /*!< @brief (optional) first aired date of the event. Used only for display purposes. Specify in W3C date format "YYYY-MM-DD". */
     int           iParentalRating;     /*!< @brief (optional) parental rating */
     int           iStarRating;         /*!< @brief (optional) star rating */
-    int           iSeriesNumber;       /*!< @brief (optional) series number */
-    int           iEpisodeNumber;      /*!< @brief (optional) episode number */
-    int           iEpisodePartNumber;  /*!< @brief (optional) episode part number */
+    int           iSeriesNumber;       /*!< @brief (optional) series number. Set to "0" for specials/pilot. For 'invalid' set to EPG_TAG_INVALID_SERIES_EPISODE */
+    int           iEpisodeNumber;      /*!< @brief (optional) episode number. For 'invalid' set to EPG_TAG_INVALID_SERIES_EPISODE */
+    int           iEpisodePartNumber;  /*!< @brief (optional) episode part number. For 'invalid' set to EPG_TAG_INVALID_SERIES_EPISODE */
     const char *  strEpisodeName;      /*!< @brief (optional) episode name */
     unsigned int  iFlags;              /*!< @brief (optional) bit field of independent flags associated with the EPG entry */
     const char *  strSeriesLink;       /*!< @brief (optional) series link for this event */

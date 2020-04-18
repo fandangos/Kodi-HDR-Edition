@@ -360,14 +360,13 @@ public:
 
   CStructHdl(C_STRUCT* cStructure)
     : m_cStructure(cStructure)
-    , m_owner(false)
   {
     assert(cStructure);
   }
 
-  const CPP_CLASS& operator=(const CPP_CLASS& right)
+  const CStructHdl& operator=(const CStructHdl& right)
   {
-    assert(*right.m_cStructure);
+    assert(&right.m_cStructure);
     if (m_owner)
       delete m_cStructure;
     m_owner = true;
@@ -375,9 +374,9 @@ public:
     return *this;
   }
 
-  const CPP_CLASS& operator=(const C_STRUCT& right)
+  const CStructHdl& operator=(const C_STRUCT& right)
   {
-    assert(*right);
+    assert(&right);
     if (m_owner)
       delete m_cStructure;
     m_owner = true;

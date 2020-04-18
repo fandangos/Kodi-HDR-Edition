@@ -7,26 +7,26 @@
  */
 
 #include "CurlFile.h"
+
+#include "File.h"
 #include "ServiceBroker.h"
-#include "Util.h"
 #include "URL.h"
+#include "Util.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "File.h"
 #include "threads/SystemClock.h"
 #include "utils/Base64.h"
+#include "utils/XTimeUtils.h"
 
 #include <algorithm>
-#include <vector>
-#include <climits>
 #include <cassert>
+#include <climits>
+#include <vector>
 
 #ifdef TARGET_POSIX
 #include <errno.h>
 #include <inttypes.h>
-#include "platform/posix/XFileUtils.h"
-#include "platform/posix/XTimeUtils.h"
 #include "platform/posix/ConvUtils.h"
 #endif
 
@@ -59,7 +59,7 @@ extern "C" int debug_callback(CURL_HANDLE *handle, curl_infotype info, char *out
   if (info == CURLINFO_DATA_IN || info == CURLINFO_DATA_OUT)
     return 0;
 
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->CanLogComponent(LOGCURL))
+  if (!CServiceBroker::GetLogging().CanLogComponent(LOGCURL))
     return 0;
 
   std::string strLine;
@@ -959,7 +959,7 @@ void CCurlFile::Cancel()
 {
   m_state->m_cancelled = true;
   while (m_opened)
-    Sleep(1);
+    KODI::TIME::Sleep(1);
 }
 
 void CCurlFile::Reset()
@@ -1008,7 +1008,8 @@ bool CCurlFile::Open(const CURL& url)
                                 &m_state->m_multiHandle);
 
   // setup common curl options
-  SetCommonOptions(m_state, m_failOnError && !CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->CanLogComponent(LOGCURL));
+  SetCommonOptions(m_state,
+                   m_failOnError && !CServiceBroker::GetLogging().CanLogComponent(LOGCURL));
   SetRequestHeaders(m_state);
   m_state->m_sendRange = m_seekable;
   m_state->m_bRetry = m_allowRetry;
@@ -1018,7 +1019,7 @@ bool CCurlFile::Open(const CURL& url)
   if (m_httpresponse <= 0 || (m_failOnError && m_httpresponse >= 400))
   {
     std::string error;
-    if (m_httpresponse >= 400 && CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->CanLogComponent(LOGCURL))
+    if (m_httpresponse >= 400 && CServiceBroker::GetLogging().CanLogComponent(LOGCURL))
     {
       error.resize(4096);
       ReadString(&error[0], 4095);
@@ -1254,24 +1255,24 @@ bool CCurlFile::Exists(const CURL& url)
       {
         // If we get a Method Not Allowed response, retry with a GET Request
         g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_NOBODY, 0);
-        
+
         g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_FILETIME, 1);
         g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_XFERINFOFUNCTION, transfer_abort_callback);
         g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_NOPROGRESS, 0);
-        
+
         curl_slist *list = NULL;
         list = g_curlInterface.slist_append(list, "Range: bytes=0-1"); /* try to only request 1 byte */
         g_curlInterface.easy_setopt(m_state->m_easyHandle, CURLOPT_HTTPHEADER, list);
-        
+
         CURLcode result = g_curlInterface.easy_perform(m_state->m_easyHandle);
         g_curlInterface.slist_free_all(list);
-        
+
         if (result == CURLE_WRITE_ERROR || result == CURLE_OK)
         {
           g_curlInterface.easy_release(&m_state->m_easyHandle, NULL);
           return true;
         }
-        
+
         if (result == CURLE_HTTP_RETURNED_ERROR)
         {
           if (g_curlInterface.easy_getinfo(m_state->m_easyHandle, CURLINFO_RESPONSE_CODE, &code) == CURLE_OK && code != 404 )
@@ -1739,7 +1740,7 @@ int8_t CCurlFile::CReadState::FillBuffer(unsigned int want)
              * socket. Instead use Windows' Sleep() and sleep for 100ms which is the
              * minimum suggested value in the curl_multi_fdset() doc.
              */
-            Sleep(100);
+            KODI::TIME::Sleep(100);
             rc = 0;
 #else
             /* Portable sleep for platforms other than Windows. */

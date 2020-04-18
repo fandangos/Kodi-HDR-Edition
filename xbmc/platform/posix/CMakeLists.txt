@@ -6,7 +6,6 @@ set(SOURCES ConvUtils.cpp
             PosixMountProvider.cpp
             PosixResourceCounter.cpp
             PosixTimezone.cpp
-            XFileUtils.cpp
             XHandle.cpp
             XTimeUtils.cpp)
 
@@ -17,8 +16,6 @@ set(HEADERS ConvUtils.h
             PosixMountProvider.h
             PosixResourceCounter.h
             PosixTimezone.h
-            XFileUtils.h
-            XHandle.h
-            XTimeUtils.h)
+            XHandle.h)
 
 core_add_library(platform_posix)

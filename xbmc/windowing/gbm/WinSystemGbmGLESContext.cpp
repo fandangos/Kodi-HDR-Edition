@@ -10,7 +10,7 @@
 
 #include "OptionalsReg.h"
 #include "cores/RetroPlayer/process/gbm/RPProcessInfoGbm.h"
-#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererGBM.h"
+#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererDMA.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererOpenGLES.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.h"
@@ -20,9 +20,13 @@
 #include "cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderFactory.h"
 #include "rendering/gles/ScreenshotSurfaceGLES.h"
+#include "utils/BufferObjectFactory.h"
+#include "utils/DMAHeapBufferObject.h"
+#include "utils/DumbBufferObject.h"
+#include "utils/GBMBufferObject.h"
+#include "utils/UDMABufferObject.h"
+#include "utils/XTimeUtils.h"
 #include "utils/log.h"
-
-#include "platform/posix/XTimeUtils.h"
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -46,7 +50,7 @@ bool CWinSystemGbmGLESContext::InitWindowSystem()
   CDVDFactoryCodec::ClearHWAccels();
   CLinuxRendererGLES::Register();
   RETRO::CRPProcessInfoGbm::Register();
-  RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryGBM);
+  RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryDMA);
   RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryOpenGLES);
 
   if (!CWinSystemGbmEGLContext::InitWindowSystemEGL(EGL_OPENGL_ES2_BIT, EGL_OPENGL_ES_API))
@@ -70,6 +74,18 @@ bool CWinSystemGbmGLESContext::InitWindowSystem()
   VIDEOPLAYER::CProcessInfoGBM::Register();
 
   CScreenshotSurfaceGLES::Register();
+
+  CBufferObjectFactory::ClearBufferObjects();
+  CDumbBufferObject::Register();
+#if defined(HAS_GBM_BO_MAP)
+  CGBMBufferObject::Register();
+#endif
+#if defined(HAVE_LINUX_MEMFD) && defined(HAVE_LINUX_UDMABUF)
+  CUDMABufferObject::Register();
+#endif
+#if defined(HAVE_LINUX_DMA_HEAP)
+  CDMAHeapBufferObject::Register();
+#endif
 
   return true;
 }
@@ -125,7 +141,7 @@ void CWinSystemGbmGLESContext::PresentRender(bool rendered, bool videoLayer)
   }
   else
   {
-    Sleep(10);
+    KODI::TIME::Sleep(10);
   }
 }
 

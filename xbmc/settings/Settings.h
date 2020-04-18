@@ -169,9 +169,8 @@ public:
   static const std::string SETTING_EPG_HIDENOINFOAVAILABLE;
   static const std::string SETTING_EPG_EPGUPDATE;
   static const std::string SETTING_EPG_PREVENTUPDATESWHILEPLAYINGTV;
-  static const std::string SETTING_EPG_STOREEPGINDATABASE;
   static const std::string SETTING_EPG_RESETEPG;
-  static const std::string SETTING_PVRPLAYBACK_SWITCHTOFULLSCREEN;
+  static const std::string SETTING_PVRPLAYBACK_SWITCHTOFULLSCREENCHANNELTYPES;
   static const std::string SETTING_PVRPLAYBACK_SIGNALQUALITY;
   static const std::string SETTING_PVRPLAYBACK_CONFIRMCHANNELSWITCH;
   static const std::string SETTING_PVRPLAYBACK_CHANNELENTRYTIMEOUT;
@@ -198,6 +197,7 @@ public:
   static const std::string SETTING_PVRTIMERS_HIDEDISABLEDTIMERS;
   static const std::string SETTING_MUSICLIBRARY_SHOWCOMPILATIONARTISTS;
   static const std::string SETTING_MUSICLIBRARY_SHOWDISCS;
+  static const std::string SETTING_MUSICLIBRARY_USEORIGINALDATE;
   static const std::string SETTING_MUSICLIBRARY_USEARTISTSORTNAME;
   static const std::string SETTING_MUSICLIBRARY_DOWNLOADINFO;
   static const std::string SETTING_MUSICLIBRARY_ARTISTSFOLDER;
@@ -229,6 +229,7 @@ public:
   static const std::string SETTING_MUSICPLAYER_CROSSFADE;
   static const std::string SETTING_MUSICPLAYER_CROSSFADEALBUMTRACKS;
   static const std::string SETTING_MUSICPLAYER_VISUALISATION;
+  static const std::string SETTING_MUSICFILES_SELECTACTION;
   static const std::string SETTING_MUSICFILES_USETAGS;
   static const std::string SETTING_MUSICFILES_TRACKFORMAT;
   static const std::string SETTING_MUSICFILES_NOWPLAYINGTRACKFORMAT;

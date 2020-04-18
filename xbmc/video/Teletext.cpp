@@ -519,7 +519,7 @@ bool CTeletextDecoder::HandleAction(const CAction &action)
     PageInput(action.GetID() - REMOTE_0);
     return true;
   }
-  else if (action.GetID() >= KEY_ASCII) // FIXME make it KEY_UNICODE
+  else if (action.GetID() == KEY_UNICODE)
   { // input from the keyboard
     if (action.GetUnicode() >= 48 && action.GetUnicode() < 58)
     {
@@ -643,7 +643,8 @@ bool CTeletextDecoder::InitDecoder()
     m_TypeTTF.face_id = (FTC_FaceID) const_cast<char*>(m_teletextFont.c_str());
     if ((error = FTC_Manager_LookupFace(m_Manager, m_TypeTTF.face_id, &m_Face)))
     {
-      CLog::Log(LOGERROR, "%s: <FTC_Manager_Lookup_Face failed with Errorcode 0x%.2X>\n", __FUNCTION__, error);
+      CLog::Log(LOGERROR, "%s: <FTC_Manager_Lookup_Face failed with Errorcode 0x%.2X>",
+                __FUNCTION__, error);
       FTC_Manager_Done(m_Manager);
       FT_Done_FreeType(m_Library);
       m_Manager = NULL;

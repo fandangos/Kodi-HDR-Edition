@@ -110,7 +110,7 @@ bool CPVRChannel::Delete()
   const std::shared_ptr<CPVREpg> epg = GetEPG();
   if (epg)
   {
-    CServiceBroker::GetPVRManager().EpgContainer().DeleteEpg(epg, true);
+    CServiceBroker::GetPVRManager().EpgContainer().DeleteEpg(epg);
 
     CSingleLock lock(m_critSection);
     m_epg.reset();
@@ -777,17 +777,6 @@ int CPVRChannel::EpgID() const
 {
   CSingleLock lock(m_critSection);
   return m_iEpgId;
-}
-
-void CPVRChannel::SetEpgID(int iEpgId)
-{
-  CSingleLock lock(m_critSection);
-  if (m_iEpgId != iEpgId)
-  {
-    m_iEpgId = iEpgId;
-    m_epg.reset();
-    m_bChanged = true;
-  }
 }
 
 bool CPVRChannel::EPGEnabled() const

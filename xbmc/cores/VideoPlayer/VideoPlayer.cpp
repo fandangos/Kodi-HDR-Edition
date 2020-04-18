@@ -651,7 +651,7 @@ CVideoPlayer::~CVideoPlayer()
 
   while (m_outboundEvents->IsProcessing())
   {
-    Sleep(10);
+    CThread::Sleep(10);
   }
 }
 
@@ -1316,7 +1316,7 @@ void CVideoPlayer::Process()
     // check display lost
     if (m_displayLost)
     {
-      Sleep(50);
+      CThread::Sleep(50);
       continue;
     }
 
@@ -1401,7 +1401,7 @@ void CVideoPlayer::Process()
           m_pDemuxer->SetSpeed(DVD_PLAYSPEED_PAUSE);
         m_demuxerSpeed = DVD_PLAYSPEED_PAUSE;
       }
-      Sleep(10);
+      CThread::Sleep(10);
       continue;
     }
 
@@ -1471,7 +1471,7 @@ void CVideoPlayer::Process()
       // input stream asked us to just retry
       if(next == CDVDInputStream::NEXTSTREAM_RETRY)
       {
-        Sleep(100);
+        CThread::Sleep(100);
         continue;
       }
 
@@ -1493,7 +1493,7 @@ void CVideoPlayer::Process()
       if (m_VideoPlayerAudio->HasData() ||
           m_VideoPlayerVideo->HasData())
       {
-        Sleep(100);
+        CThread::Sleep(100);
         continue;
       }
 
@@ -2825,10 +2825,13 @@ void CVideoPlayer::HandleMessages()
       }
 
       if (speed != DVD_PLAYSPEED_PAUSE && m_playSpeed != DVD_PLAYSPEED_PAUSE && speed != m_playSpeed)
+      {
         m_callback.OnPlayBackSpeedChanged(speed / DVD_PLAYSPEED_NORMAL);
 
-      // notify GUI, skins may want to show the seekbar
-      CServiceBroker::GetGUI()->GetInfoManager().GetInfoProviders().GetPlayerInfoProvider().SetDisplayAfterSeek();
+        // notify GUI, skins may want to show the seekbar
+        CServiceBroker::GetGUI()->
+          GetInfoManager().GetInfoProviders().GetPlayerInfoProvider().SetDisplayAfterSeek();
+      }
 
       if (m_pInputStream->IsStreamType(DVDSTREAM_TYPE_PVRMANAGER) && speed != m_playSpeed)
       {
@@ -4023,7 +4026,7 @@ int CVideoPlayer::OnDiscNavResult(void* pData, int iMessage)
       {
         //dvdnav_highlight_event_t* pInfo = (dvdnav_highlight_event_t*)pData;
         int iButton = pStream->GetCurrentButton();
-        CLog::Log(LOGDEBUG, "DVDNAV_HIGHLIGHT: Highlight button %d\n", iButton);
+        CLog::Log(LOGDEBUG, "DVDNAV_HIGHLIGHT: Highlight button %d", iButton);
         m_VideoPlayerSubtitle->UpdateOverlayInfo(std::static_pointer_cast<CDVDInputStreamNavigator>(m_pInputStream), LIBDVDNAV_BUTTON_NORMAL);
       }
       break;

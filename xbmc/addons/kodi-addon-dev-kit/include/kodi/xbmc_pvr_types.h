@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "xbmc_addon_types.h"
+#include "AddonBase.h"
 #include "xbmc_epg_types.h"
 
 /*! @note Define "USE_DEMUX" at compile time if demuxing in the PVR add-on is used.
@@ -59,6 +59,7 @@ struct DemuxPacket;
 #define PVR_ADDON_ATTRIBUTE_DESC_LENGTH       128
 #define PVR_ADDON_ATTRIBUTE_VALUES_ARRAY_SIZE 512
 #define PVR_ADDON_DESCRAMBLE_INFO_STRING_LENGTH 64
+#define PVR_ADDON_DATE_STRING_LENGTH          32
 
 #define XBMC_INVALID_CODEC_ID   0
 #define XBMC_INVALID_CODEC      { XBMC_CODEC_TYPE_UNKNOWN, XBMC_INVALID_CODEC_ID }
@@ -153,7 +154,7 @@ extern "C" {
   const unsigned int PVR_TIMER_TYPE_SUPPORTS_MAX_RECORDINGS           = 0x00100000; /*!< @brief this type supports specifying a maximum recordings setting' (PVR_TIMER.iMaxRecordings) */
   const unsigned int PVR_TIMER_TYPE_REQUIRES_EPG_TAG_ON_CREATE        = 0x00200000; /*!< @brief this type should not appear on any create menus which don't provide an associated EPG tag */
   const unsigned int PVR_TIMER_TYPE_FORBIDS_EPG_TAG_ON_CREATE         = 0x00400000; /*!< @brief this type should not appear on any create menus which provide an associated EPG tag */
-  const unsigned int PVR_TIMER_TYPE_REQUIRES_EPG_SERIES_ON_CREATE     = 0x00800000; /*!< @brief this type should not appear on any create menus unless associated with an EPG tag with 'series' attributes (EPG_TAG.iFlags & EPG_TAG_FLAG_IS_SERIES || EPG_TAG.iSeriesNumber > 0 || EPG_TAG.iEpisodeNumber > 0 || EPG_TAG.iEpisodePartNumber > 0). Implies PVR_TIMER_TYPE_REQUIRES_EPG_TAG_ON_CREATE */
+  const unsigned int PVR_TIMER_TYPE_REQUIRES_EPG_SERIES_ON_CREATE     = 0x00800000; /*!< @brief this type should not appear on any create menus unless associated with an EPG tag with 'series' attributes (EPG_TAG.iFlags & EPG_TAG_FLAG_IS_SERIES || EPG_TAG.iSeriesNumber >= 0 || EPG_TAG.iEpisodeNumber >= 0 || EPG_TAG.iEpisodePartNumber >= 0). Implies PVR_TIMER_TYPE_REQUIRES_EPG_TAG_ON_CREATE */
   const unsigned int PVR_TIMER_TYPE_SUPPORTS_ANY_CHANNEL              = 0x01000000; /*!< @brief this type supports 'any channel', for example when defining a timer rule that should match any channel instaed of a particular channel */
   const unsigned int PVR_TIMER_TYPE_REQUIRES_EPG_SERIESLINK_ON_CREATE = 0x02000000; /*!< @brief this type should not appear on any create menus which don't provide an associated EPG tag with a series link */
   const unsigned int PVR_TIMER_TYPE_SUPPORTS_READONLY_DELETE          = 0x04000000; /*!< @brief this type allows deletion of an otherwise read-only timer */
@@ -315,6 +316,7 @@ extern "C" {
     bool bSupportsRecordingsLifetimeChange; /*!< @brief true if the backend supports changing lifetime for recordings. */
     bool bSupportsDescrambleInfo;       /*!< @brief true if the backend supports descramble information for playing channels. */
     bool bSupportsAsyncEPGTransfer;     /*!< @brief true if this addon-on supports asynchronous transfer of epg events to Kodi using the callback function EpgEventStateChange. */
+    bool bSupportsRecordingSize;        /*!< @brief true if this addon-on supports retrieving size of recordings. */
 
     unsigned int iRecordingsLifetimesSize; /*!< @brief (required) Count of possible values for PVR_RECORDING.iLifetime. 0 means lifetime is not supported for recordings or no own value definition wanted, but to use Kodi defaults of 1..365. */
     PVR_ATTRIBUTE_INT_VALUE recordingsLifetimeValues[PVR_ADDON_ATTRIBUTE_VALUES_ARRAY_SIZE]; /*!< @brief (optional) Array containing the possible values for PVR_RECORDING.iLifetime. Must be filled if iLifetimesSize > 0 */
@@ -527,6 +529,21 @@ extern "C" {
 
   } ATTRIBUTE_PACKED PVR_TIMER;
 
+  /* PVR_RECORDING.iFlags values */
+  const unsigned int PVR_RECORDING_FLAG_UNDEFINED   = 0x00000000; /*!< @brief nothing special to say about this recording */
+  const unsigned int PVR_RECORDING_FLAG_IS_SERIES   = 0x00000001; /*!< @brief this recording is part of a series */
+  const unsigned int PVR_RECORDING_FLAG_IS_NEW      = 0x00000002; /*!< @brief this recording will be flagged as new */
+  const unsigned int PVR_RECORDING_FLAG_IS_PREMIERE = 0x00000004; /*!< @brief this recording will be flagged as a premiere */
+  const unsigned int PVR_RECORDING_FLAG_IS_FINALE   = 0x00000008; /*!< @brief this recording will be flagged as a finale */
+  const unsigned int PVR_RECORDING_FLAG_IS_LIVE     = 0x00000010; /*!< @brief this recording will be flagged as live */
+
+  /*!
+   * @brief special PVR_RECORDING.iSeriesNumber and PVR_RECORDING.iEpisodeNumber value to indicate it is not to be used
+   * 
+   * Used if recording has no valid season and/or episode info.
+   */
+  const unsigned int PVR_RECORDING_INVALID_SERIES_EPISODE = EPG_TAG_INVALID_SERIES_EPISODE;
+
   /*!
    * @brief Representation of a recording.
    */
@@ -534,8 +551,8 @@ extern "C" {
     char   strRecordingId[PVR_ADDON_NAME_STRING_LENGTH];  /*!< @brief (required) unique id of the recording on the client. */
     char   strTitle[PVR_ADDON_NAME_STRING_LENGTH];        /*!< @brief (required) the title of this recording */
     char   strEpisodeName[PVR_ADDON_NAME_STRING_LENGTH];  /*!< @brief (optional) episode name (also known as subtitle) */
-    int    iSeriesNumber;                                 /*!< @brief (optional) series number (usually called season). Set to "0" for specials/pilot. For 'invalid' see iEpisodeNumber or set to -1 */
-    int    iEpisodeNumber;                                /*!< @brief (optional) episode number within the "iSeriesNumber" season. For 'invalid' set to -1 or iSeriesNumber=iEpisodeNumber=0 to show both are invalid */
+    int    iSeriesNumber;                                 /*!< @brief (optional) series number (usually called season). Set to "0" for specials/pilot. For 'invalid' set to PVR_RECORDING_INVALID_SERIES_EPISODE */
+    int    iEpisodeNumber;                                /*!< @brief (optional) episode number within the "iSeriesNumber" season. For 'invalid' set to PVR_RECORDING_INVALID_SERIES_EPISODE */
     int    iYear;                                         /*!< @brief (optional) year of first release (use to identify a specific movie re-make) / first airing for TV shows. Set to '0' for invalid. */
     char   strDirectory[PVR_ADDON_URL_STRING_LENGTH];     /*!< @brief (optional) directory of this recording on the client */
     char   strPlotOutline[PVR_ADDON_DESC_STRING_LENGTH];  /*!< @brief (optional) plot outline */
@@ -557,6 +574,9 @@ extern "C" {
     unsigned int iEpgEventId;                             /*!< @brief (optional) EPG event id associated with this recording. Valid ids must be greater than EPG_TAG_INVALID_UID. */
     int    iChannelUid;                                   /*!< @brief (optional) unique identifier of the channel for this recording. PVR_CHANNEL_INVALID_UID denotes that channel uid is not available. */
     PVR_RECORDING_CHANNEL_TYPE channelType;               /*!< @brief (optional) channel type. Set to PVR_RECORDING_CHANNEL_TYPE_UNKNOWN if the type cannot be determined. */
+    char   strFirstAired[PVR_ADDON_DATE_STRING_LENGTH];   /*!< @brief (optional) first aired date of this recording. Used only for display purposes. Specify in W3C date format "YYYY-MM-DD". */
+    unsigned int iFlags;                                  /*!< @brief (optional) bit field of independent flags associated with the recording */
+    int64_t sizeInBytes;                                  /*!< @brief (optional) size of the recording in bytes */
   } ATTRIBUTE_PACKED PVR_RECORDING;
 
   /*!
@@ -671,6 +691,7 @@ extern "C" {
     PVR_ERROR (__cdecl* SetRecordingLastPlayedPosition)(const PVR_RECORDING&, int);
     int (__cdecl* GetRecordingLastPlayedPosition)(const PVR_RECORDING&);
     PVR_ERROR (__cdecl* GetRecordingEdl)(const PVR_RECORDING&, PVR_EDL_ENTRY[], int*);
+    PVR_ERROR (__cdecl* GetRecordingSize)(const PVR_RECORDING*, int64_t*);
     PVR_ERROR (__cdecl* GetTimerTypes)(PVR_TIMER_TYPE[], int*);
     int (__cdecl* GetTimersAmount)(void);
     PVR_ERROR (__cdecl* GetTimers)(ADDON_HANDLE);

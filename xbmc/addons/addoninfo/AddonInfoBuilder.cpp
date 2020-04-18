@@ -281,7 +281,14 @@ bool CAddonInfoBuilder::ParseXML(const AddonInfoPtr& addon, const TiXmlElement* 
       /* Parse addon.xml "<platform">...</platform>" */
       element = child->FirstChildElement("platform");
       if (element && element->GetText() != nullptr)
-        addon->m_platforms = StringUtils::Split(element->GetText(), " ");
+      {
+        auto platforms = StringUtils::Split(element->GetText(),
+                                            {" ", "\t", "\n", "\r"});
+        platforms.erase(std::remove_if(platforms.begin(), platforms.end(),
+                        [](const std::string& platform) { return platform.empty(); }),
+                        platforms.cend());
+        addon->m_platforms = platforms;
+      }
 
       /* Parse addon.xml "<license">...</license>" */
       element = child->FirstChildElement("license");
@@ -322,21 +329,6 @@ bool CAddonInfoBuilder::ParseXML(const AddonInfoPtr& addon, const TiXmlElement* 
       element = child->FirstChildElement("reuselanguageinvoker");
       if (element && element->GetText() != nullptr)
         addon->AddExtraInfo("reuselanguageinvoker", element->GetText());
-
-      /* Parse addon.xml "<noicon">...</noicon>" */
-      if (addon->m_icon.empty())
-      {
-        element = child->FirstChildElement("noicon");
-        addon->m_icon = (element && strcmp(element->GetText() , "true") == 0) ? "" : URIUtils::AddFileToFolder(assetBasePath, "icon.png");
-      }
-
-      /* Parse addon.xml "<nofanart">...</nofanart>" */
-      if (addon->m_art.empty())
-      {
-        element = child->FirstChildElement("nofanart");
-        if (!element || strcmp(element->GetText(), "true") != 0)
-          addon->m_art["fanart"] = URIUtils::AddFileToFolder(assetBasePath, "fanart.jpg");
-      }
 
       /* Parse addon.xml "<size">...</size>" */
       element = child->FirstChildElement("size");
@@ -580,12 +572,13 @@ bool CAddonInfoBuilder::PlatformSupportsAddon(const AddonInfoPtr& addon)
     "android-aarch64",
 #elif defined(__i686__)
     "android-i686",
+#elif defined(__x86_64__)
+    "android-x86_64",
 #else
     #warning no architecture dependant platform tag
 #endif
 #elif defined(TARGET_FREEBSD)
     "freebsd",
-    "linux",
 #elif defined(TARGET_LINUX)
     "linux",
 #elif defined(TARGET_WINDOWS_DESKTOP)
@@ -604,9 +597,7 @@ bool CAddonInfoBuilder::PlatformSupportsAddon(const AddonInfoPtr& addon)
     "darwin_embedded",
 #if defined(TARGET_DARWIN_IOS)
     "ios",
-#if defined(__ARM_ARCH_7A__)
-    "ios-armv7",
-#elif defined(__aarch64__)
+#if defined(__aarch64__)
     "ios-aarch64",
 #else
 #warning no architecture dependant platform tag
@@ -620,9 +611,6 @@ bool CAddonInfoBuilder::PlatformSupportsAddon(const AddonInfoPtr& addon)
 #if defined(__x86_64__)
     "osx64",
     "osx-x86_64",
-#elif defined(__i686__)
-    "osx-i686",
-    "osx32",
 #else
 #warning no architecture dependant platform tag
 #endif

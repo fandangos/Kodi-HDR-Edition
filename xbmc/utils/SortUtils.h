@@ -157,6 +157,10 @@ typedef enum {
   SortByClientChannelOrder,
   /// __54__ : Sort by total number of discs      <em>(String: <b><c>totaldiscs</c></b>)</em>
   SortByTotalDiscs,
+  /// __55__ : Sort by original release date      <em>(String: <b><c>Originaldate</c></b>)</em>
+  SortByOrigDate,
+  /// __56__ : Sort by BPM                        <em>(String: <b><c>bpm</c></b>)</em>
+  SortByBPM,
 } SortBy;
 ///@}
 
@@ -202,6 +206,7 @@ public:
   static void Sort(const SortDescription &sortDescription, SortItems& items);
   static bool SortFromDataset(const SortDescription &sortDescription, const MediaType &mediaType, const std::unique_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results);
 
+  static void GetFieldsForSQLSort(const MediaType& mediaType, SortBy sortMethod, FieldList& fields);
   static const Fields& GetFieldsForSorting(SortBy sortBy);
   static std::string RemoveArticles(const std::string &label);
 

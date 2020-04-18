@@ -45,49 +45,49 @@
 #ifdef HAS_PYTHON
 #include "interfaces/python/XBPython.h"
 #endif
-#include "input/actions/ActionTranslator.h"
-#include "input/ButtonTranslator.h"
-#include "guilib/GUIAudioManager.h"
+#include "GUILargeTextureManager.h"
 #include "GUIPassword.h"
-#include "input/InertialScrollingHandler.h"
-#include "messaging/ThreadMessage.h"
-#include "messaging/ApplicationMessenger.h"
-#include "messaging/helpers/DialogHelper.h"
-#include "messaging/helpers/DialogOKHelper.h"
-#include "SectionLoader.h"
-#include "cores/DllLoader/DllLoaderContainer.h"
 #include "GUIUserMessages.h"
+#include "SectionLoader.h"
+#include "SeekHandler.h"
+#include "ServiceBroker.h"
+#include "TextureCache.h"
+#include "cores/DllLoader/DllLoaderContainer.h"
 #include "filesystem/Directory.h"
 #include "filesystem/DirectoryCache.h"
-#include "filesystem/StackDirectory.h"
-#include "filesystem/SpecialProtocol.h"
 #include "filesystem/DllLibCurl.h"
 #include "filesystem/PluginDirectory.h"
-#include "utils/SystemInfo.h"
-#include "utils/TimeUtils.h"
-#include "GUILargeTextureManager.h"
-#include "TextureCache.h"
-#include "playlists/SmartPlayList.h"
+#include "filesystem/SpecialProtocol.h"
+#include "filesystem/StackDirectory.h"
+#include "guilib/GUIAudioManager.h"
+#include "guilib/LocalizeStrings.h"
+#include "input/ButtonTranslator.h"
+#include "input/InertialScrollingHandler.h"
+#include "input/KeyboardLayoutManager.h"
+#include "input/actions/ActionTranslator.h"
+#include "messaging/ApplicationMessenger.h"
+#include "messaging/ThreadMessage.h"
+#include "messaging/helpers/DialogHelper.h"
+#include "messaging/helpers/DialogOKHelper.h"
 #include "playlists/PlayList.h"
-#include "profiles/ProfileManager.h"
-#include "windowing/WinSystem.h"
+#include "playlists/SmartPlayList.h"
 #include "powermanagement/DPMSSupport.h"
 #include "powermanagement/PowerManager.h"
 #include "powermanagement/PowerTypes.h"
-#include "settings/Settings.h"
+#include "profiles/ProfileManager.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/DisplaySettings.h"
 #include "settings/MediaSettings.h"
+#include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/SkinSettings.h"
-#include "guilib/LocalizeStrings.h"
 #include "utils/CPUInfo.h"
 #include "utils/FileExtensionProvider.h"
+#include "utils/SystemInfo.h"
+#include "utils/TimeUtils.h"
+#include "utils/XTimeUtils.h"
 #include "utils/log.h"
-#include "SeekHandler.h"
-#include "ServiceBroker.h"
-
-#include "input/KeyboardLayoutManager.h"
+#include "windowing/WinSystem.h"
 
 #ifdef HAS_UPNP
 #include "network/upnp/UPnP.h"
@@ -169,7 +169,6 @@
 
 #ifdef TARGET_POSIX
 #include "platform/posix/XHandle.h"
-#include "platform/posix/XTimeUtils.h"
 #include "platform/posix/filesystem/PosixDirectory.h"
 #include "platform/posix/PlatformPosix.h"
 #endif
@@ -366,6 +365,8 @@ bool CApplication::Create(const CAppParamParser &params)
   m_bTestMode = params.m_testmode;
   m_bStandalone = params.m_standAlone;
 
+  CServiceBroker::CreateLogging();
+
   CServiceBroker::RegisterCPUInfo(CCPUInfo::GetCPUInfo());
 
   m_pSettingsComponent.reset(new CSettingsComponent());
@@ -423,11 +424,7 @@ bool CApplication::Create(const CAppParamParser &params)
     CopyUserDataIfNeeded("special://masterprofile/", "iOS/sources.xml", "sources.xml");
   #endif
 
-  if (!CLog::Init(CSpecialProtocol::TranslatePath("special://logpath").c_str()))
-  {
-    fprintf(stderr,"Could not init logging classes. Log folder error (%s)\n", CSpecialProtocol::TranslatePath("special://logpath").c_str());
-    return false;
-  }
+    CServiceBroker::GetLogging().Initialize(CSpecialProtocol::TranslatePath("special://logpath"));
 
 #ifdef TARGET_POSIX //! @todo Win32 has no special://home/ mapping by default, so we
   //!       must create these here. Ideally this should be using special://home/ and
@@ -2105,9 +2102,7 @@ void CApplication::OnApplicationMessage(ThreadMessage* pMsg)
 
 
   case TMSG_SWITCHTOFULLSCREEN:
-    if (CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() != WINDOW_FULLSCREEN_VIDEO &&
-        CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() != WINDOW_FULLSCREEN_GAME)
-      SwitchToFullScreen(true);
+    SwitchToFullScreen(true);
     break;
 
   case TMSG_VIDEORESIZE:
@@ -2265,6 +2260,17 @@ void CApplication::OnApplicationMessage(ThreadMessage* pMsg)
 
     break;
 
+  case TMSG_EVENT:
+  {
+    if (pMsg->lpVoid)
+    {
+      XBMC_Event* event = static_cast<XBMC_Event*>(pMsg->lpVoid);
+      OnEvent(*event);
+      delete event;
+    }
+  }
+  break;
+    
   default:
     CLog::Log(LOGERROR, "%s: Unhandled threadmessage sent, %u", __FUNCTION__, msg);
     break;
@@ -2363,7 +2369,7 @@ void CApplication::FrameMove(bool processEvents, bool processGUI)
       if (!m_appPlayer.IsPlayingVideo() || m_appPlayer.IsPausedPlayback())
         max_sleep = 80;
       unsigned int sleepTime = std::max(static_cast<unsigned int>(2), std::min(m_ProcessedExternalCalls >> 2, max_sleep));
-      Sleep(sleepTime);
+      KODI::TIME::Sleep(sleepTime);
       m_frameMoveGuard.lock();
       m_ProcessedExternalDecay = 5;
     }
@@ -2523,7 +2529,7 @@ void CApplication::Stop(int exitCode)
     XbmcThreads::EndTime timer(1000);
     while (m_pAppPort.use_count() > 1)
     {
-      Sleep(100);
+      KODI::TIME::Sleep(100);
       if (timer.IsTimePast())
       {
         CLog::Log(LOGERROR, "CApplication::Stop - CAppPort still in use, app may crash");
@@ -2633,7 +2639,7 @@ void CApplication::Stop(int exitCode)
 
   cleanup_emu_environ();
 
-  Sleep(200);
+  KODI::TIME::Sleep(200);
 }
 
 bool CApplication::PlayMedia(CFileItem& item, const std::string &player, int iPlaylist)
@@ -2909,7 +2915,15 @@ bool CApplication::PlayFile(CFileItem item, const std::string& player, bool bRes
   // this really aught to be inside !bRestart, but since PlayStack
   // uses that to init playback, we have to keep it outside
   int playlist = CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist();
-  if (item.IsVideo() && playlist == PLAYLIST_VIDEO && CServiceBroker::GetPlaylistPlayer().GetPlaylist(playlist).size() > 1)
+  if (item.IsAudio() && playlist == PLAYLIST_MUSIC)
+  { // playing from a playlist by the looks
+    // don't switch to fullscreen if we are not playing the first item...
+    options.fullscreen = !CServiceBroker::GetPlaylistPlayer().HasPlayedFirstFile() &&
+        CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+        CSettings::SETTING_MUSICFILES_SELECTACTION);
+  }
+  else if (item.IsVideo() && playlist == PLAYLIST_VIDEO &&
+      CServiceBroker::GetPlaylistPlayer().GetPlaylist(playlist).size() > 1)
   { // playing from a playlist by the looks
     // don't switch to fullscreen if we are not playing the first item...
     options.fullscreen = !CServiceBroker::GetPlaylistPlayer().HasPlayedFirstFile() && CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_fullScreenOnMovieStart && !CMediaSettings::GetInstance().DoesVideoStartWindowed();
@@ -4545,8 +4559,10 @@ void CApplication::SeekPercentage(float percent)
 // SwitchToFullScreen() returns true if a switch is made, else returns false
 bool CApplication::SwitchToFullScreen(bool force /* = false */)
 {
+  const int activeWindowID = CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow();
+
   // don't switch if the slideshow is active
-  if (CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_SLIDESHOW))
+  if (activeWindowID == WINDOW_SLIDESHOW)
     return false;
 
   // if playing from the video info window, close it first!
@@ -4556,27 +4572,45 @@ bool CApplication::SwitchToFullScreen(bool force /* = false */)
     if (pDialog) pDialog->Close(true);
   }
 
+  // if playing from the album info window, close it first!
+  if (CServiceBroker::GetGUI()->GetWindowManager().IsModalDialogTopmost(WINDOW_DIALOG_MUSIC_INFO))
+  {
+    CGUIDialogVideoInfo* pDialog = CServiceBroker::GetGUI()->
+        GetWindowManager().GetWindow<CGUIDialogVideoInfo>(WINDOW_DIALOG_MUSIC_INFO);
+    if (pDialog)
+      pDialog->Close(true);
+  }
+
+  // if playing from the song info window, close it first!
+  if (CServiceBroker::GetGUI()->GetWindowManager().IsModalDialogTopmost(WINDOW_DIALOG_SONG_INFO))
+  {
+    CGUIDialogVideoInfo* pDialog = CServiceBroker::GetGUI()->
+        GetWindowManager().GetWindow<CGUIDialogVideoInfo>(WINDOW_DIALOG_SONG_INFO);
+    if (pDialog)
+      pDialog->Close(true);
+  }
+
   int windowID = WINDOW_INVALID;
 
-  // See if we're playing a game, and are in GUI mode
-  if (m_appPlayer.IsPlayingGame() && CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() != WINDOW_FULLSCREEN_GAME)
+  // See if we're playing a game
+  if (activeWindowID != WINDOW_FULLSCREEN_GAME && m_appPlayer.IsPlayingGame())
     windowID = WINDOW_FULLSCREEN_GAME;
 
-  // See if we're playing a video, and are in GUI mode
-  else if (m_appPlayer.IsPlayingVideo() && CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() != WINDOW_FULLSCREEN_VIDEO)
+  // See if we're playing a video
+  else if (activeWindowID != WINDOW_FULLSCREEN_VIDEO && m_appPlayer.IsPlayingVideo())
     windowID = WINDOW_FULLSCREEN_VIDEO;
 
-  // special case for switching between GUI & visualisation mode. (only if we're playing an audio song)
-  if (m_appPlayer.IsPlayingAudio() && CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() != WINDOW_VISUALISATION)
+  // See if we're playing an audio song
+  if (activeWindowID != WINDOW_VISUALISATION && m_appPlayer.IsPlayingAudio())
     windowID = WINDOW_VISUALISATION;
 
-
-  if (windowID != WINDOW_INVALID)
+  if (windowID != WINDOW_INVALID && (force || windowID != activeWindowID))
   {
     if (force)
       CServiceBroker::GetGUI()->GetWindowManager().ForceActivateWindow(windowID);
     else
       CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(windowID);
+
     return true;
   }
 

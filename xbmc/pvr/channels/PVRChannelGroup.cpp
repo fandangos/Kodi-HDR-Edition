@@ -714,6 +714,20 @@ bool CPVRChannelGroup::AddToGroup(const std::shared_ptr<CPVRChannel>& channel, c
   return bReturn;
 }
 
+bool CPVRChannelGroup::AppendToGroup(const std::shared_ptr<CPVRChannel>& channel)
+{
+  CSingleLock lock(m_critSection);
+
+  unsigned int channelNumberMax = 0;
+  for (const auto& member : m_sortedMembers)
+  {
+    if (member->channelNumber.GetChannelNumber() > channelNumberMax)
+      channelNumberMax = member->channelNumber.GetChannelNumber();
+  }
+
+  return AddToGroup(channel, CPVRChannelNumber(channelNumberMax + 1, 0), 0, false);
+}
+
 bool CPVRChannelGroup::IsGroupMember(const std::shared_ptr<CPVRChannel>& channel) const
 {
   CSingleLock lock(m_critSection);
@@ -864,7 +878,7 @@ void CPVRChannelGroup::OnSettingChanged(std::shared_ptr<const CSetting> setting)
   //! @todo while pvr manager is starting up do accept setting changes.
   if(!CServiceBroker::GetPVRManager().IsStarted())
   {
-    CLog::Log(LOGWARNING, "Channel group setting change ignored while PVR Manager is starting\n");
+    CLog::Log(LOGWARNING, "Channel group setting change ignored while PVR Manager is starting");
     return;
   }
 

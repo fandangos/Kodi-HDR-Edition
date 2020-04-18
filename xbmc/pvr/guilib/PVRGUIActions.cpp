@@ -222,7 +222,7 @@ namespace PVR
       CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME,
       CSettings::SETTING_PVRRECORD_INSTANTRECORDACTION,
       CSettings::SETTING_PVRPLAYBACK_CONFIRMCHANNELSWITCH,
-      CSettings::SETTING_PVRPLAYBACK_SWITCHTOFULLSCREEN,
+      CSettings::SETTING_PVRPLAYBACK_SWITCHTOFULLSCREENCHANNELTYPES,
       CSettings::SETTING_PVRPARENTAL_PIN,
       CSettings::SETTING_PVRPARENTAL_ENABLED,
       CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME,
@@ -414,8 +414,13 @@ namespace PVR
     if (CheckParentalLock(channel) != ParentalCheckResult::SUCCESS)
       return false;
 
-    const std::shared_ptr<CPVREpgInfoTag> epgTag(CPVRItem(item).GetEpgInfoTag());
-    if (!epgTag && bCreateRule)
+    std::shared_ptr<CPVREpgInfoTag> epgTag = CPVRItem(item).GetEpgInfoTag();
+    if (epgTag)
+    {
+      if (epgTag->IsGapTag())
+        epgTag.reset(); // for gap tags, we can only create instant timers
+    }
+    else if (bCreateRule)
     {
       CLog::LogF(LOGERROR, "No epg tag!");
       return false;
@@ -667,6 +672,16 @@ namespace PVR
                 if (epgTag->ProgressPercentage() > 90.0f)
                   ePreselect = RECORD_NEXT_SHOW;
               }
+            }
+
+            if (ePreselect == RECORD_INSTANTRECORDTIME)
+            {
+              if (iDurationDefault == 30)
+                ePreselect = RECORD_30_MINUTES;
+              else if (iDurationDefault == 60)
+                ePreselect = RECORD_60_MINUTES;
+              else if (iDurationDefault == 120)
+                ePreselect = RECORD_120_MINUTES;
             }
 
             selector.PreSelectAction(ePreselect);
@@ -1369,7 +1384,24 @@ namespace PVR
         }
       }
 
-      StartPlayback(new CFileItem(channel), m_settings.GetBoolValue(CSettings::SETTING_PVRPLAYBACK_SWITCHTOFULLSCREEN));
+      bool bFullscreen;
+      switch (m_settings.GetIntValue(CSettings::SETTING_PVRPLAYBACK_SWITCHTOFULLSCREENCHANNELTYPES))
+      {
+        case 0: // never
+          bFullscreen = false;
+          break;
+        case 1: // TV channels
+          bFullscreen = !channel->IsRadio();
+          break;
+        case 2: // Radio channels
+          bFullscreen = channel->IsRadio();
+          break;
+        case 3: // TV and radio channels
+        default:
+          bFullscreen = true;
+          break;
+      }
+      StartPlayback(new CFileItem(channel), bFullscreen);
       return true;
     }
     else if (result == ParentalCheckResult::FAILED)
@@ -1557,7 +1589,7 @@ namespace PVR
       pDialog->Reset();
       pDialog->SetHeading(CVariant{19119}); // "On which backend do you want to search?"
 
-      for (const auto client : possibleScanClients)
+      for (const auto& client : possibleScanClients)
         pDialog->Add(client->GetFriendlyName());
 
       pDialog->Open();

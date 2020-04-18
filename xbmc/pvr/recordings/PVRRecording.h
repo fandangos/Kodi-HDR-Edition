@@ -25,6 +25,7 @@
  */
 
 #include "XBDateTime.h"
+#include "threads/CriticalSection.h"
 #include "threads/SystemClock.h"
 #include "video/Bookmark.h"
 #include "video/VideoInfoTag.h"
@@ -86,6 +87,9 @@ namespace PVR
     bool operator !=(const CPVRRecording& right) const;
 
     void Serialize(CVariant& value) const override;
+
+    // ISortable implementation
+    void ToSortable(SortItem& sortable, Field field) const override;
 
     /*!
      * @brief Reset this tag to it's initial state.
@@ -158,6 +162,12 @@ namespace PVR
      * @return the resume point.
      */
     CBookmark GetResumePoint() const override;
+
+    /*!
+     * @brief Update this recording's size. The value will be obtained from the backend if it supports server-side size retrieval.
+     * @return true if the the updated value is differnt, false otherwise.
+     */
+    bool UpdateRecordingSize();
 
     /*!
      * @brief Get this recording's local resume point. The value will not be obtained from the backend even if it supports server-side resume points.
@@ -317,6 +327,54 @@ namespace PVR
      */
    const std::string GetGenresLabel() const;
 
+   /*!
+    * @brief Get the first air date of this event.
+    * @return The first air date.
+    */
+   CDateTime FirstAired() const;
+
+   /*!
+    * @brief Check whether this recording will be flagged as new.
+    * @return True if this recording will be flagged as new, false otherwise
+    */
+   bool IsNew() const;
+
+   /*!
+    * @brief Check whether this recording will be flagged as a premiere.
+    * @return True if this recording will be flagged as a premiere, false otherwise
+    */
+   bool IsPremiere() const;
+
+   /*!
+    * @brief Check whether this recording will be flagged as a finale.
+    * @return True if this recording will be flagged as a finale, false otherwise
+    */
+   bool IsFinale() const;
+
+   /*!
+    * @brief Check whether this recording will be flagged as live.
+    * @return True if this recording will be flagged as live, false otherwise
+    */
+   bool IsLive() const;
+
+   /*!
+    * @brief Return the flags (PVR_RECORDING_FLAG_*) of this recording as a bitfield.
+    * @return the flags.
+    */
+   unsigned int Flags() const { return m_iFlags; }
+
+   /*!
+    * @brief Return the size of this recording in bytes.
+    * @return the size in bytes.
+    */
+   int64_t GetSizeInBytes() const;
+
+   /*!
+    * @brief set the size in bytes of this recording
+    * @param sizeInBytes The size in bytes
+    */
+   void SetSizeInBytes(int64_t sizeInBytes);
+
   private:
     CDateTime m_recordingTime; /*!< start time of the recording */
     bool m_bGotMetaData;
@@ -327,7 +385,12 @@ namespace PVR
     int m_iGenreType = 0; /*!< genre type */
     int m_iGenreSubType = 0; /*!< genre subtype */
     mutable XbmcThreads::EndTime m_resumePointRefetchTimeout;
+    unsigned int m_iFlags = 0; /*!< the flags applicable to this recording */
+    mutable XbmcThreads::EndTime m_recordingSizeRefetchTimeout;
+    int64_t m_sizeInBytes = 0; /*!< the size of the recording in bytes */
 
     void UpdatePath();
+
+    mutable CCriticalSection m_critSection;
   };
 }

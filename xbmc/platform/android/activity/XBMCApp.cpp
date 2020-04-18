@@ -139,10 +139,11 @@ float CXBMCApp::m_refreshRate = 0.0f;
 
 uint32_t CXBMCApp::m_playback_state = PLAYBACK_STATE_STOPPED;
 
-CXBMCApp::CXBMCApp(ANativeActivity* nativeActivity)
-  : CJNIMainActivity(nativeActivity)
-  , CJNIBroadcastReceiver(CJNIContext::getPackageName() + ".XBMCBroadcastReceiver")
-  , m_videosurfaceInUse(false)
+CXBMCApp::CXBMCApp(ANativeActivity* nativeActivity, IInputHandler& inputHandler)
+  : CJNIMainActivity(nativeActivity),
+    CJNIBroadcastReceiver(CJNIContext::getPackageName() + ".XBMCBroadcastReceiver"),
+    m_inputHandler(inputHandler),
+    m_videosurfaceInUse(false)
 {
   m_xbmcappinstance = this;
   m_activity = nativeActivity;
@@ -217,6 +218,7 @@ void CXBMCApp::onStart()
     intentFilter.addAction("android.intent.action.BATTERY_CHANGED");
     intentFilter.addAction("android.intent.action.SCREEN_ON");
     intentFilter.addAction("android.intent.action.HEADSET_PLUG");
+    intentFilter.addAction("android.media.AUDIO_BECOMING_NOISY");
     // We currently use HDMI_AUDIO_PLUG for mode switch, don't use it on TV's (device_type = "0"
     if (m_hdmiSource)
       intentFilter.addAction("android.media.action.HDMI_AUDIO_PLUG");
@@ -370,6 +372,7 @@ void CXBMCApp::Initialize()
   CServiceBroker::GetAnnouncementManager()->AddAnnouncer(CXBMCApp::get());
   runNativeOnUiThread(RegisterDisplayListener, nullptr);
   m_activityManager.reset(new CJNIActivityManager(getSystemService(CJNIContext::ACTIVITY_SERVICE)));
+  m_inputHandler.setDPI(GetDPI());
 }
 
 void CXBMCApp::Deinitialize()
@@ -1039,6 +1042,12 @@ void CXBMCApp::onReceive(CJNIIntent intent)
     if (m_playback_state & PLAYBACK_STATE_VIDEO)
       CApplicationMessenger::GetInstance().PostMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1, static_cast<void*>(new CAction(ACTION_STOP)));
   }
+  else if (action == "android.media.AUDIO_BECOMING_NOISY")
+  {
+    if ((m_playback_state & PLAYBACK_STATE_PLAYING) && (m_playback_state & PLAYBACK_STATE_AUDIO))
+      CApplicationMessenger::GetInstance().PostMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1,
+                                                   static_cast<void*>(new CAction(ACTION_PAUSE)));
+  }
   else if (action == "android.intent.action.MEDIA_BUTTON")
   {
     if (m_playback_state == PLAYBACK_STATE_STOPPED)
@@ -1192,10 +1201,9 @@ int CXBMCApp::WaitForActivityResult(const CJNIIntent &intent, int requestCode, C
 
 void CXBMCApp::onVolumeChanged(int volume)
 {
-  // System volume was used; Reset Kodi volume to 100% if it isn't, already
-  if (g_application.GetVolumeRatio() != 1.0)
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1, static_cast<void*>(
-                                                 new CAction(ACTION_VOLUME_SET, static_cast<float>(CXBMCApp::GetMaxSystemVolume()))));
+  // don't do anything. User wants to use kodi's internal volume freely while
+  // using the external volume to change it relatively
+  // See: https://forum.kodi.tv/showthread.php?tid=350764
 }
 
 void CXBMCApp::onAudioFocusChange(int focusChange)
@@ -1434,6 +1442,7 @@ void CXBMCApp::onDisplayChanged(int displayId)
     winSystemAndroid->UpdateDisplayModes();
 
   m_displayChangeEvent.Set();
+  m_inputHandler.setDPI(GetDPI());
   android_printf("%s: ", __PRETTY_FUNCTION__);
 }
 

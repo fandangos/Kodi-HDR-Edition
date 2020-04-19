@@ -53,11 +53,10 @@ namespace XBMCAddon
       if (pDialog == NULL)
         throw WindowException("Error: Window is NULL, this is not possible :-)");
 
-      // get lines, last 4 lines are optional.
       if (!heading.empty())
         pDialog->SetHeading(CVariant{heading});
       if (!message.empty())
-        pDialog->SetLine(0, CVariant{message});
+        pDialog->SetText(CVariant{message});
 
       if (!nolabel.empty())
         pDialog->SetChoice(0, CVariant{nolabel});
@@ -269,7 +268,7 @@ namespace XBMCAddon
       return valuelist;
     }
 
-    String Dialog::numeric(int inputtype, const String& heading, const String& defaultt)
+    String Dialog::numeric(int inputtype, const String& heading, const String& defaultt, bool bHiddenInput)
     {
       DelayedCallGuard dcguard(languageHook);
       std::string value;
@@ -311,10 +310,16 @@ namespace XBMCAddon
           if (!CGUIDialogNumeric::ShowAndGetIPAddress(value, heading))
             return emptyString;
         }
+        else if (inputtype == 4)
+        {
+          value = defaultt;
+          if (!CGUIDialogNumeric::ShowAndVerifyNewPassword(value))
+            return emptyString;
+        }
         else
         {
           value = defaultt;
-          if (!CGUIDialogNumeric::ShowAndGetNumber(value, heading))
+          if (!CGUIDialogNumeric::ShowAndGetNumber(value, heading, 0, bHiddenInput))
             return emptyString;
         }
       }
@@ -449,7 +454,7 @@ namespace XBMCAddon
       pDialog->SetHeading(CVariant{heading});
 
       if (!message.empty())
-        pDialog->SetLine(0, CVariant{message});
+        pDialog->SetText(CVariant{message});
 
       pDialog->Open();
     }
@@ -473,7 +478,7 @@ namespace XBMCAddon
       }
 
       if (!message.empty())
-        pDialog->SetLine(0, CVariant{message});
+        pDialog->SetText(CVariant{message});
     }
 
     void DialogProgress::close()

@@ -13,12 +13,15 @@
 #include "AppParamParser.h"
 #include "AppInboundProtocol.h"
 #include "dialogs/GUIDialogBusy.h"
+#include "dialogs/GUIDialogKaiToast.h"
 #include "events/EventLog.h"
 #include "events/NotificationEvent.h"
+#include "HDRStatus.h"
 #include "interfaces/builtins/Builtins.h"
 #include "utils/JobManager.h"
 #include "utils/Variant.h"
 #include "LangInfo.h"
+#include "LibraryQueue.h"
 #include "utils/Screenshot.h"
 #include "Util.h"
 #include "URL.h"
@@ -30,7 +33,6 @@
 #include "PlayListPlayer.h"
 #include "Autorun.h"
 #include "video/Bookmark.h"
-#include "video/VideoLibraryQueue.h"
 #include "music/MusicLibraryQueue.h"
 #include "guilib/GUIControlProfiler.h"
 #include "utils/LangCodeExpander.h"
@@ -39,6 +41,7 @@
 #include "guilib/GUIFontManager.h"
 #include "guilib/GUIColorManager.h"
 #include "guilib/StereoscopicsManager.h"
+#include "addons/MediaImporter.h"
 #include "addons/Skin.h"
 #include "addons/VFSEntry.h"
 #include "interfaces/generic/ScriptInvocationManager.h"
@@ -160,6 +163,7 @@
 #include <cdio/logging.h>
 #endif
 
+#include "media/import/MediaImportManager.h"
 #include "storage/MediaManager.h"
 #include "utils/SaveFileStateJob.h"
 #include "utils/AlarmClock.h"
@@ -193,8 +197,6 @@
 #include "pictures/GUIWindowSlideShow.h"
 #include "addons/AddonSystemSettings.h"
 #include "FileItem.h"
-
-#include "rendering/dx/RenderContext.h"
 
 using namespace ADDON;
 using namespace XFILE;
@@ -500,6 +502,12 @@ bool CApplication::Create(const CAppParamParser &params)
             (CWIN32Util::IsCurrentUserLocalAdministrator() == TRUE) ? "administrator"
                                                                     : "restricted");
   CLog::Log(LOGINFO, "Aero is %s", (g_sysinfo.IsAeroDisabled() == true) ? "disabled" : "enabled");
+  HDR_STATUS hdrStatus = CWIN32Util::GetWindowsHDRStatus();
+  if (hdrStatus == HDR_STATUS::HDR_UNSUPPORTED)
+    CLog::Log(LOGINFO, "Display is not HDR capable or cannot be detected");
+  else
+    CLog::Log(LOGINFO, "Display HDR capable is detected and Windows HDR switch is %s",
+              (hdrStatus == HDR_STATUS::HDR_ON) ? "ON" : "OFF");
 #endif
 #if defined(TARGET_ANDROID)
   CLog::Log(
@@ -785,10 +793,16 @@ bool CApplication::Initialize()
 
     std::vector<std::string> incompatibleAddons;
     event.Reset();
-
+	
     // Addon migration
     ADDON::VECADDONS incompatible;
-    if (CServiceBroker::GetAddonMgr().GetIncompatibleAddons(incompatible))
+    if (CServiceBroker::GetAddonMgr().GetIncompatibleAddons(incompatible))					 
+		   
+					
+								   
+												
+			  
+								 
     {
       if (CAddonSystemSettings::GetInstance().GetAddonAutoUpdateMode() == AUTO_UPDATES_ON)
       {
@@ -816,8 +830,9 @@ bool CApplication::Initialize()
       }
     }
 
-    // Start splashscreen and load skin
+    // Start splashscreen and load skin									   
     CServiceBroker::GetRenderSystem()->ShowSplash("");
+    m_incompatibleAddons = incompatibleAddons;
     m_confirmSkinChange = true;
 
     std::string defaultSkin = std::static_pointer_cast<const CSettingString>(settings->GetSetting(CSettings::SETTING_LOOKANDFEEL_SKIN))->GetDefault();
@@ -1287,7 +1302,7 @@ bool CApplication::LoadSkin(const std::string& skinID)
   }
 
   CLog::Log(LOGINFO, "  load skin from: %s (version: %s)", skin->Path().c_str(),
-            skin->Version().asString().c_str());
+            skin->Version().asString().c_str());												
   g_SkinInfo = skin;
 
   CLog::Log(LOGINFO, "  load fonts for skin...");
@@ -1650,7 +1665,10 @@ bool CApplication::OnAction(const CAction &action)
   // screenshot : take a screenshot :)
   if (action.GetID() == ACTION_TAKE_SCREENSHOT)
   {
-    CScreenShot::TakeScreenshot();
+  // screenshot : take a screenshot :)
+  if (action.GetID() == ACTION_TAKE_SCREENSHOT)
+  {
+   // CScreenShot::TakeScreenshot();
     DX::Windowing()->WinHDR();
     return true;
   }
@@ -2170,7 +2188,7 @@ void CApplication::OnApplicationMessage(ThreadMessage* pMsg)
       if (!audioengine->Suspend())
       {
         CLog::Log(LOGINFO, "%s: Failed to suspend AudioEngine before launching external program",
-                  __FUNCTION__);
+                  __FUNCTION__);								
       }
     }
 #if defined(TARGET_DARWIN)
@@ -2478,6 +2496,8 @@ bool CApplication::Cleanup()
     if (m_pGUI)
       m_pGUI->GetWindowManager().DestroyWindows();
 
+    CServiceBroker::GetDatabaseManager().Deinitialize();
+
     CLog::Log(LOGINFO, "unload sections");
 
     //  Shutdown as much as possible of the
@@ -2610,6 +2630,9 @@ void CApplication::Stop(int exitCode)
     m_ExitCode = exitCode;
     CLog::Log(LOGINFO, "Stopping all");
 
+    CServiceBroker::GetMediaImportAddons().Stop();
+    CServiceBroker::GetMediaImportManager().Uninitialize();
+
     // cancel any jobs from the jobmanager
     CJobManager::GetInstance().CancelJobs();
 
@@ -2617,8 +2640,8 @@ void CApplication::Stop(int exitCode)
     if (CMusicLibraryQueue::GetInstance().IsRunning())
       CMusicLibraryQueue::GetInstance().CancelAllJobs();
 
-    if (CVideoLibraryQueue::GetInstance().IsRunning())
-      CVideoLibraryQueue::GetInstance().CancelAllJobs();
+    if (CLibraryQueue::GetInstance().IsRunning())
+      CLibraryQueue::GetInstance().CancelAllJobs();
 
     CApplicationMessenger::GetInstance().Cleanup();
 
@@ -2872,7 +2895,7 @@ bool CApplication::PlayFile(CFileItem item, const std::string& player, bool bRes
       std::string videoInfoTagPath(item.GetVideoInfoTag()->m_strFileNameAndPath);
       if (videoInfoTagPath.find("removable://") == 0)
         path = videoInfoTagPath;
-      dbs.LoadVideoInfo(path, *item.GetVideoInfoTag());
+      dbs.LoadVideoInfo(path, item);
 
       if (item.HasProperty("savedplayerstate"))
       {
@@ -3737,7 +3760,7 @@ void CApplication::CheckShutdown()
   if (m_bInhibitIdleShutdown
       || m_appPlayer.IsPlaying() || m_appPlayer.IsPausedPlayback() // is something playing?
       || CMusicLibraryQueue::GetInstance().IsRunning()
-      || CVideoLibraryQueue::GetInstance().IsRunning()
+      || CLibraryQueue::GetInstance().IsRunning()
       || CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_DIALOG_PROGRESS) // progress dialog is onscreen
       || !CServiceBroker::GetPVRManager().GUIActions()->CanSystemPowerdown(false))
   {
@@ -4698,7 +4721,7 @@ void CApplication::UpdateCurrentPlayArt()
 
 bool CApplication::IsVideoScanning() const
 {
-  return CVideoLibraryQueue::GetInstance().IsScanningLibrary();
+  return CLibraryQueue::GetInstance().IsScanningLibrary();
 }
 
 bool CApplication::IsMusicScanning() const
@@ -4708,7 +4731,7 @@ bool CApplication::IsMusicScanning() const
 
 void CApplication::StopVideoScan()
 {
-  CVideoLibraryQueue::GetInstance().StopLibraryScanning();
+  CLibraryQueue::GetInstance().StopLibraryScanning();
 }
 
 void CApplication::StopMusicScan()
@@ -4719,7 +4742,7 @@ void CApplication::StopMusicScan()
 void CApplication::StartVideoCleanup(bool userInitiated /* = true */,
                                      const std::string& content /* = "" */)
 {
-  if (userInitiated && CVideoLibraryQueue::GetInstance().IsRunning())
+  if (userInitiated && CLibraryQueue::GetInstance().IsRunning())
     return;
 
   std::set<int> paths;
@@ -4747,14 +4770,14 @@ void CApplication::StartVideoCleanup(bool userInitiated /* = true */,
       return;
   }
   if (userInitiated)
-    CVideoLibraryQueue::GetInstance().CleanLibraryModal(paths);
+    CLibraryQueue::GetInstance().CleanVideoLibraryModal(paths);
   else
-    CVideoLibraryQueue::GetInstance().CleanLibrary(paths, true);
+    CLibraryQueue::GetInstance().CleanVideoLibrary(paths, true);
 }
 
 void CApplication::StartVideoScan(const std::string &strDirectory, bool userInitiated /* = true */, bool scanAll /* = false */)
 {
-  CVideoLibraryQueue::GetInstance().ScanLibrary(strDirectory, scanAll, userInitiated);
+  CLibraryQueue::GetInstance().ScanVideoLibrary(strDirectory, scanAll, userInitiated);
 }
 
 void CApplication::StartMusicCleanup(bool userInitiated /* = true */)

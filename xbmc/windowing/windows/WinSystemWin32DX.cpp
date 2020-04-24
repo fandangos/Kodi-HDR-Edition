@@ -480,7 +480,7 @@ int CWinSystemWin32DX::WinHDR()
             if (getColorInfo.advancedColorSupported && !getColorInfo.advancedColorEnabled)
             {
               setColorState.enableAdvancedColor = TRUE;
-              CLog::LogF(LOGNOTICE, "Toggle Windows HDR On (OFF => ON).");
+              CLog::LogF(LOGINFO, "Toggle Windows HDR On (OFF => ON).");
               success = (ERROR_SUCCESS == DisplayConfigSetDeviceInfo(&setColorState.header));
               break;
             }
@@ -488,7 +488,7 @@ int CWinSystemWin32DX::WinHDR()
             else if (getColorInfo.advancedColorSupported && getColorInfo.advancedColorEnabled)
             {
               setColorState.enableAdvancedColor = FALSE;
-              CLog::LogF(LOGNOTICE, "Toggle Windows HDR Off (ON => OFF).");
+              CLog::LogF(LOGINFO, "Toggle Windows HDR Off (ON => OFF).");
               success = (ERROR_SUCCESS == DisplayConfigSetDeviceInfo(&setColorState.header));
               break;
             }

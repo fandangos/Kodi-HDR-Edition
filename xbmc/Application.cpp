@@ -16,7 +16,6 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "events/EventLog.h"
 #include "events/NotificationEvent.h"
-#include "HDRStatus.h"
 #include "interfaces/builtins/Builtins.h"
 #include "utils/JobManager.h"
 #include "utils/Variant.h"
@@ -197,6 +196,8 @@
 #include "pictures/GUIWindowSlideShow.h"
 #include "addons/AddonSystemSettings.h"
 #include "FileItem.h"
+
+#include "rendering/dx/RenderContext.h"
 
 using namespace ADDON;
 using namespace XFILE;
@@ -501,13 +502,7 @@ bool CApplication::Create(const CAppParamParser &params)
   CLog::Log(LOGINFO, "Running with %s rights",
             (CWIN32Util::IsCurrentUserLocalAdministrator() == TRUE) ? "administrator"
                                                                     : "restricted");
-  CLog::Log(LOGINFO, "Aero is %s", (g_sysinfo.IsAeroDisabled() == true) ? "disabled" : "enabled");
-  HDR_STATUS hdrStatus = CWIN32Util::GetWindowsHDRStatus();
-  if (hdrStatus == HDR_STATUS::HDR_UNSUPPORTED)
-    CLog::Log(LOGINFO, "Display is not HDR capable or cannot be detected");
-  else
-    CLog::Log(LOGINFO, "Display HDR capable is detected and Windows HDR switch is %s",
-              (hdrStatus == HDR_STATUS::HDR_ON) ? "ON" : "OFF");
+  CLog::Log(LOGINFO, "Aero is %s", (g_sysinfo.IsAeroDisabled() == true) ? "disabled" : "enabled");  
 #endif
 #if defined(TARGET_ANDROID)
   CLog::Log(
@@ -796,13 +791,7 @@ bool CApplication::Initialize()
 	
     // Addon migration
     ADDON::VECADDONS incompatible;
-    if (CServiceBroker::GetAddonMgr().GetIncompatibleAddons(incompatible))					 
-		   
-					
-								   
-												
-			  
-								 
+    if (CServiceBroker::GetAddonMgr().GetIncompatibleAddons(incompatible))							 
     {
       if (CAddonSystemSettings::GetInstance().GetAddonAutoUpdateMode() == AUTO_UPDATES_ON)
       {
@@ -1663,10 +1652,7 @@ bool CApplication::OnAction(const CAction &action)
     return true;
 
   // screenshot : take a screenshot :)
-  if (action.GetID() == ACTION_TAKE_SCREENSHOT)
-  {
-  // screenshot : take a screenshot :)
-  if (action.GetID() == ACTION_TAKE_SCREENSHOT)
+  if (action.GetID() == ACTION_TAKE_SCREENSHOT)  
   {
    // CScreenShot::TakeScreenshot();
     DX::Windowing()->WinHDR();

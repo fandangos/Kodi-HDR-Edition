@@ -504,18 +504,18 @@ int CRendererBase::HDR(CRenderBuffer * meta)
 
 
 
-  CLog::LogF(LOGNOTICE, "Metadata RX: %f.", rx);
-  CLog::LogF(LOGNOTICE, "Metadata RY: %f.", ry);
-  CLog::LogF(LOGNOTICE, "Metadata GX: %f.", gx);
-  CLog::LogF(LOGNOTICE, "Metadata GY: %f.", gy);
-  CLog::LogF(LOGNOTICE, "Metadata BX: %f.", bx);
-  CLog::LogF(LOGNOTICE, "Metadata BY: %f.", by);
-  CLog::LogF(LOGNOTICE, "Metadata WX: %f.", wx);
-  CLog::LogF(LOGNOTICE, "Metadata WY: %f.", wy);
-  CLog::LogF(LOGNOTICE, "Metadata MaxMaster: %f.", maxmaster);
-  CLog::LogF(LOGNOTICE, "Metadata MinMaster: %f.", minmaster);
-  CLog::LogF(LOGNOTICE, "Metadata maxFALL: %f.", maxFALL);
-  CLog::LogF(LOGNOTICE, "Metadata maxCLL: %f.", maxCLL);
+  CLog::LogF(LOGINFO, "Metadata RX: %f.", rx);
+  CLog::LogF(LOGINFO, "Metadata RY: %f.", ry);
+  CLog::LogF(LOGINFO, "Metadata GX: %f.", gx);
+  CLog::LogF(LOGINFO, "Metadata GY: %f.", gy);
+  CLog::LogF(LOGINFO, "Metadata BX: %f.", bx);
+  CLog::LogF(LOGINFO, "Metadata BY: %f.", by);
+  CLog::LogF(LOGINFO, "Metadata WX: %f.", wx);
+  CLog::LogF(LOGINFO, "Metadata WY: %f.", wy);
+  CLog::LogF(LOGINFO, "Metadata MaxMaster: %f.", maxmaster);
+  CLog::LogF(LOGINFO, "Metadata MinMaster: %f.", minmaster);
+  CLog::LogF(LOGINFO, "Metadata maxFALL: %f.", maxFALL);
+  CLog::LogF(LOGINFO, "Metadata maxCLL: %f.", maxCLL);
 
   return 0;
 }

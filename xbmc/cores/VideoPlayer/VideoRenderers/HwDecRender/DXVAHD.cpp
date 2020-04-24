@@ -154,12 +154,12 @@ bool CProcessorHD::InitProcessor()
   if (DX::DeviceResources::Get()->is10bitswapchain())
   {
     m_hdr10support = true;
-    CLog::LogF(LOGNOTICE, "video processor supports HDR10.");
+    CLog::LogF(LOGINFO, "video processor supports HDR10.");
   }
   else
   {
     m_hdr10support = false;
-    CLog::LogF(LOGNOTICE, "video processor DOES NOT supports HDR10.");
+    CLog::LogF(LOGINFO, "video processor DOES NOT supports HDR10.");
   }
 
 

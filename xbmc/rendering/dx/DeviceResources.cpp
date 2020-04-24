@@ -634,13 +634,13 @@ void DX::DeviceResources::ResizeBuffers()
     if (swapChainDesc.Format == DXGI_FORMAT_R10G10B10A2_UNORM)
     {
       m_is10bitswapchain = true;
-      CLog::LogF(LOGNOTICE, "10 bit swapchain is used with {0:d} buffers",
+      CLog::LogF(LOGINFO, "10 bit swapchain is used with {0:d} buffers",
                  swapChainDesc.BufferCount);
     }
     else		
     {
       m_is10bitswapchain = false;
-      CLog::LogF(LOGNOTICE, "8 bit swapchain is used with {0:d} buffers and SDR output",
+      CLog::LogF(LOGINFO, "8 bit swapchain is used with {0:d} buffers and SDR output",
                  swapChainDesc.BufferCount);
     }
 

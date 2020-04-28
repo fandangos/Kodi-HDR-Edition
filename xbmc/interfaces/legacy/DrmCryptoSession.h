@@ -64,9 +64,8 @@ namespace XBMCAddon
     /// An example where such functionality is useful is the Message
     /// Security Layer (MSL) transmission protocol used in some VOD applications.
     /// This protocol (or rather framework) is used to increase the level of security 
-    /// in the exchange of messages (such as licences, manifests or other data)
-    /// between clients and servers, which is a kind of integration to the
-    /// HTTPS communication standard.
+    /// in the exchange of messages (such as licences, manifests or other data),
+    /// which defines a security extension / layer on top of the HTTP protocol.
     ///
     ///--------------------------------------------------------------------------
     /// Constructor for %DRM crypto session
@@ -129,7 +128,7 @@ namespace XBMCAddon
       ///
       ///------------------------------------------------------------------------
       /// @python_v18 New function added.
-      /// @python_v19 With python 3 for the init param is needed to pass bytearray instead of byte.
+      /// @python_v19 With python 3 the init param must be a bytearray instead of byte.
       ///
       GetKeyRequest(...);
 #else
@@ -174,7 +173,7 @@ namespace XBMCAddon
       ///
       ///------------------------------------------------------------------------
       /// @python_v18 New function added.
-      /// @python_v19 With python 3 for the response argument is needed to pass bytearray instead of byte.
+      /// @python_v19 With python 3 the response argument must be a bytearray instead of byte.
       ///
       ProvideKeyResponse(...);
 #else
@@ -253,7 +252,7 @@ namespace XBMCAddon
       ///
       ///------------------------------------------------------------------------
       /// @python_v18 New function added.
-      /// @python_v19 With python 3 for all arguments is needed to pass bytearray instead of byte.
+      /// @python_v19 With python 3 all arguments need to be of type bytearray instead of byte.
       ///
       Decrypt(...);
 #else
@@ -276,7 +275,7 @@ namespace XBMCAddon
       ///
       ///------------------------------------------------------------------------
       /// @python_v18 New function added.
-      /// @python_v19 With python 3 for all arguments is needed to pass bytearray instead of byte.
+      /// @python_v19 With python 3 all arguments need to be of type bytearray instead of byte.
       ///
       Encrypt(...);
 #else
@@ -289,7 +288,7 @@ namespace XBMCAddon
       /// @brief \python_func{ Sign(macKeyId, message) }
       ///-----------------------------------------------------------------------
       /// \anchor xbmcdrm_Sign
-      /// Generate an %DRM encrypted signature for a text message.
+      /// Generate a %DRM encrypted signature for a text message.
       ///
       /// @param     macKeyId  byte - HMAC key id (provided from a service handshake)
       /// @param     message   byte - Message text on which to base the signature
@@ -298,7 +297,7 @@ namespace XBMCAddon
       ///
       ///------------------------------------------------------------------------
       /// @python_v18 New function added.
-      /// @python_v19 With python 3 for all arguments is needed to pass bytearray instead of byte.
+      /// @python_v19 With python 3 all arguments need to be of type bytearray instead of byte.
       ///
       Sign(...);
 #else

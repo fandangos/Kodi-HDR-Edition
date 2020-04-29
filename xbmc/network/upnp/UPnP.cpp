@@ -1,4 +1,4 @@
-\*
+/*
  * UPnP Support for XBMC
  *  Copyright (c) 2006 c0diq (Sylvain Rebaud)
  *      Portions Copyright (c) by the authors of libPlatinum

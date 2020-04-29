@@ -1352,3 +1352,4 @@ int CUPnPServer::GetRequiredVideoDbDetails(const NPT_String& filter)
 }
 
 } /* namespace UPNP */
+

@@ -1,4 +1,4 @@
-/*
+\*
  * UPnP Support for XBMC
  *  Copyright (c) 2006 c0diq (Sylvain Rebaud)
  *      Portions Copyright (c) by the authors of libPlatinum
@@ -31,6 +31,7 @@
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/StaticLoggerBase.h"
 #include "utils/StringUtils.h"
 #include "utils/SystemInfo.h"
 #include "utils/TimeUtils.h"
@@ -54,13 +55,11 @@ using namespace KODI::MESSAGING;
 #    0 invalid
 DLNA_ORG_PS = 'DLNA.ORG_PS'
 DLNA_ORG_PS_VAL = '1'
-
 # Conversion Indicator
 #    1 transcoded
 #    0 not transcoded
 DLNA_ORG_CI = 'DLNA.ORG_CI'
 DLNA_ORG_CI_VAL = '0'
-
 # Operations
 #    00 not time seek range, not range
 #    01 range supported
@@ -68,7 +67,6 @@ DLNA_ORG_CI_VAL = '0'
 #    11 both supported
 DLNA_ORG_OP = 'DLNA.ORG_OP'
 DLNA_ORG_OP_VAL = '01'
-
 # Flags
 #    senderPaced                      80000000  31
 #    lsopTimeBasedSeekSupported       40000000  30
@@ -92,26 +90,29 @@ DLNA_ORG_FLAGS_VAL = '01500000000000000000000000000000'
 void
 NPT_Console::Output(const char* msg) { }
 
-int ConvertLogLevel(int nptLogLevel)
+spdlog::level::level_enum ConvertLogLevel(int nptLogLevel)
 {
     if (nptLogLevel >= NPT_LOG_LEVEL_FATAL)
-        return LOGFATAL;
+      return spdlog::level::critical;
     if (nptLogLevel >= NPT_LOG_LEVEL_SEVERE)
-        return LOGERROR;
+      return spdlog::level::err;
     if (nptLogLevel >= NPT_LOG_LEVEL_WARNING)
-        return LOGWARNING;
-    if (nptLogLevel >= NPT_LOG_LEVEL_INFO)
-        return LOGNOTICE;
+      return spdlog::level::warn;
     if (nptLogLevel >= NPT_LOG_LEVEL_FINE)
-        return LOGINFO;
+      return spdlog::level::info;
+    if (nptLogLevel >= NPT_LOG_LEVEL_FINER)
+      return spdlog::level::debug;
 
-    return LOGDEBUG;
+    return spdlog::level::trace;
 }
 
 void
 UPnPLogger(const NPT_LogRecord* record)
 {
-    CLog::Log(ConvertLogLevel(record->m_Level), LOGUPNP, "Platinum [%s]: %s", record->m_LoggerName, record->m_Message);
+  static Logger logger = CServiceBroker::GetLogging().GetLogger("Platinum");
+  if (CServiceBroker::GetLogging().CanLogComponent(LOGUPNP))
+    logger->log(ConvertLogLevel(record->m_Level), "[{}]: {}", record->m_LoggerName,
+                record->m_Message);
 }
 
 namespace UPNP
@@ -160,13 +161,14 @@ public:
 |   CMediaBrowser class
 +---------------------------------------------------------------------*/
 class CMediaBrowser : public PLT_SyncMediaBrowser,
-                      public PLT_MediaContainerChangesListener
+                      public PLT_MediaContainerChangesListener,
+                      protected CStaticLoggerBase
 {
 public:
-    explicit CMediaBrowser(PLT_CtrlPointReference& ctrlPoint)
-        : PLT_SyncMediaBrowser(ctrlPoint, true)
-    {
-        SetContainerListener(this);
+  explicit CMediaBrowser(PLT_CtrlPointReference& ctrlPoint)
+    : PLT_SyncMediaBrowser(ctrlPoint, true), CStaticLoggerBase("UPNP::CMediaBrowser")
+  {
+    SetContainerListener(this);
     }
 
     // PLT_MediaBrowser methods
@@ -211,7 +213,7 @@ public:
             path += id.c_str();
         }
 
-        CLog::Log(LOGDEBUG, "UPNP: notified container update %s", (const char*)path);
+        s_logger->debug("notified container update {}", (const char*)path);
         CGUIMessage message(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_PATH);
         message.SetStringParam(path.GetChars());
         CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(message);
@@ -225,11 +227,11 @@ public:
             return SaveFileState(temp, CBookmark(), watched);
         }
         else {
-            CLog::Log(LOGDEBUG, "UPNP: Marking video item %s as watched", item.GetPath().c_str());
+          s_logger->debug("Marking video item {} as watched", item.GetPath());
 
-            std::set<std::pair<NPT_String, NPT_String> > values;
-            values.insert(std::make_pair("<upnp:playCount>1</upnp:playCount>", "<upnp:playCount>0</upnp:playCount>"));
-            return InvokeUpdateObject(item.GetPath().c_str(), values);
+          std::set<std::pair<NPT_String, NPT_String> > values;
+          values.insert(std::make_pair("<upnp:playCount>1</upnp:playCount>", "<upnp:playCount>0</upnp:playCount>"));
+          return InvokeUpdateObject(item.GetPath().c_str(), values);
         }
     }
 
@@ -242,21 +244,24 @@ public:
 
         std::set<std::pair<NPT_String, NPT_String> > values;
         if (item.GetVideoInfoTag()->GetResumePoint().timeInSeconds != bookmark.timeInSeconds) {
-            CLog::Log(LOGDEBUG, "UPNP: Updating resume point for item %s", path.c_str());
-            long time = (long)bookmark.timeInSeconds;
-            if (time < 0) time = 0;
+          s_logger->debug("Updating resume point for item {}", path);
+          long time = (long)bookmark.timeInSeconds;
+          if (time < 0)
+            time = 0;
 
-            values.insert(std::make_pair(
-                NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>", (long)item.GetVideoInfoTag()->GetResumePoint().timeInSeconds),
-                NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>", time)));
+          values.insert(std::make_pair(
+            NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>",
+              (long)item.GetVideoInfoTag()->GetResumePoint().timeInSeconds),
+            NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>",
+              time)));
 
-            NPT_String curr_value = "<upnp:lastPlayerState>";
-            PLT_Didl::AppendXmlEscape(curr_value, item.GetVideoInfoTag()->GetResumePoint().playerState.c_str());
-            curr_value += "</xbmc:lastPlayerState>";
-            NPT_String new_value = "<upnp:lastPlayerState>";
-            PLT_Didl::AppendXmlEscape(new_value, bookmark.playerState.c_str());
-            new_value += "</xbmc:lastPlayerState>";
-            values.insert(std::make_pair(curr_value, new_value));
+          NPT_String curr_value = "<upnp:lastPlayerState>";
+          PLT_Didl::AppendXmlEscape(curr_value, item.GetVideoInfoTag()->GetResumePoint().playerState.c_str());
+          curr_value += "</xbmc:lastPlayerState>";
+          NPT_String new_value = "<upnp:lastPlayerState>";
+          PLT_Didl::AppendXmlEscape(new_value, bookmark.playerState.c_str());
+          new_value += "</xbmc:lastPlayerState>";
+          values.insert(std::make_pair(curr_value, new_value));
         }
         if (updatePlayCount) {
             CLog::Log(LOGDEBUG, "UPNP: Marking video item %s as watched", path.c_str());
@@ -320,7 +325,7 @@ public:
         PLT_ActionReference action;
         NPT_String curr_value, new_value;
 
-        CLog::Log(LOGDEBUG, "UPNP: attempting to invoke UpdateObject for %s", id);
+        s_logger->debug("attempting to invoke UpdateObject for {}", id);
 
         // check this server supports UpdateObject action
         NPT_CHECK_LABEL(FindServer(url.GetHostName().c_str(), device),failed);
@@ -350,12 +355,12 @@ public:
 
         NPT_CHECK_LABEL(m_CtrlPoint->InvokeAction(action, NULL),failed);
 
-        CLog::Log(LOGDEBUG, "UPNP: invoked UpdateObject successfully");
+        s_logger->debug("invoked UpdateObject successfully");
         return true;
 
     failed:
-        CLog::Log(LOGINFO, "UPNP: invoking UpdateObject failed");
-        return false;
+      s_logger->info("invoking UpdateObject failed");
+      return false;
     }
 
 private:

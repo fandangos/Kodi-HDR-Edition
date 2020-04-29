@@ -55,11 +55,13 @@ using namespace KODI::MESSAGING;
 #    0 invalid
 DLNA_ORG_PS = 'DLNA.ORG_PS'
 DLNA_ORG_PS_VAL = '1'
+
 # Conversion Indicator
 #    1 transcoded
 #    0 not transcoded
 DLNA_ORG_CI = 'DLNA.ORG_CI'
 DLNA_ORG_CI_VAL = '0'
+
 # Operations
 #    00 not time seek range, not range
 #    01 range supported
@@ -67,6 +69,7 @@ DLNA_ORG_CI_VAL = '0'
 #    11 both supported
 DLNA_ORG_OP = 'DLNA.ORG_OP'
 DLNA_ORG_OP_VAL = '01'
+
 # Flags
 #    senderPaced                      80000000  31
 #    lsopTimeBasedSeekSupported       40000000  30

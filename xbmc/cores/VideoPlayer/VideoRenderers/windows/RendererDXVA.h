@@ -53,7 +53,9 @@ public:
   explicit CRenderBufferImpl(AVPixelFormat av_pix_format, unsigned width, unsigned height);
   ~CRenderBufferImpl();
 
+  bool IsLoaded() override;
   bool UploadBuffer() override;
+  void ReleasePicture() override;
   HRESULT GetResource(ID3D11Resource** ppResource, unsigned* index) const override;
 
   static DXGI_FORMAT GetDXGIFormat(AVPixelFormat format, DXGI_FORMAT default_fmt = DXGI_FORMAT_UNKNOWN);
@@ -61,5 +63,6 @@ public:
 private:
   bool UploadToTexture();
 
+  bool m_loaded = false;
   CD3DTexture m_texture;
 };

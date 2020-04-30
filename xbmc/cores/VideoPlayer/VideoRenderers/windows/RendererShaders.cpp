@@ -274,6 +274,18 @@ void CRendererShaders::CRenderBufferImpl::AppendPicture(const VideoPicture& pict
   }
 }
 
+bool CRendererShaders::CRenderBufferImpl::IsLoaded()
+{
+  if (!videoBuffer)
+    return false;
+
+  if (videoBuffer->GetFormat() == AV_PIX_FMT_D3D11VA_VLD &&
+    AV_PIX_FMT_D3D11VA_VLD == av_format)
+    return true;
+
+  return m_bLoaded;
+}
+
 bool CRendererShaders::CRenderBufferImpl::UploadBuffer()
 {
   if (!videoBuffer)
@@ -281,9 +293,7 @@ bool CRendererShaders::CRenderBufferImpl::UploadBuffer()
 
   if (videoBuffer->GetFormat() == AV_PIX_FMT_D3D11VA_VLD)
   {
-    if (AV_PIX_FMT_D3D11VA_VLD == av_format)
-      m_bLoaded = true;
-    else
+    if (AV_PIX_FMT_D3D11VA_VLD != av_format)
       m_bLoaded = UploadFromGPU();
   }
   else
@@ -343,6 +353,7 @@ void CRendererShaders::CRenderBufferImpl::ReleasePicture()
 
   m_planes[0] = nullptr;
   m_planes[1] = nullptr;
+  m_bLoaded = false;
 }
 
 bool CRendererShaders::CRenderBufferImpl::UploadFromGPU()

@@ -47,6 +47,7 @@ public:
   bool GetDataPlanes(uint8_t*(&planes)[3], int(&strides)[3]) override;
 
   void ReleasePicture() override;
+  bool IsLoaded() override;
   bool UploadBuffer() override;
 
 private:

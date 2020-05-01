@@ -17,7 +17,7 @@
 using namespace KODI::GUILIB;
 using namespace KODI::GUILIB::GUIINFO;
 
-bool CMediaImportGUIInfo::InitCurrentItem(CFileItem *item)
+bool CMediaImportGUIInfo::InitCurrentItem(CFileItem* item)
 {
   /* TODO(Montellese)
   if (item && item->IsVideo())
@@ -54,7 +54,11 @@ bool CMediaImportGUIInfo::InitCurrentItem(CFileItem *item)
   return false;
 }
 
-bool CMediaImportGUIInfo::GetLabel(std::string& value, const CFileItem *item, int contextWindow, const CGUIInfo &info, std::string *fallback) const
+bool CMediaImportGUIInfo::GetLabel(std::string& value,
+                                   const CFileItem* item,
+                                   int contextWindow,
+                                   const CGUIInfo& info,
+                                   std::string* fallback) const
 {
   switch (info.m_info)
   {
@@ -76,17 +80,23 @@ bool CMediaImportGUIInfo::GetLabel(std::string& value, const CFileItem *item, in
   return false;
 }
 
-bool CMediaImportGUIInfo::GetInt(int& value, const CGUIListItem *gitem, int contextWindow, const CGUIInfo &info) const
+bool CMediaImportGUIInfo::GetInt(int& value,
+                                 const CGUIListItem* gitem,
+                                 int contextWindow,
+                                 const CGUIInfo& info) const
 {
   return false;
 }
 
-bool CMediaImportGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int contextWindow, const CGUIInfo &info) const
+bool CMediaImportGUIInfo::GetBool(bool& value,
+                                  const CGUIListItem* gitem,
+                                  int contextWindow,
+                                  const CGUIInfo& info) const
 {
   if (!gitem->IsFileItem())
     return false;
 
-  const CFileItem *item = static_cast<const CFileItem*>(gitem);
+  const CFileItem* item = static_cast<const CFileItem*>(gitem);
 
   switch (info.m_info)
   {

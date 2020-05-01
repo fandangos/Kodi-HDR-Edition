@@ -30,13 +30,14 @@ bool CBaseMediaImporter::LoadImportSettings(CMediaImport& import)
   if (!LoadSettings(settings))
     return false;
 
-  auto settingUpdatePlaybackMetadataOnSource = settings->GetSetting(CMediaImportSettings::SettingUpdatePlaybackMetadataOnSource);
+  auto settingUpdatePlaybackMetadataOnSource =
+      settings->GetSetting(CMediaImportSettings::SettingUpdatePlaybackMetadataOnSource);
   if (settingUpdatePlaybackMetadataOnSource != nullptr)
   {
     settingUpdatePlaybackMetadataOnSource->SetEnabled(
-      CanUpdatePlaycountOnSource(import.GetPath()) ||
-      CanUpdateLastPlayedOnSource(import.GetPath()) ||
-      CanUpdateResumePositionOnSource(import.GetPath()));
+        CanUpdatePlaycountOnSource(import.GetPath()) ||
+        CanUpdateLastPlayedOnSource(import.GetPath()) ||
+        CanUpdateResumePositionOnSource(import.GetPath()));
   }
 
   return true;

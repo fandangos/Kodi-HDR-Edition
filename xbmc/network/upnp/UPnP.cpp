@@ -233,7 +233,8 @@ public:
           s_logger->debug("Marking video item {} as watched", item.GetPath());
 
           std::set<std::pair<NPT_String, NPT_String> > values;
-          values.insert(std::make_pair("<upnp:playCount>1</upnp:playCount>", "<upnp:playCount>0</upnp:playCount>"));
+          values.insert(std::make_pair("<upnp:playCount>1</upnp:playCount>",
+                                       "<upnp:playCount>0</upnp:playCount>"));
           return InvokeUpdateObject(item.GetPath().c_str(), values);
         }
     }
@@ -267,8 +268,9 @@ public:
           values.insert(std::make_pair(curr_value, new_value));
         }
         if (updatePlayCount) {
-            CLog::Log(LOGDEBUG, "UPNP: Marking video item %s as watched", path.c_str());
-            values.insert(std::make_pair("<upnp:playCount>0</upnp:playCount>", "<upnp:playCount>1</upnp:playCount>"));
+          s_logger->debug("Marking video item {} as watched", path);
+          values.insert(std::make_pair("<upnp:playCount>0</upnp:playCount>",
+                                       "<upnp:playCount>1</upnp:playCount>"));
         }
 
         return InvokeUpdateObject(path.c_str(), values);
@@ -276,48 +278,52 @@ public:
 
     bool UpdateItem(const std::string& path, const CFileItem& item)
     {
-        if (path.empty())
-            return false;
+      if (path.empty())
+        return false;
 
-        std::set<std::pair<NPT_String, NPT_String> > values;
-        if (item.HasVideoInfoTag())
-        {
-            // handle playcount
-            const CVideoInfoTag *details = item.GetVideoInfoTag();
-            int playcountOld = 0, playcountNew = 0;
-            if (details->GetPlayCount() <= 0)
-              playcountOld = 1;
-            else
-              playcountNew = details->GetPlayCount();
+      std::set<std::pair<NPT_String, NPT_String> > values;
+      if (item.HasVideoInfoTag())
+      {
+        // handle playcount
+        const CVideoInfoTag *details = item.GetVideoInfoTag();
+        int playcountOld = 0, playcountNew = 0;
+        if (details->GetPlayCount() <= 0)
+          playcountOld = 1;
+        else
+          playcountNew = details->GetPlayCount();
 
-            values.insert(std::make_pair(
-                NPT_String::Format("<upnp:playCount>%d</upnp:playCount>", playcountOld),
-                NPT_String::Format("<upnp:playCount>%d</upnp:playCount>", playcountNew)));
-            
-            // handle lastplayed
-            CDateTime lastPlayedOld, lastPlayedNew;
-            if (!details->m_lastPlayed.IsValid())
-                lastPlayedOld = CDateTime::GetCurrentDateTime();
-            else
-                lastPlayedNew = details->m_lastPlayed;
+        values.insert(std::make_pair(
+          NPT_String::Format("<upnp:playCount>%d</upnp:playCount>", playcountOld),
+          NPT_String::Format("<upnp:playCount>%d</upnp:playCount>", playcountNew)));
 
-            values.insert(std::make_pair(
-                NPT_String::Format("<upnp:lastPlaybackTime>%ld</upnp:lastPlaybackTime>", lastPlayedOld.GetAsW3CDateTime().c_str()),
-                NPT_String::Format("<upnp:lastPlaybackTime>%ld</upnp:lastPlaybackTime>", lastPlayedNew.GetAsW3CDateTime().c_str())));
+        // handle lastplayed
+        CDateTime lastPlayedOld, lastPlayedNew;
+        if (!details->m_lastPlayed.IsValid())
+          lastPlayedOld = CDateTime::GetCurrentDateTime();
+        else
+          lastPlayedNew = details->m_lastPlayed;
 
-            // handle resume point
-            long resumePointOld = 0L, resumePointNew = 0L;
-            if (details->GetResumePoint().timeInSeconds <= 0)
-                resumePointOld = 1;
-            else
-                resumePointNew = static_cast<long>(details->GetResumePoint().timeInSeconds);
+        values.insert(std::make_pair(
+          NPT_String::Format("<upnp:lastPlaybackTime>%ld</upnp:lastPlaybackTime>",
+            lastPlayedOld.GetAsW3CDateTime().c_str()),
+          NPT_String::Format("<upnp:lastPlaybackTime>%ld</upnp:lastPlaybackTime>",
+            lastPlayedNew.GetAsW3CDateTime().c_str())));
 
-            values.insert(std::make_pair(
-                NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>", resumePointOld),
-                NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>", resumePointNew)));
-        }
+        // handle resume point
+        long resumePointOld = 0L, resumePointNew = 0L;
+        if (details->GetResumePoint().timeInSeconds <= 0)
+          resumePointOld = 1;
+        else
+          resumePointNew = static_cast<long>(details->GetResumePoint().timeInSeconds);
 
-        return InvokeUpdateObject(path.c_str(), values);
+        values.insert(std::make_pair(
+          NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>",
+            resumePointOld),
+          NPT_String::Format("<upnp:lastPlaybackPosition>%ld</upnp:lastPlaybackPosition>",
+            resumePointNew)));
+      }
+
+      return InvokeUpdateObject(path.c_str(), values);
     }
 
     bool InvokeUpdateObject(const char *id, const std::set<std::pair<NPT_String, NPT_String> >& values)
@@ -647,12 +653,12 @@ CUPnP::DestroyControlPoint()
 bool
 CUPnP::UpdateItem(const std::string& path, const CFileItem& item)
 {
-    if (upnp && upnp->m_MediaBrowser) {
-        // dynamic_cast is safe here, avoids polluting CUPnP.h header file
-        CMediaBrowser* browser = dynamic_cast<CMediaBrowser*>(upnp->m_MediaBrowser);
-        return browser->UpdateItem(path, item);
-    }
-    return false;
+  if (upnp && upnp->m_MediaBrowser) {
+    // dynamic_cast is safe here, avoids polluting CUPnP.h header file
+    CMediaBrowser* browser = dynamic_cast<CMediaBrowser*>(upnp->m_MediaBrowser);
+    return browser->UpdateItem(path, item);
+  }
+  return false;
 }
 
 /*----------------------------------------------------------------------

@@ -17,10 +17,11 @@
 
 #include <fmt/ostream.h>
 
-CMediaImportRemovalTask::CMediaImportRemovalTask(const CMediaImport &import, MediaImportHandlerPtr importHandler)
-  : IMediaImportTask(import)
-  , m_importHandler(importHandler)
-{ }
+CMediaImportRemovalTask::CMediaImportRemovalTask(const CMediaImport& import,
+                                                 MediaImportHandlerPtr importHandler)
+  : IMediaImportTask("CMediaImportRemovalTask", import), m_importHandler(importHandler)
+{
+}
 
 bool CMediaImportRemovalTask::DoWork()
 {
@@ -28,12 +29,13 @@ bool CMediaImportRemovalTask::DoWork()
     return false;
 
   // prepare the progress bar
-  PrepareProgressBarHandle(StringUtils::Format(g_localizeStrings.Get(39566).c_str(),
-    CMediaTypes::ToLabel(m_import.GetMediaTypes()).c_str(), m_import.GetSource().GetFriendlyName().c_str()));
+  PrepareProgressBarHandle(StringUtils::Format(
+      g_localizeStrings.Get(39566).c_str(), CMediaTypes::ToLabel(m_import.GetMediaTypes()).c_str(),
+      m_import.GetSource().GetFriendlyName().c_str()));
   SetProgressText("");
 
-  CLog::Log(LOGINFO, "CMediaImportRemovalTask: removing imported {} items from {}",
-    m_importHandler->GetMediaType(), m_import.GetSource());
+  m_logger->info("removing imported {} items from {}", m_importHandler->GetMediaType(),
+                 m_import.GetSource());
 
   return m_importHandler->RemoveImportedItems(m_import);
 }

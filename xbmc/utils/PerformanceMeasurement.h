@@ -28,31 +28,20 @@ public:
     Restart();
   }
 
-  ~CPerformanceMeasurement()
-  {
-    Stop();
-  }
+  ~CPerformanceMeasurement() { Stop(); }
 
   void Stop()
   {
     const auto now = TClock::now();
-    m_duration = std::max(Duration(0), std::chrono::duration_cast<Duration>(now - m_start) - m_overhead);
+    m_duration =
+        std::max(Duration(0), std::chrono::duration_cast<Duration>(now - m_start) - m_overhead);
   }
 
-  void Restart()
-  {
-    m_start = TClock::now();
-  }
+  void Restart() { m_start = TClock::now(); }
 
-  Duration GetDuration() const
-  {
-    return m_duration;
-  }
+  Duration GetDuration() const { return m_duration; }
 
-  double GetDurationInSeconds() const
-  {
-    return GetDurationInSeconds(m_duration);
-  }
+  double GetDurationInSeconds() const { return GetDurationInSeconds(m_duration); }
 
 private:
   static double GetDurationInSeconds(const typename TClock::duration& duration)
@@ -82,7 +71,8 @@ private:
 };
 
 template<class TClock>
-typename CPerformanceMeasurement<TClock>::Duration CPerformanceMeasurement<TClock>::m_overhead = typename CPerformanceMeasurement<TClock>::Duration(0);
+typename CPerformanceMeasurement<TClock>::Duration CPerformanceMeasurement<TClock>::m_overhead =
+    typename CPerformanceMeasurement<TClock>::Duration(0);
 
 template<class TClock>
 bool CPerformanceMeasurement<TClock>::m_initialized = false;

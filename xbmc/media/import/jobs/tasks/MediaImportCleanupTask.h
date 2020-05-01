@@ -14,7 +14,7 @@
 class CMediaImportCleanupTask : public IMediaImportTask
 {
 public:
-  CMediaImportCleanupTask(const CMediaImport &import, MediaImportHandlerPtr importHandler);
+  CMediaImportCleanupTask(const CMediaImport& import, MediaImportHandlerPtr importHandler);
   virtual ~CMediaImportCleanupTask() = default;
 
   // implementation of IMediaImportTask

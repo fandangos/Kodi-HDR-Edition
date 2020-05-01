@@ -10,10 +10,8 @@
 
 #include "interfaces/generic/ScriptInvocationManager.h"
 
-CRunningScriptObserver::CRunningScriptObserver(int scriptId, CEvent &evt)
-  : CThread("ScriptObs")
-  , m_scriptId(scriptId)
-  , m_event(evt)
+CRunningScriptObserver::CRunningScriptObserver(int scriptId, CEvent& evt)
+  : CThread("ScriptObs"), m_scriptId(scriptId), m_event(evt)
 {
   Create();
 }

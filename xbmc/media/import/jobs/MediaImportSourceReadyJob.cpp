@@ -13,10 +13,12 @@
 #include <fmt/ostream.h>
 
 CMediaImportSourceReadyJob::CMediaImportSourceReadyJob(
-  const CMediaImportSource &source, const IMediaImporterManager* importerManager)
-  : CMediaImportSourceJobBase(source, importerManager)
-  , m_ready(false)
-{ }
+    const CMediaImportSource& source,
+    const IMediaImporterManager* importerManager,
+    const std::string& name /* = "CMediaImportSourceReadyJob" */)
+  : CMediaImportSourceJobBase(name, source, importerManager), m_ready(false)
+{
+}
 
 bool CMediaImportSourceReadyJob::DoWork()
 {
@@ -38,14 +40,14 @@ std::shared_ptr<IMediaImporter> CMediaImportSourceReadyJob::GetImporter()
 
   if (m_importerManager == nullptr)
   {
-    CLog::Log(LOGERROR, "CMediaImportSourceReadyJob: invalid media importer manager implementation for source {}", m_source);
+    m_logger->error("invalid media importer manager implementation for source {}", m_source);
     return nullptr;
   }
 
   m_importer = m_importerManager->GetImporterBySource(m_source);
   if (m_importer == nullptr)
   {
-    CLog::Log(LOGERROR, "CMediaImportSourceReadyJob: missing media importer for source {}", m_source);
+    m_logger->error("missing media importer for source {}", m_source);
     return nullptr;
   }
 

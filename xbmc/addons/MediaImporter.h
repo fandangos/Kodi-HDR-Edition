@@ -11,9 +11,10 @@
 #include "addons/Addon.h"
 #include "media/MediaType.h"
 #include "threads/CriticalSection.h"
+#include "utils/logtypes.h"
 
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
 
 namespace ADDON
 {
@@ -46,7 +47,10 @@ public:
 private:
   void SetSupportedMediaTypes(const std::string& supportedMediaTypes);
 
-  static void ParseSettingsElement(const CAddonExtensions* parent, const std::string& id, bool& prepareSettings, std::string& settingsPath);
+  static void ParseSettingsElement(const CAddonExtensions* parent,
+                                   const std::string& id,
+                                   bool& prepareSettings,
+                                   std::string& settingsPath);
 
   std::string m_discoveryService;
   std::string m_observerService;
@@ -126,6 +130,8 @@ private:
   CCriticalSection m_criticalSection;
   bool m_started = false;
   ServicesMap m_services;
+
+  Logger m_logger;
 };
 
 } /*namespace ADDON*/

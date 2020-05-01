@@ -10,6 +10,7 @@
 
 #include "media/import/IMediaImporter.h"
 #include "settings/dialogs/GUIDialogSettingsManagerBase.h"
+#include "utils/logtypes.h"
 #include "view/GUIViewControl.h"
 
 #include <memory>
@@ -26,11 +27,11 @@ public:
 
   // specialization of CGUIControl
   bool OnMessage(CGUIMessage& message) override;
-  bool OnAction(const CAction &action) override;
+  bool OnAction(const CAction& action) override;
   bool OnBack(int actionID) override;
 
-  static bool ShowForMediaImport(const CFileItemPtr &item);
-  static bool ShowForMediaImportSource(const CFileItemPtr &item);
+  static bool ShowForMediaImport(const CFileItemPtr& item);
+  static bool ShowForMediaImportSource(const CFileItemPtr& item);
 
 protected:
   // specialization of CGUIDialogSettingsBase
@@ -50,19 +51,13 @@ protected:
   void InitializeMediaImportSettings();
   void InitializeMediaImportSourceSettings();
 
-  bool SetMediaImport(const CFileItemPtr &item);
-  bool SetMediaImportSource(const CFileItemPtr &item);
-  
+  bool SetMediaImport(const CFileItemPtr& item);
+  bool SetMediaImportSource(const CFileItemPtr& item);
+
   CFileItemPtr m_item;
   std::shared_ptr<CMediaImport> m_import;
   std::shared_ptr<CMediaImportSource> m_source;
   MediaImporterPtr m_importer;
 
-  // media import settings related
-  int m_synchronisationImportTrigger;
-  bool m_synchronisationUpdateImportedMediaItems;
-  bool m_synchronisationUpdatePlaybackMetadataFromSource;
-  bool m_synchronisationUpdateMetadataOnSource;
-  bool m_synchronisationUpdatePlaybackMetadataOnSource;
+  Logger m_logger;
 };
-

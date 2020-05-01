@@ -21,20 +21,21 @@
  */
 static bool IsSameTVShow(const CVideoInfoTag& left, const CVideoInfoTag& right)
 {
-  return left.m_strTitle == right.m_strTitle
-      && left.GetYear() == right.GetYear();
+  return left.m_strTitle == right.m_strTitle && left.GetYear() == right.GetYear();
 }
 
-CFileItemPtr CTvShowImportHandler::FindMatchingLocalItem(const CMediaImport &import, const CFileItem* item, const std::vector<CFileItemPtr>& localItems) const
+CFileItemPtr CTvShowImportHandler::FindMatchingLocalItem(
+    const CMediaImport& import,
+    const CFileItem* item,
+    const std::vector<CFileItemPtr>& localItems) const
 {
   if (item == nullptr || !item->HasVideoInfoTag())
     return nullptr;
 
-  const auto& localItem = std::find_if(localItems.cbegin(), localItems.cend(),
-    [&item](const CFileItemPtr& localItem)
-    {
-      return IsSameTVShow(*item->GetVideoInfoTag(), *localItem->GetVideoInfoTag());
-    });
+  const auto& localItem =
+      std::find_if(localItems.cbegin(), localItems.cend(), [&item](const CFileItemPtr& localItem) {
+        return IsSameTVShow(*item->GetVideoInfoTag(), *localItem->GetVideoInfoTag());
+      });
 
   if (localItem != localItems.cend())
     return *localItem;
@@ -42,7 +43,7 @@ CFileItemPtr CTvShowImportHandler::FindMatchingLocalItem(const CMediaImport &imp
   return nullptr;
 }
 
-bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem* item)
+bool CTvShowImportHandler::AddImportedItem(const CMediaImport& import, CFileItem* item)
 {
   if (item == nullptr)
     return false;
@@ -51,10 +52,10 @@ bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
   PrepareItem(import, item);
 
   // and prepare the tvshow paths
-  std::vector< std::pair<std::string, std::string> > tvshowPaths;
+  std::vector<std::pair<std::string, std::string>> tvshowPaths;
   tvshowPaths.push_back(std::make_pair(item->GetPath(), item->GetVideoInfoTag()->m_basePath));
   // we don't know the season art yet
-  std::map<int, std::map<std::string, std::string> > seasonArt;
+  std::map<int, std::map<std::string, std::string>> seasonArt;
 
   const CVideoInfoTag* info = item->GetVideoInfoTag();
 
@@ -76,7 +77,8 @@ bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
       }
 
       CVideoInfoTag* tvshowInfo = tvshow->GetVideoInfoTag();
-      if (!m_db.GetTvShowInfo(tvshowInfo->GetPath(), *tvshowInfo, tvshowInfo->m_iDbId, tvshow.get()))
+      if (!m_db.GetTvShowInfo(tvshowInfo->GetPath(), *tvshowInfo, tvshowInfo->m_iDbId,
+                              tvshow.get()))
       {
         tvshows.Remove(i);
         continue;
@@ -84,7 +86,8 @@ bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
 
       // check if the scraper identifier or the title and year match
       if ((tvshowInfo->HasUniqueID() && tvshowInfo->GetUniqueID() == info->GetUniqueID()) ||
-          (tvshowInfo->HasYear() && tvshowInfo->GetYear() == info->GetYear() && tvshowInfo->m_strTitle == info->m_strTitle))
+          (tvshowInfo->HasYear() && tvshowInfo->GetYear() == info->GetYear() &&
+           tvshowInfo->m_strTitle == info->m_strTitle))
       {
         exists = true;
         break;
@@ -102,8 +105,7 @@ bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
     // if there was no exact match and there are still tvshows left that match in title
     // and the new item doesn't have a scraper identifier and no year
     // we take the first match
-    if (!exists && !tvshows.IsEmpty() &&
-        !info->HasUniqueID() && !info->HasYear())
+    if (!exists && !tvshows.IsEmpty() && !info->HasUniqueID() && !info->HasYear())
     {
       tvshow = tvshows.Get(0);
       exists = true;
@@ -111,12 +113,15 @@ bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
 
     // simply add the path of the imported tvshow to the tvshow's paths
     if (exists && tvshow != nullptr)
-      item->GetVideoInfoTag()->m_iDbId = m_db.SetDetailsForTvShow(tvshowPaths, *(tvshow->GetVideoInfoTag()), tvshow->GetArt(), seasonArt, tvshow->GetVideoInfoTag()->m_iDbId);
+      item->GetVideoInfoTag()->m_iDbId =
+          m_db.SetDetailsForTvShow(tvshowPaths, *(tvshow->GetVideoInfoTag()), tvshow->GetArt(),
+                                   seasonArt, tvshow->GetVideoInfoTag()->m_iDbId);
   }
 
   // couldn't find a matching local tvshow so add the newly imported one
   if (!exists)
-    item->GetVideoInfoTag()->m_iDbId = m_db.SetDetailsForTvShow(tvshowPaths, *(item->GetVideoInfoTag()), item->GetArt(), seasonArt);
+    item->GetVideoInfoTag()->m_iDbId = m_db.SetDetailsForTvShow(
+        tvshowPaths, *(item->GetVideoInfoTag()), item->GetArt(), seasonArt);
 
   // make sure that the tvshow was properly added
   if (item->GetVideoInfoTag()->m_iDbId <= 0)
@@ -125,18 +130,19 @@ bool CTvShowImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
   return SetImportForItem(item, import);
 }
 
-bool CTvShowImportHandler::UpdateImportedItem(const CMediaImport &import, CFileItem* item)
+bool CTvShowImportHandler::UpdateImportedItem(const CMediaImport& import, CFileItem* item)
 {
   if (item == nullptr || !item->HasVideoInfoTag() || item->GetVideoInfoTag()->m_iDbId <= 0)
     return false;
 
-  std::vector< std::pair<std::string, std::string> > tvshowPaths;
+  std::vector<std::pair<std::string, std::string>> tvshowPaths;
   tvshowPaths.push_back(std::make_pair(item->GetPath(), item->GetVideoInfoTag()->m_basePath));
-  std::map<int, std::map<std::string, std::string> > seasonArt;
-  return m_db.SetDetailsForTvShow(tvshowPaths, *(item->GetVideoInfoTag()), item->GetArt(), seasonArt, item->GetVideoInfoTag()->m_iDbId) > 0;
+  std::map<int, std::map<std::string, std::string>> seasonArt;
+  return m_db.SetDetailsForTvShow(tvshowPaths, *(item->GetVideoInfoTag()), item->GetArt(),
+                                  seasonArt, item->GetVideoInfoTag()->m_iDbId) > 0;
 }
 
-bool CTvShowImportHandler::RemoveImportedItem(const CMediaImport &import, const CFileItem* item)
+bool CTvShowImportHandler::RemoveImportedItem(const CMediaImport& import, const CFileItem* item)
 {
   if (item == nullptr || !item->HasVideoInfoTag() || item->GetVideoInfoTag()->m_iDbId <= 0)
     return false;
@@ -170,7 +176,7 @@ bool CTvShowImportHandler::RemoveImportedItem(const CMediaImport &import, const 
   return true;
 }
 
-bool CTvShowImportHandler::CleanupImportedItems(const CMediaImport &import)
+bool CTvShowImportHandler::CleanupImportedItems(const CMediaImport& import)
 {
   if (!m_db.Open())
     return false;
@@ -188,12 +194,14 @@ bool CTvShowImportHandler::CleanupImportedItems(const CMediaImport &import)
 
     // get all episodes of the tvshow
     CVideoDbUrl videoUrl;
-    if (!videoUrl.FromString(StringUtils::Format("videodb://tvshows/titles/{}/-1/", importedTvShow->GetVideoInfoTag()->m_iDbId)))
+    if (!videoUrl.FromString(StringUtils::Format("videodb://tvshows/titles/{}/-1/",
+                                                 importedTvShow->GetVideoInfoTag()->m_iDbId)))
       continue;
     videoUrl.AddOption("tvshowid", importedTvShow->GetVideoInfoTag()->m_iDbId);
 
     CFileItemList episodes;
-    if (!m_db.GetEpisodesByWhere(videoUrl.ToString(), CDatabase::Filter(), episodes, true, SortDescription(), false))
+    if (!m_db.GetEpisodesByWhere(videoUrl.ToString(), CDatabase::Filter(), episodes, true,
+                                 SortDescription(), false))
       continue;
 
     // loop through all episodes and count the imported ones
@@ -217,12 +225,15 @@ bool CTvShowImportHandler::CleanupImportedItems(const CMediaImport &import)
   return true;
 }
 
-bool CTvShowImportHandler::GetLocalItems(CVideoDatabase &videodb, const CMediaImport &import, std::vector<CFileItemPtr>& items) const
+bool CTvShowImportHandler::GetLocalItems(CVideoDatabase& videodb,
+                                         const CMediaImport& import,
+                                         std::vector<CFileItemPtr>& items) const
 {
   CFileItemList tvshows;
-  if (!videodb.GetTvShowsByWhere("videodb://tvshows/titles/?imported&import=" + CURL::Encode(import.GetPath()),
-    CDatabase::Filter(), tvshows, SortDescription(),
-    import.Settings()->UpdateImportedMediaItems() ? VideoDbDetailsAll : VideoDbDetailsNone))
+  if (!videodb.GetTvShowsByWhere(
+          "videodb://tvshows/titles/?imported&import=" + CURL::Encode(import.GetPath()),
+          CDatabase::Filter(), tvshows, SortDescription(),
+          import.Settings()->UpdateImportedMediaItems() ? VideoDbDetailsAll : VideoDbDetailsNone))
     return false;
 
   items.insert(items.begin(), tvshows.cbegin(), tvshows.cend());
@@ -232,32 +243,21 @@ bool CTvShowImportHandler::GetLocalItems(CVideoDatabase &videodb, const CMediaIm
 
 std::set<Field> CTvShowImportHandler::IgnoreDifferences() const
 {
-  return {
-    FieldAlbum,
-    FieldArtist,
-    FieldCountry,
-    FieldDirector,
-    FieldEpisodeNumber,
-    FieldEpisodeNumberSpecialSort,
-    FieldFilename,
-    FieldInProgress,
-    FieldLastPlayed,
-    FieldPlaycount,
-    FieldPlotOutline,
-    FieldProductionCode,
-    FieldSeason,
-    FieldSeasonSpecialSort,
-    FieldSet,
-    FieldTagline,
-    FieldTime,
-    FieldTop250,
-    FieldTrackNumber,
-    FieldTvShowTitle,
-    FieldWriter
-  };
+  return {FieldAlbum,         FieldArtist,
+          FieldCountry,       FieldDirector,
+          FieldEpisodeNumber, FieldEpisodeNumberSpecialSort,
+          FieldFilename,      FieldInProgress,
+          FieldLastPlayed,    FieldPlaycount,
+          FieldPlotOutline,   FieldProductionCode,
+          FieldSeason,        FieldSeasonSpecialSort,
+          FieldSet,           FieldTagline,
+          FieldTime,          FieldTop250,
+          FieldTrackNumber,   FieldTvShowTitle,
+          FieldWriter};
 }
 
-bool CTvShowImportHandler::RemoveImportedItems(CVideoDatabase &videodb, const CMediaImport &import) const
+bool CTvShowImportHandler::RemoveImportedItems(CVideoDatabase& videodb,
+                                               const CMediaImport& import) const
 {
   std::vector<CFileItemPtr> items;
   if (!GetLocalItems(videodb, import, items))
@@ -269,7 +269,9 @@ bool CTvShowImportHandler::RemoveImportedItems(CVideoDatabase &videodb, const CM
   return true;
 }
 
-void CTvShowImportHandler::RemoveImportedItem(CVideoDatabase &videodb, const CMediaImport &import, const CFileItem* item) const
+void CTvShowImportHandler::RemoveImportedItem(CVideoDatabase& videodb,
+                                              const CMediaImport& import,
+                                              const CFileItem* item) const
 {
   // check if the tvshow still has episodes or not
   if (item == nullptr || !item->HasVideoInfoTag())
@@ -278,7 +280,8 @@ void CTvShowImportHandler::RemoveImportedItem(CVideoDatabase &videodb, const CMe
   // if there are other episodes only remove the path and the import link to the tvshow and not the whole tvshow
   if (item->GetVideoInfoTag()->m_iEpisode > 0)
   {
-    videodb.RemovePathFromTvShow(item->GetVideoInfoTag()->m_iDbId, item->GetVideoInfoTag()->GetPath());
+    videodb.RemovePathFromTvShow(item->GetVideoInfoTag()->m_iDbId,
+                                 item->GetVideoInfoTag()->GetPath());
     videodb.RemoveImportFromItem(item->GetVideoInfoTag()->m_iDbId, GetMediaType(), import);
   }
   else

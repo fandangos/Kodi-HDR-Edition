@@ -10,13 +10,16 @@
 
 #include "media/import/IMediaImporter.h"
 #include "media/import/jobs/MediaImportSourceJobBase.h"
+#include "utils/logtypes.h"
 
 #include <memory>
 
 class CMediaImportSourceReadyJob : public CMediaImportSourceJobBase
 {
 public:
-  CMediaImportSourceReadyJob(const CMediaImportSource &source, const IMediaImporterManager* importerManager);
+  CMediaImportSourceReadyJob(const CMediaImportSource& source,
+                             const IMediaImporterManager* importerManager,
+                             const std::string& name = "CMediaImportSourceReadyJob");
   virtual ~CMediaImportSourceReadyJob() = default;
 
   // implementation of CJob

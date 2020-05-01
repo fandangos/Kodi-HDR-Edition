@@ -22,8 +22,12 @@ CGUIViewStateMediaSourceBrowser::CGUIViewStateMediaSourceBrowser(const CFileItem
 
   if (items.GetContent() == "sources" || items.GetContent() == "imports")
   {
-    AddSortMethod(SortByLabel, SortAttributeIgnoreFolders, 551, LABEL_MASKS("%L", "%d", "%L", "%d")); // Filename, Date Time | Foldername, Date Time
-    AddSortMethod(SortByDate, SortAttributeIgnoreFolders, 579, LABEL_MASKS("%L", "%d", "%L", "%d"));   // Filename, Date Time | Foldername, Date Time
+    AddSortMethod(
+        SortByLabel, SortAttributeIgnoreFolders, 551,
+        LABEL_MASKS("%L", "%d", "%L", "%d")); // Filename, Date Time | Foldername, Date Time
+    AddSortMethod(
+        SortByDate, SortAttributeIgnoreFolders, 579,
+        LABEL_MASKS("%L", "%d", "%L", "%d")); // Filename, Date Time | Foldername, Date Time
 
     SetSortMethod(SortByLabel);
     SetSortOrder(SortOrderAscending);
@@ -82,4 +86,3 @@ VECSOURCES& CGUIViewStateMediaSourceBrowser::GetSources()
 
   return CGUIViewState::GetSources();
 }
-

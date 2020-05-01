@@ -15,20 +15,26 @@ class CMusicVideoImportHandler : public CVideoImportHandler
 public:
   CMusicVideoImportHandler(const IMediaImportHandlerManager* importHandlerManager)
     : CVideoImportHandler(importHandlerManager)
-  { }
+  {
+  }
   virtual ~CMusicVideoImportHandler() = default;
 
-  CMusicVideoImportHandler* Create() const override { return new CMusicVideoImportHandler(m_importHandlerManager); }
+  CMusicVideoImportHandler* Create() const override
+  {
+    return new CMusicVideoImportHandler(m_importHandlerManager);
+  }
 
   MediaType GetMediaType() const override { return MediaTypeMusicVideo; }
 
-  bool AddImportedItem(const CMediaImport &import, CFileItem* item) override;
-  bool UpdateImportedItem(const CMediaImport &import, CFileItem* item) override;
-  bool RemoveImportedItem(const CMediaImport &import, const CFileItem* item) override;
-  bool CleanupImportedItems(const CMediaImport &import) override { return true; }
+  bool AddImportedItem(const CMediaImport& import, CFileItem* item) override;
+  bool UpdateImportedItem(const CMediaImport& import, CFileItem* item) override;
+  bool RemoveImportedItem(const CMediaImport& import, const CFileItem* item) override;
+  bool CleanupImportedItems(const CMediaImport& import) override { return true; }
 
 protected:
-  virtual bool GetLocalItems(CVideoDatabase &videodb, const CMediaImport &import, std::vector<CFileItemPtr>& items) const override;
+  virtual bool GetLocalItems(CVideoDatabase& videodb,
+                             const CMediaImport& import,
+                             std::vector<CFileItemPtr>& items) const override;
 
   virtual std::set<Field> IgnoreDifferences() const override;
 };

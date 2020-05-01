@@ -9,6 +9,7 @@
 #pragma once
 
 #include "media/import/importers/BaseMediaImporter.h"
+#include "utils/logtypes.h"
 
 #include <Platinum/Source/Core/PltDeviceData.h>
 
@@ -41,7 +42,7 @@ public:
 class CUPnPMediaImporter : public CUPnPMediaImporterBase, public CBaseMediaImporter
 {
 public:
-  CUPnPMediaImporter() = default;
+  CUPnPMediaImporter();
   ~CUPnPMediaImporter() override = default;
 
   // implementations of IMediaImporter
@@ -63,6 +64,8 @@ protected:
   static bool getDeviceIdentifier(const std::string& path, std::string& deviceIdentifier);
   static bool validatePath(const std::string &path, PLT_DeviceDataReference &device);
   static bool isXbmcServer(const std::string &path);
+
+  Logger m_logger;
 };
 
 class CUPnPMediaImporterObserver : public IMediaImporterObserver

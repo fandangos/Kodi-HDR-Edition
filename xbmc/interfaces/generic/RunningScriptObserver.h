@@ -14,7 +14,7 @@
 class CRunningScriptObserver : public CThread
 {
 public:
-  CRunningScriptObserver(int scriptId, CEvent &evt);
+  CRunningScriptObserver(int scriptId, CEvent& evt);
   ~CRunningScriptObserver() = default;
 
   void Abort();
@@ -24,5 +24,5 @@ protected:
   void Process() override;
 
   int m_scriptId;
-  CEvent &m_event;
+  CEvent& m_event;
 };

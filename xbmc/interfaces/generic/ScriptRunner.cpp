@@ -27,7 +27,10 @@ void CScriptRunner::SetDone()
   m_scriptDone.Set();
 }
 
-int CScriptRunner::ExecuteScript(ADDON::AddonPtr addon, const std::string& path, int handle, bool resume)
+int CScriptRunner::ExecuteScript(ADDON::AddonPtr addon,
+                                 const std::string& path,
+                                 int handle,
+                                 bool resume)
 {
   if (addon == nullptr || path.empty())
     return false;
@@ -40,12 +43,9 @@ int CScriptRunner::ExecuteScript(ADDON::AddonPtr addon, const std::string& path,
   url.SetOptions("");
 
   // setup our parameters to send the script
-  std::vector<std::string> argv = {
-    url.Get(),  // base path
-    StringUtils::Format("{:d}", handle),
-    options,
-    StringUtils::Format("resume:{}", resume)
-  };
+  std::vector<std::string> argv = {url.Get(), // base path
+                                   StringUtils::Format("{:d}", handle), options,
+                                   StringUtils::Format("resume:{}", resume)};
 
   bool reuseLanguageInvoker = false;
   const auto reuseLanguageInvokerIt = addon->ExtraInfo().find("reuselanguageinvoker");
@@ -54,15 +54,17 @@ int CScriptRunner::ExecuteScript(ADDON::AddonPtr addon, const std::string& path,
 
   // run the script
   CLog::Log(LOGDEBUG, "CScriptRunner: running add-on script {:s}('{:s}', '{:s}', '{:s}')",
-    addon->Name(), argv[0], argv[1], argv[2]);
-  int scriptId = CScriptInvocationManager::GetInstance().ExecuteAsync(addon->LibPath(), addon, argv, reuseLanguageInvoker, handle);
+            addon->Name(), argv[0], argv[1], argv[2]);
+  int scriptId = CScriptInvocationManager::GetInstance().ExecuteAsync(addon->LibPath(), addon, argv,
+                                                                      reuseLanguageInvoker, handle);
   if (scriptId < 0)
     CLog::Log(LOGERROR, "CScriptRunner: unable to run add-on script {:s}", addon->Name());
 
   return scriptId;
 }
 
-bool CScriptRunner::RunScriptInternal(ADDON::AddonPtr addon, const std::string& path, int handle, bool resume, bool wait /* = true */)
+bool CScriptRunner::RunScriptInternal(
+    ADDON::AddonPtr addon, const std::string& path, int handle, bool resume, bool wait /* = true */)
 {
   if (addon == nullptr || path.empty())
     return false;
@@ -85,7 +87,9 @@ bool CScriptRunner::RunScriptInternal(ADDON::AddonPtr addon, const std::string& 
   return WaitOnScriptResult(scriptId, addon->LibPath(), addon->Name());
 }
 
-bool CScriptRunner::WaitOnScriptResult(int scriptId, const std::string& path, const std::string& name)
+bool CScriptRunner::WaitOnScriptResult(int scriptId,
+                                       const std::string& path,
+                                       const std::string& name)
 {
   bool cancelled = false;
 
@@ -115,11 +119,15 @@ bool CScriptRunner::WaitOnScriptResult(int scriptId, const std::string& path, co
   else
   {
     // wait for the script to finish or be cancelled
-    while (!IsCancelled() && CScriptInvocationManager::GetInstance().IsRunning(scriptId) && !m_scriptDone.WaitMSec(20));
+    while (!IsCancelled() && CScriptInvocationManager::GetInstance().IsRunning(scriptId) &&
+           !m_scriptDone.WaitMSec(20))
+      ;
 
     // give the script 30 seconds to exit before we attempt to stop it
     XbmcThreads::EndTime timer(30000);
-    while (!timer.IsTimePast() && CScriptInvocationManager::GetInstance().IsRunning(scriptId) && !m_scriptDone.WaitMSec(20));
+    while (!timer.IsTimePast() && CScriptInvocationManager::GetInstance().IsRunning(scriptId) &&
+           !m_scriptDone.WaitMSec(20))
+      ;
   }
 
   if (cancelled || IsCancelled())
@@ -127,7 +135,8 @@ bool CScriptRunner::WaitOnScriptResult(int scriptId, const std::string& path, co
     // cancel the script
     if (scriptId != -1 && CScriptInvocationManager::GetInstance().IsRunning(scriptId))
     {
-      CLog::Log(LOGDEBUG, "CScriptRunner: cancelling add-on script {:s} (id = {:d})", name, scriptId);
+      CLog::Log(LOGDEBUG, "CScriptRunner: cancelling add-on script {:s} (id = {:d})", name,
+                scriptId);
       CScriptInvocationManager::GetInstance().Stop(scriptId);
     }
   }

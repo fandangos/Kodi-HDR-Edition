@@ -19,6 +19,11 @@
 
 #include <algorithm>
 
+CVideoImportHandler::CVideoImportHandler(const IMediaImportHandlerManager* importHandlerManager)
+  : IMediaImportHandler(importHandlerManager), CStaticLoggerBase("CVideoImportHandler")
+{
+}
+
 std::string CVideoImportHandler::GetItemLabel(const CFileItem* item) const
 {
   if (item == nullptr)
@@ -30,7 +35,8 @@ std::string CVideoImportHandler::GetItemLabel(const CFileItem* item) const
   return item->GetLabel();
 }
 
-bool CVideoImportHandler::GetLocalItems(const CMediaImport &import, std::vector<CFileItemPtr>& items) const
+bool CVideoImportHandler::GetLocalItems(const CMediaImport& import,
+                                        std::vector<CFileItemPtr>& items) const
 {
   if (!m_db.Open())
     return false;
@@ -41,7 +47,7 @@ bool CVideoImportHandler::GetLocalItems(const CMediaImport &import, std::vector<
   return result;
 }
 
-bool CVideoImportHandler::StartChangeset(const CMediaImport &import)
+bool CVideoImportHandler::StartChangeset(const CMediaImport& import)
 {
   // start the background loader if necessary
   if (import.Settings()->UpdateImportedMediaItems())
@@ -50,7 +56,7 @@ bool CVideoImportHandler::StartChangeset(const CMediaImport &import)
   return true;
 }
 
-bool CVideoImportHandler::FinishChangeset(const CMediaImport &import)
+bool CVideoImportHandler::FinishChangeset(const CMediaImport& import)
 {
   // stop the background loader if necessary
   if (import.Settings()->UpdateImportedMediaItems())
@@ -59,45 +65,56 @@ bool CVideoImportHandler::FinishChangeset(const CMediaImport &import)
   return true;
 }
 
-CFileItemPtr CVideoImportHandler::FindMatchingLocalItem(const CMediaImport &import, const CFileItem* item, const std::vector<CFileItemPtr>& localItems) const
+CFileItemPtr CVideoImportHandler::FindMatchingLocalItem(
+    const CMediaImport& import,
+    const CFileItem* item,
+    const std::vector<CFileItemPtr>& localItems) const
 {
   if (item == nullptr || !item->HasVideoInfoTag())
     return nullptr;
 
-  const auto& localItem = std::find_if(localItems.cbegin(), localItems.cend(),
-    [item](const CFileItemPtr localItem)
-    {
-      return localItem->HasVideoInfoTag() && localItem->GetVideoInfoTag()->GetPath() == item->GetVideoInfoTag()->GetPath();
-    });
+  const auto& localItem =
+      std::find_if(localItems.cbegin(), localItems.cend(), [item](const CFileItemPtr localItem) {
+        return localItem->HasVideoInfoTag() &&
+               localItem->GetVideoInfoTag()->GetPath() == item->GetVideoInfoTag()->GetPath();
+      });
   if (localItem != localItems.cend())
     return *localItem;
 
   return nullptr;
 }
 
-MediaImportChangesetType CVideoImportHandler::DetermineChangeset(const CMediaImport &import, const CFileItem* item, const CFileItemPtr& localItem)
+MediaImportChangesetType CVideoImportHandler::DetermineChangeset(const CMediaImport& import,
+                                                                 const CFileItem* item,
+                                                                 const CFileItemPtr& localItem)
 {
-  if (item == nullptr || localItem == nullptr ||
-      !localItem->HasVideoInfoTag() || !localItem->HasVideoInfoTag())
-    return MediaImportChangesetTypeNone;
+  if (item == nullptr || localItem == nullptr || !item->HasVideoInfoTag() ||
+      !localItem->HasVideoInfoTag())
+    return MediaImportChangesetType::None;
 
   const auto& settings = import.Settings();
 
   // retrieve all details for the previously imported item
   if (!m_thumbLoader.LoadItem(localItem.get()))
-    CLog::Log(LOGWARNING, "Failed to retrieve details for local item {} during media importing", localItem->GetVideoInfoTag()->GetPath());
+  {
+    s_logger->warn("failed to retrieve details for local item {} during media importing",
+                   localItem->GetVideoInfoTag()->GetPath());
+  }
 
   // compare the previously imported item with the newly imported item
-  if (Compare(localItem.get(), item, settings->UpdateImportedMediaItems(), settings->UpdatePlaybackMetadataFromSource()))
-    return MediaImportChangesetTypeNone;
+  if (Compare(localItem.get(), item, settings->UpdateImportedMediaItems(),
+              settings->UpdatePlaybackMetadataFromSource()))
+    return MediaImportChangesetType::None;
 
-  return MediaImportChangesetTypeChanged;
+  return MediaImportChangesetType::Changed;
 }
 
-void CVideoImportHandler::PrepareImportedItem(const CMediaImport& import, CFileItem* item, const CFileItemPtr& localItem) const
+void CVideoImportHandler::PrepareImportedItem(const CMediaImport& import,
+                                              CFileItem* item,
+                                              const CFileItemPtr& localItem) const
 {
-  if (item == nullptr || localItem == nullptr ||
-    !localItem->HasVideoInfoTag() || !localItem->HasVideoInfoTag())
+  if (item == nullptr || localItem == nullptr || !localItem->HasVideoInfoTag() ||
+      !localItem->HasVideoInfoTag())
     return;
 
   auto itemVideoInfoTag = item->GetVideoInfoTag();
@@ -114,7 +131,7 @@ void CVideoImportHandler::PrepareImportedItem(const CMediaImport& import, CFileI
   itemVideoInfoTag->m_parentPathID = localItemVideoInfoTag->m_parentPathID;
 }
 
-bool CVideoImportHandler::StartSynchronisation(const CMediaImport &import)
+bool CVideoImportHandler::StartSynchronisation(const CMediaImport& import)
 {
   m_sourcePaths.clear();
   m_importPathIds.clear();
@@ -125,11 +142,12 @@ bool CVideoImportHandler::StartSynchronisation(const CMediaImport &import)
   // TODO(Montellese): is a transaction really needed?
   m_db.BeginTransaction();
 
-  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnScanStarted");
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc",
+                                                     "OnScanStarted");
   return true;
 }
 
-bool CVideoImportHandler::FinishSynchronisation(const CMediaImport &import)
+bool CVideoImportHandler::FinishSynchronisation(const CMediaImport& import)
 {
   if (!m_db.IsOpen())
     return false;
@@ -144,12 +162,13 @@ bool CVideoImportHandler::FinishSynchronisation(const CMediaImport &import)
   m_sourcePaths.clear();
   m_importPathIds.clear();
 
-  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnScanFinished");
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc",
+                                                     "OnScanFinished");
 
   return true;
 }
 
-bool CVideoImportHandler::RemoveImportedItems(const CMediaImport &import)
+bool CVideoImportHandler::RemoveImportedItems(const CMediaImport& import)
 {
   if (!m_db.Open())
     return false;
@@ -167,7 +186,7 @@ bool CVideoImportHandler::RemoveImportedItems(const CMediaImport &import)
   return success;
 }
 
-void CVideoImportHandler::SetImportedItemsEnabled(const CMediaImport &import, bool enable)
+void CVideoImportHandler::SetImportedItemsEnabled(const CMediaImport& import, bool enable)
 {
   if (!m_db.Open())
     return;
@@ -176,15 +195,16 @@ void CVideoImportHandler::SetImportedItemsEnabled(const CMediaImport &import, bo
   m_db.Close();
 }
 
-bool CVideoImportHandler::RemoveImportedItems(CVideoDatabase &videodb, const CMediaImport &import) const
+bool CVideoImportHandler::RemoveImportedItems(CVideoDatabase& videodb,
+                                              const CMediaImport& import) const
 {
   return videodb.DeleteItemsFromImport(import);
 }
 
-void CVideoImportHandler::PrepareItem(const CMediaImport &import, CFileItem* pItem)
+void CVideoImportHandler::PrepareItem(const CMediaImport& import, CFileItem* pItem)
 {
-  if (pItem == nullptr || !pItem->HasVideoInfoTag() ||
-      import.GetPath().empty() || import.GetSource().GetIdentifier().empty())
+  if (pItem == nullptr || !pItem->HasVideoInfoTag() || import.GetPath().empty() ||
+      import.GetSource().GetIdentifier().empty())
     return;
 
   const std::string& sourcePath = import.GetSource().GetBasePath();
@@ -219,10 +239,11 @@ void CVideoImportHandler::PrepareItem(const CMediaImport &import, CFileItem* pIt
   videoInfoTag->m_parentPathID = idPath;
 
   if (!pItem->m_bIsFolder)
-    videoInfoTag->m_iFileId = m_db.AddFile(pItem->GetPath(), importPath, videoInfoTag->GetPlayCount(), videoInfoTag->m_lastPlayed);
+    videoInfoTag->m_iFileId = m_db.AddFile(
+        pItem->GetPath(), importPath, videoInfoTag->GetPlayCount(), videoInfoTag->m_lastPlayed);
 }
 
-void CVideoImportHandler::SetDetailsForFile(const CFileItem *pItem, bool reset)
+void CVideoImportHandler::SetDetailsForFile(const CFileItem* pItem, bool reset)
 {
   const auto videoInfoTag = pItem->GetVideoInfoTag();
 
@@ -237,12 +258,12 @@ void CVideoImportHandler::SetDetailsForFile(const CFileItem *pItem, bool reset)
     m_db.AddBookMarkToFile(pItem->GetPath(), videoInfoTag->GetResumePoint(), CBookmark::RESUME);
 }
 
-bool CVideoImportHandler::SetImportForItem(const CFileItem *pItem, const CMediaImport &import)
+bool CVideoImportHandler::SetImportForItem(const CFileItem* pItem, const CMediaImport& import)
 {
   return m_db.SetImportForItem(pItem->GetVideoInfoTag()->m_iDbId, GetMediaType(), import);
 }
 
-void CVideoImportHandler::RemoveFile(CVideoDatabase &videodb, const CFileItem *item) const
+void CVideoImportHandler::RemoveFile(CVideoDatabase& videodb, const CFileItem* item) const
 {
   if (!videodb.IsOpen() || item == nullptr || !item->HasVideoInfoTag())
     return;
@@ -250,10 +271,13 @@ void CVideoImportHandler::RemoveFile(CVideoDatabase &videodb, const CFileItem *i
   videodb.DeleteFile(item->GetVideoInfoTag()->m_iFileId, item->GetVideoInfoTag()->GetPath());
 }
 
-bool CVideoImportHandler::Compare(const CFileItem *originalItem, const CFileItem *newItem, bool allMetadata /* = true */, bool playbackMetadata /* = true */) const
+bool CVideoImportHandler::Compare(const CFileItem* originalItem,
+                                  const CFileItem* newItem,
+                                  bool allMetadata /* = true */,
+                                  bool playbackMetadata /* = true */) const
 {
-  if (originalItem == nullptr || !originalItem->HasVideoInfoTag() ||
-      newItem == nullptr || !newItem->HasVideoInfoTag())
+  if (originalItem == nullptr || !originalItem->HasVideoInfoTag() || newItem == nullptr ||
+      !newItem->HasVideoInfoTag())
     return false;
 
   const auto originalItemVideoInfoTag = originalItem->GetVideoInfoTag();
@@ -262,8 +286,9 @@ bool CVideoImportHandler::Compare(const CFileItem *originalItem, const CFileItem
   if (!allMetadata)
   {
     return originalItemVideoInfoTag->GetPlayCount() == newItemVideoInfoTag->GetPlayCount() &&
-      originalItemVideoInfoTag->m_lastPlayed == newItemVideoInfoTag->m_lastPlayed &&
-      originalItemVideoInfoTag->GetResumePoint().timeInSeconds == newItemVideoInfoTag->GetResumePoint().timeInSeconds;
+           originalItemVideoInfoTag->m_lastPlayed == newItemVideoInfoTag->m_lastPlayed &&
+           originalItemVideoInfoTag->GetResumePoint().timeInSeconds ==
+               newItemVideoInfoTag->GetResumePoint().timeInSeconds;
   }
 
   auto originalArt = originalItem->GetArt();
@@ -277,9 +302,10 @@ bool CVideoImportHandler::Compare(const CFileItem *originalItem, const CFileItem
     // remove any artwork Kodi automatically adds
     std::set<std::string> parentPrefixes;
     if (originalItemVideoInfoTag->m_type == MediaTypeMovie)
-      parentPrefixes = { "set" };
-    else if (originalItemVideoInfoTag->m_type == MediaTypeSeason || originalItemVideoInfoTag->m_type == MediaTypeEpisode)
-      parentPrefixes = { "tvshow", "season" };
+      parentPrefixes = {"set"};
+    else if (originalItemVideoInfoTag->m_type == MediaTypeSeason ||
+             originalItemVideoInfoTag->m_type == MediaTypeEpisode)
+      parentPrefixes = {"tvshow", "season"};
     RemoveAutoArtwork(originalArt, parentPrefixes);
 
     if (originalArt != newArt)
@@ -296,7 +322,7 @@ bool CVideoImportHandler::Compare(const CFileItem *originalItem, const CFileItem
   // if playback metadata shouldn't be compared simply remove them from the list of differences
   if (!playbackMetadata)
   {
-    differences.erase(FieldPlaycount);  // playcount
+    differences.erase(FieldPlaycount); // playcount
     differences.erase(FieldLastPlayed); // lastplayed
     differences.erase(FieldInProgress); // resume point
   }
@@ -311,23 +337,24 @@ bool CVideoImportHandler::Compare(const CFileItem *originalItem, const CFileItem
   if (it != differences.end())
   {
     bool equal = false;
-    const std::vector<SActorInfo> &originalCast = originalItemVideoInfoTag->m_cast;
-    const std::vector<SActorInfo> &newCast = newItemVideoInfoTag->m_cast;
+    const std::vector<SActorInfo>& originalCast = originalItemVideoInfoTag->m_cast;
+    const std::vector<SActorInfo>& newCast = newItemVideoInfoTag->m_cast;
     // ignore differences in cast if the imported item doesn't provide a cast at all
     if (newCast.empty())
       equal = true;
     else if (originalCast.size() == newCast.size())
     {
       equal = true;
-      for(size_t index = 0; index < originalCast.size(); ++index)
+      for (size_t index = 0; index < originalCast.size(); ++index)
       {
-        const SActorInfo &originalActor = originalCast.at(index);
-        const SActorInfo &newActor = newCast.at(index);
+        const SActorInfo& originalActor = originalCast.at(index);
+        const SActorInfo& newActor = newCast.at(index);
 
         if (originalActor.strName != newActor.strName ||
             originalActor.strRole != newActor.strRole ||
-           (!newActor.thumb.empty() && originalActor.thumb != newActor.thumb) ||
-           (!newActor.thumbUrl.m_xml.empty() && originalActor.thumbUrl.m_xml != newActor.thumbUrl.m_xml))
+            (!newActor.thumb.empty() && originalActor.thumb != newActor.thumb) ||
+            (!newActor.thumbUrl.m_xml.empty() &&
+             originalActor.thumbUrl.m_xml != newActor.thumbUrl.m_xml))
         {
           equal = false;
           break;
@@ -345,7 +372,8 @@ bool CVideoImportHandler::Compare(const CFileItem *originalItem, const CFileItem
   return true;
 }
 
-void CVideoImportHandler::RemoveAutoArtwork(CGUIListItem::ArtMap& artwork, const std::set<std::string>& parentPrefixes)
+void CVideoImportHandler::RemoveAutoArtwork(CGUIListItem::ArtMap& artwork,
+                                            const std::set<std::string>& parentPrefixes)
 {
   for (auto art = artwork.begin(); art != artwork.end();)
   {
@@ -357,8 +385,11 @@ void CVideoImportHandler::RemoveAutoArtwork(CGUIListItem::ArtMap& artwork, const
     else if (StringUtils::StartsWith(art->second, "image://"))
       remove = true;
     // check for parent artwork
-    else if (!parentPrefixes.empty() && std::any_of(parentPrefixes.begin(), parentPrefixes.end(),
-      [art](const std::string& parentPrefix) { return StringUtils::StartsWith(art->first, parentPrefix + "."); }))
+    else if (!parentPrefixes.empty() &&
+             std::any_of(parentPrefixes.begin(), parentPrefixes.end(),
+                         [art](const std::string& parentPrefix) {
+                           return StringUtils::StartsWith(art->first, parentPrefix + ".");
+                         }))
       remove = true;
 
     if (remove)

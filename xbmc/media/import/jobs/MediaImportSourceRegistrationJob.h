@@ -13,7 +13,9 @@
 class CMediaImportSourceRegistrationJob : public CMediaImportSourceReadyJob
 {
 public:
-  CMediaImportSourceRegistrationJob(const CMediaImportSource &source, bool activate, const IMediaImporterManager* importerManager);
+  CMediaImportSourceRegistrationJob(const CMediaImportSource& source,
+                                    bool activate,
+                                    const IMediaImporterManager* importerManager);
   virtual ~CMediaImportSourceRegistrationJob() = default;
 
   // implementation of CJob

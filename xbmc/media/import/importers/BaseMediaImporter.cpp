@@ -58,17 +58,3 @@ bool CBaseMediaImporter::LoadSettings(MediaImportSettingsBasePtr settings) const
 {
   return settings->Load();
 }
-
-bool CBaseMediaImporter::UnloadSettings(MediaImportSettingsBasePtr settings) const
-{
-  if (!settings->IsLoaded())
-    return true;
-
-  // save the settings
-  bool result = settings->Save();
-
-  // unload the settings completely
-  settings->Unload();
-
-  return result;
-}

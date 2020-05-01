@@ -15,6 +15,7 @@
 #include "threads/SingleLock.h"
 
 #include <cstdint>
+#include <map>
 
 template<class TScript>
 class CRunningScriptsHandler : protected CScriptRunner
@@ -25,10 +26,10 @@ protected:
   CRunningScriptsHandler() = default;
   virtual ~CRunningScriptsHandler() = default;
 
-  using CScriptRunner::GetAddon;
-  using CScriptRunner::StartScript;
   using CScriptRunner::ExecuteScript;
+  using CScriptRunner::GetAddon;
   using CScriptRunner::SetDone;
+  using CScriptRunner::StartScript;
 
   bool RunScript(TScript* script, ADDON::AddonPtr addon, const std::string& path, bool resume)
   {
@@ -91,8 +92,10 @@ private:
 };
 
 template<class TScript>
-std::map<typename CRunningScriptsHandler<TScript>::HandleType, TScript*> CRunningScriptsHandler<TScript>::s_scriptHandles;
+std::map<typename CRunningScriptsHandler<TScript>::HandleType, TScript*>
+    CRunningScriptsHandler<TScript>::s_scriptHandles;
 template<class TScript>
 CCriticalSection CRunningScriptsHandler<TScript>::s_critical;
 template<class TScript>
-typename CRunningScriptsHandler<TScript>::HandleType CRunningScriptsHandler<TScript>::s_scriptHandleCounter = 0;
+typename CRunningScriptsHandler<TScript>::HandleType
+    CRunningScriptsHandler<TScript>::s_scriptHandleCounter = 0;

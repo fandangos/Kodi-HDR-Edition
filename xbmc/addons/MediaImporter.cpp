@@ -34,10 +34,10 @@ CMediaImporter::CMediaImporter(const AddonInfoPtr& addonInfo)
   if (automaticallyAddAsProvider != nullptr)
     SetSupportedMediaTypes(automaticallyAddAsProvider->GetValue("supportedmediatypes").asString());
 
-  ParseSettingsElement(addonTypeInfo, "providersettings",
-    m_prepareProviderSettings, m_providerSettingsPath);
-  ParseSettingsElement(addonTypeInfo, "importsettings",
-    m_prepareImportSettings, m_importSettingsPath);
+  ParseSettingsElement(addonTypeInfo, "providersettings", m_prepareProviderSettings,
+                       m_providerSettingsPath);
+  ParseSettingsElement(addonTypeInfo, "importsettings", m_prepareImportSettings,
+                       m_importSettingsPath);
 }
 
 std::string CMediaImporter::ProviderLookupProtocol() const
@@ -110,7 +110,10 @@ void CMediaImporter::SetSupportedMediaTypes(const std::string& supportedMediaTyp
   }
 }
 
-void CMediaImporter::ParseSettingsElement(const CAddonExtensions* parent, const std::string& id, bool& prepareSettings, std::string& settingsPath)
+void CMediaImporter::ParseSettingsElement(const CAddonExtensions* parent,
+                                          const std::string& id,
+                                          bool& prepareSettings,
+                                          std::string& settingsPath)
 {
   prepareSettings = false;
   if (parent == nullptr)
@@ -127,8 +130,10 @@ void CMediaImporter::ParseSettingsElement(const CAddonExtensions* parent, const 
 }
 
 CMediaImportAddonManager::CMediaImportAddonManager(CAddonMgr& addonMgr)
-    : m_addonMgr(addonMgr)
-{ }
+  : m_addonMgr(addonMgr),
+    m_logger(CServiceBroker::GetLogging().GetLogger("CMediaImportAddonManager"))
+{
+}
 
 CMediaImportAddonManager::~CMediaImportAddonManager()
 {
@@ -171,10 +176,10 @@ bool CMediaImportAddonManager::StartDiscovery(const AddonPtr& addon)
     service = m_services.emplace(addon->ID(), ServiceHandlers{}).first;
   else if (service->second.discovery >= 0)
   {
-    CLog::Log(LOGDEBUG, "CMediaImportAddonManager: discovery service for {:s} already started.", addon->ID());
+    m_logger->debug("discovery service for {:s} already started.", addon->ID());
     return true;
   }
-  
+
   auto mediaImporter = std::dynamic_pointer_cast<CMediaImporter>(addon);
   if (mediaImporter == nullptr || !mediaImporter->HasDiscoveryService())
     return false;
@@ -182,11 +187,12 @@ bool CMediaImportAddonManager::StartDiscovery(const AddonPtr& addon)
   if (!StringUtils::EndsWith(mediaImporter->DiscoveryServicePath(), ".py"))
     return false;
 
-  CLog::Log(LOGDEBUG, "CMediaImportAddonManager: starting discovery service for {:s}", addon->ID());
-  auto handle = CScriptInvocationManager::GetInstance().ExecuteAsync(mediaImporter->DiscoveryServicePath(), addon);
+  m_logger->debug("starting discovery service for {:s}", addon->ID());
+  auto handle = CScriptInvocationManager::GetInstance().ExecuteAsync(
+      mediaImporter->DiscoveryServicePath(), addon);
   if (handle < 0)
   {
-    CLog::Log(LOGERROR, "CMediaImportAddonManager: discovery service for {:s} failed to start", addon->ID());
+    m_logger->debug("discovery service for {:s} failed to start", addon->ID());
     return false;
   }
   service->second.discovery = handle;
@@ -214,7 +220,7 @@ bool CMediaImportAddonManager::StartObserver(const AddonPtr& addon)
     service = m_services.emplace(addon->ID(), ServiceHandlers{}).first;
   else if (service->second.observer >= 0)
   {
-    CLog::Log(LOGDEBUG, "CMediaImportAddonManager: observer service for {:s} already started.", addon->ID());
+    m_logger->debug("observer service for {:s} already started.", addon->ID());
     return true;
   }
 
@@ -225,11 +231,12 @@ bool CMediaImportAddonManager::StartObserver(const AddonPtr& addon)
   if (!StringUtils::EndsWith(mediaImporter->ObserverServicePath(), ".py"))
     return false;
 
-  CLog::Log(LOGDEBUG, "CMediaImportAddonManager: starting observer service for {:s}", addon->ID());
-  auto handle = CScriptInvocationManager::GetInstance().ExecuteAsync(mediaImporter->ObserverServicePath(), addon);
+  m_logger->debug("starting observer service for {:s}", addon->ID());
+  auto handle = CScriptInvocationManager::GetInstance().ExecuteAsync(
+      mediaImporter->ObserverServicePath(), addon);
   if (handle < 0)
   {
-    CLog::Log(LOGERROR, "CMediaImportAddonManager: observer service for {:s} failed to start", addon->ID());
+    m_logger->error("observer service for {:s} failed to start", addon->ID());
     return false;
   }
   service->second.observer = handle;
@@ -321,7 +328,7 @@ void CMediaImportAddonManager::OnEvent(const AddonEvent& event)
     Register(event.id);
   }
   else if (typeid(event) == typeid(AddonEvents::Disabled) ||
-    typeid(event) == typeid(AddonEvents::UnInstalled))
+           typeid(event) == typeid(AddonEvents::UnInstalled))
     Unregister(event.id);
 }
 
@@ -337,7 +344,8 @@ void CMediaImportAddonManager::Register(const AddonPtr& addon)
     return;
 
   // register the importer
-  CServiceBroker::GetMediaImportManager().RegisterImporter(std::make_shared<CAddonMediaImporterFactory>(addon->ID()));
+  CServiceBroker::GetMediaImportManager().RegisterImporter(
+      std::make_shared<CAddonMediaImporterFactory>(addon->ID()));
 }
 
 void CMediaImportAddonManager::Unregister(const std::string& addonId)
@@ -376,10 +384,11 @@ bool CMediaImportAddonManager::Stop(const AddonPtr& addon)
 
 bool CMediaImportAddonManager::Stop(const AddonPtr& addon, int& handle)
 {
-  CLog::Log(LOGDEBUG, "CMediaImportAddonManager: stopping {:s}", addon->ID());
+  m_logger->debug("stopping {:s}", addon->ID());
   if (!CScriptInvocationManager::GetInstance().Stop(handle))
   {
-    CLog::Log(LOGINFO, "CMediaImportAddonManager: failed to stop {:s} (may have ended)", addon->ID());
+    CLog::Log(LOGINFO, "CMediaImportAddonManager: failed to stop {:s} (may have ended)",
+              addon->ID());
     return false;
   }
 
@@ -397,4 +406,3 @@ void CMediaImportAddonManager::Cleanup(ServicesMap::iterator service)
 }
 
 } /*namespace ADDON*/
-

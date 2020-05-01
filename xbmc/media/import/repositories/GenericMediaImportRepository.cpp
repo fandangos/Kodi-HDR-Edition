@@ -35,7 +35,7 @@ bool CGenericMediaImportRepository::Initialize()
   std::vector<CMediaImportSource> sources = getSources();
   std::vector<CMediaImport> imports = getImports();
   closeRepository();
-  
+
   CSingleLock sourcesLock(m_sourcesLock);
   for (const auto& it : sources)
     m_sources.insert(std::make_pair(it.GetIdentifier(), it));
@@ -74,7 +74,8 @@ std::vector<CMediaImport> CGenericMediaImportRepository::GetImports() const
   return imports;
 }
 
-std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsBySource(const std::string &sourceIdentifier) const
+std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsBySource(
+    const std::string& sourceIdentifier) const
 {
   std::vector<CMediaImport> imports;
 
@@ -91,7 +92,8 @@ std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsBySource(cons
   return imports;
 }
 
-std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsByMediaType(const GroupedMediaTypes &mediaTypes) const
+std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsByMediaType(
+    const GroupedMediaTypes& mediaTypes) const
 {
   std::vector<CMediaImport> imports;
 
@@ -112,7 +114,8 @@ std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsByMediaType(c
   return imports;
 }
 
-std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsByPath(const std::string &path, bool includeSubDirectories /* = false */) const
+std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsByPath(
+    const std::string& path, bool includeSubDirectories /* = false */) const
 {
   std::vector<CMediaImport> imports;
 
@@ -123,19 +126,20 @@ std::vector<CMediaImport> CGenericMediaImportRepository::GetImportsByPath(const 
   for (const auto& it : m_imports)
   {
     if (it.second.GetPath() == path ||
-       (includeSubDirectories && URIUtils::PathHasParent(it.second.GetPath(), path.c_str())))
+        (includeSubDirectories && URIUtils::PathHasParent(it.second.GetPath(), path.c_str())))
       imports.emplace_back(it.second.Clone());
   }
 
   return imports;
 }
 
-bool CGenericMediaImportRepository::GetImport(const std::string &path, const GroupedMediaTypes &mediaTypes, CMediaImport &import) const
+bool CGenericMediaImportRepository::GetImport(const std::string& path,
+                                              const GroupedMediaTypes& mediaTypes,
+                                              CMediaImport& import) const
 {
-  if (!m_loaded ||
-      path.empty() || mediaTypes.empty())
+  if (!m_loaded || path.empty() || mediaTypes.empty())
     return false;
-  
+
   CSingleLock importsLock(m_importsLock);
   const auto& it = m_imports.find(MediaImportIdentifier(path, mediaTypes));
   if (it == m_imports.end())
@@ -147,11 +151,10 @@ bool CGenericMediaImportRepository::GetImport(const std::string &path, const Gro
   return true;
 }
 
-bool CGenericMediaImportRepository::AddImport(const CMediaImport &import, bool& added)
+bool CGenericMediaImportRepository::AddImport(const CMediaImport& import, bool& added)
 {
   added = false;
-  if (!m_loaded ||
-      import.GetSource().GetIdentifier().empty() || import.GetPath().empty() ||
+  if (!m_loaded || import.GetSource().GetIdentifier().empty() || import.GetPath().empty() ||
       import.GetMediaTypes().empty())
     return false;
 
@@ -194,11 +197,10 @@ bool CGenericMediaImportRepository::AddImport(const CMediaImport &import, bool& 
   return true;
 }
 
-bool CGenericMediaImportRepository::UpdateImport(const CMediaImport &import, bool& updated)
+bool CGenericMediaImportRepository::UpdateImport(const CMediaImport& import, bool& updated)
 {
   updated = false;
-  if (!m_loaded ||
-      import.GetSource().GetIdentifier().empty() || import.GetPath().empty() ||
+  if (!m_loaded || import.GetSource().GetIdentifier().empty() || import.GetPath().empty() ||
       import.GetMediaTypes().empty())
     return false;
 
@@ -222,10 +224,9 @@ bool CGenericMediaImportRepository::UpdateImport(const CMediaImport &import, boo
   return true;
 }
 
-bool CGenericMediaImportRepository::RemoveImport(const CMediaImport &import)
+bool CGenericMediaImportRepository::RemoveImport(const CMediaImport& import)
 {
-  if (!m_loaded ||
-      import.GetPath().empty() || import.GetMediaTypes().empty())
+  if (!m_loaded || import.GetPath().empty() || import.GetMediaTypes().empty())
     return false;
 
   CSingleLock importsLock(m_importsLock);
@@ -244,10 +245,9 @@ bool CGenericMediaImportRepository::RemoveImport(const CMediaImport &import)
   return true;
 }
 
-bool CGenericMediaImportRepository::UpdateLastSync(CMediaImport &import)
+bool CGenericMediaImportRepository::UpdateLastSync(CMediaImport& import)
 {
-  if (!m_loaded ||
-      import.GetPath().empty() || import.GetMediaTypes().empty())
+  if (!m_loaded || import.GetPath().empty() || import.GetMediaTypes().empty())
     return false;
 
   CSingleLock importsLock(m_importsLock);
@@ -278,7 +278,8 @@ bool CGenericMediaImportRepository::UpdateLastSync(CMediaImport &import)
   return true;
 }
 
-std::vector<CMediaImportSource> CGenericMediaImportRepository::GetSources(const GroupedMediaTypes &mediaTypes /* = GroupedMediaTypes() */) const
+std::vector<CMediaImportSource> CGenericMediaImportRepository::GetSources(
+    const GroupedMediaTypes& mediaTypes /* = GroupedMediaTypes() */) const
 {
   std::vector<CMediaImportSource> sources;
 
@@ -302,12 +303,12 @@ std::vector<CMediaImportSource> CGenericMediaImportRepository::GetSources(const 
   return sources;
 }
 
-bool CGenericMediaImportRepository::GetSource(const std::string &identifier, CMediaImportSource &source) const
+bool CGenericMediaImportRepository::GetSource(const std::string& identifier,
+                                              CMediaImportSource& source) const
 {
-  if (!m_loaded ||
-      identifier.empty())
+  if (!m_loaded || identifier.empty())
     return false;
-  
+
   CSingleLock sourcesLock(m_sourcesLock);
   const auto& it = m_sources.find(identifier);
   if (it == m_sources.end())
@@ -319,12 +320,11 @@ bool CGenericMediaImportRepository::GetSource(const std::string &identifier, CMe
   return true;
 }
 
-bool CGenericMediaImportRepository::AddSource(const CMediaImportSource &source, bool& added)
+bool CGenericMediaImportRepository::AddSource(const CMediaImportSource& source, bool& added)
 {
   added = false;
-  if (!m_loaded ||
-      source.GetIdentifier().empty() || source.GetFriendlyName().empty())
-    return false;  
+  if (!m_loaded || source.GetIdentifier().empty() || source.GetFriendlyName().empty())
+    return false;
 
   MediaTypes supportedMediaTypes = getSupportedMediaTypes();
   bool supported = false;
@@ -340,7 +340,7 @@ bool CGenericMediaImportRepository::AddSource(const CMediaImportSource &source, 
 
   if (!supported)
     return false;
-  
+
   CSingleLock sourcesLock(m_sourcesLock);
   auto&& itSource = m_sources.find(source.GetIdentifier());
   if (itSource != m_sources.end() && itSource->second == source)
@@ -374,13 +374,12 @@ bool CGenericMediaImportRepository::AddSource(const CMediaImportSource &source, 
   return true;
 }
 
-bool CGenericMediaImportRepository::UpdateSource(const CMediaImportSource &source, bool& updated)
+bool CGenericMediaImportRepository::UpdateSource(const CMediaImportSource& source, bool& updated)
 {
   updated = false;
-  if (!m_loaded ||
-      source.GetIdentifier().empty() || source.GetFriendlyName().empty())
+  if (!m_loaded || source.GetIdentifier().empty() || source.GetFriendlyName().empty())
     return false;
-  
+
   CSingleLock sourcesLock(m_sourcesLock);
   auto&& itSource = m_sources.find(source.GetIdentifier());
   if (itSource == m_sources.end())
@@ -416,12 +415,11 @@ bool CGenericMediaImportRepository::UpdateSource(const CMediaImportSource &sourc
   return true;
 }
 
-bool CGenericMediaImportRepository::RemoveSource(const std::string &identifier)
+bool CGenericMediaImportRepository::RemoveSource(const std::string& identifier)
 {
-  if (!m_loaded ||
-      identifier.empty())
+  if (!m_loaded || identifier.empty())
     return false;
-  
+
   CSingleLock sourcesLock(m_sourcesLock);
   auto&& it = m_sources.find(identifier);
   if (it == m_sources.end())
@@ -436,7 +434,7 @@ bool CGenericMediaImportRepository::RemoveSource(const std::string &identifier)
   m_sources.erase(it);
 
   CSingleLock importsLock(m_importsLock);
-  for (MediaImportMap::iterator it = m_imports.begin(); it != m_imports.end(); )
+  for (MediaImportMap::iterator it = m_imports.begin(); it != m_imports.end();)
   {
     if (it->second.GetSource().GetIdentifier().compare(identifier) == 0)
       m_imports.erase(it++);
@@ -447,13 +445,17 @@ bool CGenericMediaImportRepository::RemoveSource(const std::string &identifier)
   return true;
 }
 
-CGenericMediaImportRepository::MediaImportIdentifier CGenericMediaImportRepository::GetMediaImportIdentifier(const CMediaImport &import)
+CGenericMediaImportRepository::MediaImportIdentifier CGenericMediaImportRepository::
+    GetMediaImportIdentifier(const CMediaImport& import)
 {
   return MediaImportIdentifier(import.GetPath(), import.GetMediaTypes());
 }
 
-bool CGenericMediaImportRepository::ContainsAllMediaTypes(const MediaTypes& mediaTypes, const GroupedMediaTypes& groupedMediaTypes)
+bool CGenericMediaImportRepository::ContainsAllMediaTypes(
+    const MediaTypes& mediaTypes, const GroupedMediaTypes& groupedMediaTypes)
 {
   return std::all_of(groupedMediaTypes.begin(), groupedMediaTypes.end(),
-    [&mediaTypes](const MediaType& mediaType) { return mediaTypes.find(mediaType) != mediaTypes.end(); });
+                     [&mediaTypes](const MediaType& mediaType) {
+                       return mediaTypes.find(mediaType) != mediaTypes.end();
+                     });
 }

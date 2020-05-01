@@ -9,16 +9,17 @@
 #pragma once
 
 #include "media/MediaType.h"
-#include "media/import/IMediaImporter.h"
-#include "media/import/IMediaImporterManager.h"
 #include "media/import/IMediaImportHandler.h"
 #include "media/import/IMediaImportHandlerManager.h"
 #include "media/import/IMediaImportRepository.h"
+#include "media/import/IMediaImporter.h"
+#include "media/import/IMediaImporterManager.h"
 #include "media/import/MediaImportSource.h"
 #include "media/import/jobs/tasks/IMediaImportTask.h"
 #include "threads/CriticalSection.h"
 #include "threads/Timer.h"
 #include "utils/JobManager.h"
+#include "utils/logtypes.h"
 
 #include <map>
 #include <set>
@@ -29,10 +30,12 @@ class CGUIDialogProgress;
 class CMediaImportSourceJobBase;
 class CMediaImportTaskProcessorJob;
 
-class CMediaImportManager
-  : public virtual IJobCallback, public ITimerCallback
-  , public IMediaImportTaskCallback, public IMediaImporterManager, public IMediaImportHandlerManager
-  , protected CJobQueue
+class CMediaImportManager : public virtual IJobCallback,
+                            public ITimerCallback,
+                            public IMediaImportTaskCallback,
+                            public IMediaImporterManager,
+                            public IMediaImportHandlerManager,
+                            protected CJobQueue
 {
 public:
   CMediaImportManager();
@@ -96,7 +99,7 @@ public:
   bool HasImporter(const std::string& id) const override;
   MediaImporterPtr GetImporterById(const std::string& id) const override;
   MediaImporterPtr GetImporterBySource(const CMediaImportSource& source) const override;
-  
+
   /*!
    * \brief Register a media import handler implementation
    *
@@ -150,7 +153,8 @@ public:
    * \param mediaTypes List of media types to be ordered
    * \param reversed Whether the list should be reversed or not
    */
-  GroupedMediaTypes GetSupportedMediaTypesOrdered(const MediaTypes& mediaTypes, bool reversed = false) const;
+  GroupedMediaTypes GetSupportedMediaTypesOrdered(const MediaTypes& mediaTypes,
+                                                  bool reversed = false) const;
 
   /*!
    * \brief Returns a list of the given media types with depending media types grouped together.
@@ -158,7 +162,7 @@ public:
    * \param mediaTypes List of media types to be grouped
    */
   std::vector<GroupedMediaTypes> GetSupportedMediaTypesGrouped(const MediaTypes& mediaTypes) const;
-  
+
   /*!
    * \brief Returns a set of all media types grouped together with the given media type.
    */
@@ -175,7 +179,11 @@ public:
    * \param mediaTypes Media types supported by the source
    */
   bool AddSource(const std::string& importerId,
-    const std::string& sourceID, const std::string& basePath, const std::string& friendlyName, const std::string& iconUrl = "", const MediaTypes& mediaTypes = MediaTypes());
+                 const std::string& sourceID,
+                 const std::string& basePath,
+                 const std::string& friendlyName,
+                 const std::string& iconUrl = "",
+                 const MediaTypes& mediaTypes = MediaTypes());
   bool AddSource(const CMediaImportSource& source);
 
   /*!
@@ -189,7 +197,11 @@ public:
    * \param mediaTypes Media types supported by the source
    */
   bool AddAndActivateSource(const std::string& importerId,
-    const std::string& sourceID, const std::string& basePath, const std::string& friendlyName, const std::string& iconUrl = "", const MediaTypes& mediaTypes = MediaTypes());
+                            const std::string& sourceID,
+                            const std::string& basePath,
+                            const std::string& friendlyName,
+                            const std::string& iconUrl = "",
+                            const MediaTypes& mediaTypes = MediaTypes());
   bool AddAndActivateSource(const CMediaImportSource& source);
 
   /*!
@@ -203,7 +215,11 @@ public:
    * \param mediaTypes Media types supported by the source
    */
   bool AddSourceManually(const std::string& importerId,
-    const std::string& sourceID, const std::string& basePath, const std::string& friendlyName, const std::string& iconUrl = "", const MediaTypes& mediaTypes = MediaTypes());
+                         const std::string& sourceID,
+                         const std::string& basePath,
+                         const std::string& friendlyName,
+                         const std::string& iconUrl = "",
+                         const MediaTypes& mediaTypes = MediaTypes());
   bool AddSourceManually(const CMediaImportSource& source);
 
   /*!
@@ -217,10 +233,13 @@ public:
    * \param mediaTypes Media types supported by the source
    */
   bool AddAndActivateSourceManually(const std::string& importerId,
-    const std::string& sourceID, const std::string& basePath, const std::string& friendlyName,
-    const std::string& iconUrl = "", const MediaTypes& mediaTypes = MediaTypes());
+                                    const std::string& sourceID,
+                                    const std::string& basePath,
+                                    const std::string& friendlyName,
+                                    const std::string& iconUrl = "",
+                                    const MediaTypes& mediaTypes = MediaTypes());
   bool AddAndActivateSourceManually(const CMediaImportSource& source);
-  
+
   /*!
    * \brief Activates a discovered source
    * If the source is already known all imports from that source are being
@@ -233,8 +252,10 @@ public:
    * \return True if the source was successfully activated, false otherwise
    */
   bool ActivateSource(const std::string& importerId,
-    const std::string& sourceID, const std::string& basePath = "",
-    const std::string& friendlyName = "", const std::string& iconUrl = "");
+                      const std::string& sourceID,
+                      const std::string& basePath = "",
+                      const std::string& friendlyName = "",
+                      const std::string& iconUrl = "");
   bool ActivateSource(const CMediaImportSource& source);
 
   /*!
@@ -366,7 +387,9 @@ public:
    * \param mediaTypes Types of the media items to import
    * \return True if the import was successfully added, false otherwise
    */
-  bool AddSelectiveImport(const std::string& sourceID, const std::string& path, const GroupedMediaTypes& mediaTypes);
+  bool AddSelectiveImport(const std::string& sourceID,
+                          const std::string& path,
+                          const GroupedMediaTypes& mediaTypes);
 
   /*!
    * \brief Adds a new recursive import to the given source for the given path and media type.
@@ -379,7 +402,9 @@ public:
    * \param mediaTypes Types of the media items to import
    * \return True if the import was successfully added, false otherwise
    */
-  bool AddRecursiveImport(const std::string& sourceID, const std::string& path, const GroupedMediaTypes& mediaTypes);
+  bool AddRecursiveImport(const std::string& sourceID,
+                          const std::string& path,
+                          const GroupedMediaTypes& mediaTypes);
 
   /*!
    * \brief Adds new recursive imports to the given source for the given path and media types.
@@ -389,7 +414,9 @@ public:
    * \param mediaTypes Set of types of the media items to import
    * \return True if the imports were successfully added, false otherwise
    */
-  bool AddRecursiveImports(const std::string& sourceID, const std::string& path, const std::set<GroupedMediaTypes>& mediaTypes);
+  bool AddRecursiveImports(const std::string& sourceID,
+                           const std::string& path,
+                           const std::set<GroupedMediaTypes>& mediaTypes);
 
   /*!
    * \brief Updates the details and settings of the given import.
@@ -434,7 +461,8 @@ public:
    * \param path Path of the imports
    * \param includeSubDirectories Whether to include subdirectories or not
    */
-  std::vector<CMediaImport> GetImportsByPath(const std::string& path, bool includeSubDirectories = false) const;
+  std::vector<CMediaImport> GetImportsByPath(const std::string& path,
+                                             bool includeSubDirectories = false) const;
 
   /*!
    * \brief Gets the import for the given path and media type.
@@ -443,7 +471,9 @@ public:
    * \param mediaTypes Media types of the import
    * \return True if the import for the given path and media type was found, false otherwise
    */
-  bool GetImport(const std::string& path, const GroupedMediaTypes& mediaTypes, CMediaImport& import) const;
+  bool GetImport(const std::string& path,
+                 const GroupedMediaTypes& mediaTypes,
+                 CMediaImport& import) const;
 
   /*
   * \brief Checks if the given import is ready to be processed.
@@ -535,7 +565,7 @@ public:
   * \return True if the change of the imported items has been started, false otherwise
   */
   bool ChangeImportedItems(const CMediaImport& import, const ChangesetItems& items);
-  
+
   /*!
    * \brief Updates the details of the imported media item on the source from where it was imported.
    *
@@ -555,17 +585,21 @@ public:
   std::vector<CFileItemPtr> GetImportedItemsByImport(const CMediaImport& import) const;
 
   // implementation of IJobCallback
-  void OnJobComplete(unsigned int jobID, bool success, CJob *job) override;
-  void OnJobProgress(unsigned int jobID, unsigned int progress, unsigned int total, const CJob *job) override;
+  void OnJobComplete(unsigned int jobID, bool success, CJob* job) override;
+  void OnJobProgress(unsigned int jobID,
+                     unsigned int progress,
+                     unsigned int total,
+                     const CJob* job) override;
 
   // implementation of ITimerCallback
   void OnTimeout() override;
 
   // implementation of IMediaImportTaskCallback
-  bool OnTaskComplete(bool success, const IMediaImportTask *task) override;
+  bool OnTaskComplete(bool success, const IMediaImportTask* task) override;
 
 private:
-  typedef struct MediaImporter {
+  typedef struct MediaImporter
+  {
     MediaImporterFactoryPtr factory;
     MediaImporterDiscovererPtr discoverer;
     MediaImporterObserverPtr observer;
@@ -585,9 +619,14 @@ private:
   void UpdateManuallyAddedSources();
   bool LookupSource(const CMediaImportSource& source);
 
-  bool AddImport(const std::string& sourceID, const std::string& path, const GroupedMediaTypes& mediaTypes, bool recursive);
+  bool AddImport(const std::string& sourceID,
+                 const std::string& path,
+                 const GroupedMediaTypes& mediaTypes,
+                 bool recursive);
   bool AddImport(const CMediaImport& import);
-  bool FindImport(const std::string& path, const GroupedMediaTypes& mediaTypes, CMediaImport& import) const;
+  bool FindImport(const std::string& path,
+                  const GroupedMediaTypes& mediaTypes,
+                  CMediaImport& import) const;
 
   void AddJob(const std::string& sourceID, CMediaImportSourceJobBase* job);
   void AddJob(const std::string& sourceID, CMediaImportTaskProcessorJob* job);
@@ -612,6 +651,8 @@ private:
   void SendSourceMessage(const CMediaImportSource& source, int message, int param = 0);
   void SendImportMessage(const CMediaImport& import, int message);
 
+  Logger m_logger;
+
   bool m_initialized;
 
   static const uint32_t MANUALLY_ADDED_SOURCE_INTERVAL_MS = 60 * 1000;
@@ -620,7 +661,8 @@ private:
   mutable CCriticalSection m_importRepositoriesLock;
   std::set<MediaImportRepositoryPtr> m_importRepositories;
 
-  typedef struct MediaImportSource {
+  typedef struct MediaImportSource
+  {
     std::string importerId;
     bool active;
     bool ready;

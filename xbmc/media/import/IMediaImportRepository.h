@@ -31,7 +31,7 @@ public:
    * \return True if the initialization was successful, false otherwise
    */
   virtual bool Initialize() = 0;
-  
+
   /*
    * \brief Gets all imports stored in the repository.
    *
@@ -45,7 +45,8 @@ public:
    * \param sourceIdentifier Source identifier
    * \return List of imports
    */
-  virtual std::vector<CMediaImport> GetImportsBySource(const std::string &sourceIdentifier) const = 0;
+  virtual std::vector<CMediaImport> GetImportsBySource(
+      const std::string& sourceIdentifier) const = 0;
 
   /*
    * \brief Gets all imports for the given media types stored in the repository.
@@ -53,7 +54,8 @@ public:
    * \param mediaTypes Media types
    * \return List of imports
    */
-  virtual std::vector<CMediaImport> GetImportsByMediaType(const GroupedMediaTypes &mediaTypes) const = 0;
+  virtual std::vector<CMediaImport> GetImportsByMediaType(
+      const GroupedMediaTypes& mediaTypes) const = 0;
 
   /*!
    * \brief Gets all imports for the given path stored in the repository.
@@ -61,7 +63,8 @@ public:
    * \param path Path of the imports
    * \param includeSubDirectories Whether to include subdirectories or not
    */
-  virtual std::vector<CMediaImport> GetImportsByPath(const std::string &path, bool includeSubDirectories = false) const = 0;
+  virtual std::vector<CMediaImport> GetImportsByPath(const std::string& path,
+                                                     bool includeSubDirectories = false) const = 0;
 
   /*
    * \brief Gets the import for the given path and media type.
@@ -71,7 +74,9 @@ public:
    * \param import[out] Import
    * \return True if a matching import was found, false otherwise
    */
-  virtual bool GetImport(const std::string &path, const GroupedMediaTypes &mediaTypes, CMediaImport &import) const = 0;
+  virtual bool GetImport(const std::string& path,
+                         const GroupedMediaTypes& mediaTypes,
+                         CMediaImport& import) const = 0;
 
   /*
    * \brief Adds the given import to the repository.
@@ -80,7 +85,7 @@ public:
    * \param added[out] Whether the import has been added to the repository or not.
    * \return True if the import was successfully added, false otherwise
    */
-  virtual bool AddImport(const CMediaImport &import, bool& added) = 0;
+  virtual bool AddImport(const CMediaImport& import, bool& added) = 0;
 
   /*
    * \brief Updates the given import in the repository.
@@ -89,7 +94,7 @@ public:
    * \param updated[out] Whether the import has been updated in the repository or not.
    * \return True if the import was successfully updated, false otherwise
    */
-  virtual bool UpdateImport(const CMediaImport &import, bool& updated) = 0;
+  virtual bool UpdateImport(const CMediaImport& import, bool& updated) = 0;
 
   /*
    * \brief Removes the given import from the repository.
@@ -97,15 +102,15 @@ public:
    * \param import Import to be removed
    * \return True if the import was successfully removed, false otherwise
    */
-  virtual bool RemoveImport(const CMediaImport &import) = 0;
- 
+  virtual bool RemoveImport(const CMediaImport& import) = 0;
+
   /*
    * \brief Updates the last synchronisation timestamp of the given import in the repository.
    *
    * \param import Import to be updated
    * \return True if the import was successfully updated, false otherwise
    */
-  virtual bool UpdateLastSync(CMediaImport &import) = 0;
+  virtual bool UpdateLastSync(CMediaImport& import) = 0;
 
   /*
    * \brief Gets all sources supporting the given media types stored in the repository.
@@ -113,7 +118,8 @@ public:
    * \param mediaTypes Media types
    * \return List of sources
    */
-  virtual std::vector<CMediaImportSource> GetSources(const GroupedMediaTypes &mediaTypes = GroupedMediaTypes()) const = 0;
+  virtual std::vector<CMediaImportSource> GetSources(
+      const GroupedMediaTypes& mediaTypes = GroupedMediaTypes()) const = 0;
 
   /*
    * \brief Gets the source with the given identifier.
@@ -122,7 +128,7 @@ public:
    * \param source[out] Source
    * \return True if a matching source was found, false otherwise
    */
-  virtual bool GetSource(const std::string &identifier, CMediaImportSource &source) const = 0;
+  virtual bool GetSource(const std::string& identifier, CMediaImportSource& source) const = 0;
 
   /*
    * \brief Adds the given source to the repository.
@@ -131,7 +137,7 @@ public:
    * \param added[out] Whether the source has been added to the repository or not.
    * \return True if the source was successfully added, false otherwise
    */
-  virtual bool AddSource(const CMediaImportSource &source, bool& added) = 0;
+  virtual bool AddSource(const CMediaImportSource& source, bool& added) = 0;
 
   /*
    * \brief Updates the given source in the repository.
@@ -140,7 +146,7 @@ public:
    * \param updated[out] Whether the import has been updated in the repository or not.
    * \return True if the source was successfully updated, false otherwise
    */
-  virtual bool UpdateSource(const CMediaImportSource &source, bool& updated) = 0;
+  virtual bool UpdateSource(const CMediaImportSource& source, bool& updated) = 0;
 
   /*
    * \brief Removes the source with the given identifier from the repository.
@@ -148,7 +154,7 @@ public:
    * \param identifier Source identifier
    * \return True if the source was successfully removed, false otherwise
    */
-  virtual bool RemoveSource(const std::string &identifier) = 0;
+  virtual bool RemoveSource(const std::string& identifier) = 0;
 
 protected:
   IMediaImportRepository() = default;

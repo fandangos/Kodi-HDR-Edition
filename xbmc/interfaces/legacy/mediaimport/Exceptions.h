@@ -12,8 +12,8 @@
 
 namespace XBMCAddon
 {
-  namespace xbmcmediaimport
-  {
-    XBMCCOMMONS_STANDARD_EXCEPTION(MissingLanguageHookException);
-  }
+namespace xbmcmediaimport
+{
+XBMCCOMMONS_STANDARD_EXCEPTION(MissingLanguageHookException);
 }
+} // namespace XBMCAddon

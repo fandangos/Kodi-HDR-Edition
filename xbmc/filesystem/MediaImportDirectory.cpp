@@ -12,8 +12,8 @@
 #include "DbUrl.h"
 #include "FileItem.h"
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
 #include "filesystem/Directory.h"
+#include "guilib/LocalizeStrings.h"
 #include "media/MediaType.h"
 #include "media/import/IMediaImportRepository.h"
 #include "media/import/MediaImportManager.h"
@@ -25,12 +25,14 @@ using namespace std;
 using namespace XFILE;
 
 CMediaImportDirectory::CMediaImportDirectory(void)
-{ }
+{
+}
 
 CMediaImportDirectory::~CMediaImportDirectory(void)
-{ }
+{
+}
 
-bool CMediaImportDirectory::GetDirectory(const CURL& url, CFileItemList &items)
+bool CMediaImportDirectory::GetDirectory(const CURL& url, CFileItemList& items)
 {
   const std::string& strPath = url.Get();
   const auto& hostname = url.GetHostName();
@@ -122,9 +124,12 @@ bool CMediaImportDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   return false;
 }
 
-void CMediaImportDirectory::HandleSources(const std::string &strPath, const std::vector<CMediaImportSource> &sources, CFileItemList &items)
+void CMediaImportDirectory::HandleSources(const std::string& strPath,
+                                          const std::vector<CMediaImportSource>& sources,
+                                          CFileItemList& items)
 {
-  for (std::vector<CMediaImportSource>::const_iterator itSource = sources.begin(); itSource != sources.end(); ++itSource)
+  for (std::vector<CMediaImportSource>::const_iterator itSource = sources.begin();
+       itSource != sources.end(); ++itSource)
   {
     CFileItemPtr item = FileItemFromMediaImportSource(*itSource, strPath);
     if (item != NULL)
@@ -134,11 +139,12 @@ void CMediaImportDirectory::HandleSources(const std::string &strPath, const std:
   items.SetContent("sources");
 }
 
-CFileItemPtr CMediaImportDirectory::FileItemFromMediaImportSource(const CMediaImportSource &source, const std::string &basePath)
+CFileItemPtr CMediaImportDirectory::FileItemFromMediaImportSource(const CMediaImportSource& source,
+                                                                  const std::string& basePath)
 {
   if (source.GetIdentifier().empty() || source.GetFriendlyName().empty())
     return CFileItemPtr();
-  
+
   // prepare the path
   std::string path = basePath + CURL::Encode(source.GetIdentifier());
   URIUtils::AddSlashAtEnd(path);
@@ -154,15 +160,21 @@ CFileItemPtr CMediaImportDirectory::FileItemFromMediaImportSource(const CMediaIm
   item->SetProperty(PROPERTY_SOURCE_NAME, source.GetFriendlyName());
   item->SetProperty(PROPERTY_SOURCE_BASEPATH, source.GetBasePath());
   item->SetProperty(PROPERTY_SOURCE_ISACTIVE, source.IsActive());
-  item->SetProperty(PROPERTY_SOURCE_ISACTIVE_LABEL, source.IsActive() ? g_localizeStrings.Get(39576) : g_localizeStrings.Get(39577));
+  item->SetProperty(PROPERTY_SOURCE_ISACTIVE_LABEL, source.IsActive()
+                                                        ? g_localizeStrings.Get(39576)
+                                                        : g_localizeStrings.Get(39577));
   item->SetProperty(PROPERTY_SOURCE_ISREADY, source.IsReady());
 
   return item;
 }
 
-void CMediaImportDirectory::HandleImports(const std::string &strPath, const std::vector<CMediaImport> &imports, CFileItemList &items, bool bySource /* = false */)
+void CMediaImportDirectory::HandleImports(const std::string& strPath,
+                                          const std::vector<CMediaImport>& imports,
+                                          CFileItemList& items,
+                                          bool bySource /* = false */)
 {
-  for (std::vector<CMediaImport>::const_iterator itImport = imports.begin(); itImport != imports.end(); ++itImport)
+  for (std::vector<CMediaImport>::const_iterator itImport = imports.begin();
+       itImport != imports.end(); ++itImport)
   {
     CFileItemPtr item = FileItemFromMediaImport(*itImport, strPath, bySource);
     if (item != NULL)
@@ -172,12 +184,14 @@ void CMediaImportDirectory::HandleImports(const std::string &strPath, const std:
   items.SetContent("imports");
 }
 
-CFileItemPtr CMediaImportDirectory::FileItemFromMediaImport(const CMediaImport &import, const std::string &basePath, bool bySource /* = false */)
+CFileItemPtr CMediaImportDirectory::FileItemFromMediaImport(const CMediaImport& import,
+                                                            const std::string& basePath,
+                                                            bool bySource /* = false */)
 {
   if (import.GetPath().empty() || import.GetMediaTypes().empty())
     return CFileItemPtr();
 
-  const CMediaImportSource &source = import.GetSource();
+  const CMediaImportSource& source = import.GetSource();
 
   CURL url(URIUtils::AddFileToFolder(basePath, CURL::Encode(import.GetPath())));
   std::string mediaTypes = CMediaTypes::Join(import.GetMediaTypes());
@@ -186,7 +200,8 @@ CFileItemPtr CMediaImportDirectory::FileItemFromMediaImport(const CMediaImport &
   std::string mediaTypesLabel = CMediaTypes::ToLabel(import.GetMediaTypes());
   std::string label = mediaTypesLabel;
   if (!bySource)
-    label = StringUtils::Format(g_localizeStrings.Get(39565).c_str(), source.GetFriendlyName().c_str(), label.c_str());
+    label = StringUtils::Format(g_localizeStrings.Get(39565).c_str(),
+                                source.GetFriendlyName().c_str(), label.c_str());
 
   CFileItemPtr item(new CFileItem(path, false));
   item->SetLabel(label);
@@ -197,13 +212,16 @@ CFileItemPtr CMediaImportDirectory::FileItemFromMediaImport(const CMediaImport &
 
   item->SetProperty(PROPERTY_IMPORT_PATH, import.GetPath());
   item->SetProperty(PROPERTY_IMPORT_MEDIATYPES, mediaTypes);
-  item->SetProperty(PROPERTY_IMPORT_NAME, StringUtils::Format(g_localizeStrings.Get(39565).c_str(),
-    source.GetFriendlyName().c_str(), mediaTypesLabel.c_str()));
+  item->SetProperty(PROPERTY_IMPORT_NAME,
+                    StringUtils::Format(g_localizeStrings.Get(39565).c_str(),
+                                        source.GetFriendlyName().c_str(), mediaTypesLabel.c_str()));
   item->SetProperty(PROPERTY_SOURCE_IDENTIFIER, source.GetIdentifier());
   item->SetProperty(PROPERTY_SOURCE_NAME, source.GetFriendlyName());
   item->SetProperty(PROPERTY_SOURCE_BASEPATH, source.GetBasePath());
   item->SetProperty(PROPERTY_SOURCE_ISACTIVE, source.IsActive());
-  item->SetProperty(PROPERTY_SOURCE_ISACTIVE_LABEL, source.IsActive() ? g_localizeStrings.Get(39576) : g_localizeStrings.Get(39577));
+  item->SetProperty(PROPERTY_SOURCE_ISACTIVE_LABEL, source.IsActive()
+                                                        ? g_localizeStrings.Get(39576)
+                                                        : g_localizeStrings.Get(39577));
   item->SetProperty(PROPERTY_SOURCE_ISREADY, source.IsReady());
 
   return item;

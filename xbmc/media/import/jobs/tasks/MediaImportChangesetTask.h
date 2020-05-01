@@ -18,8 +18,11 @@
 class CMediaImportChangesetTask : public IMediaImportTask
 {
 public:
-  CMediaImportChangesetTask(const CMediaImport &import, MediaImportHandlerPtr importHandler,
-    const std::vector<CFileItemPtr> &localItems, const ChangesetItems &retrievedItems, bool partialChangeset = false);
+  CMediaImportChangesetTask(const CMediaImport& import,
+                            MediaImportHandlerPtr importHandler,
+                            const std::vector<CFileItemPtr>& localItems,
+                            const ChangesetItems& retrievedItems,
+                            bool partialChangeset = false);
   virtual ~CMediaImportChangesetTask() = default;
 
   const ChangesetItems& GetChangeset() const { return m_retrievedItems; }

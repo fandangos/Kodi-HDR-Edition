@@ -15,9 +15,14 @@
 class CMediaImportSourceEvent : public CUniqueEvent
 {
 public:
-  CMediaImportSourceEvent(const CMediaImportSource& source, const CVariant& description, EventLevel level = EventLevel::Information);
-  CMediaImportSourceEvent(const CMediaImportSource& source, const CVariant& description, bool removed, EventLevel level = EventLevel::Information);
-  virtual ~CMediaImportSourceEvent() { }
+  CMediaImportSourceEvent(const CMediaImportSource& source,
+                          const CVariant& description,
+                          EventLevel level = EventLevel::Information);
+  CMediaImportSourceEvent(const CMediaImportSource& source,
+                          const CVariant& description,
+                          bool removed,
+                          EventLevel level = EventLevel::Information);
+  virtual ~CMediaImportSourceEvent() {}
 
   virtual const char* GetType() const override { return "MediaImportSourceEvent"; }
   virtual std::string GetExecutionLabel() const override;
@@ -32,9 +37,14 @@ protected:
 class CMediaImportEvent : public CUniqueEvent
 {
 public:
-  CMediaImportEvent(const CMediaImport& import, const CVariant& description, EventLevel level = EventLevel::Information);
-  CMediaImportEvent(const CMediaImport& import, const CVariant& description, bool removed, EventLevel level = EventLevel::Information);
-  virtual ~CMediaImportEvent() { }
+  CMediaImportEvent(const CMediaImport& import,
+                    const CVariant& description,
+                    EventLevel level = EventLevel::Information);
+  CMediaImportEvent(const CMediaImport& import,
+                    const CVariant& description,
+                    bool removed,
+                    EventLevel level = EventLevel::Information);
+  virtual ~CMediaImportEvent() {}
 
   virtual const char* GetType() const override { return "MediaImportEvent"; }
   virtual std::string GetExecutionLabel() const override;

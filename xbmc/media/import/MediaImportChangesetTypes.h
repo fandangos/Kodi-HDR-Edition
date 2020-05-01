@@ -10,13 +10,13 @@
 
 #include "FileItem.h"
 
-typedef enum MediaImportChangesetType
+enum class MediaImportChangesetType
 {
-  MediaImportChangesetTypeNone = 0,
-  MediaImportChangesetTypeAdded,
-  MediaImportChangesetTypeChanged,
-  MediaImportChangesetTypeRemoved
-} MediaImportChangesetType;
+  None = 0,
+  Added,
+  Changed,
+  Removed
+};
 
 typedef std::pair<MediaImportChangesetType, CFileItemPtr> ChangesetItemPtr;
 typedef std::vector<ChangesetItemPtr> ChangesetItems;

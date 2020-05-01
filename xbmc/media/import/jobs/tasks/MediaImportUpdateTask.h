@@ -18,7 +18,9 @@ class IMediaImporter;
 class CMediaImportUpdateTask : public IMediaImportTask
 {
 public:
-  CMediaImportUpdateTask(const CMediaImport &import, const CFileItem &item, const IMediaImporterManager* importerManager);
+  CMediaImportUpdateTask(const CMediaImport& import,
+                         const CFileItem& item,
+                         const IMediaImporterManager* importerManager);
   virtual ~CMediaImportUpdateTask() = default;
 
   /*!

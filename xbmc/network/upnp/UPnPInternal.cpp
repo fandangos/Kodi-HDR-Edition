@@ -335,7 +335,7 @@ PopulateObjectFromTag(CVideoInfoTag&         tag,
     for (unsigned int index = 0; index < tag.m_genre.size(); index++)
       object.m_Affiliation.genres.Add(tag.m_genre.at(index).c_str());
 
-    for (CVideoInfoTag::iCast it = tag.m_cast.begin(); it != tag.m_cast.end(); it++) {
+    for(CVideoInfoTag::iCast it = tag.m_cast.begin();it != tag.m_cast.end();it++) {
         object.m_People.actors.Add(it->strName.c_str(), it->strRole.c_str());
     }
 
@@ -588,24 +588,24 @@ BuildObject(CFileItem&                    item,
     if (upnp_server) {
         // determine the correct artwork for this item
         if (!thumb_loader.IsNull())
-          thumb_loader->LoadItem(&item);
+            thumb_loader->LoadItem(&item);
 
         // finally apply the found artwork
         thumb = item.GetArt("thumb");
         if (!thumb.empty()) {
-          PLT_AlbumArtInfo art;
-          art.uri = upnp_server->BuildSafeResourceUri(
-            rooturi,
-            (*ips.GetFirstItem()).ToString(),
-            CTextureUtils::GetWrappedImageURL(thumb).c_str());
+            PLT_AlbumArtInfo art;
+            art.uri = upnp_server->BuildSafeResourceUri(
+                rooturi,
+                (*ips.GetFirstItem()).ToString(),
+                CTextureUtils::GetWrappedImageURL(thumb).c_str());
 
-          // Set DLNA profileID by extension, defaulting to JPEG.
-          if (URIUtils::HasExtension(thumb, ".png")) {
-            art.dlna_profile = "PNG_TN";
-          } else {
-            art.dlna_profile = "JPEG_TN";
-          }
-          object->m_ExtraInfo.album_arts.Add(art);
+            // Set DLNA profileID by extension, defaulting to JPEG.
+            if (URIUtils::HasExtension(thumb, ".png")) {
+                art.dlna_profile = "PNG_TN";
+            } else {
+                art.dlna_profile = "JPEG_TN";
+            }
+            object->m_ExtraInfo.album_arts.Add(art);
         }
 
         for (const auto& itArtwork : item.GetArt())
@@ -813,43 +813,43 @@ PopulateTagFromObject(CVideoInfoTag&         tag,
         }
     }
     else {
-      tag.m_strTitle = object.m_Title;
-      if (date.IsValid())
-          tag.m_premiered = date;
+        tag.m_strTitle = object.m_Title;
+        if (date.IsValid())
+            tag.m_premiered = date;
 
-      if (!object.m_Recorded.series_title.IsEmpty()) {
-          if (object.m_ObjectClass.type == "object.container.album.videoAlbum.videoBroadcastSeason") {
-              tag.m_type = MediaTypeSeason;
-              tag.m_iSeason = object.m_Recorded.episode_season;
-              tag.m_strShowTitle = object.m_Recorded.series_title;
-          }
-          else {
-              tag.m_type = MediaTypeTvShow;
-              tag.m_strShowTitle = object.m_Title;
-          }
+        if (!object.m_Recorded.series_title.IsEmpty()) {
+            if (object.m_ObjectClass.type == "object.container.album.videoAlbum.videoBroadcastSeason") {
+                tag.m_type = MediaTypeSeason;
+                tag.m_iSeason = object.m_Recorded.episode_season;
+                tag.m_strShowTitle = object.m_Recorded.series_title;
+            }
+            else {
+                tag.m_type = MediaTypeTvShow;
+                tag.m_strShowTitle = object.m_Title;
+            }
 
-          if (object.m_Recorded.episode_count > 0)
-              tag.m_iEpisode = object.m_Recorded.episode_count;
-          else
-              tag.m_iEpisode = object.m_Recorded.episode_number;
-      }
-      else if(object.m_ObjectClass.type == "object.item.videoItem.musicVideoClip") {
-        tag.m_type = MediaTypeMusicVideo;
-
-        if (object.m_People.artists.GetItemCount() > 0) {
-          for (unsigned int index = 0; index < object.m_People.artists.GetItemCount(); index++)
-            tag.m_artist.emplace_back(object.m_People.artists.GetItem(index)->name.GetChars());
+            if (object.m_Recorded.episode_count > 0)
+                tag.m_iEpisode = object.m_Recorded.episode_count;
+            else
+                tag.m_iEpisode = object.m_Recorded.episode_number;
         }
-        else if (!object.m_Creator.IsEmpty() && object.m_Creator != "Unknown")
-          tag.m_artist = StringUtils::Split(object.m_Creator.GetChars(), CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoItemSeparator);
-        tag.m_strAlbum = object.m_Affiliation.album;
-      }
-      else
-        tag.m_type = MediaTypeMovie;
+        else if(object.m_ObjectClass.type == "object.item.videoItem.musicVideoClip") {
+            tag.m_type = MediaTypeMusicVideo;
 
-      tag.m_strTitle = object.m_Title;
-      if (date.IsValid())
-        tag.SetPremiered(date);
+            if (object.m_People.artists.GetItemCount() > 0) {
+                for (unsigned int index = 0; index < object.m_People.artists.GetItemCount(); index++)
+                    tag.m_artist.emplace_back(object.m_People.artists.GetItem(index)->name.GetChars());
+            }
+            else if (!object.m_Creator.IsEmpty() && object.m_Creator != "Unknown")
+                tag.m_artist = StringUtils::Split(object.m_Creator.GetChars(), CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoItemSeparator);
+            tag.m_strAlbum = object.m_Affiliation.album;
+        }
+        else
+            tag.m_type = MediaTypeMovie;
+
+        tag.m_strTitle = object.m_Title;
+        if (date.IsValid())
+            tag.SetPremiered(date);
     }
 
     for (unsigned int index = 0; index < object.m_People.publisher.GetItemCount(); index++)
@@ -882,7 +882,6 @@ PopulateTagFromObject(CVideoInfoTag&         tag,
       info.strRole = object.m_People.actors.GetItem(index)->role;
       tag.m_cast.push_back(info);
     }
-
     tag.m_strTagLine  = object.m_Description.description;
     tag.m_strPlot     = object.m_Description.long_description;
     tag.m_strMPAARating = object.m_Description.rating;
@@ -1164,4 +1163,3 @@ CFileItemPtr GetFileItem(const NPT_String& uri, const NPT_String& meta)
 }
 
 } /* namespace UPNP */
-

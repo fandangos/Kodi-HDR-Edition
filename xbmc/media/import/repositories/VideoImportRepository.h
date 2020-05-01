@@ -27,14 +27,14 @@ protected:
   void closeRepository() override { m_db.Close(); }
 
   std::vector<CMediaImportSource> getSources() const override;
-  int addSource(const CMediaImportSource &source) override;
-  bool updateSource(const CMediaImportSource &source) override;
-  void removeSource(const CMediaImportSource &source) override;
+  int addSource(const CMediaImportSource& source) override;
+  bool updateSource(const CMediaImportSource& source) override;
+  void removeSource(const CMediaImportSource& source) override;
   std::vector<CMediaImport> getImports() const override;
-  int addImport(const CMediaImport &import) override;
-  bool updateImport(const CMediaImport &import) override;
-  void removeImport(const CMediaImport &import) override;
-  void updateLastSync(const CMediaImport &import, const CDateTime &lastSync) override;
+  int addImport(const CMediaImport& import) override;
+  bool updateImport(const CMediaImport& import) override;
+  void removeImport(const CMediaImport& import) override;
+  void updateLastSync(const CMediaImport& import, const CDateTime& lastSync) override;
 
   mutable CVideoDatabase m_db;
 };

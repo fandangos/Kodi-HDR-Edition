@@ -16,12 +16,13 @@
 
 #include <fmt/ostream.h>
 
-CMediaImportImportItemsRetrievalTask::CMediaImportImportItemsRetrievalTask(const CMediaImport &import, const IMediaImporterManager* importerManager)
-  : IMediaImportTask(import)
-  , m_importerManager(importerManager)
-  , m_importer()
-  , m_retrievedItems()
-  , m_isChangeset(false)
+CMediaImportImportItemsRetrievalTask::CMediaImportImportItemsRetrievalTask(
+    const CMediaImport& import, const IMediaImporterManager* importerManager)
+  : IMediaImportTask("CMediaImportImportItemsRetrievalTask", import),
+    m_importerManager(importerManager),
+    m_importer(),
+    m_retrievedItems(),
+    m_isChangeset(false)
 {
   // pre-fill the item maps with all media types to be retrieved
   for (const auto& mediaType : import.GetMediaTypes())
@@ -37,7 +38,7 @@ bool CMediaImportImportItemsRetrievalTask::DoWork()
   {
     if (m_importerManager == nullptr)
     {
-      CLog::Log(LOGERROR, "CMediaImportImportItemsRetrievalTask: invalid media importer manager implementation");
+      m_logger->error("invalid media importer manager implementation");
       return false;
     }
 
@@ -45,18 +46,19 @@ bool CMediaImportImportItemsRetrievalTask::DoWork()
     m_importer = m_importerManager->GetImporterBySource(m_import.GetSource());
     if (m_importer == nullptr)
     {
-      CLog::Log(LOGERROR, "CMediaImportImportItemsRetrievalTask: no importer capable of handling source {} found",
-        m_import.GetSource());
+      m_logger->error("no importer capable of handling source {} found", m_import.GetSource());
       return false;
     }
   }
 
-  PrepareProgressBarHandle(StringUtils::Format(g_localizeStrings.Get(39558).c_str(), m_import.GetSource().GetFriendlyName()));
+  PrepareProgressBarHandle(StringUtils::Format(g_localizeStrings.Get(39558).c_str(),
+                                               m_import.GetSource().GetFriendlyName()));
 
   return m_importer->Import(this);
 }
 
-std::vector<CFileItemPtr> CMediaImportImportItemsRetrievalTask::GetLocalItems(const MediaType& mediaType)
+std::vector<CFileItemPtr> CMediaImportImportItemsRetrievalTask::GetLocalItems(
+    const MediaType& mediaType)
 {
   auto localItems = m_localItems.find(mediaType);
   if (localItems == m_localItems.end())
@@ -65,7 +67,8 @@ std::vector<CFileItemPtr> CMediaImportImportItemsRetrievalTask::GetLocalItems(co
   return localItems->second;
 }
 
-void CMediaImportImportItemsRetrievalTask::SetLocalItems(const std::vector<CFileItemPtr>& items, const MediaType& mediaType)
+void CMediaImportImportItemsRetrievalTask::SetLocalItems(const std::vector<CFileItemPtr>& items,
+                                                         const MediaType& mediaType)
 {
   auto localItems = m_localItems.find(mediaType);
   if (localItems == m_localItems.end())
@@ -74,7 +77,10 @@ void CMediaImportImportItemsRetrievalTask::SetLocalItems(const std::vector<CFile
   localItems->second = items;
 }
 
-void CMediaImportImportItemsRetrievalTask::AddItem(const CFileItemPtr& item, const MediaType& mediaType, MediaImportChangesetType changesetType /* = MediaImportChangesetTypeNone */)
+void CMediaImportImportItemsRetrievalTask::AddItem(
+    const CFileItemPtr& item,
+    const MediaType& mediaType,
+    MediaImportChangesetType changesetType /* = MediaImportChangesetTypeNone */)
 {
   auto retrievedItems = m_retrievedItems.find(mediaType);
   if (retrievedItems == m_retrievedItems.end())
@@ -83,13 +89,17 @@ void CMediaImportImportItemsRetrievalTask::AddItem(const CFileItemPtr& item, con
   retrievedItems->second.push_back(std::make_pair(changesetType, item));
 }
 
-void CMediaImportImportItemsRetrievalTask::AddItems(const std::vector<CFileItemPtr>& items, const MediaType& mediaType, MediaImportChangesetType changesetType /* = MediaImportChangesetTypeNone */)
+void CMediaImportImportItemsRetrievalTask::AddItems(
+    const std::vector<CFileItemPtr>& items,
+    const MediaType& mediaType,
+    MediaImportChangesetType changesetType /* = MediaImportChangesetTypeNone */)
 {
   for (const auto& item : items)
     AddItem(item, mediaType, changesetType);
 }
 
-void CMediaImportImportItemsRetrievalTask::SetItems(const ChangesetItems& items, const MediaType& mediaType)
+void CMediaImportImportItemsRetrievalTask::SetItems(const ChangesetItems& items,
+                                                    const MediaType& mediaType)
 {
   auto retrievedItems = m_retrievedItems.find(mediaType);
   if (retrievedItems == m_retrievedItems.end())

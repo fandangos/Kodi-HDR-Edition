@@ -6,38 +6,31 @@
  *  See LICENSES/README.md for more information.
  */
 
-#pragma once
+#include "MediaImportSourceJobBase.h"
 
-#include "media/import/IMediaImporterManager.h"
-#include "media/import/MediaImportSource.h"
-#include "utils/Job.h"
+#include "ServiceBroker.h"
+#include "utils/StringUtils.h"
+#include "utils/log.h"
 
-class CMediaImportSourceJobBase : public CJob
+CMediaImportSourceJobBase::CMediaImportSourceJobBase(const std::string& name,
+                                                     const CMediaImportSource& source,
+                                                     const IMediaImporterManager* importerManager)
+  : m_logger(CServiceBroker::GetLogging().GetLogger(
+        StringUtils::Format("{}[{}]", name, source.GetIdentifier()))),
+    m_source(source),
+    m_importerManager(importerManager)
 {
-public:
-  virtual ~CMediaImportSourceJobBase() = default;
+}
 
-  // implementation of CJob
-  bool operator==(const CJob* other) const override
-  {
-    if (strcmp(other->GetType(), GetType()) != 0)
-      return false;
+bool CMediaImportSourceJobBase::operator==(const CJob* other) const
+{
+  if (strcmp(other->GetType(), GetType()) != 0)
+    return false;
 
-    const CMediaImportSourceJobBase* otherSourceJob = dynamic_cast<const CMediaImportSourceJobBase*>(other);
-    if (otherSourceJob == nullptr)
-      return false;
+  const CMediaImportSourceJobBase* otherSourceJob =
+      dynamic_cast<const CMediaImportSourceJobBase*>(other);
+  if (otherSourceJob == nullptr)
+    return false;
 
-    return m_source == otherSourceJob->m_source;
-  }
-
-  const CMediaImportSource& GetSource() const { return m_source; }
-
-protected:
-  CMediaImportSourceJobBase(const CMediaImportSource& source, const IMediaImporterManager* importerManager)
-    : m_source(source)
-    , m_importerManager(importerManager)
-  { }
-
-  CMediaImportSource m_source;
-  const IMediaImporterManager* m_importerManager;
-};
+  return m_source == otherSourceJob->m_source;
+}

@@ -902,4 +902,4 @@ bool CGUIWindowMediaSourceBrowser::AddNewSource(CFileItemPtr newImportItem, cons
 
   m_manuallyAddedSourceId = discoveredSource.GetIdentifier();
   return true;
-}  
+}

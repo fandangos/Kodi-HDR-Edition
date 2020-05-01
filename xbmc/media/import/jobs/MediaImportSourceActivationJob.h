@@ -13,9 +13,11 @@
 class CMediaImportSourceActivationJob : public CMediaImportSourceReadyJob
 {
 public:
-  CMediaImportSourceActivationJob(const CMediaImportSource &source, const IMediaImporterManager* importerManager)
-    : CMediaImportSourceReadyJob(source, importerManager)
-  { }
+  CMediaImportSourceActivationJob(const CMediaImportSource& source,
+                                  const IMediaImporterManager* importerManager)
+    : CMediaImportSourceReadyJob(source, importerManager, "CMediaImportSourceActivationJob")
+  {
+  }
   virtual ~CMediaImportSourceActivationJob() = default;
 
   // implementation of CJob

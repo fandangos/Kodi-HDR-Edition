@@ -12,13 +12,14 @@
 #include "interfaces/generic/RunningScriptsHandler.h"
 #include "media/import/MediaImport.h"
 #include "media/import/MediaImportSource.h"
+#include "utils/logtypes.h"
 
 #include <map>
 #include <string>
 
 namespace ADDON
 {
-  class CMediaImporter;
+class CMediaImporter;
 }
 
 class CAddonMediaImporter;
@@ -52,8 +53,10 @@ public:
     SettingActionCallback,
   };
 
-  CAddonMediaImporterExecutor(const std::string& addonId, Action action,
-    CAddonMediaImporter* importer = nullptr, const std::string& actionName = "");
+  CAddonMediaImporterExecutor(const std::string& addonId,
+                              Action action,
+                              CAddonMediaImporter* importer = nullptr,
+                              const std::string& actionName = "");
   virtual ~CAddonMediaImporterExecutor() = default;
 
   const std::string& GetAddonId() const { return m_addonId; }
@@ -87,7 +90,8 @@ protected:
 
   static std::shared_ptr<ADDON::CMediaImporter> GetAddon(const std::string& addonId);
 
-  static CAddonMediaImporterExecutor* GetExecutorFromHandle(HandleType handle) throw(InvalidAddonMediaImporterHandleException);
+  static CAddonMediaImporterExecutor* GetExecutorFromHandle(HandleType handle) throw(
+      InvalidAddonMediaImporterHandleException);
   bool CheckAction(Action action) const throw(InvalidAddonMediaImporterCallbackException);
   void SetSuccess(bool success, Action action);
 
@@ -112,4 +116,6 @@ private:
   MediaImportPtr m_import;
   MediaImportSourcePtr m_source;
   IMediaImportTask* m_task = nullptr;
+
+  Logger m_logger;
 };

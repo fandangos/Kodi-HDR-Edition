@@ -15,12 +15,15 @@
 
 #include <fmt/ostream.h>
 
-CMediaImportUpdateTask::CMediaImportUpdateTask(const CMediaImport &import, const CFileItem &item, const IMediaImporterManager* importerManager)
-  : IMediaImportTask(import)
-  , m_importerManager(importerManager)
-  , m_importer()
-  , m_item(item)
-{ }
+CMediaImportUpdateTask::CMediaImportUpdateTask(const CMediaImport& import,
+                                               const CFileItem& item,
+                                               const IMediaImporterManager* importerManager)
+  : IMediaImportTask("CMediaImportUpdateTask", import),
+    m_importerManager(importerManager),
+    m_importer(),
+    m_item(item)
+{
+}
 
 bool CMediaImportUpdateTask::DoWork()
 {
@@ -28,7 +31,7 @@ bool CMediaImportUpdateTask::DoWork()
   {
     if (m_importerManager == nullptr)
     {
-      CLog::Log(LOGERROR, "CMediaImportUpdateTask: invalid media importer manager implementation");
+      m_logger->error("invalid media importer manager implementation");
       return false;
     }
 
@@ -36,8 +39,7 @@ bool CMediaImportUpdateTask::DoWork()
     m_importer = m_importerManager->GetImporterBySource(m_import.GetSource());
     if (m_importer == nullptr)
     {
-      CLog::Log(LOGERROR, "CMediaImportUpdateTask: no importer capable of handling source {} found",
-        m_import.GetSource());
+      m_logger->error("no importer capable of handling source {} found", m_import.GetSource());
       return false;
     }
   }

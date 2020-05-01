@@ -20,267 +20,269 @@
 
 namespace XBMCAddon
 {
-  namespace xbmcmediaimport
-  {
-    class MediaProvider;
+namespace xbmcmediaimport
+{
+class MediaProvider;
 
-    //
-    /// \defgroup python_xbmcmediaimport_mediapimport MediaImport
-    /// \ingroup python_xbmcmediaimport
-    /// @{
-    /// @brief **Media import**
-    ///
-    /// A media import contains the necessary information to import media
-    /// items from a specific path on a media provider.
-    ///
-    /// \python_class{ MediaImport(importPath) }
-    ///
-    /// @param importPath           string
-    ///
-    ///
-    ///-----------------------------------------------------------------------
-    /// @python_v19
-    ///
-    /// **Example:**
-    /// ~~~~~~~~~~~~~{.py}
-    /// ...
-    /// mediaImport = xbmcmediaimport.MediaImport('kodi')
-    /// ...
-    /// ~~~~~~~~~~~~~
-    class MediaImport : public AddonClass
-    {
-    public:
+//
+/// \defgroup python_xbmcmediaimport_mediapimport MediaImport
+/// \ingroup python_xbmcmediaimport
+/// @{
+/// @brief **Media import**
+///
+/// A media import contains the necessary information to import media
+/// items from a specific path on a media provider.
+///
+/// \python_class{ MediaImport(importPath) }
+///
+/// @param importPath           string
+///
+///
+///-----------------------------------------------------------------------
+/// @python_v19
+///
+/// **Example:**
+/// ~~~~~~~~~~~~~{.py}
+/// ...
+/// mediaImport = xbmcmediaimport.MediaImport('kodi')
+/// ...
+/// ~~~~~~~~~~~~~
+class MediaImport : public AddonClass
+{
+public:
 #if !defined SWIG && !defined DOXYGEN_SHOULD_SKIP_THIS
-      MediaImportPtr import;
+  MediaImportPtr import;
 #endif
 
 #ifndef SWIG
-      explicit MediaImport(MediaImportPtr import, const std::string& addonId = "",
-        CAddonMediaImporter* addonMediaImporter = nullptr);
-      explicit MediaImport(const CMediaImport& import, const std::string& addonId = "",
-        CAddonMediaImporter* addonMediaImporter = nullptr);
+  explicit MediaImport(MediaImportPtr import,
+                       const std::string& addonId = "",
+                       CAddonMediaImporter* addonMediaImporter = nullptr);
+  explicit MediaImport(const CMediaImport& import,
+                       const std::string& addonId = "",
+                       CAddonMediaImporter* addonMediaImporter = nullptr);
 #endif
 
-      MediaImport(const String& importPath);
+  MediaImport(const String& importPath);
 
-      virtual ~MediaImport() { }
-
-#ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ getPath() }
-      ///-----------------------------------------------------------------------
-      /// Returns the media import's path.
-      ///
-      /// @return  Path of the media import
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # getPath()
-      /// importPath = mediaImport.getPath()
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      getPath();
-#else
-      String getPath() const;
-#endif
+  virtual ~MediaImport() {}
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ getProvider() }
-      ///-----------------------------------------------------------------------
-      /// Returns the media provider the media import belongs to.
-      ///
-      /// @return  Media provider the media import belongs to
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # getProvider()
-      /// mediaProvider = mediaImport.getProvider()
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      getProvider();
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ getPath() }
+  ///-----------------------------------------------------------------------
+  /// Returns the media import's path.
+  ///
+  /// @return  Path of the media import
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # getPath()
+  /// importPath = mediaImport.getPath()
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  getPath();
 #else
-      MediaProvider* getProvider() const;
+  String getPath() const;
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ setProvider(provider) }
-      ///-----------------------------------------------------------------------
-      /// Sets the media provider the media import belongs to.
-      ///
-      /// @param provider  Media provider the media import belongs to
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # setProvider(provider)
-      /// mediaImport.setProvider(mediaProvider)
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      setProvider(...);
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ getProvider() }
+  ///-----------------------------------------------------------------------
+  /// Returns the media provider the media import belongs to.
+  ///
+  /// @return  Media provider the media import belongs to
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # getProvider()
+  /// mediaProvider = mediaImport.getProvider()
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  getProvider();
 #else
-      void setProvider(const MediaProvider* provider);
+  MediaProvider* getProvider() const;
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ getMediaTypes() }
-      ///-----------------------------------------------------------------------
-      /// Returns the media import's media types.
-      ///
-      /// @return  Media import's media types
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # getMediaTypes()
-      /// mediaTypes = mediaImport.getMediaTypes()
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      getMediaTypes();
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ setProvider(provider) }
+  ///-----------------------------------------------------------------------
+  /// Sets the media provider the media import belongs to.
+  ///
+  /// @param provider  Media provider the media import belongs to
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # setProvider(provider)
+  /// mediaImport.setProvider(mediaProvider)
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  setProvider(...);
 #else
-      std::vector<String> getMediaTypes() const;
+  void setProvider(const MediaProvider* provider);
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ setMediaTypes(mediaTypes) }
-      ///-----------------------------------------------------------------------
-      /// Sets the media import's media types
-      ///
-      /// @param mediaTypes  Media import's media types
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # setMediaTypes(mediaTypes)
-      /// mediaImport.setMediaTypes(mediaTypes)
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      setMediaTypes(...);
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ getMediaTypes() }
+  ///-----------------------------------------------------------------------
+  /// Returns the media import's media types.
+  ///
+  /// @return  Media import's media types
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # getMediaTypes()
+  /// mediaTypes = mediaImport.getMediaTypes()
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  getMediaTypes();
 #else
-      void setMediaTypes(const std::vector<String>& mediaTypes);
+  std::vector<String> getMediaTypes() const;
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ getLastSynced() }
-      ///-----------------------------------------------------------------------
-      /// Returns when the media import was last synchronized.
-      ///
-      /// @return Time when the media import was last synchronized
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # getLastSynced()
-      /// lastSynced = mediaImport.getLastSynced()
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      getLastSynced();
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ setMediaTypes(mediaTypes) }
+  ///-----------------------------------------------------------------------
+  /// Sets the media import's media types
+  ///
+  /// @param mediaTypes  Media import's media types
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # setMediaTypes(mediaTypes)
+  /// mediaImport.setMediaTypes(mediaTypes)
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  setMediaTypes(...);
 #else
-      String getLastSynced() const;
+  void setMediaTypes(const std::vector<String>& mediaTypes);
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediaimport
-      /// @brief \python_func{ prepareSettings() }
-      ///-----------------------------------------------------------------------
-      /// Prepares and returns the settings of the media import.
-      ///
-      /// @return Settings of the media import
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # prepareSettings()
-      /// settings = mediaImport.prepareSettings()
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      prepareSettings();
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ getLastSynced() }
+  ///-----------------------------------------------------------------------
+  /// Returns when the media import was last synchronized.
+  ///
+  /// @return Time when the media import was last synchronized
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # getLastSynced()
+  /// lastSynced = mediaImport.getLastSynced()
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  getLastSynced();
 #else
-      XBMCAddon::xbmcaddon::Settings* prepareSettings();
+  String getLastSynced() const;
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcmediaimport_mediapimport
-      /// @brief \python_func{ getSettings() }
-      ///-----------------------------------------------------------------------
-      /// Returns the settings of the media import.
-      ///
-      /// @return Settings of the media import
-      ///
-      ///
-      ///-----------------------------------------------------------------------
-      /// @python_v19
-      ///
-      /// **Example:**
-      /// ~~~~~~~~~~~~~{.py}
-      /// ...
-      /// # getSettings()
-      /// settings = mediaProvider.getSettings()
-      /// ...
-      /// ~~~~~~~~~~~~~
-      ///
-      getSettings();
+  ///
+  /// \ingroup python_xbmcmediaimport_mediaimport
+  /// @brief \python_func{ prepareSettings() }
+  ///-----------------------------------------------------------------------
+  /// Prepares and returns the settings of the media import.
+  ///
+  /// @return Settings of the media import
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # prepareSettings()
+  /// settings = mediaImport.prepareSettings()
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  prepareSettings();
 #else
-      XBMCAddon::xbmcaddon::Settings* getSettings();
+  XBMCAddon::xbmcaddon::Settings* prepareSettings();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+  ///
+  /// \ingroup python_xbmcmediaimport_mediapimport
+  /// @brief \python_func{ getSettings() }
+  ///-----------------------------------------------------------------------
+  /// Returns the settings of the media import.
+  ///
+  /// @return Settings of the media import
+  ///
+  ///
+  ///-----------------------------------------------------------------------
+  /// @python_v19
+  ///
+  /// **Example:**
+  /// ~~~~~~~~~~~~~{.py}
+  /// ...
+  /// # getSettings()
+  /// settings = mediaProvider.getSettings()
+  /// ...
+  /// ~~~~~~~~~~~~~
+  ///
+  getSettings();
+#else
+  XBMCAddon::xbmcaddon::Settings* getSettings();
 #endif
 
 #ifndef SWIG
-    private:
-      XBMCAddon::xbmcaddon::Settings* createSettings(MediaImportSourceSettingsPtr settings);
+private:
+  XBMCAddon::xbmcaddon::Settings* createSettings(MediaImportSourceSettingsPtr settings);
 
-      std::string m_addonId;
-      CAddonMediaImporter* m_addonMediaImporter;
-      CAddonMediaImporter::SettingsCallbackData m_callbackData;
+  std::string m_addonId;
+  CAddonMediaImporter* m_addonMediaImporter;
+  CAddonMediaImporter::SettingsCallbackData m_callbackData;
 #endif
-    };
-  }
-}
+};
+} // namespace xbmcmediaimport
+} // namespace XBMCAddon

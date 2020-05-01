@@ -16,7 +16,9 @@
 class CMediaImportSynchronisationTask : public IMediaImportTask
 {
 public:
-  CMediaImportSynchronisationTask(const CMediaImport &import, MediaImportHandlerPtr importHandler, const ChangesetItems &items);
+  CMediaImportSynchronisationTask(const CMediaImport& import,
+                                  MediaImportHandlerPtr importHandler,
+                                  const ChangesetItems& items);
   virtual ~CMediaImportSynchronisationTask() = default;
 
   /*!

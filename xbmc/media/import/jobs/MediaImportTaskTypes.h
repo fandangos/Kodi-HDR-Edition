@@ -28,29 +28,29 @@ public:
   {
     switch (taskType)
     {
-    case MediaImportTaskType::LocalItemsRetrieval:
-      return "local items retrieval";
+      case MediaImportTaskType::LocalItemsRetrieval:
+        return "local items retrieval";
 
-    case MediaImportTaskType::ImportItemsRetrieval:
-      return "import items retrieval";
+      case MediaImportTaskType::ImportItemsRetrieval:
+        return "import items retrieval";
 
-    case MediaImportTaskType::Changeset:
-      return "changeset";
+      case MediaImportTaskType::Changeset:
+        return "changeset";
 
-    case MediaImportTaskType::Synchronisation:
-      return "synchronisation";
+      case MediaImportTaskType::Synchronisation:
+        return "synchronisation";
 
-    case MediaImportTaskType::Cleanup:
-      return "cleanup";
+      case MediaImportTaskType::Cleanup:
+        return "cleanup";
 
-    case MediaImportTaskType::Update:
-      return "update";
+      case MediaImportTaskType::Update:
+        return "update";
 
-    case MediaImportTaskType::Removal:
-      return "removal";
+      case MediaImportTaskType::Removal:
+        return "removal";
 
-    default:
-      break;
+      default:
+        break;
     }
 
     return "unknown";

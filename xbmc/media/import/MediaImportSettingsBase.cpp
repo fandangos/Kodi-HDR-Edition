@@ -13,9 +13,9 @@
 #include "utils/log.h"
 
 CMediaImportSettingsBase::CMediaImportSettingsBase(const std::string& settingValues /* = "" */)
-  : CSettingsBase()
-  , m_settingValues(settingValues)
-{ }
+  : CSettingsBase(), CStaticLoggerBase("CMediaImportSettingsBase"), m_settingValues(settingValues)
+{
+}
 
 CMediaImportSettingsBase::CMediaImportSettingsBase(const CMediaImportSettingsBase& other)
   : CMediaImportSettingsBase(other.m_settingValues)
@@ -28,7 +28,7 @@ CMediaImportSettingsBase::CMediaImportSettingsBase(const CMediaImportSettingsBas
     Load();
 }
 
-bool CMediaImportSettingsBase::operator==(const CMediaImportSettingsBase &other) const
+bool CMediaImportSettingsBase::operator==(const CMediaImportSettingsBase& other) const
 {
   if (ToXml() != other.ToXml())
     return false;
@@ -61,7 +61,7 @@ bool CMediaImportSettingsBase::Load()
   // try to initialize the settings by loading its definitions
   if (!Initialize())
   {
-    CLog::Log(LOGERROR, "CMediaImportSettingsBase: failed to initialize settings");
+    s_logger->error("failed to initialize settings");
     return false;
   }
 
@@ -71,7 +71,8 @@ bool CMediaImportSettingsBase::Load()
     CXBMCTinyXML xmlValues;
     if (!xmlValues.Parse(m_settingValues, TIXML_ENCODING_UTF8))
     {
-      CLog::Log(LOGERROR, "CMediaImportSettingsBase: error loading setting values, Line {}\n{}", xmlValues.ErrorRow(), xmlValues.ErrorDesc());
+      s_logger->error("error loading setting values, Line {}\n{}", xmlValues.ErrorRow(),
+                      xmlValues.ErrorDesc());
       Uninitialize();
       return false;
     }
@@ -79,7 +80,7 @@ bool CMediaImportSettingsBase::Load()
     bool updated;
     if (!LoadValuesFromXml(xmlValues, updated))
     {
-      CLog::Log(LOGERROR, "CMediaImportSettingsBase: failed to load setting values");
+      s_logger->error("failed to load setting values");
       Uninitialize();
       return false;
     }
@@ -121,12 +122,16 @@ void CMediaImportSettingsBase::AddSimpleCondition(const std::string& condition)
   m_simpleConditions.insert(condition);
 }
 
-void CMediaImportSettingsBase::AddComplexCondition(const std::string& name, const SettingConditionCheck& condition, void* data /* = nullptr */)
+void CMediaImportSettingsBase::AddComplexCondition(const std::string& name,
+                                                   const SettingConditionCheck& condition,
+                                                   void* data /* = nullptr */)
 {
   m_complexConditions.emplace(name, std::make_tuple(condition, data));
 }
 
-void CMediaImportSettingsBase::SetOptionsFiller(const std::string &settingId, IntegerSettingOptionsFiller optionsFiller, void* data /* = nullptr */)
+void CMediaImportSettingsBase::SetOptionsFiller(const std::string& settingId,
+                                                IntegerSettingOptionsFiller optionsFiller,
+                                                void* data /* = nullptr */)
 {
   if (!IsLoaded() || settingId.empty())
     return;
@@ -144,7 +149,9 @@ void CMediaImportSettingsBase::SetOptionsFiller(const std::string &settingId, In
   std::static_pointer_cast<CSettingInt>(setting)->SetOptionsFiller(optionsFiller, data);
 }
 
-void CMediaImportSettingsBase::SetOptionsFiller(const std::string &settingId, StringSettingOptionsFiller optionsFiller, void* data /* = nullptr */)
+void CMediaImportSettingsBase::SetOptionsFiller(const std::string& settingId,
+                                                StringSettingOptionsFiller optionsFiller,
+                                                void* data /* = nullptr */)
 {
   if (!IsLoaded() || settingId.empty())
     return;
@@ -187,7 +194,8 @@ bool CMediaImportSettingsBase::InitializeDefinitions()
     CXBMCTinyXML xmlDefinition;
     if (!xmlDefinition.Parse(settingDefinition, TIXML_ENCODING_UTF8))
     {
-      CLog::Log(LOGERROR, "CMediaImportSettingsBase: error loading settings definition, Line {}\n{}", xmlDefinition.ErrorRow(), xmlDefinition.ErrorDesc());
+      s_logger->error("error loading settings definition, Line {}\n{}", xmlDefinition.ErrorRow(),
+                      xmlDefinition.ErrorDesc());
       return false;
     }
 
@@ -221,5 +229,6 @@ void CMediaImportSettingsBase::InitializeConditions()
 
   // add more complex conditions
   for (const auto condition : m_complexConditions)
-    GetSettingsManager()->AddDynamicCondition(condition.first, std::get<0>(condition.second), std::get<1>(condition.second));
+    GetSettingsManager()->AddDynamicCondition(condition.first, std::get<0>(condition.second),
+                                              std::get<1>(condition.second));
 }

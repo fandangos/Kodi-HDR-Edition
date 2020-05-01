@@ -20,11 +20,11 @@
 #include "settings/Settings.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "video/VideoInfoTag.h"
 #include "utils/log.h"
+#include "video/VideoInfoTag.h"
 
-#include <fmt/ostream.h>
 #include <Platinum/Source/Platinum/Platinum.h>
+#include <fmt/ostream.h>
 
 using namespace UPNP;
 
@@ -137,6 +137,11 @@ static bool Search(CMediaImportImportItemsRetrievalTask *task, PLT_DeviceDataRef
 
 constexpr char CUPnPMediaImporterBase::IDENTIFICATION[];
 
+CUPnPMediaImporter::CUPnPMediaImporter()
+  : m_logger(CServiceBroker::GetLogging().GetLogger("CUPnPMediaImporter"))
+{
+}
+
 bool CUPnPMediaImporter::CanImport(const std::string& path)
 {
   PLT_DeviceDataReference device;
@@ -192,14 +197,14 @@ bool CUPnPMediaImporter::Import(CMediaImportImportItemsRetrievalTask* task)
   std::string deviceUUID;
   if (!getDeviceIdentifier(import.GetPath(), deviceUUID))
   {
-    CLog::Log(LOGINFO, "CUPnPMediaImporter: unable to import media items from unknown path {}", import.GetPath());
+    m_logger->warn("unable to import media items from unknown path {}", import.GetPath());
     return false;
   }
 
   PLT_DeviceDataReference device;
   if (!FindServer(deviceUUID, device))
   {
-    CLog::Log(LOGINFO, "CUPnPMediaImporter: unable to import media items from unavailable source {}", deviceUUID);
+    m_logger->warn("unable to import media items from unavailable source {}", deviceUUID);
     return false;
   }
 
@@ -234,7 +239,7 @@ bool CUPnPMediaImporter::Import(CMediaImportImportItemsRetrievalTask* task)
         itemList.push_back(item);
     }
 
-    task->AddItems(itemList, importedMediaType, MediaImportChangesetTypeNone);
+    task->AddItems(itemList, importedMediaType, MediaImportChangesetType::None);
   }
   return true;
 }
@@ -249,15 +254,14 @@ bool CUPnPMediaImporter::UpdateOnSource(CMediaImportUpdateTask* task)
   std::string deviceUUID;
   if (!getDeviceIdentifier(import.GetPath(), deviceUUID))
   {
-    CLog::Log(LOGINFO, "CUPnPMediaImporter: unable to update imported media item on unknown source {}",
-      import.GetSource());
+    m_logger->warn("unable to update imported media item on unknown source {}", import.GetSource());
     return false;
   }
 
   PLT_DeviceDataReference device;
   if (!FindServer(deviceUUID, device))
   {
-    CLog::Log(LOGINFO, "CUPnPMediaImporter: unable to update imported media item on unavailable source {}", deviceUUID.c_str());
+    m_logger->warn("unable to update imported media item on unavailable source {}", deviceUUID);
     return false;
   }
 

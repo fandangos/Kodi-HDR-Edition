@@ -33,23 +33,31 @@ class IMediaImportRepository;
 
 namespace XFILE
 {
-  class CMediaImportDirectory : public IDirectory
-  {
-  public:
-    CMediaImportDirectory();
-    virtual ~CMediaImportDirectory();
+class CMediaImportDirectory : public IDirectory
+{
+public:
+  CMediaImportDirectory();
+  virtual ~CMediaImportDirectory();
 
-    virtual bool GetDirectory(const CURL& url, CFileItemList &items);
-    virtual bool Create(const CURL& url) { return true; }
-    virtual bool Exists(const CURL& url) { return true; }
-    virtual bool IsAllowed(const CURL& url) const { return true; };
+  virtual bool GetDirectory(const CURL& url, CFileItemList& items);
+  virtual bool Create(const CURL& url) { return true; }
+  virtual bool Exists(const CURL& url) { return true; }
+  virtual bool IsAllowed(const CURL& url) const { return true; };
 
-    static CFileItemPtr FileItemFromMediaImportSource(const CMediaImportSource &source, const std::string &basePath);
-    static CFileItemPtr FileItemFromMediaImport(const CMediaImport &import, const std::string &basePath, bool bySource = false);
+  static CFileItemPtr FileItemFromMediaImportSource(const CMediaImportSource& source,
+                                                    const std::string& basePath);
+  static CFileItemPtr FileItemFromMediaImport(const CMediaImport& import,
+                                              const std::string& basePath,
+                                              bool bySource = false);
 
-  private:
-    static void HandleSources(const std::string &strPath, const std::vector<CMediaImportSource> &sources, CFileItemList &items);
+private:
+  static void HandleSources(const std::string& strPath,
+                            const std::vector<CMediaImportSource>& sources,
+                            CFileItemList& items);
 
-    static void HandleImports(const std::string &strPath, const std::vector<CMediaImport> &imports, CFileItemList &items, bool bySource = false);
-  };
-}
+  static void HandleImports(const std::string& strPath,
+                            const std::vector<CMediaImport>& imports,
+                            CFileItemList& items,
+                            bool bySource = false);
+};
+} // namespace XFILE

@@ -30,7 +30,8 @@
 
 template<typename TType>
 void NullDeleter(TType*)
-{ }
+{
+}
 
 template<typename TType>
 std::shared_ptr<TType> createSharedPtrWithoutDeleter(TType* obj)
@@ -56,18 +57,23 @@ std::shared_ptr<ADDON::CMediaImporter> GetAddon(const std::string& addonId)
   return std::static_pointer_cast<ADDON::CMediaImporter>(addon);
 }
 
-CAddonMediaImporterBaseInternal::CAddonMediaImporterBaseInternal(const std::string& addonId)
-  : m_addonId(addonId)
-{ }
+CAddonMediaImporterBaseInternal::CAddonMediaImporterBaseInternal(const std::string& addonId,
+                                                                 const std::string& name)
+  : m_addonId(addonId),
+    m_logger(CServiceBroker::GetLogging().GetLogger(StringUtils::Format("{}[{}]", name, addonId)))
+{
+}
 
 std::shared_ptr<ADDON::CMediaImporter> CAddonMediaImporterBaseInternal::GetAddon() const
 {
   return ::GetAddon(m_addonId);
 }
 
-CAddonMediaImporterBase::CAddonMediaImporterBase(const std::string& addonId)
-  : CAddonMediaImporterBaseInternal(addonId)
-{ }
+CAddonMediaImporterBase::CAddonMediaImporterBase(const std::string& addonId,
+                                                 const std::string& name)
+  : CAddonMediaImporterBaseInternal(addonId, name)
+{
+}
 
 bool CAddonMediaImporterBase::CanLookupSource() const
 {
@@ -88,8 +94,9 @@ std::string CAddonMediaImporterBase::GetSourceLookupProtocol() const
 }
 
 CAddonMediaImporterDiscoverer::CAddonMediaImporterDiscoverer(const std::string& addonId)
-  : CAddonMediaImporterBase(addonId)
-{ }
+  : CAddonMediaImporterBase(addonId, "CAddonMediaImporterDiscoverer")
+{
+}
 
 CAddonMediaImporterDiscoverer::~CAddonMediaImporterDiscoverer()
 {
@@ -101,7 +108,7 @@ void CAddonMediaImporterDiscoverer::Start()
   auto mediaImporter = GetAddon();
   if (mediaImporter == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterDiscoverer[{}]: cannot start due to missing add-on", m_addonId);
+    m_logger->warn("cannot start due to missing add-on");
     return;
   }
 
@@ -109,13 +116,14 @@ void CAddonMediaImporterDiscoverer::Start()
   {
     // automatically add the add-on as a provider
     const auto& id = mediaImporter->ID();
-    CMediaImportSource source(id, "plugin://" + id, mediaImporter->Name(), mediaImporter->Icon(), mediaImporter->SupportedMediaTypes());
+    CMediaImportSource source(id, "plugin://" + id, mediaImporter->Name(), mediaImporter->Icon(),
+                              mediaImporter->SupportedMediaTypes());
     source.SetImporterId(id);
 
     if (CServiceBroker::GetMediaImportManager().AddAndActivateSource(source))
-      CLog::Log(LOGINFO, "CAddonMediaImporterDiscoverer[{}]: source automatically added", m_addonId);
+      m_logger->info("source automatically added");
     else
-      CLog::Log(LOGWARNING, "CAddonMediaImporterDiscoverer[{}]: failed to automatically add source", m_addonId);
+      m_logger->warn("failed to automatically add source");
     return;
   }
   else
@@ -127,11 +135,11 @@ void CAddonMediaImporterDiscoverer::Start()
     // try to start the discovery service
     if (!CServiceBroker::GetMediaImportAddons().StartDiscovery(mediaImporter))
     {
-      CLog::Log(LOGWARNING, "CAddonMediaImporterDiscoverer[{}]: failed to start", m_addonId);
+      m_logger->warn("failed to start");
       return;
     }
 
-    CLog::Log(LOGDEBUG, "CAddonMediaImporterDiscoverer[{}]: successfully started", m_addonId);
+    m_logger->debug("successfully started");
   }
   m_started = true;
 }
@@ -144,7 +152,7 @@ void CAddonMediaImporterDiscoverer::Stop()
   auto mediaImporter = GetAddon();
   if (mediaImporter == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterDiscoverer[{}]: cannot stop due to missing add-on", m_addonId);
+    m_logger->warn("cannot stop due to missing add-on");
     return;
   }
 
@@ -152,7 +160,7 @@ void CAddonMediaImporterDiscoverer::Stop()
   if (mediaImporter->AutomaticallyAddAsProvider())
   {
     CServiceBroker::GetMediaImportManager().DeactivateSource(mediaImporter->ID());
-    CLog::Log(LOGDEBUG, "CAddonMediaImporterDiscoverer[{}]: automatically added provider deactivated", m_addonId);
+    m_logger->debug("automatically added provider deactivated");
     return;
   }
 
@@ -163,16 +171,18 @@ void CAddonMediaImporterDiscoverer::Stop()
   // try to stop the discovery service
   if (!CServiceBroker::GetMediaImportAddons().StopDiscovery(mediaImporter))
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterDiscoverer[{}]: failed to stop", m_addonId);
+    m_logger->warn("failed to stop");
     return;
   }
 
-  CLog::Log(LOGDEBUG, "CAddonMediaImporterDiscoverer[{}]: successfully stopped", m_addonId);
+  m_logger->debug("successfully stopped");
 }
 
 CAddonMediaImporter::CAddonMediaImporter(const std::string& addonId)
-  : CAddonMediaImporterBase(addonId)
-{ }
+  : CAddonMediaImporterBase(addonId, "CAddonMediaImporter"),
+    CStaticLoggerBase("CAddonMediaImporter")
+{
+}
 
 std::string CAddonMediaImporter::Localize(uint32_t code) const
 {
@@ -188,7 +198,8 @@ bool CAddonMediaImporter::DiscoverSource(CMediaImportSource& source)
   if (!CAddonMediaImporterBase::CanLookupSource())
     return false;
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::DiscoverSource, this);
+  CAddonMediaImporterExecutor executor(m_addonId,
+                                       CAddonMediaImporterExecutor::Action::DiscoverSource, this);
   executor.SetSource(createSharedPtrWithoutDeleter(&source));
   return executor.Execute("");
 }
@@ -196,10 +207,11 @@ bool CAddonMediaImporter::DiscoverSource(CMediaImportSource& source)
 bool CAddonMediaImporter::LookupSource(const CMediaImportSource& source)
 {
   if (source.GetIdentifier().empty() || source.GetBasePath().empty() ||
-    !CAddonMediaImporterBase::CanLookupSource())
+      !CAddonMediaImporterBase::CanLookupSource())
     return false;
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::LookupSource, this);
+  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::LookupSource,
+                                       this);
   executor.SetSource(source);
   return executor.Execute("");
 }
@@ -217,7 +229,8 @@ bool CAddonMediaImporter::CanImport(const std::string& path)
   CUrlOptions urlOptions;
   urlOptions.AddOption("path", path);
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::CanImport, this);
+  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::CanImport,
+                                       this);
   return executor.Execute(urlOptions.GetOptionsString());
 }
 
@@ -226,7 +239,8 @@ bool CAddonMediaImporter::IsSourceReady(CMediaImportSource& source)
   CUrlOptions urlOptions;
   urlOptions.AddOption("provider", source.GetIdentifier());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::IsSourceReady, this);
+  CAddonMediaImporterExecutor executor(m_addonId,
+                                       CAddonMediaImporterExecutor::Action::IsSourceReady, this);
   executor.SetSource(createSharedPtrWithoutDeleter(&source));
   return executor.Execute(urlOptions.GetOptionsString());
 }
@@ -237,7 +251,8 @@ bool CAddonMediaImporter::IsImportReady(CMediaImport& import)
   urlOptions.AddOption("path", import.GetPath());
   urlOptions.AddOption("mediatypes", import.GetMediaTypes());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::IsImportReady, this);
+  CAddonMediaImporterExecutor executor(m_addonId,
+                                       CAddonMediaImporterExecutor::Action::IsImportReady, this);
   executor.SetSource(createSharedPtrWithoutDeleter(&import.GetSource()));
   executor.SetImport(createSharedPtrWithoutDeleter(&import));
   return executor.Execute(urlOptions.GetOptionsString());
@@ -263,7 +278,8 @@ bool CAddonMediaImporter::LoadSourceSettings(CMediaImportSource& source)
   CUrlOptions urlOptions;
   urlOptions.AddOption("provider", source.GetIdentifier());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::LoadSourceSettings, this);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::LoadSourceSettings, this);
   executor.SetSource(createSharedPtrWithoutDeleter(&source));
   executor.Execute(urlOptions.GetOptionsString());
 
@@ -291,7 +307,8 @@ bool CAddonMediaImporter::LoadImportSettings(CMediaImport& import)
   urlOptions.AddOption("path", import.GetPath());
   urlOptions.AddOption("mediatypes", import.GetMediaTypes());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::LoadImportSettings, this);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::LoadImportSettings, this);
   executor.SetSource(createSharedPtrWithoutDeleter(&import.GetSource()));
   executor.SetImport(createSharedPtrWithoutDeleter(&import));
   executor.Execute(urlOptions.GetOptionsString());
@@ -299,39 +316,43 @@ bool CAddonMediaImporter::LoadImportSettings(CMediaImport& import)
   return m_settingsLoaded;
 }
 
-bool CAddonMediaImporter::CanUpdateMetadataOnSource(const std::string &path)
+bool CAddonMediaImporter::CanUpdateMetadataOnSource(const std::string& path)
 {
   CUrlOptions urlOptions;
   urlOptions.AddOption("path", path);
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::CanUpdateMetadataOnSource, this);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::CanUpdateMetadataOnSource, this);
   return executor.Execute(urlOptions.GetOptionsString());
 }
 
-bool CAddonMediaImporter::CanUpdatePlaycountOnSource(const std::string &path)
+bool CAddonMediaImporter::CanUpdatePlaycountOnSource(const std::string& path)
 {
   CUrlOptions urlOptions;
   urlOptions.AddOption("path", path);
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::CanUpdatePlaycountOnSource, this);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::CanUpdatePlaycountOnSource, this);
   return executor.Execute(urlOptions.GetOptionsString());
 }
 
-bool CAddonMediaImporter::CanUpdateLastPlayedOnSource(const std::string &path)
+bool CAddonMediaImporter::CanUpdateLastPlayedOnSource(const std::string& path)
 {
   CUrlOptions urlOptions;
   urlOptions.AddOption("path", path);
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::CanUpdateLastPlayedOnSource, this);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::CanUpdateLastPlayedOnSource, this);
   return executor.Execute(urlOptions.GetOptionsString());
 }
 
-bool CAddonMediaImporter::CanUpdateResumePositionOnSource(const std::string &path)
+bool CAddonMediaImporter::CanUpdateResumePositionOnSource(const std::string& path)
 {
   CUrlOptions urlOptions;
   urlOptions.AddOption("path", path);
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::CanUpdateResumePositionOnSource, this);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::CanUpdateResumePositionOnSource, this);
   return executor.Execute(urlOptions.GetOptionsString());
 }
 
@@ -346,7 +367,8 @@ bool CAddonMediaImporter::Import(CMediaImportImportItemsRetrievalTask* task)
   urlOptions.AddOption("path", import.GetPath());
   urlOptions.AddOption("mediatypes", import.GetMediaTypes());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::Import, this);
+  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::Import,
+                                       this);
   executor.SetSource(createSharedPtrWithoutDeleter(&import.GetSource()));
   executor.SetImport(createSharedPtrWithoutDeleter(&import));
   executor.SetTask(task);
@@ -365,7 +387,8 @@ bool CAddonMediaImporter::UpdateOnSource(CMediaImportUpdateTask* task)
   urlOptions.AddOption("path", import.GetPath());
   urlOptions.AddOption("mediatypes", import.GetMediaTypes());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::UpdateOnSource, this);
+  CAddonMediaImporterExecutor executor(m_addonId,
+                                       CAddonMediaImporterExecutor::Action::UpdateOnSource, this);
   executor.SetSource(createSharedPtrWithoutDeleter(&import.GetSource()));
   executor.SetImport(createSharedPtrWithoutDeleter(&import));
   executor.SetTask(task);
@@ -379,7 +402,7 @@ bool CAddonMediaImporter::LoadSettings(std::shared_ptr<CSettingsBase> settings, 
 
   if (data == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing data to load settings", m_addonId);
+    m_logger->warn("missing data to load settings");
     return false;
   }
 
@@ -388,33 +411,27 @@ bool CAddonMediaImporter::LoadSettings(std::shared_ptr<CSettingsBase> settings, 
   {
     if (callbackData->data.source == nullptr)
     {
-      CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing source to load settings", m_addonId);
+      m_logger->warn("missing source to load settings");
       return false;
     }
-    
+
     if (!PrepareProviderSettings(m_addonId, callbackData->data.source->Settings()))
-    {
-      // TODO(Montellese): CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: failed to load settings for source {}", m_addonId, *callbackData->data.source);
       return false;
-    }
   }
   else if (callbackData->type == SettingsCallbackData::Import)
   {
     if (callbackData->data.import == nullptr)
     {
-      CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing import to load settings", m_addonId);
+      m_logger->warn("missing import to load settings");
       return false;
     }
 
     if (!PrepareImportSettings(m_addonId, callbackData->data.import->Settings()))
-    {
-      // TODO(Montellese):  CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: failed to load settings for import {}", m_addonId, *callbackData->data.import);
       return false;
-    }
   }
   else
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: invalid data to load settings", m_addonId);
+    m_logger->warn("invalid data to load settings");
     return false;
   }
 
@@ -434,15 +451,17 @@ void CAddonMediaImporter::SetSettingsLoaded(void* data)
   m_settingsLoaded = true;
 }
 
-void CAddonMediaImporter::OnSettingAction(std::shared_ptr<const CSetting> setting, const std::string& callback, void* data)
+void CAddonMediaImporter::OnSettingAction(std::shared_ptr<const CSetting> setting,
+                                          const std::string& callback,
+                                          void* data)
 {
   if (setting == nullptr || callback.empty())
     return;
 
   if (data == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing data to handle action setting callback \"{}\" for setting \"{}\"",
-      m_addonId, callback, setting->GetId());
+    m_logger->warn("missing data to handle action setting callback \"{}\" for setting \"{}\"",
+                   callback, setting->GetId());
     return;
   }
 
@@ -451,7 +470,8 @@ void CAddonMediaImporter::OnSettingAction(std::shared_ptr<const CSetting> settin
   CUrlOptions urlOptions;
   urlOptions.AddOption("setting", setting->GetId());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::SettingActionCallback, this, callback);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::SettingActionCallback, this, callback);
   if (!SetSourceOrImportOnExecutor(executor, *callbackData, callback, setting))
     return;
 
@@ -459,15 +479,19 @@ void CAddonMediaImporter::OnSettingAction(std::shared_ptr<const CSetting> settin
 }
 
 void CAddonMediaImporter::OnIntegerSettingOptionsFiller(std::shared_ptr<const CSetting> setting,
-  const std::string& callback, IntegerSettingOptions& list, int& current, void* data)
+                                                        const std::string& callback,
+                                                        IntegerSettingOptions& list,
+                                                        int& current,
+                                                        void* data)
 {
   if (setting == nullptr || callback.empty())
     return;
 
   if (data == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing data to handle integer setting options filler callback \"{}\" for setting \"{}\"",
-      m_addonId, callback, setting->GetId());
+    m_logger->warn("missing data to handle integer setting options filler "
+                   "callback \"{}\" for setting \"{}\"",
+                   callback, setting->GetId());
     return;
   }
 
@@ -480,7 +504,8 @@ void CAddonMediaImporter::OnIntegerSettingOptionsFiller(std::shared_ptr<const CS
   CUrlOptions urlOptions;
   urlOptions.AddOption("setting", setting->GetId());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::SettingOptionsFiller, this, callback);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::SettingOptionsFiller, this, callback);
   if (!SetSourceOrImportOnExecutor(executor, *callbackData, callback, setting))
     return;
 
@@ -488,19 +513,18 @@ void CAddonMediaImporter::OnIntegerSettingOptionsFiller(std::shared_ptr<const CS
 
   if (!m_integerSettingOptionsSet)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter[{}]: integer setting options filler callback \"{}\" for setting \"{}\" failed",
-      m_addonId, callback, setting->GetId());
+    m_logger->error("integer setting options filler callback \"{}\" for setting \"{}\" failed",
+                    callback, setting->GetId());
     return;
   }
 
   list = m_integerSettingOptions;
 
   // validate the current value
-  bool foundCurrent = std::any_of(list.cbegin(), list.cend(),
-    [&current](const IntegerSettingOption& option)
-    {
-      return option.value == current;
-    });
+  bool foundCurrent =
+      std::any_of(list.cbegin(), list.cend(), [&current](const IntegerSettingOption& option) {
+        return option.value == current;
+      });
 
   // reset the current value to the default
   if (!foundCurrent)
@@ -508,7 +532,8 @@ void CAddonMediaImporter::OnIntegerSettingOptionsFiller(std::shared_ptr<const CS
 }
 
 bool CAddonMediaImporter::SetIntegerSettingOptions(const std::string& settingId,
-  const IntegerSettingOptions& list, void* data)
+                                                   const IntegerSettingOptions& list,
+                                                   void* data)
 {
   m_integerSettingOptions = list;
   m_integerSettingOptionsSet = true;
@@ -516,15 +541,19 @@ bool CAddonMediaImporter::SetIntegerSettingOptions(const std::string& settingId,
 }
 
 void CAddonMediaImporter::OnStringSettingOptionsFiller(std::shared_ptr<const CSetting> setting,
-  const std::string& callback, StringSettingOptions& list, std::string& current, void* data)
+                                                       const std::string& callback,
+                                                       StringSettingOptions& list,
+                                                       std::string& current,
+                                                       void* data)
 {
   if (setting == nullptr || callback.empty())
     return;
 
   if (data == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing data to handle string setting options filler callback \"{}\" for setting \"{}\"",
-      m_addonId, callback, setting->GetId());
+    m_logger->warn("missing data to handle string setting options filler "
+                   "callback \"{}\" for setting \"{}\"",
+                   callback, setting->GetId());
     return;
   }
 
@@ -537,7 +566,8 @@ void CAddonMediaImporter::OnStringSettingOptionsFiller(std::shared_ptr<const CSe
   CUrlOptions urlOptions;
   urlOptions.AddOption("setting", setting->GetId());
 
-  CAddonMediaImporterExecutor executor(m_addonId, CAddonMediaImporterExecutor::Action::SettingOptionsFiller, this, callback);
+  CAddonMediaImporterExecutor executor(
+      m_addonId, CAddonMediaImporterExecutor::Action::SettingOptionsFiller, this, callback);
   if (!SetSourceOrImportOnExecutor(executor, *callbackData, callback, setting))
     return;
 
@@ -545,19 +575,18 @@ void CAddonMediaImporter::OnStringSettingOptionsFiller(std::shared_ptr<const CSe
 
   if (!m_stringSettingOptionsSet)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter[{}]: string setting options filler callback \"{}\" for setting \"{}\" failed",
-      m_addonId, callback, setting->GetId());
+    m_logger->error("string setting options filler callback \"{}\" for setting \"{}\" failed",
+                    callback, setting->GetId());
     return;
   }
 
   list = m_stringSettingOptions;
 
   // validate the current value
-  bool foundCurrent = std::any_of(list.cbegin(), list.cend(),
-    [&current](const StringSettingOption& option)
-  {
-    return option.value == current;
-  });
+  bool foundCurrent =
+      std::any_of(list.cbegin(), list.cend(), [&current](const StringSettingOption& option) {
+        return option.value == current;
+      });
 
   // reset the current value to the default
   if (!foundCurrent)
@@ -565,14 +594,16 @@ void CAddonMediaImporter::OnStringSettingOptionsFiller(std::shared_ptr<const CSe
 }
 
 bool CAddonMediaImporter::SetStringSettingOptions(const std::string& settingId,
-  const StringSettingOptions& list, void* data)
+                                                  const StringSettingOptions& list,
+                                                  void* data)
 {
   m_stringSettingOptions = list;
   m_stringSettingOptionsSet = true;
   return true;
 }
 
-bool CAddonMediaImporter::PrepareProviderSettings(const std::string& addonId, MediaImportSettingsBasePtr settings)
+bool CAddonMediaImporter::PrepareProviderSettings(const std::string& addonId,
+                                                  MediaImportSettingsBasePtr settings)
 {
   if (addonId.empty() || settings == nullptr)
     return false;
@@ -586,7 +617,8 @@ bool CAddonMediaImporter::PrepareProviderSettings(const std::string& addonId, Me
   return PrepareProviderSettings(importer, settings);
 }
 
-bool CAddonMediaImporter::PrepareProviderSettings(std::shared_ptr<ADDON::CMediaImporter> addon, MediaImportSettingsBasePtr settings)
+bool CAddonMediaImporter::PrepareProviderSettings(std::shared_ptr<ADDON::CMediaImporter> addon,
+                                                  MediaImportSettingsBasePtr settings)
 {
   // nothing to do if there is no specific settings XML file
   if (addon->ProviderSettingsPath().empty())
@@ -595,13 +627,14 @@ bool CAddonMediaImporter::PrepareProviderSettings(std::shared_ptr<ADDON::CMediaI
   if (LoadSettingsFromFile(addon->ID(), settings, addon->ProviderSettingsPath()))
     return true;
 
-  CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: failed to load provider settings from {}",
-    addon->ID(), addon->ProviderSettingsPath());
+  s_logger->warn("failed to load provider settings for {} from {}", addon->ID(),
+                 addon->ProviderSettingsPath());
 
   return false;
 }
 
-bool CAddonMediaImporter::PrepareImportSettings(const std::string& addonId, MediaImportSettingsBasePtr settings)
+bool CAddonMediaImporter::PrepareImportSettings(const std::string& addonId,
+                                                MediaImportSettingsBasePtr settings)
 {
   // check if the media import add-on provides an XML file with the setting
   // definitions for the media provider and load it
@@ -612,7 +645,8 @@ bool CAddonMediaImporter::PrepareImportSettings(const std::string& addonId, Medi
   return PrepareImportSettings(importer, settings);
 }
 
-bool CAddonMediaImporter::PrepareImportSettings(std::shared_ptr<ADDON::CMediaImporter> addon, MediaImportSettingsBasePtr settings)
+bool CAddonMediaImporter::PrepareImportSettings(std::shared_ptr<ADDON::CMediaImporter> addon,
+                                                MediaImportSettingsBasePtr settings)
 {
   // nothing to do if there is no specific settings XML file
   if (addon->ImportSettingsPath().empty())
@@ -621,8 +655,8 @@ bool CAddonMediaImporter::PrepareImportSettings(std::shared_ptr<ADDON::CMediaImp
   if (LoadSettingsFromFile(addon->ID(), settings, addon->ImportSettingsPath()))
     return true;
 
-  CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: failed to load import settings from {}",
-    addon->ID(), addon->ImportSettingsPath());
+  s_logger->warn("failed to load import settings for {} from {}", addon->ID(),
+                 addon->ImportSettingsPath());
 
   return false;
 }
@@ -636,8 +670,10 @@ std::string CAddonMediaImporter::GetImporterId(const std::string& addonId)
   return importerAddon->ID();
 }
 
-void CAddonMediaImporter::SetDiscoveredProviderDetails(HandleType handle, bool providerDiscovered,
-  MediaImportSourcePtr discoveredSource) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetDiscoveredProviderDetails(
+    HandleType handle,
+    bool providerDiscovered,
+    MediaImportSourcePtr discoveredSource) throw(InvalidAddonMediaImporterHandleException)
 {
   if (discoveredSource == nullptr)
     providerDiscovered = false;
@@ -656,15 +692,16 @@ void CAddonMediaImporter::SetProviderFound(HandleType handle, bool providerFound
 }
 
 bool CAddonMediaImporter::SetSourceOrImportOnExecutor(CAddonMediaImporterExecutor& executor,
-  const SettingsCallbackData& callbackData, const std::string& callback,
-  std::shared_ptr<const CSetting> setting) const
+                                                      const SettingsCallbackData& callbackData,
+                                                      const std::string& callback,
+                                                      std::shared_ptr<const CSetting> setting) const
 {
   if (callbackData.type == SettingsCallbackData::Source)
   {
     if (callbackData.data.source == nullptr)
     {
-      CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing source to handle setting callback \"{}\" for setting \"{}\"",
-        m_addonId, callback, setting->GetId());
+      m_logger->warn("missing source to handle setting callback \"{}\" for setting \"{}\"",
+                     callback, setting->GetId());
       return false;
     }
     executor.SetSource(*static_cast<CMediaImportSource*>(callbackData.data.source));
@@ -673,23 +710,25 @@ bool CAddonMediaImporter::SetSourceOrImportOnExecutor(CAddonMediaImporterExecuto
   {
     if (callbackData.data.import == nullptr)
     {
-      CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: missing import to handle setting callback \"{}\" for setting \"{}\"",
-        m_addonId, callback, setting->GetId());
+      m_logger->warn("missing import to handle setting callback \"{}\" for setting \"{}\"",
+                     callback, setting->GetId());
       return false;
     }
     executor.SetImport(*static_cast<CMediaImport*>(callbackData.data.import));
   }
   else
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporter[{}]: invalid data to handle setting callback \"{}\" for setting \"{}\"",
-      m_addonId, callback, setting->GetId());
+    m_logger->warn("invalid data to handle setting callback \"{}\" for setting \"{}\"", callback,
+                   setting->GetId());
     return false;
   }
 
   return true;
 }
 
-bool CAddonMediaImporter::LoadSettingsFromFile(const std::string& addonId, MediaImportSettingsBasePtr settings, const std::string& settingDefinitionsFile)
+bool CAddonMediaImporter::LoadSettingsFromFile(const std::string& addonId,
+                                               MediaImportSettingsBasePtr settings,
+                                               const std::string& settingDefinitionsFile)
 {
   if (settings == nullptr)
     return false;
@@ -697,12 +736,14 @@ bool CAddonMediaImporter::LoadSettingsFromFile(const std::string& addonId, Media
   CXBMCTinyXML xmlDoc;
   if (!XFILE::CFile::Exists(settingDefinitionsFile))
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter[{}]: could not find provider settings at {}", settingDefinitionsFile);
+    s_logger->error("could not find provider settings for {} at {}", addonId,
+                    settingDefinitionsFile);
     return false;
   }
   if (!xmlDoc.LoadFile(settingDefinitionsFile))
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter[{}]: failed to parse provider settings from {}: Line {}, {}", settingDefinitionsFile, xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
+    s_logger->error("failed to parse provider settings for {} from {}: Line {}, {}", addonId,
+                    settingDefinitionsFile, xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
     return false;
   }
   if (xmlDoc.RootElement() == nullptr)
@@ -723,153 +764,184 @@ bool CAddonMediaImporter::LoadSettingsFromFile(const std::string& addonId, Media
     settings->Unload();
   }
 
-  CLog::Log(LOGDEBUG, "CAddonMediaImporter[{}]: loading settings from {}...",
-    addonId, settingDefinitionsFile);
+  s_logger->debug("loading settings for {} from {}...", addonId, settingDefinitionsFile);
 
   settings->AddDefinition(settingDefinition);
   return settings->Load();
 }
 
-void CAddonMediaImporter::SetCanImport(HandleType handle, bool canImport) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetCanImport(HandleType handle, bool canImport) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   SetSuccess(handle, canImport, CAddonMediaImporterExecutor::Action::CanImport);
 }
 
-void CAddonMediaImporter::SetProviderReady(HandleType handle, bool sourceReady) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetProviderReady(HandleType handle, bool sourceReady) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   SetSuccess(handle, sourceReady, CAddonMediaImporterExecutor::Action::IsSourceReady);
 }
 
-void CAddonMediaImporter::SetImportReady(HandleType handle, bool importReady) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetImportReady(HandleType handle, bool importReady) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   SetSuccess(handle, importReady, CAddonMediaImporterExecutor::Action::IsImportReady);
 }
 
-void CAddonMediaImporter::SetCanUpdateMetadataOnProvider(HandleType handle, bool canUpdateMetadataOnSource) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetCanUpdateMetadataOnProvider(
+    HandleType handle,
+    bool canUpdateMetadataOnSource) throw(InvalidAddonMediaImporterHandleException)
 {
-  SetSuccess(handle, canUpdateMetadataOnSource, CAddonMediaImporterExecutor::Action::CanUpdateMetadataOnSource);
+  SetSuccess(handle, canUpdateMetadataOnSource,
+             CAddonMediaImporterExecutor::Action::CanUpdateMetadataOnSource);
 }
 
-void CAddonMediaImporter::SetCanUpdatePlaycountOnProvider(HandleType handle, bool canUpdatePlaycountOnSource) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetCanUpdatePlaycountOnProvider(
+    HandleType handle,
+    bool canUpdatePlaycountOnSource) throw(InvalidAddonMediaImporterHandleException)
 {
-  SetSuccess(handle, canUpdatePlaycountOnSource, CAddonMediaImporterExecutor::Action::CanUpdatePlaycountOnSource);
+  SetSuccess(handle, canUpdatePlaycountOnSource,
+             CAddonMediaImporterExecutor::Action::CanUpdatePlaycountOnSource);
 }
 
-void CAddonMediaImporter::SetCanUpdateLastPlayedOnProvider(HandleType handle, bool canUpdateLastPlayedOnSource) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetCanUpdateLastPlayedOnProvider(
+    HandleType handle,
+    bool canUpdateLastPlayedOnSource) throw(InvalidAddonMediaImporterHandleException)
 {
-  SetSuccess(handle, canUpdateLastPlayedOnSource, CAddonMediaImporterExecutor::Action::CanUpdateLastPlayedOnSource);
+  SetSuccess(handle, canUpdateLastPlayedOnSource,
+             CAddonMediaImporterExecutor::Action::CanUpdateLastPlayedOnSource);
 }
 
-void CAddonMediaImporter::SetCanUpdateResumePositionOnProvider(HandleType handle, bool canUpdateResumePositionOnSource) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetCanUpdateResumePositionOnProvider(
+    HandleType handle,
+    bool canUpdateResumePositionOnSource) throw(InvalidAddonMediaImporterHandleException)
 {
-  SetSuccess(handle, canUpdateResumePositionOnSource, CAddonMediaImporterExecutor::Action::CanUpdateResumePositionOnSource);
+  SetSuccess(handle, canUpdateResumePositionOnSource,
+             CAddonMediaImporterExecutor::Action::CanUpdateResumePositionOnSource);
 }
 
-bool CAddonMediaImporter::ShouldCancel(HandleType handle, unsigned int progress, unsigned int total) throw(InvalidAddonMediaImporterHandleException)
+bool CAddonMediaImporter::ShouldCancel(
+    HandleType handle,
+    unsigned int progress,
+    unsigned int total) throw(InvalidAddonMediaImporterHandleException)
 {
   return CAddonMediaImporterExecutor::GetExecutorFromHandle(handle)->ShouldCancel(progress, total);
 }
 
-void CAddonMediaImporter::SetProgressStatus(HandleType handle, const std::string& status) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetProgressStatus(HandleType handle, const std::string& status) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   CAddonMediaImporterExecutor::GetExecutorFromHandle(handle)->SetProgressStatus(status);
 }
 
-CAddonMediaImporter* CAddonMediaImporter::GetImporter(HandleType handle) throw(InvalidAddonMediaImporterHandleException)
+CAddonMediaImporter* CAddonMediaImporter::GetImporter(HandleType handle) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   return CAddonMediaImporterExecutor::GetExecutorFromHandle(handle)->GetImporter();
 }
 
-MediaImportSourcePtr CAddonMediaImporter::GetMediaProvider(HandleType handle) throw(InvalidAddonMediaImporterHandleException)
+MediaImportSourcePtr CAddonMediaImporter::GetMediaProvider(HandleType handle) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   return CAddonMediaImporterExecutor::GetExecutorFromHandle(handle)->GetSource();
 }
 
-MediaImportPtr CAddonMediaImporter::GetMediaImport(HandleType handle) throw(InvalidAddonMediaImporterHandleException)
+MediaImportPtr CAddonMediaImporter::GetMediaImport(HandleType handle) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   return CAddonMediaImporterExecutor::GetExecutorFromHandle(handle)->GetImport();
 }
 
-std::vector<CFileItemPtr> CAddonMediaImporter::GetImportedItems(HandleType handle, const MediaType& mediaType) throw(InvalidAddonMediaImporterHandleException)
+std::vector<CFileItemPtr> CAddonMediaImporter::GetImportedItems(
+    HandleType handle, const MediaType& mediaType) throw(InvalidAddonMediaImporterHandleException)
 {
   auto executor = CAddonMediaImporterExecutor::GetExecutorFromHandle(handle);
-  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) || executor->GetTask() == nullptr)
+  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) ||
+      executor->GetTask() == nullptr)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter: cannot get imported items for handle {}", handle);
+    s_logger->error("cannot get imported items for handle {}", handle);
     return {};
   }
 
   auto retrievalTask = dynamic_cast<CMediaImportImportItemsRetrievalTask*>(executor->GetTask());
   if (retrievalTask == nullptr)
   {
-    CLog::Log(LOGERROR,
-      "CAddonMediaImporter: invalid import task ({}) to get imported items for handle {}",
-      static_cast<int>(executor->GetTask()->GetType()), handle);
+    s_logger->error("invalid import task ({}) to get imported items for handle {}",
+                    static_cast<int>(executor->GetTask()->GetType()), handle);
     return {};
   }
 
   return retrievalTask->GetLocalItems(mediaType);
 }
 
-void CAddonMediaImporter::AddImportItem(HandleType handle, const CFileItemPtr& item, const MediaType& mediaType,
-  MediaImportChangesetType changesetType /* = MediaImportChangesetTypeNone */) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::AddImportItem(
+    HandleType handle,
+    const CFileItemPtr& item,
+    const MediaType& mediaType,
+    MediaImportChangesetType
+        changesetType /* = MediaImportChangesetTypeNone */) throw(InvalidAddonMediaImporterHandleException)
 {
   auto executor = CAddonMediaImporterExecutor::GetExecutorFromHandle(handle);
-  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) || executor->GetTask() == nullptr)
+  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) ||
+      executor->GetTask() == nullptr)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter: cannot add imported item for handle {}", handle);
+    s_logger->error("cannot add imported item for handle {}", handle);
     return;
   }
 
   auto retrievalTask = dynamic_cast<CMediaImportImportItemsRetrievalTask*>(executor->GetTask());
   if (retrievalTask == nullptr)
   {
-    CLog::Log(LOGERROR,
-      "CAddonMediaImporter: invalid import task ({}) to add imported item for handle {}",
-      static_cast<int>(executor->GetTask()->GetType()), handle);
+    s_logger->error("invalid import task ({}) to add imported item for handle {}",
+                    static_cast<int>(executor->GetTask()->GetType()), handle);
     return;
   }
 
   retrievalTask->AddItem(item, mediaType, changesetType);
 }
 
-void CAddonMediaImporter::AddImportItems(HandleType handle, const std::vector<CFileItemPtr>& items, const MediaType& mediaType,
-  MediaImportChangesetType changesetType /* = MediaImportChangesetTypeNone */) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::AddImportItems(
+    HandleType handle,
+    const std::vector<CFileItemPtr>& items,
+    const MediaType& mediaType,
+    MediaImportChangesetType
+        changesetType /* = MediaImportChangesetTypeNone */) throw(InvalidAddonMediaImporterHandleException)
 {
   auto executor = CAddonMediaImporterExecutor::GetExecutorFromHandle(handle);
-  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) || executor->GetTask() == nullptr)
+  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) ||
+      executor->GetTask() == nullptr)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter: cannot add imported items for handle {}", handle);
+    s_logger->error("cannot add imported items for handle {}", handle);
     return;
   }
 
   auto retrievalTask = dynamic_cast<CMediaImportImportItemsRetrievalTask*>(executor->GetTask());
   if (retrievalTask == nullptr)
   {
-    CLog::Log(LOGERROR,
-      "CAddonMediaImporter: invalid import task ({}) to add imported items for handle {}",
-      static_cast<int>(executor->GetTask()->GetType()), handle);
+    s_logger->error("invalid import task ({}) to add imported items for handle {}",
+                    static_cast<int>(executor->GetTask()->GetType()), handle);
     return;
   }
 
   retrievalTask->AddItems(items, mediaType, changesetType);
 }
 
-void CAddonMediaImporter::FinishImport(HandleType handle, bool isChangeset /* = false */) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::FinishImport(HandleType handle, bool isChangeset /* = false */) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   auto executor = CAddonMediaImporterExecutor::GetExecutorFromHandle(handle);
-  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) || executor->GetTask() == nullptr)
+  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::Import) ||
+      executor->GetTask() == nullptr)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter: cannot finish import for handle {}", handle);
+    s_logger->error("cannot finish import for handle {}", handle);
     return;
   }
 
   auto retrievalTask = dynamic_cast<CMediaImportImportItemsRetrievalTask*>(executor->GetTask());
   if (retrievalTask == nullptr)
   {
-    CLog::Log(LOGERROR,
-      "CAddonMediaImporter: invalid import task ({}) to finish import for handle {}",
-      static_cast<int>(executor->GetTask()->GetType()), handle);
+    s_logger->error("invalid import task ({}) to finish import for handle {}",
+                    static_cast<int>(executor->GetTask()->GetType()), handle);
     return;
   }
 
@@ -878,40 +950,46 @@ void CAddonMediaImporter::FinishImport(HandleType handle, bool isChangeset /* = 
   executor->SetSuccess(true, CAddonMediaImporterExecutor::Action::Import);
 }
 
-CFileItemPtr CAddonMediaImporter::GetUpdatedItem(HandleType handle) throw(InvalidAddonMediaImporterHandleException)
+CFileItemPtr CAddonMediaImporter::GetUpdatedItem(HandleType handle) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   auto executor = CAddonMediaImporterExecutor::GetExecutorFromHandle(handle);
-  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::UpdateOnSource) || executor->GetTask() == nullptr)
+  if (!executor->CheckAction(CAddonMediaImporterExecutor::Action::UpdateOnSource) ||
+      executor->GetTask() == nullptr)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporter: cannot update imported item for handle {}", handle);
+    s_logger->error("cannot update imported item for handle {}", handle);
     return nullptr;
   }
 
   auto updateTask = dynamic_cast<CMediaImportUpdateTask*>(executor->GetTask());
   if (updateTask == nullptr)
   {
-    CLog::Log(LOGERROR,
-      "CAddonMediaImporter: invalid import task ({}) to update imported item for handle {}",
-      static_cast<int>(executor->GetTask()->GetType()), handle);
+    s_logger->error("invalid import task ({}) to update imported item for handle {}",
+                    static_cast<int>(executor->GetTask()->GetType()), handle);
     return nullptr;
   }
 
   return std::make_shared<CFileItem>(updateTask->GetItem());
 }
 
-void CAddonMediaImporter::FinishUpdateOnProvider(HandleType handle) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::FinishUpdateOnProvider(HandleType handle) throw(
+    InvalidAddonMediaImporterHandleException)
 {
   SetSuccess(handle, true, CAddonMediaImporterExecutor::Action::UpdateOnSource);
 }
 
-void CAddonMediaImporter::SetSuccess(HandleType handle, bool success, CAddonMediaImporterExecutor::Action action) throw(InvalidAddonMediaImporterHandleException)
+void CAddonMediaImporter::SetSuccess(
+    HandleType handle,
+    bool success,
+    CAddonMediaImporterExecutor::Action action) throw(InvalidAddonMediaImporterHandleException)
 {
   CAddonMediaImporterExecutor::GetExecutorFromHandle(handle)->SetSuccess(success, action);
 }
 
 CAddonMediaImporterObserver::CAddonMediaImporterObserver(const std::string& addonId)
-  : CAddonMediaImporterBaseInternal(addonId)
-{ }
+  : CAddonMediaImporterBaseInternal(addonId, "CAddonMediaImporterObserver")
+{
+}
 
 CAddonMediaImporterObserver::~CAddonMediaImporterObserver()
 {
@@ -923,7 +1001,7 @@ void CAddonMediaImporterObserver::Start()
   auto mediaImporter = GetAddon();
   if (mediaImporter == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterObserver[{}]: cannot start due to missing add-on", m_addonId);
+    m_logger->warn("cannot start due to missing add-on");
     return;
   }
 
@@ -934,12 +1012,12 @@ void CAddonMediaImporterObserver::Start()
   // try to start the observer service
   if (!CServiceBroker::GetMediaImportAddons().StartObserver(mediaImporter))
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterObserver[{}]: failed to start", m_addonId);
+    m_logger->warn("failed to start");
     return;
   }
 
   m_started = true;
-  CLog::Log(LOGDEBUG, "CAddonMediaImporterObserver[{}]: successfully started", m_addonId);
+  m_logger->debug("successfully started");
 }
 
 void CAddonMediaImporterObserver::OnSourceAdded(const CMediaImportSource& source)
@@ -1006,7 +1084,7 @@ void CAddonMediaImporterObserver::Stop()
   auto mediaImporter = GetAddon();
   if (mediaImporter == nullptr)
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterObserver[{}]: cannot stop due to missing add-on", m_addonId);
+    m_logger->warn("cannot stop due to missing add-on");
     return;
   }
 
@@ -1017,16 +1095,17 @@ void CAddonMediaImporterObserver::Stop()
   // try to stop the observer service
   if (!CServiceBroker::GetMediaImportAddons().StopObserver(mediaImporter))
   {
-    CLog::Log(LOGWARNING, "CAddonMediaImporterObserver[{}]: failed to stop", m_addonId);
+    m_logger->warn("failed to stop");
     return;
   }
 
-  CLog::Log(LOGDEBUG, "CAddonMediaImporterObserver[{}]: successfully stopped", m_addonId);
+  m_logger->debug("successfully stopped");
 }
 
 CAddonMediaImporterFactory::CAddonMediaImporterFactory(const std::string& addonId)
-  : CAddonMediaImporterBaseInternal(addonId)
-{ }
+  : CAddonMediaImporterBaseInternal(addonId, "CAddonMediaImporterFactory")
+{
+}
 
 std::unique_ptr<IMediaImporterDiscoverer> CAddonMediaImporterFactory::CreateDiscoverer() const
 {

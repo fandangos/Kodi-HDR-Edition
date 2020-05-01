@@ -8,10 +8,11 @@
 
 #pragma once
 
-#include "settings/SettingsBase.h"
 #include "settings/SettingControl.h"
+#include "settings/SettingsBase.h"
 #include "settings/lib/SettingConditions.h"
 #include "settings/lib/SettingDefinitions.h"
+#include "utils/StaticLoggerBase.h"
 
 #include <set>
 #include <string>
@@ -20,7 +21,9 @@
 class CSettingSection;
 class CSettingsManager;
 
-class CMediaImportSettingsBase : public CSettingsBase, public CSettingControlCreator
+class CMediaImportSettingsBase : public CSettingsBase,
+                                 public CSettingControlCreator,
+                                 protected CStaticLoggerBase
 {
 public:
   explicit CMediaImportSettingsBase(const std::string& settingValues = "");
@@ -29,8 +32,8 @@ public:
 
   CMediaImportSettingsBase& operator=(const CMediaImportSettingsBase& other);
 
-  bool operator==(const CMediaImportSettingsBase &other) const;
-  bool operator!=(const CMediaImportSettingsBase &other) const { return !(*this == other); }
+  bool operator==(const CMediaImportSettingsBase& other) const;
+  bool operator!=(const CMediaImportSettingsBase& other) const { return !(*this == other); }
 
   // implementations of CSettingsBase
   bool Load() override;
@@ -43,10 +46,16 @@ public:
   void AddDefinition(const std::string& settingDefinition);
 
   void AddSimpleCondition(const std::string& condition);
-  void AddComplexCondition(const std::string& name, const SettingConditionCheck& condition, void* data = nullptr);
+  void AddComplexCondition(const std::string& name,
+                           const SettingConditionCheck& condition,
+                           void* data = nullptr);
 
-  void SetOptionsFiller(const std::string &settingId, IntegerSettingOptionsFiller optionsFiller, void* data = nullptr);
-  void SetOptionsFiller(const std::string &settingId, StringSettingOptionsFiller optionsFiller, void* data = nullptr);
+  void SetOptionsFiller(const std::string& settingId,
+                        IntegerSettingOptionsFiller optionsFiller,
+                        void* data = nullptr);
+  void SetOptionsFiller(const std::string& settingId,
+                        StringSettingOptionsFiller optionsFiller,
+                        void* data = nullptr);
 
   std::string ToXml() const;
 

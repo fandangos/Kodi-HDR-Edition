@@ -24,20 +24,13 @@
 
 #include <fmt/ostream.h>
 
-#define CONTROL_LIST_AREA                                     CONTROL_SETTINGS_CUSTOM + 1
-
-#define SETTING_SYNCHRONISATION_IMPORT_TRIGGER                "synchronisation.importtrigger"
-#define SETTING_SYNCHRONISATION_UPDATE_ITEMS                  "synchronisation.updateimporteditems"
-#define SETTING_SYNCHRONISATION_UPDATE_PLAYBACK_FROM_SOURCE   "synchronisation.updateplaybackmetadatafromsource"
-#define SETTING_SYNCHRONISATION_UPDATE_METADATA_ON_SOURCE     "synchronisation.updatemetadataonsource"
-#define SETTING_SYNCHRONISATION_UPDATE_PLAYBACK_ON_SOURCE     "synchronisation.updateplaybackmetadataonsource"
-
 CGUIDialogMediaImportInfo::CGUIDialogMediaImportInfo()
-  : CGUIDialogSettingsManagerBase(WINDOW_DIALOG_MEDIAIMPORT_INFO, "DialogMediaImportInfo.xml")
-  , m_item(std::make_shared<CFileItem>())
-  , m_import(nullptr)
-  , m_source(nullptr)
-  , m_importer(nullptr)
+  : CGUIDialogSettingsManagerBase(WINDOW_DIALOG_MEDIAIMPORT_INFO, "DialogMediaImportInfo.xml"),
+    m_item(std::make_shared<CFileItem>()),
+    m_import(nullptr),
+    m_source(nullptr),
+    m_importer(nullptr),
+    m_logger(CServiceBroker::GetLogging().GetLogger("CGUIDialogMediaImportInfo"))
 {
   m_loadType = KEEP_IN_MEMORY;
 }
@@ -70,7 +63,7 @@ bool CGUIDialogMediaImportInfo::OnMessage(CGUIMessage& message)
     }
 
     default:
-        break;
+      break;
   }
 
   return CGUIDialogSettingsManagerBase::OnMessage(message);
@@ -101,7 +94,8 @@ bool CGUIDialogMediaImportInfo::ShowForMediaImport(const CFileItemPtr& item)
   if (item == nullptr)
     return false;
 
-  auto dialog = static_cast<CGUIDialogMediaImportInfo*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_MEDIAIMPORT_INFO));
+  auto dialog = static_cast<CGUIDialogMediaImportInfo*>(
+      CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_MEDIAIMPORT_INFO));
   if (!dialog)
     return false;
 
@@ -120,7 +114,8 @@ bool CGUIDialogMediaImportInfo::ShowForMediaImportSource(const CFileItemPtr& ite
   if (item == nullptr)
     return false;
 
-  auto dialog = static_cast<CGUIDialogMediaImportInfo*>(CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_MEDIAIMPORT_INFO));
+  auto dialog = static_cast<CGUIDialogMediaImportInfo*>(
+      CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_MEDIAIMPORT_INFO));
   if (!dialog)
     return false;
 
@@ -201,9 +196,9 @@ void CGUIDialogMediaImportInfo::Save()
       success = CServiceBroker::GetMediaImportManager().UpdateImport(*m_import);
 
     if (success)
-      CLog::Log(LOGINFO, "CGUIDialogMediaImportInfo: settings for import {} saved", *m_import);
+      m_logger->info("settings for import {} saved", *m_import);
     else
-      CLog::Log(LOGERROR, "CGUIDialogMediaImportInfo: failed to save settings for import {}", *m_import);
+      m_logger->error("failed to save settings for import {}", *m_import);
   }
   else if (m_source != nullptr)
   {
@@ -212,9 +207,9 @@ void CGUIDialogMediaImportInfo::Save()
       success = CServiceBroker::GetMediaImportManager().UpdateSource(*m_source);
 
     if (success)
-      CLog::Log(LOGINFO, "CGUIDialogMediaImportInfo: settings for source {} saved", *m_source);
+      m_logger->info("settings for source {} saved", *m_source);
     else
-      CLog::Log(LOGINFO, "CGUIDialogMediaImportInfo: failed to save settings for source {}", *m_source);
+      m_logger->error("failed to save settings for source {}", *m_source);
   }
 }
 
@@ -257,13 +252,13 @@ void CGUIDialogMediaImportInfo::InitializeMediaImportSourceSettings()
 
 bool CGUIDialogMediaImportInfo::SetMediaImport(const CFileItemPtr& item)
 {
-  if (!item->HasProperty(PROPERTY_SOURCE_IDENTIFIER) ||
-      !item->HasProperty(PROPERTY_IMPORT_PATH) ||
+  if (!item->HasProperty(PROPERTY_SOURCE_IDENTIFIER) || !item->HasProperty(PROPERTY_IMPORT_PATH) ||
       !item->HasProperty(PROPERTY_IMPORT_MEDIATYPES))
     return false;
 
   std::string importPath = item->GetProperty(PROPERTY_IMPORT_PATH).asString();
-  GroupedMediaTypes mediaTypes = CMediaTypes::Split(item->GetProperty(PROPERTY_IMPORT_MEDIATYPES).asString());
+  GroupedMediaTypes mediaTypes =
+      CMediaTypes::Split(item->GetProperty(PROPERTY_IMPORT_MEDIATYPES).asString());
   if (importPath.empty() || mediaTypes.empty())
     return false;
 

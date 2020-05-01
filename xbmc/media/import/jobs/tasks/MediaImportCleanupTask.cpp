@@ -17,10 +17,11 @@
 
 #include <fmt/ostream.h>
 
-CMediaImportCleanupTask::CMediaImportCleanupTask(const CMediaImport &import, MediaImportHandlerPtr importHandler)
-  : IMediaImportTask(import)
-  , m_importHandler(importHandler)
-{ }
+CMediaImportCleanupTask::CMediaImportCleanupTask(const CMediaImport& import,
+                                                 MediaImportHandlerPtr importHandler)
+  : IMediaImportTask("CMediaImportCleanupTask", import), m_importHandler(importHandler)
+{
+}
 
 bool CMediaImportCleanupTask::DoWork()
 {
@@ -28,12 +29,13 @@ bool CMediaImportCleanupTask::DoWork()
     return false;
 
   // prepare the progress bar
-  PrepareProgressBarHandle(StringUtils::Format(g_localizeStrings.Get(39569).c_str(),
-    CMediaTypes::ToLabel(m_import.GetMediaTypes()).c_str(), m_import.GetSource().GetFriendlyName().c_str()));
+  PrepareProgressBarHandle(StringUtils::Format(
+      g_localizeStrings.Get(39569).c_str(), CMediaTypes::ToLabel(m_import.GetMediaTypes()).c_str(),
+      m_import.GetSource().GetFriendlyName().c_str()));
   SetProgressText("");
 
-  CLog::Log(LOGINFO, "CMediaImportCleanupTask: cleaning up imported {} items from {}",
-    m_importHandler->GetMediaType(), m_import.GetSource());
+  m_logger->info("cleaning up imported {} items from {}", m_importHandler->GetMediaType(),
+                 m_import.GetSource());
 
   if (!m_importHandler->CleanupImportedItems(m_import))
     return false;

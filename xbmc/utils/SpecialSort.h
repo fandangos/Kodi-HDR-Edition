@@ -15,19 +15,22 @@
 class SpecialSort
 {
 public:
-  template <typename T>
-  static std::vector<T> SortTopologically(const std::vector< std::pair<T, T> > &topology);
+  template<typename T>
+  static std::vector<T> SortTopologically(const std::vector<std::pair<T, T>>& topology);
 
 private:
-  static void sortTopologically(int current, const std::vector< std::set<int> > &edges, std::vector<bool> &visited, std::vector<int> &stack);
+  static void sortTopologically(int current,
+                                const std::vector<std::set<int>>& edges,
+                                std::vector<bool>& visited,
+                                std::vector<int>& stack);
 };
 
-template <typename T>
-std::vector<T> SpecialSort::SortTopologically(const std::vector< std::pair<T, T> > &topology)
+template<typename T>
+std::vector<T> SpecialSort::SortTopologically(const std::vector<std::pair<T, T>>& topology)
 {
   typename std::map<int, T> key2ValueMapping;
   typename std::map<T, int> value2KeyMapping;
-  std::vector< std::set<int> > edges;
+  std::vector<std::set<int>> edges;
 
   int key = 0;
   // map the values to comparable and usable keys and build a map with all
@@ -66,7 +69,8 @@ std::vector<T> SpecialSort::SortTopologically(const std::vector< std::pair<T, T>
   }
 
   size_t size = value2KeyMapping.size();
-  std::vector<int> stack; stack.reserve(size);
+  std::vector<int> stack;
+  stack.reserve(size);
   if (edges.size() < size)
     edges.insert(edges.end(), size - edges.size(), std::set<int>());
   std::vector<bool> visited(size, false);
@@ -86,7 +90,10 @@ std::vector<T> SpecialSort::SortTopologically(const std::vector< std::pair<T, T>
   return result;
 }
 
-void SpecialSort::sortTopologically(int current, const std::vector< std::set<int> > &edges, std::vector<bool> &visited, std::vector<int> &stack)
+void SpecialSort::sortTopologically(int current,
+                                    const std::vector<std::set<int>>& edges,
+                                    std::vector<bool>& visited,
+                                    std::vector<int>& stack)
 {
   // mark the current node as visited
   visited[current] = true;

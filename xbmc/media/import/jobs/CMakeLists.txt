@@ -1,4 +1,5 @@
-set(SOURCES MediaImportSourceReadyJob.cpp
+set(SOURCES MediaImportSourceJobBase.cpp
+            MediaImportSourceReadyJob.cpp
             MediaImportSourceRegistrationJob.cpp
             MediaImportTaskProcessorJob.cpp)
 

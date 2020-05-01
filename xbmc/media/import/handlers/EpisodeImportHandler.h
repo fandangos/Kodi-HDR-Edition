@@ -19,25 +19,34 @@ class CEpisodeImportHandler : public CVideoImportHandler
 public:
   CEpisodeImportHandler(const IMediaImportHandlerManager* importHandlerManager)
     : CVideoImportHandler(importHandlerManager)
-  { }
+  {
+  }
   virtual ~CEpisodeImportHandler() = default;
 
-  CEpisodeImportHandler* Create() const override { return new CEpisodeImportHandler(m_importHandlerManager); }
+  CEpisodeImportHandler* Create() const override
+  {
+    return new CEpisodeImportHandler(m_importHandlerManager);
+  }
 
   MediaType GetMediaType() const override { return MediaTypeEpisode; }
-  GroupedMediaTypes GetGroupedMediaTypes() const override { return { MediaTypeTvShow, MediaTypeSeason, MediaTypeEpisode }; }
+  GroupedMediaTypes GetGroupedMediaTypes() const override
+  {
+    return {MediaTypeTvShow, MediaTypeSeason, MediaTypeEpisode};
+  }
 
   std::string GetItemLabel(const CFileItem* item) const override;
 
-  bool StartSynchronisation(const CMediaImport &import) override;
+  bool StartSynchronisation(const CMediaImport& import) override;
 
-  bool AddImportedItem(const CMediaImport &import, CFileItem* item) override;
-  bool UpdateImportedItem(const CMediaImport &import, CFileItem* item) override;
-  bool RemoveImportedItem(const CMediaImport &import, const CFileItem* item) override;
-  bool CleanupImportedItems(const CMediaImport &import) override { return true; }
+  bool AddImportedItem(const CMediaImport& import, CFileItem* item) override;
+  bool UpdateImportedItem(const CMediaImport& import, CFileItem* item) override;
+  bool RemoveImportedItem(const CMediaImport& import, const CFileItem* item) override;
+  bool CleanupImportedItems(const CMediaImport& import) override { return true; }
 
 protected:
-  bool GetLocalItems(CVideoDatabase &videodb, const CMediaImport &import, std::vector<CFileItemPtr>& items) const override;
+  bool GetLocalItems(CVideoDatabase& videodb,
+                     const CMediaImport& import,
+                     std::vector<CFileItemPtr>& items) const override;
 
   std::set<Field> IgnoreDifferences() const override;
 

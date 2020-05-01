@@ -18,7 +18,8 @@
 class CMediaImportLocalItemsRetrievalTask : public IMediaImportTask
 {
 public:
-  CMediaImportLocalItemsRetrievalTask(const CMediaImport &import, std::map<MediaType, MediaImportHandlerPtr> importHandlers);
+  CMediaImportLocalItemsRetrievalTask(const CMediaImport& import,
+                                      std::map<MediaType, MediaImportHandlerPtr> importHandlers);
   virtual ~CMediaImportLocalItemsRetrievalTask() = default;
 
   /*!
@@ -32,7 +33,10 @@ public:
   * \param mediaType media type of the previously imported items
   * \return list of previously imported items
   */
-  const std::vector<CFileItemPtr>& GetLocalItems(const MediaType& mediaType) const { return m_localItems.find(mediaType)->second; }
+  const std::vector<CFileItemPtr>& GetLocalItems(const MediaType& mediaType) const
+  {
+    return m_localItems.find(mediaType)->second;
+  }
 
   // implementation of IMediaImportTask
   MediaImportTaskType GetType() const override { return MediaImportTaskType::LocalItemsRetrieval; }

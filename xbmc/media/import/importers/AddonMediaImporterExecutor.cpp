@@ -17,13 +17,19 @@
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
-CAddonMediaImporterExecutor::CAddonMediaImporterExecutor(const std::string& addonId, Action action,
-  CAddonMediaImporter* importer /* = nullptr */, const std::string& actionName /* = "" */)
-  : m_addonId(addonId)
-  , m_action(action)
-  , m_actionName(!actionName.empty() ? actionName : ActionToString(action))
-  , m_importer(importer)
-{ }
+CAddonMediaImporterExecutor::CAddonMediaImporterExecutor(
+    const std::string& addonId,
+    Action action,
+    CAddonMediaImporter* importer /* = nullptr */,
+    const std::string& actionName /* = "" */)
+  : m_addonId(addonId),
+    m_action(action),
+    m_actionName(!actionName.empty() ? actionName : ActionToString(action)),
+    m_importer(importer),
+    m_logger(CServiceBroker::GetLogging().GetLogger(
+        StringUtils::Format("CAddonMediaImporterExecutor[{}]", addonId)))
+{
+}
 
 void CAddonMediaImporterExecutor::SetSource(const CMediaImportSource& source)
 {
@@ -86,7 +92,8 @@ bool CAddonMediaImporterExecutor::IsCancelled() const
   return false;
 }
 
-std::shared_ptr<ADDON::CMediaImporter> CAddonMediaImporterExecutor::GetAddon(const std::string& addonId)
+std::shared_ptr<ADDON::CMediaImporter> CAddonMediaImporterExecutor::GetAddon(
+    const std::string& addonId)
 {
   ADDON::AddonPtr addon;
   if (!CServiceBroker::GetAddonMgr().GetAddon(addonId, addon, ADDON::ADDON_MEDIAIMPORTER, true))
@@ -100,22 +107,26 @@ std::shared_ptr<ADDON::CMediaImporter> CAddonMediaImporterExecutor::GetAddon() c
   return GetAddon(m_addonId);
 }
 
-CAddonMediaImporterExecutor* CAddonMediaImporterExecutor::GetExecutorFromHandle(HandleType handle) throw(InvalidAddonMediaImporterHandleException)
+CAddonMediaImporterExecutor* CAddonMediaImporterExecutor::GetExecutorFromHandle(
+    HandleType handle) throw(InvalidAddonMediaImporterHandleException)
 {
   auto importer = GetScriptFromHandle(handle);
   if (importer != nullptr)
     return importer;
 
-  CLog::Log(LOGERROR, "CAddonMediaImporterExecutor: invalid script handle {:d}", handle);
+  static Logger logger = CServiceBroker::GetLogging().GetLogger("CAddonMediaImporterExecutor");
+
+  logger->error("invalid script handle {:d}", handle);
   throw InvalidAddonMediaImporterHandleException("handle: %d", handle);
 }
 
-bool CAddonMediaImporterExecutor::CheckAction(Action action) const throw(InvalidAddonMediaImporterCallbackException)
+bool CAddonMediaImporterExecutor::CheckAction(Action action) const
+    throw(InvalidAddonMediaImporterCallbackException)
 {
   if (m_action == action)
     return true;
 
-  CLog::Log(LOGWARNING, "CAddonMediaImporterExecutor[{}]: callback for unexpected action received", m_addonId);
+  m_logger->warn("callback for unexpected action received");
   throw InvalidAddonMediaImporterCallbackException("add-on ID: %s", m_addonId.c_str());
 }
 
@@ -136,7 +147,7 @@ bool CAddonMediaImporterExecutor::RunScript(const std::string& options)
   auto addon = GetAddon();
   if (addon == nullptr)
   {
-    CLog::Log(LOGERROR, "CAddonMediaImporterExecutor[{}]: failed to find media importer add-on", m_addonId);
+    m_logger->error("failed to find media importer add-on");
     return false;
   }
 
@@ -163,43 +174,43 @@ std::string CAddonMediaImporterExecutor::ActionToString(Action action)
 {
   switch (action)
   {
-  case Action::DiscoverSource:
-    return "discoverprovider";
-  case Action::LookupSource:
-    return "lookupprovider";
-  case Action::CanImport:
-    return "canimport";
-  case Action::IsSourceReady:
-    return "isproviderready";
-  case Action::IsImportReady:
-    return "isimportready";
-  case Action::LoadSourceSettings:
-    return "loadprovidersettings";
-  case Action::UnloadSourceSettings:
-    return "loadimportsettings";
-  case Action::LoadImportSettings:
-    return "loadimportsettings";
-  case Action::UnloadImportSettings:
-    return "unloadimportsettings";
-  case Action::CanUpdateMetadataOnSource:
-    return "canupdatemetadataonprovider";
-  case Action::CanUpdatePlaycountOnSource:
-    return "canupdateplaycountonprovider";
-  case Action::CanUpdateLastPlayedOnSource:
-    return "canupdatelastplayedonprovider";
-  case Action::CanUpdateResumePositionOnSource:
-    return "canupdateresumepositiononprovider";
-  case Action::Import:
-    return "import";
-  case Action::UpdateOnSource:
-    return "updateonprovider";
-  case Action::SettingOptionsFiller:
-    return "settingoptionsfiller";
-  case Action::SettingActionCallback:
-    return "settingactioncallback";
+    case Action::DiscoverSource:
+      return "discoverprovider";
+    case Action::LookupSource:
+      return "lookupprovider";
+    case Action::CanImport:
+      return "canimport";
+    case Action::IsSourceReady:
+      return "isproviderready";
+    case Action::IsImportReady:
+      return "isimportready";
+    case Action::LoadSourceSettings:
+      return "loadprovidersettings";
+    case Action::UnloadSourceSettings:
+      return "loadimportsettings";
+    case Action::LoadImportSettings:
+      return "loadimportsettings";
+    case Action::UnloadImportSettings:
+      return "unloadimportsettings";
+    case Action::CanUpdateMetadataOnSource:
+      return "canupdatemetadataonprovider";
+    case Action::CanUpdatePlaycountOnSource:
+      return "canupdateplaycountonprovider";
+    case Action::CanUpdateLastPlayedOnSource:
+      return "canupdatelastplayedonprovider";
+    case Action::CanUpdateResumePositionOnSource:
+      return "canupdateresumepositiononprovider";
+    case Action::Import:
+      return "import";
+    case Action::UpdateOnSource:
+      return "updateonprovider";
+    case Action::SettingOptionsFiller:
+      return "settingoptionsfiller";
+    case Action::SettingActionCallback:
+      return "settingactioncallback";
 
-  default:
-    break;
+    default:
+      break;
   }
 
   return "unknown";

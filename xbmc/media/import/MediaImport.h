@@ -25,7 +25,8 @@ enum class MediaImportTrigger
 class CMediaImportSettings : public CMediaImportSettingsBase
 {
 public:
-  explicit CMediaImportSettings(const GroupedMediaTypes& mediaTypes, const std::string& settingValues = "");
+  explicit CMediaImportSettings(const GroupedMediaTypes& mediaTypes,
+                                const std::string& settingValues = "");
   CMediaImportSettings(const CMediaImportSettings& other);
   virtual ~CMediaImportSettings() = default;
 
@@ -52,8 +53,10 @@ private:
 
   void Setup();
 
-  static bool HasMediaType(const std::string& condition, const std::string& value,
-    std::shared_ptr<const CSetting> setting, void* data);
+  static bool HasMediaType(const std::string& condition,
+                           const std::string& value,
+                           std::shared_ptr<const CSetting> setting,
+                           void* data);
 
   const GroupedMediaTypes m_mediaTypes;
 };
@@ -70,13 +73,19 @@ public:
 
   ~CMediaImport() = default;
 
-  static CMediaImport CreateRecursive(const std::string& importPath, const GroupedMediaTypes& importedMediaTypes,
-    const CMediaImportSource& source, const CDateTime& lastSynced = CDateTime(), const std::string& settingValues = "")
+  static CMediaImport CreateRecursive(const std::string& importPath,
+                                      const GroupedMediaTypes& importedMediaTypes,
+                                      const CMediaImportSource& source,
+                                      const CDateTime& lastSynced = CDateTime(),
+                                      const std::string& settingValues = "")
   {
     return CMediaImport(importPath, source, importedMediaTypes, true, lastSynced, settingValues);
   }
-  static CMediaImport CreateSelective(const std::string& importPath, const GroupedMediaTypes& importedMediaTypes,
-    const CMediaImportSource& source, const CDateTime& lastSynced = CDateTime(), const std::string& settingValues = "")
+  static CMediaImport CreateSelective(const std::string& importPath,
+                                      const GroupedMediaTypes& importedMediaTypes,
+                                      const CMediaImportSource& source,
+                                      const CDateTime& lastSynced = CDateTime(),
+                                      const std::string& settingValues = "")
   {
     return CMediaImport(importPath, source, importedMediaTypes, false, lastSynced, settingValues);
   }
@@ -111,7 +120,7 @@ public:
     m_lastSynced = lastSynced;
     m_source.SetLastSynced(lastSynced);
   }
-  
+
   MediaImportSettingsConstPtr Settings() const { return m_settings; }
   MediaImportSettingsPtr Settings() { return m_settings; }
 
@@ -124,9 +133,12 @@ public:
   friend std::ostream& operator<<(std::ostream& os, const CMediaImport& import);
 
 private:
-  CMediaImport(const std::string& importPath, const CMediaImportSource& source,
-    const GroupedMediaTypes& importedMediaTypes, bool recursive,
-    const CDateTime& lastSynced, const std::string& settingValues);
+  CMediaImport(const std::string& importPath,
+               const CMediaImportSource& source,
+               const GroupedMediaTypes& importedMediaTypes,
+               bool recursive,
+               const CDateTime& lastSynced,
+               const std::string& settingValues);
 
   std::string m_importPath;
   GroupedMediaTypes m_mediaTypes;

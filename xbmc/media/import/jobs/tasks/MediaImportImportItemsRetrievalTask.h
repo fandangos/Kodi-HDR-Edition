@@ -20,7 +20,8 @@
 class CMediaImportImportItemsRetrievalTask : public IMediaImportTask
 {
 public:
-  CMediaImportImportItemsRetrievalTask(const CMediaImport &import, const IMediaImporterManager* importerManager);
+  CMediaImportImportItemsRetrievalTask(const CMediaImport& import,
+                                       const IMediaImporterManager* importerManager);
   virtual ~CMediaImportImportItemsRetrievalTask() = default;
 
   /*!
@@ -55,7 +56,10 @@ public:
    * \param mediaType media type of the imported items
    * \return list of imported items
    */
-  const ChangesetItems& GetRetrievedItems(const MediaType& mediaType) const { return m_retrievedItems.find(mediaType)->second; }
+  const ChangesetItems& GetRetrievedItems(const MediaType& mediaType) const
+  {
+    return m_retrievedItems.find(mediaType)->second;
+  }
 
   /*!
    * \brief Whether the retrieved items are already a changeset or not
@@ -69,7 +73,9 @@ public:
    * \param mediaType media type of the item
    * \param changesetType changeset type of the imported item
    */
-  void AddItem(const CFileItemPtr& item, const MediaType& mediaType, MediaImportChangesetType changesetType = MediaImportChangesetTypeNone);
+  void AddItem(const CFileItemPtr& item,
+               const MediaType& mediaType,
+               MediaImportChangesetType changesetType = MediaImportChangesetType::None);
 
   /*!
   * \brief Add a list of imported items of a specific changeset type
@@ -78,7 +84,9 @@ public:
    * \param mediaType media type of the items
   * \param changesetType changeset type of the imported items
   */
-  void AddItems(const std::vector<CFileItemPtr>& items, const MediaType& mediaType, MediaImportChangesetType changesetType = MediaImportChangesetTypeNone);
+  void AddItems(const std::vector<CFileItemPtr>& items,
+                const MediaType& mediaType,
+                MediaImportChangesetType changesetType = MediaImportChangesetType::None);
 
   /*!
    * \brief Add a list of imported items of a specific media type

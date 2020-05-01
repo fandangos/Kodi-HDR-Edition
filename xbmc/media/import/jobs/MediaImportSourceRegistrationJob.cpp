@@ -13,10 +13,11 @@
 #include <fmt/ostream.h>
 
 CMediaImportSourceRegistrationJob::CMediaImportSourceRegistrationJob(
-  const CMediaImportSource &source, bool activate, const IMediaImporterManager* importerManager)
-  : CMediaImportSourceReadyJob(source, importerManager)
-  , m_activate(activate)
-{ }
+    const CMediaImportSource& source, bool activate, const IMediaImporterManager* importerManager)
+  : CMediaImportSourceReadyJob(source, importerManager, "CMediaImportSourceRegistrationJob"),
+    m_activate(activate)
+{
+}
 
 bool CMediaImportSourceRegistrationJob::DoWork()
 {
@@ -26,8 +27,7 @@ bool CMediaImportSourceRegistrationJob::DoWork()
 
   if (!importer->CanImport(m_source.GetIdentifier()))
   {
-    CLog::Log(LOGINFO, "CMediaImportSourceRegistrationJob: importer \"{}\" cannot handle source {}",
-      m_source.GetImporterId(), m_source);
+    m_logger->warn("importer \"{}\" cannot handle source {}", m_source.GetImporterId(), m_source);
     return false;
   }
 

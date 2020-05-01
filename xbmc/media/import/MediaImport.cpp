@@ -16,8 +16,10 @@ const std::string CMediaImportSettings::SettingTrigger = "sync.importtrigger";
 const std::string CMediaImportSettings::SettingTriggerValueAuto = "auto";
 const std::string CMediaImportSettings::SettingTriggerValueManual = "manual";
 const std::string CMediaImportSettings::SettingUpdateItems = "sync.updateimporteditems";
-const std::string CMediaImportSettings::SettingUpdatePlaybackMetadataFromSource = "sync.updateplaybackmetadatafromsource";
-const std::string CMediaImportSettings::SettingUpdatePlaybackMetadataOnSource = "sync.updateplaybackmetadataonsource";
+const std::string CMediaImportSettings::SettingUpdatePlaybackMetadataFromSource =
+    "sync.updateplaybackmetadatafromsource";
+const std::string CMediaImportSettings::SettingUpdatePlaybackMetadataOnSource =
+    "sync.updateplaybackmetadataonsource";
 
 const std::string CMediaImportSettings::SettingsDefinition = R"(
 <?xml version="1.0" encoding="utf-8" ?>
@@ -31,8 +33,10 @@ const std::string CMediaImportSettings::SettingsDefinition = R"(
           <constraints>
             <allowempty>false</allowempty>
             <options>
-              <option label="39535">)" + SettingTriggerValueAuto + R"(</option>
-              <option label="39536">)" + SettingTriggerValueManual + R"(</option>
+              <option label="39535">)" + SettingTriggerValueAuto +
+                                                             R"(</option>
+              <option label="39536">)" + SettingTriggerValueManual +
+                                                             R"(</option>
             </options>
           </constraints>
           <control type="spinner" format="string" />
@@ -44,15 +48,20 @@ const std::string CMediaImportSettings::SettingsDefinition = R"(
           <default>true</default>
           <control type="toggle" />
         </setting>
-        <setting id=")" + SettingUpdatePlaybackMetadataFromSource + R"(" type="boolean" parent=")" + SettingUpdateItems + R"(" label="39532">
+        <setting id=")" + SettingUpdatePlaybackMetadataFromSource +
+                                                             R"(" type="boolean" parent=")" +
+                                                             SettingUpdateItems +
+                                                             R"(" label="39532">
           <level>0</level>
           <default>true</default>
           <dependencies>
-            <dependency type="enable" setting=")" + SettingUpdateItems + R"(">true</dependency>
+            <dependency type="enable" setting=")" + SettingUpdateItems +
+                                                             R"(">true</dependency>
           </dependencies>
           <control type="toggle" />
         </setting>
-        <setting id=")" + SettingUpdatePlaybackMetadataOnSource + R"(" type="boolean" label="39533">
+        <setting id=")" + SettingUpdatePlaybackMetadataOnSource +
+                                                             R"(" type="boolean" label="39533">
           <level>0</level>
           <default>true</default>
           <control type="toggle" />
@@ -65,16 +74,15 @@ const std::string CMediaImportSettings::SettingsDefinition = R"(
 
 const std::string CMediaImportSettings::SettingConditionHasMediaType = "hasmediatype";
 
-CMediaImportSettings::CMediaImportSettings(const GroupedMediaTypes& mediaTypes, const std::string& settingValues /* = "" */)
-  : CMediaImportSettingsBase(settingValues)
-  , m_mediaTypes(mediaTypes)
+CMediaImportSettings::CMediaImportSettings(const GroupedMediaTypes& mediaTypes,
+                                           const std::string& settingValues /* = "" */)
+  : CMediaImportSettingsBase(settingValues), m_mediaTypes(mediaTypes)
 {
   Setup();
 }
 
 CMediaImportSettings::CMediaImportSettings(const CMediaImportSettings& other)
-  : CMediaImportSettingsBase(other)
-  , m_mediaTypes(other.m_mediaTypes)
+  : CMediaImportSettingsBase(other), m_mediaTypes(other.m_mediaTypes)
 {
   Setup();
 }
@@ -99,14 +107,14 @@ bool CMediaImportSettings::SetImportTrigger(MediaImportTrigger importTrigger)
   std::string trigger = SettingTriggerValueAuto;
   switch (importTrigger)
   {
-  case MediaImportTrigger::Manual:
-    trigger = SettingTriggerValueManual;
-    break;
+    case MediaImportTrigger::Manual:
+      trigger = SettingTriggerValueManual;
+      break;
 
-  case MediaImportTrigger::Auto:
-  default:
-    trigger = SettingTriggerValueAuto;
-    break;
+    case MediaImportTrigger::Auto:
+    default:
+      trigger = SettingTriggerValueAuto;
+      break;
   }
 
   return SetString(SettingTrigger, trigger);
@@ -136,7 +144,8 @@ bool CMediaImportSettings::UpdatePlaybackMetadataFromSource() const
   return GetBool(SettingUpdatePlaybackMetadataFromSource);
 }
 
-bool CMediaImportSettings::SetUpdatePlaybackMetadataFromSource(bool updatePlaybackMetadataFromSource)
+bool CMediaImportSettings::SetUpdatePlaybackMetadataFromSource(
+    bool updatePlaybackMetadataFromSource)
 {
   if (!IsLoaded())
     return false;
@@ -167,7 +176,10 @@ void CMediaImportSettings::Setup()
   AddComplexCondition(SettingConditionHasMediaType, HasMediaType, this);
 }
 
-bool CMediaImportSettings::HasMediaType(const std::string& condition, const std::string& value, std::shared_ptr<const CSetting> setting, void* data)
+bool CMediaImportSettings::HasMediaType(const std::string& condition,
+                                        const std::string& value,
+                                        std::shared_ptr<const CSetting> setting,
+                                        void* data)
 {
   if (data == nullptr)
     return false;
@@ -185,40 +197,44 @@ bool CMediaImportSettings::HasMediaType(const std::string& condition, const std:
 
 CMediaImport::CMediaImport(const std::string& importPath /* = "" */)
   : CMediaImport(importPath, CMediaImportSource(importPath))
-{ }
+{
+}
 
 CMediaImport::CMediaImport(const std::string& importPath, const CMediaImportSource& source)
   : CMediaImport(importPath, source, {}, true, CDateTime(), "")
-{ }
+{
+}
 
-CMediaImport::CMediaImport(const std::string& importPath, const CMediaImportSource& source,
-  const GroupedMediaTypes& importedMediaTypes, bool recursive,
-  const CDateTime& lastSynced, const std::string& settingValues)
-  : m_importPath(importPath)
-  , m_mediaTypes(importedMediaTypes)
-  , m_source(source)
-  , m_recursive(recursive)
-  , m_lastSynced(lastSynced)
-  , m_settings(std::make_shared<CMediaImportSettings>(m_mediaTypes, settingValues))
-{ }
+CMediaImport::CMediaImport(const std::string& importPath,
+                           const CMediaImportSource& source,
+                           const GroupedMediaTypes& importedMediaTypes,
+                           bool recursive,
+                           const CDateTime& lastSynced,
+                           const std::string& settingValues)
+  : m_importPath(importPath),
+    m_mediaTypes(importedMediaTypes),
+    m_source(source),
+    m_recursive(recursive),
+    m_lastSynced(lastSynced),
+    m_settings(std::make_shared<CMediaImportSettings>(m_mediaTypes, settingValues))
+{
+}
 
 CMediaImport::CMediaImport(const CMediaImport& other)
-  : m_importPath(other.m_importPath)
-  , m_mediaTypes(other.m_mediaTypes)
-  , m_source(other.m_source)
-  , m_recursive(other.m_recursive)
-  , m_lastSynced(other.m_lastSynced)
-  , m_settings(other.m_settings)
-{ }
+  : m_importPath(other.m_importPath),
+    m_mediaTypes(other.m_mediaTypes),
+    m_source(other.m_source),
+    m_recursive(other.m_recursive),
+    m_lastSynced(other.m_lastSynced),
+    m_settings(other.m_settings)
+{
+}
 
 bool CMediaImport::operator==(const CMediaImport& other) const
 {
-  if (m_importPath.compare(other.m_importPath) != 0 ||
-      m_source != other.m_source ||
-      m_mediaTypes != other.m_mediaTypes ||
-      m_recursive != other.m_recursive ||
-      m_lastSynced != other.m_lastSynced ||
-      *m_settings != *other.m_settings)
+  if (m_importPath.compare(other.m_importPath) != 0 || m_source != other.m_source ||
+      m_mediaTypes != other.m_mediaTypes || m_recursive != other.m_recursive ||
+      m_lastSynced != other.m_lastSynced || *m_settings != *other.m_settings)
     return false;
 
   return true;
@@ -242,5 +258,5 @@ bool CMediaImport::ContainsMediaType(const GroupedMediaTypes::value_type mediaTy
 
 std::ostream& operator<<(std::ostream& os, const CMediaImport& import)
 {
-  return os << import.GetPath()  << " (" << StringUtils::Join(import.GetMediaTypes(), ", ") << ")";
+  return os << import.GetPath() << " (" << StringUtils::Join(import.GetMediaTypes(), ", ") << ")";
 }

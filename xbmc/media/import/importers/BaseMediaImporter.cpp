@@ -70,4 +70,5 @@ bool CBaseMediaImporter::UnloadSettings(MediaImportSettingsBasePtr settings) con
   // unload the settings completely
   settings->Unload();
 
-  return result;}
+  return result;
+}

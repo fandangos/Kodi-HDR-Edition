@@ -26,33 +26,36 @@ typedef std::map<std::string, TvShowsSet> TvShowsMap;
  */
 static bool IsSameSeason(const CVideoInfoTag& left, const CVideoInfoTag& right)
 {
-  return left.m_strShowTitle == right.m_strShowTitle
-      && (!left.HasYear() || !right.HasYear() || left.GetYear() == right.GetYear())
-      && left.m_iSeason == right.m_iSeason;
+  return left.m_strShowTitle == right.m_strShowTitle &&
+         (!left.HasYear() || !right.HasYear() || left.GetYear() == right.GetYear()) &&
+         left.m_iSeason == right.m_iSeason;
 }
 
 std::string CSeasonImportHandler::GetItemLabel(const CFileItem* item) const
 {
-  if (item != nullptr && item->HasVideoInfoTag() && !item->GetVideoInfoTag()->m_strShowTitle.empty())
+  if (item != nullptr && item->HasVideoInfoTag() &&
+      !item->GetVideoInfoTag()->m_strShowTitle.empty())
   {
     return StringUtils::Format(g_localizeStrings.Get(39565),
-      item->GetVideoInfoTag()->m_strShowTitle,
-      item->GetVideoInfoTag()->m_strTitle);
+                               item->GetVideoInfoTag()->m_strShowTitle,
+                               item->GetVideoInfoTag()->m_strTitle);
   }
 
   return CVideoImportHandler::GetItemLabel(item);
 }
 
-CFileItemPtr CSeasonImportHandler::FindMatchingLocalItem(const CMediaImport &import, const CFileItem* item, const std::vector<CFileItemPtr>& localItems) const
+CFileItemPtr CSeasonImportHandler::FindMatchingLocalItem(
+    const CMediaImport& import,
+    const CFileItem* item,
+    const std::vector<CFileItemPtr>& localItems) const
 {
   if (item == nullptr || !item->HasVideoInfoTag())
     return nullptr;
 
-  const auto& localItem = std::find_if(localItems.cbegin(), localItems.cend(),
-    [&item](const CFileItemPtr& localItem)
-    {
-      return IsSameSeason(*item->GetVideoInfoTag(), *localItem->GetVideoInfoTag());
-    });
+  const auto& localItem =
+      std::find_if(localItems.cbegin(), localItems.cend(), [&item](const CFileItemPtr& localItem) {
+        return IsSameSeason(*item->GetVideoInfoTag(), *localItem->GetVideoInfoTag());
+      });
 
   if (localItem != localItems.cend())
     return *localItem;
@@ -60,7 +63,7 @@ CFileItemPtr CSeasonImportHandler::FindMatchingLocalItem(const CMediaImport &imp
   return nullptr;
 }
 
-bool CSeasonImportHandler::StartSynchronisation(const CMediaImport &import)
+bool CSeasonImportHandler::StartSynchronisation(const CMediaImport& import)
 {
   if (!CVideoImportHandler::StartSynchronisation(import))
     return false;
@@ -82,7 +85,8 @@ bool CSeasonImportHandler::StartSynchronisation(const CMediaImport &import)
     tvshowsIter = m_tvshows.find(tvshow->GetVideoInfoTag()->m_strTitle);
     if (tvshowsIter == m_tvshows.end())
     {
-      TvShowsSet tvshowsSet; tvshowsSet.insert(tvshow);
+      TvShowsSet tvshowsSet;
+      tvshowsSet.insert(tvshow);
       m_tvshows.insert(make_pair(tvshow->GetVideoInfoTag()->m_strTitle, tvshowsSet));
     }
     else
@@ -92,14 +96,14 @@ bool CSeasonImportHandler::StartSynchronisation(const CMediaImport &import)
   return true;
 }
 
-bool CSeasonImportHandler::AddImportedItem(const CMediaImport &import, CFileItem* item)
+bool CSeasonImportHandler::AddImportedItem(const CMediaImport& import, CFileItem* item)
 {
   if (item == nullptr)
     return false;
 
   PrepareItem(import, item);
 
-  CVideoInfoTag *season = item->GetVideoInfoTag();
+  CVideoInfoTag* season = item->GetVideoInfoTag();
 
   // try to find an existing tvshow that the season belongs to
   season->m_iIdShow = FindTvShowId(item);
@@ -136,7 +140,8 @@ bool CSeasonImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
     bool tvshowImported = false;
     if (m_importHandlerManager != nullptr)
     {
-      MediaImportHandlerConstPtr tvshowHandlerCreator = m_importHandlerManager->GetImportHandler(MediaTypeTvShow);
+      MediaImportHandlerConstPtr tvshowHandlerCreator =
+          m_importHandlerManager->GetImportHandler(MediaTypeTvShow);
       if (tvshowHandlerCreator != nullptr)
       {
         MediaImportHandlerPtr tvshowHandler(tvshowHandlerCreator->Create());
@@ -148,8 +153,11 @@ bool CSeasonImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
     if (!tvshowImported)
     {
       // add the basic tvshow to the database
-      std::vector< std::pair<std::string, std::string> > tvshowPaths; tvshowPaths.push_back(std::make_pair(tvshow.m_strPath, tvshow.m_basePath));
-      tvshow.m_iDbId = tvshow.m_iIdShow = m_db.SetDetailsForTvShow(tvshowPaths, tvshow, CGUIListItem::ArtMap(), std::map<int, std::map<std::string, std::string> >());
+      std::vector<std::pair<std::string, std::string>> tvshowPaths;
+      tvshowPaths.push_back(std::make_pair(tvshow.m_strPath, tvshow.m_basePath));
+      tvshow.m_iDbId = tvshow.m_iIdShow =
+          m_db.SetDetailsForTvShow(tvshowPaths, tvshow, CGUIListItem::ArtMap(),
+                                   std::map<int, std::map<std::string, std::string>>());
     }
 
     // store the tvshow's database ID in the season
@@ -159,7 +167,8 @@ bool CSeasonImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
     auto&& tvshowsIter = m_tvshows.find(tvshow.m_strTitle);
     if (tvshowsIter == m_tvshows.end())
     {
-      TvShowsSet tvshowsSet; tvshowsSet.insert(tvshowItem);
+      TvShowsSet tvshowsSet;
+      tvshowsSet.insert(tvshowItem);
       m_tvshows.insert(make_pair(tvshow.m_strTitle, tvshowsSet));
     }
     else
@@ -180,15 +189,17 @@ bool CSeasonImportHandler::AddImportedItem(const CMediaImport &import, CFileItem
   return SetImportForItem(item, import);
 }
 
-bool CSeasonImportHandler::UpdateImportedItem(const CMediaImport &import, CFileItem* item)
+bool CSeasonImportHandler::UpdateImportedItem(const CMediaImport& import, CFileItem* item)
 {
   if (item == nullptr || !item->HasVideoInfoTag() || item->GetVideoInfoTag()->m_iDbId <= 0)
     return false;
 
-  return m_db.SetDetailsForSeason(*(item->GetVideoInfoTag()), item->GetArt(), item->GetVideoInfoTag()->m_iIdShow, item->GetVideoInfoTag()->m_iDbId) > 0;
+  return m_db.SetDetailsForSeason(*(item->GetVideoInfoTag()), item->GetArt(),
+                                  item->GetVideoInfoTag()->m_iIdShow,
+                                  item->GetVideoInfoTag()->m_iDbId) > 0;
 }
 
-bool CSeasonImportHandler::RemoveImportedItem(const CMediaImport &import, const CFileItem* item)
+bool CSeasonImportHandler::RemoveImportedItem(const CMediaImport& import, const CFileItem* item)
 {
   if (item == nullptr || !item->HasVideoInfoTag())
     return false;
@@ -198,7 +209,7 @@ bool CSeasonImportHandler::RemoveImportedItem(const CMediaImport &import, const 
   return true;
 }
 
-bool CSeasonImportHandler::CleanupImportedItems(const CMediaImport &import)
+bool CSeasonImportHandler::CleanupImportedItems(const CMediaImport& import)
 {
   if (!m_db.Open())
     return false;
@@ -217,14 +228,16 @@ bool CSeasonImportHandler::CleanupImportedItems(const CMediaImport &import)
     // get all episodes of the season of the tvshow
     CVideoDbUrl videoUrl;
     if (!videoUrl.FromString(StringUtils::Format("videodb://tvshows/titles/{}/{}/",
-      importedSeason->GetVideoInfoTag()->m_iIdShow, importedSeason->GetVideoInfoTag()->m_iSeason)))
+                                                 importedSeason->GetVideoInfoTag()->m_iIdShow,
+                                                 importedSeason->GetVideoInfoTag()->m_iSeason)))
       continue;
     videoUrl.AddOption("tvshowid", importedSeason->GetVideoInfoTag()->m_iIdShow);
     if (importedSeason->GetVideoInfoTag()->m_iSeason >= -1)
       videoUrl.AddOption("season", importedSeason->GetVideoInfoTag()->m_iSeason);
 
     CFileItemList episodes;
-    if (!m_db.GetEpisodesByWhere(videoUrl.ToString(), CDatabase::Filter(), episodes, true, SortDescription(), false))
+    if (!m_db.GetEpisodesByWhere(videoUrl.ToString(), CDatabase::Filter(), episodes, true,
+                                 SortDescription(), false))
       continue;
 
     // loop through all episodes and count the imported ones
@@ -248,10 +261,14 @@ bool CSeasonImportHandler::CleanupImportedItems(const CMediaImport &import)
   return true;
 }
 
-bool CSeasonImportHandler::GetLocalItems(CVideoDatabase &videodb, const CMediaImport &import, std::vector<CFileItemPtr>& items) const
+bool CSeasonImportHandler::GetLocalItems(CVideoDatabase& videodb,
+                                         const CMediaImport& import,
+                                         std::vector<CFileItemPtr>& items) const
 {
   CFileItemList seasons;
-  if (!videodb.GetSeasonsByWhere("videodb://tvshows/titles/-1/?imported&showempty=true&import=" + CURL::Encode(import.GetPath()), CDatabase::Filter(), seasons, true))
+  if (!videodb.GetSeasonsByWhere("videodb://tvshows/titles/-1/?imported&showempty=true&import=" +
+                                     CURL::Encode(import.GetPath()),
+                                 CDatabase::Filter(), seasons, true))
     return false;
 
   items.insert(items.begin(), seasons.cbegin(), seasons.cend());
@@ -261,46 +278,45 @@ bool CSeasonImportHandler::GetLocalItems(CVideoDatabase &videodb, const CMediaIm
 
 std::set<Field> CSeasonImportHandler::IgnoreDifferences() const
 {
-  return {
-    FieldActor,
-    FieldAirDate,
-    FieldAlbum,
-    FieldArtist,
-    FieldCountry,
-    FieldDirector,
-    FieldEpisodeNumber,
-    FieldEpisodeNumberSpecialSort,
-    FieldFilename,
-    FieldGenre,
-    FieldInProgress,
-    FieldLastPlayed,
-    FieldMPAA,
-    FieldOriginalTitle,
-    FieldPath,
-    FieldPlaycount,
-    FieldPlot,
-    FieldPlotOutline,
-    FieldProductionCode,
-    FieldRating,
-    FieldSeasonSpecialSort,
-    FieldSet,
-    FieldSortTitle,
-    FieldStudio,
-    FieldTag,
-    FieldTagline,
-    FieldTime,
-    FieldTitle,
-    FieldTop250,
-    FieldTrackNumber,
-    FieldTrailer,
-    FieldTvShowStatus,
-    FieldUniqueId,
-    FieldUserRating,
-    FieldWriter
-  };
+  return {FieldActor,
+          FieldAirDate,
+          FieldAlbum,
+          FieldArtist,
+          FieldCountry,
+          FieldDirector,
+          FieldEpisodeNumber,
+          FieldEpisodeNumberSpecialSort,
+          FieldFilename,
+          FieldGenre,
+          FieldInProgress,
+          FieldLastPlayed,
+          FieldMPAA,
+          FieldOriginalTitle,
+          FieldPath,
+          FieldPlaycount,
+          FieldPlot,
+          FieldPlotOutline,
+          FieldProductionCode,
+          FieldRating,
+          FieldSeasonSpecialSort,
+          FieldSet,
+          FieldSortTitle,
+          FieldStudio,
+          FieldTag,
+          FieldTagline,
+          FieldTime,
+          FieldTitle,
+          FieldTop250,
+          FieldTrackNumber,
+          FieldTrailer,
+          FieldTvShowStatus,
+          FieldUniqueId,
+          FieldUserRating,
+          FieldWriter};
 }
 
-bool CSeasonImportHandler::RemoveImportedItems(CVideoDatabase &videodb, const CMediaImport &import) const
+bool CSeasonImportHandler::RemoveImportedItems(CVideoDatabase& videodb,
+                                               const CMediaImport& import) const
 {
   std::vector<CFileItemPtr> items;
   if (!GetLocalItems(videodb, import, items))
@@ -312,7 +328,9 @@ bool CSeasonImportHandler::RemoveImportedItems(CVideoDatabase &videodb, const CM
   return true;
 }
 
-void CSeasonImportHandler::RemoveImportedItem(CVideoDatabase &videodb, const CMediaImport &import, const CFileItem* item) const
+void CSeasonImportHandler::RemoveImportedItem(CVideoDatabase& videodb,
+                                              const CMediaImport& import,
+                                              const CFileItem* item) const
 {
   // check if the season still has episodes or not
   if (item == nullptr || !item->HasVideoInfoTag())
@@ -336,8 +354,7 @@ int CSeasonImportHandler::FindTvShowId(const CFileItem* seasonItem)
 
   // check if there is a tvshow with a matching title
   const auto& tvshowsIter = m_tvshows.find(seasonItem->GetVideoInfoTag()->m_strShowTitle);
-  if (tvshowsIter == m_tvshows.end() ||
-    tvshowsIter->second.size() <= 0)
+  if (tvshowsIter == m_tvshows.end() || tvshowsIter->second.size() <= 0)
     return -1;
 
   // if there is only one matching tvshow, we can go with that one
@@ -347,7 +364,8 @@ int CSeasonImportHandler::FindTvShowId(const CFileItem* seasonItem)
   // use the path of the episode and tvshow to find the right tvshow
   for (const auto& it : tvshowsIter->second)
   {
-    if (URIUtils::PathHasParent(seasonItem->GetVideoInfoTag()->GetPath(), it->GetVideoInfoTag()->GetPath()))
+    if (URIUtils::PathHasParent(seasonItem->GetVideoInfoTag()->GetPath(),
+                                it->GetVideoInfoTag()->GetPath()))
       return it->GetVideoInfoTag()->m_iDbId;
   }
 

@@ -1,4 +1,5 @@
-set(SOURCES MediaImportChangesetTask.cpp
+set(SOURCES IMediaImportTask.cpp
+            MediaImportChangesetTask.cpp
             MediaImportCleanupTask.cpp
             MediaImportImportItemsRetrievalTask.cpp
             MediaImportLocalItemsRetrievalTask.cpp

@@ -14,7 +14,7 @@
 class CMediaImportRemovalTask : public IMediaImportTask
 {
 public:
-  CMediaImportRemovalTask(const CMediaImport &import, MediaImportHandlerPtr importHandler);
+  CMediaImportRemovalTask(const CMediaImport& import, MediaImportHandlerPtr importHandler);
   virtual ~CMediaImportRemovalTask() = default;
 
   // implementation of IMediaImportTask

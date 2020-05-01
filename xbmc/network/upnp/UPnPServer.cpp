@@ -859,47 +859,46 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
                                const char*                   sort_criteria,
                                const PLT_HttpRequestContext& context)
 {
-    m_logger->debug("Received Search request for object '{}' with search '{}'",
-      object_id, search_criteria);
+  m_logger->debug("Received Search request for object '{}' with search '{}'", object_id,
+                  search_criteria);
 
-    NPT_String id = object_id;
-    NPT_String searchClass = NPT_String(search_criteria);
-    if (id.StartsWith("musicdb://")) {
-        // we browse for all tracks given a genre, artist or album
-        if (searchClass.Find("object.item.audioItem") >= 0) {
-            if (!id.EndsWith("/")) id += "/";
-            NPT_Cardinal count = id.SubString(10).Split("/").GetItemCount();
-            // remove extra empty node count
-            count = count?count-1:0;
+  NPT_String id = object_id;
+  NPT_String searchClass = NPT_String(search_criteria);
+  if (id.StartsWith("musicdb://")) {
+      // we browse for all tracks given a genre, artist or album
+      if (searchClass.Find("object.item.audioItem") >= 0) {
+          if (!id.EndsWith("/")) id += "/";
+          NPT_Cardinal count = id.SubString(10).Split("/").GetItemCount();
+          // remove extra empty node count
+          count = count?count-1:0;
 
-            // genre
-            if (id.StartsWith("musicdb://genres/")) {
-                // all tracks of all genres
-                if (count == 1)
-                    id += "-1/-1/-1/";
-                // all tracks of a specific genre
-                else if (count == 2)
-                    id += "-1/-1/";
-                // all tracks of a specific genre of a specific artist
-                else if (count == 3)
-                    id += "-1/";
-            }
-            else if (id.StartsWith("musicdb://artists/")) {
-                // all tracks by all artists
-                if (count == 1)
-                    id += "-1/-1/";
-                // all tracks of a specific artist
-                else if (count == 2)
-                    id += "-1/";
-            }
-            else if (id.StartsWith("musicdb://albums/")) {
-                // all albums ?
-                if (count == 1) id += "-1/";
-            }
-        }
-        return OnBrowseDirectChildren(action, id, filter, starting_index, requested_count, sort_criteria, context);
-    }
-    else if (searchClass.Find("object.item.audioItem") >= 0) {
+          // genre
+          if (id.StartsWith("musicdb://genres/")) {
+              // all tracks of all genres
+              if (count == 1)
+                  id += "-1/-1/-1/";
+              // all tracks of a specific genre
+              else if (count == 2)
+                  id += "-1/-1/";
+              // all tracks of a specific genre of a specific artist
+              else if (count == 3)
+                  id += "-1/";
+          }
+          else if (id.StartsWith("musicdb://artists/")) {
+              // all tracks by all artists
+              if (count == 1)
+                  id += "-1/-1/";
+              // all tracks of a specific artist
+              else if (count == 2)
+                  id += "-1/";
+          }
+          else if (id.StartsWith("musicdb://albums/")) {
+              // all albums ?
+              if (count == 1) id += "-1/";
+          }
+      }
+      return OnBrowseDirectChildren(action, id, filter, starting_index, requested_count, sort_criteria, context);
+    } else if (searchClass.Find("object.item.audioItem") >= 0) {
         // look for artist, album & genre filters
         NPT_String genre = FindSubCriteria(searchClass, "upnp:genre");
         NPT_String album = FindSubCriteria(searchClass, "upnp:album");
@@ -920,16 +919,14 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
                                           database.GetAlbumByName((const char*)album));  // will return -1 if no album
 
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
-        }
-        else if (artist.GetLength() > 0) {
+        } else if (artist.GetLength() > 0) {
             // all tracks by artist name filtered by album if passed
             std::string strPath = StringUtils::Format("musicdb://artists/%i/%i/",
                                           database.GetArtistByName((const char*)artist),
                                           database.GetAlbumByName((const char*)album)); // will return -1 if no album
 
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
-        }
-        else if (album.GetLength() > 0) {
+        } else if (album.GetLength() > 0) {
             // all tracks by album name
             std::string strPath = StringUtils::Format("musicdb://albums/%i/",
                                                      database.GetAlbumByName((const char*)album));
@@ -939,8 +936,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
 
         // browse all songs
         return OnBrowseDirectChildren(action, "musicdb://songs/", filter, starting_index, requested_count, sort_criteria, context);
-    }
-    else if (searchClass.Find("object.container.album.musicAlbum") >= 0) {
+    } else if (searchClass.Find("object.container.album.musicAlbum") >= 0) {
         // sonos filters by genre
         NPT_String genre = FindSubCriteria(searchClass, "upnp:genre");
 
@@ -959,8 +955,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
                                                      database.GetGenreByName((const char*)genre),
                                                      database.GetArtistByName((const char*)artist)); // no artist should return -1
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
-        }
-        else if (artist.GetLength() > 0) {
+        } else if (artist.GetLength() > 0) {
             std::string strPath = StringUtils::Format("musicdb://artists/%i/",
                                                      database.GetArtistByName((const char*)artist));
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
@@ -968,8 +963,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
 
         // all albums
         return OnBrowseDirectChildren(action, "musicdb://albums/", filter, starting_index, requested_count, sort_criteria, context);
-    }
-    else if (searchClass.Find("object.container.person.musicArtist") >= 0) {
+    } else if (searchClass.Find("object.container.person.musicArtist") >= 0) {
         // Sonos filters by genre
         NPT_String genre = FindSubCriteria(searchClass, "upnp:genre");
         if (genre.GetLength() > 0) {
@@ -979,14 +973,11 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
             return OnBrowseDirectChildren(action, strPath.c_str(), filter, starting_index, requested_count, sort_criteria, context);
         }
         return OnBrowseDirectChildren(action, "musicdb://artists/", filter, starting_index, requested_count, sort_criteria, context);
-    }
-    else if (searchClass.Find("object.container.genre.musicGenre") >= 0) {
+    } else if (searchClass.Find("object.container.genre.musicGenre") >= 0) {
         return OnBrowseDirectChildren(action, "musicdb://genres/", filter, starting_index, requested_count, sort_criteria, context);
-    }
-    else if (searchClass.Find("object.container.playlistContainer") >= 0) {
+    } else if (searchClass.Find("object.container.playlistContainer") >= 0) {
         return OnBrowseDirectChildren(action, "special://musicplaylists/", filter, starting_index, requested_count, sort_criteria, context);
-    }
-    else if (searchClass.Find("object.container.album.videoAlbum.videoBroadcastShow") >= 0) {
+    } else if (searchClass.Find("object.container.album.videoAlbum.videoBroadcastShow") >= 0) {
       CVideoDatabase database;
       if (!database.Open()) {
         action->SetError(800, "Internal Error");
@@ -1002,8 +993,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
 
       items.SetPath("videodb://tvshows/titles/");
       return BuildResponse(action, items, filter, starting_index, requested_count, sort_criteria, context, NULL);
-    }
-    else if (searchClass.Find("object.container.album.videoAlbum.videoBroadcastSeason") >= 0) {
+    } else if (searchClass.Find("object.container.album.videoAlbum.videoBroadcastSeason") >= 0) {
       CVideoDatabase database;
       if (!database.Open()) {
         action->SetError(800, "Internal Error");
@@ -1018,8 +1008,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
 
       items.SetPath("videodb://tvshows/titles/-1/");
       return BuildResponse(action, items, filter, starting_index, requested_count, sort_criteria, context, NULL);
-    }
-    else if (searchClass.Find("object.item.videoItem") >= 0) {
+    } else if (searchClass.Find("object.item.videoItem") >= 0) {
       CFileItemList items, allItems;
 
       CVideoDatabase database;
@@ -1079,8 +1068,7 @@ CUPnPServer::OnSearchContainer(PLT_ActionReference&          action,
         allItems.SetPath("videodb://movies/titles/");
 
       return BuildResponse(action, allItems, filter, starting_index, requested_count, sort_criteria, context, NULL);
-  }
-  else if (searchClass.Find("object.item.imageItem") >= 0) {
+  } else if (searchClass.Find("object.item.imageItem") >= 0) {
       CFileItemList items;
       return BuildResponse(action, items, filter, starting_index, requested_count, sort_criteria, context, NULL);
   }
@@ -1178,10 +1166,9 @@ CUPnPServer::OnUpdateObject(PLT_ActionReference&             action,
             NPT_UInt32 count;
             NPT_CHECK_LABEL(playCount.ToInteger32(count), args);
 
-            
             CDateTime lastPlayedObj;
-            if (!lastPlayed.IsEmpty()
-                  && lastPlayed.Compare(current_vals["lastPlaybackTime"]) != 0)
+            if (!lastPlayed.IsEmpty() &&
+                lastPlayed.Compare(current_vals["lastPlaybackTime"]) != 0)
                 lastPlayedObj.SetFromW3CDateTime(lastPlayed.GetChars());
 
             db.SetPlayCount(updated, count, lastPlayedObj);
@@ -1352,4 +1339,3 @@ int CUPnPServer::GetRequiredVideoDbDetails(const NPT_String& filter)
 }
 
 } /* namespace UPNP */
-

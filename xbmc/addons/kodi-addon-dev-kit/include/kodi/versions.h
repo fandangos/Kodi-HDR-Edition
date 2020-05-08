@@ -49,10 +49,11 @@
 #define ADDON_GLOBAL_VERSION_GUI_DEPENDS              "libKODI_guilib.h" \
                                                       "gui/"
 
-#define ADDON_GLOBAL_VERSION_AUDIOENGINE              "1.0.2"
-#define ADDON_GLOBAL_VERSION_AUDIOENGINE_MIN          "1.0.2"
+#define ADDON_GLOBAL_VERSION_AUDIOENGINE              "1.1.0"
+#define ADDON_GLOBAL_VERSION_AUDIOENGINE_MIN          "1.1.0"
 #define ADDON_GLOBAL_VERSION_AUDIOENGINE_XML_ID       "kodi.binary.global.audioengine"
-#define ADDON_GLOBAL_VERSION_AUDIOENGINE_DEPENDS      "AudioEngine.h"
+#define ADDON_GLOBAL_VERSION_AUDIOENGINE_DEPENDS      "AudioEngine.h" \
+                                                      "c-api/audio_engine.h"
 
 #define ADDON_GLOBAL_VERSION_FILESYSTEM               "1.0.3"
 #define ADDON_GLOBAL_VERSION_FILESYSTEM_MIN           "1.0.3"
@@ -60,10 +61,11 @@
 #define ADDON_GLOBAL_VERSION_FILESYSTEM_DEPENDS       "Filesystem.h" \
                                                       "gui/gl/Shader.h"
 
-#define ADDON_GLOBAL_VERSION_NETWORK                  "1.0.0"
+#define ADDON_GLOBAL_VERSION_NETWORK                  "1.0.1"
 #define ADDON_GLOBAL_VERSION_NETWORK_MIN              "1.0.0"
 #define ADDON_GLOBAL_VERSION_NETWORK_XML_ID           "kodi.binary.global.network"
-#define ADDON_GLOBAL_VERSION_NETWORK_DEPENDS          "Network.h"
+#define ADDON_GLOBAL_VERSION_NETWORK_DEPENDS          "Network.h" \
+                                                      "c-api/network.h"
 
 #define ADDON_INSTANCE_VERSION_AUDIODECODER           "2.0.0"
 #define ADDON_INSTANCE_VERSION_AUDIODECODER_MIN       "2.0.0"

@@ -10,6 +10,7 @@
 
 #include "Application.h"
 #include "Autorun.h"
+#include "LibraryQueue.h"
 #include "ServiceBroker.h"
 #include "filesystem/Directory.h"
 #include "guilib/GUIComponent.h"
@@ -55,7 +56,7 @@ bool CRemoveResumePoint::IsVisible(const CFileItem& itemIn) const
 
 bool CRemoveResumePoint::Execute(const CFileItemPtr& item) const
 {
-  CVideoLibraryQueue::GetInstance().ResetResumePoint(item);
+  CLibraryQueue::GetInstance().ResetResumePoint(item);
   return true;
 }
 
@@ -81,7 +82,7 @@ bool CMarkWatched::IsVisible(const CFileItem& item) const
 
 bool CMarkWatched::Execute(const CFileItemPtr& item) const
 {
-  CVideoLibraryQueue::GetInstance().MarkAsWatched(item, true);
+  CLibraryQueue::GetInstance().MarkAsWatched(item, true);
   return true;
 }
 
@@ -107,7 +108,7 @@ bool CMarkUnWatched::IsVisible(const CFileItem& item) const
 
 bool CMarkUnWatched::Execute(const CFileItemPtr& item) const
 {
-  CVideoLibraryQueue::GetInstance().MarkAsWatched(item, false);
+  CLibraryQueue::GetInstance().MarkAsWatched(item, false);
   return true;
 }
 

@@ -14,6 +14,7 @@
 #include "addons/GameResource.h"
 #include "addons/ImageResource.h"
 #include "addons/LanguageResource.h"
+#include "addons/MediaImporter.h"
 #include "addons/PluginSource.h"
 #include "addons/Repository.h"
 #include "addons/Scraper.h"
@@ -111,6 +112,8 @@ AddonPtr CAddonBuilder::Generate(const AddonInfoPtr& info, TYPE type)
     return std::make_shared<CContextMenuAddon>(info);
   case ADDON_GAME_CONTROLLER:
     return std::make_shared<GAME::CController>(info);
+    case ADDON_MEDIAIMPORTER:
+      return std::make_shared<CMediaImporter>(info);
   default:
     break;
   }

@@ -914,8 +914,6 @@ const std::string& CSysInfo::GetKernelCpuFamily(void)
         kernelCpuFamily = "x86";
       else if (cpuType == CPU_TYPE_ARM)
         kernelCpuFamily = "ARM";
-      else if (cpuType == CPU_TYPE_POWERPC)
-        kernelCpuFamily = "PowerPC";
 #ifdef CPU_TYPE_MIPS
       else if (cpuType == CPU_TYPE_MIPS)
         kernelCpuFamily = "MIPS";
@@ -1072,8 +1070,6 @@ std::string CSysInfo::GetUserAgent()
   std::string cpuFam(GetBuildTargetCpuFamily());
   if (cpuFam == "x86")
     result += "Intel ";
-  else if (cpuFam == "PowerPC")
-    result += "PPC ";
   result += "Mac OS X ";
   std::string OSXVersion(GetOsVersion());
   StringUtils::Replace(OSXVersion, '.', '_');
@@ -1250,19 +1246,13 @@ std::string CSysInfo::GetBuildTargetPlatformVersion(void)
 std::string CSysInfo::GetBuildTargetPlatformVersionDecoded(void)
 {
 #if defined(TARGET_DARWIN_OSX)
-#if defined(MAC_OS_X_VERSION_10_10) && __MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_10
-  if (__MAC_OS_X_VERSION_MIN_REQUIRED % 10)
-    return StringUtils::Format("version %d.%d", (__MAC_OS_X_VERSION_MIN_REQUIRED / 1000) % 100, (__MAC_OS_X_VERSION_MIN_REQUIRED / 10) % 100);
+  if (__MAC_OS_X_VERSION_MIN_REQUIRED % 100)
+    return StringUtils::Format("version %d.%d.%d", __MAC_OS_X_VERSION_MIN_REQUIRED / 10000,
+                               (__MAC_OS_X_VERSION_MIN_REQUIRED / 100) % 100,
+                               __MAC_OS_X_VERSION_MIN_REQUIRED % 100);
   else
-    return StringUtils::Format("version %d.%d.%d", (__MAC_OS_X_VERSION_MIN_REQUIRED / 1000) % 100,
-    (__MAC_OS_X_VERSION_MIN_REQUIRED / 10) % 100, __MAC_OS_X_VERSION_MIN_REQUIRED % 10);
-#else  // defined(MAC_OS_X_VERSION_10_10) && __MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_10
-  if (__MAC_OS_X_VERSION_MIN_REQUIRED % 10)
-    return StringUtils::Format("version %d.%d", (__MAC_OS_X_VERSION_MIN_REQUIRED / 100) % 100, (__MAC_OS_X_VERSION_MIN_REQUIRED / 10) % 10);
-  else
-    return StringUtils::Format("version %d.%d.%d", (__MAC_OS_X_VERSION_MIN_REQUIRED / 100) % 100,
-      (__MAC_OS_X_VERSION_MIN_REQUIRED / 10) % 10, __MAC_OS_X_VERSION_MIN_REQUIRED % 10);
-#endif // defined(MAC_OS_X_VERSION_10_10) && __MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_10
+    return StringUtils::Format("version %d.%d", __MAC_OS_X_VERSION_MIN_REQUIRED / 10000,
+                               (__MAC_OS_X_VERSION_MIN_REQUIRED / 100) % 100);
 #elif defined(TARGET_DARWIN_EMBEDDED)
   std::string versionStr = GetBuildTargetPlatformVersion();
   static const int major = (std::stoi(versionStr) / 10000) % 100;

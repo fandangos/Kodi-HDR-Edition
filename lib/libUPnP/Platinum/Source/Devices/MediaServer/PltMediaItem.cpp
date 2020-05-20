@@ -55,11 +55,12 @@ NPT_DEFINE_DYNAMIC_CAST_ANCHOR(PLT_MediaContainer)
 |   PLT_PersonRoles::AddPerson
 +---------------------------------------------------------------------*/
 NPT_Result
-PLT_PersonRoles::Add(const NPT_String& name, const NPT_String& role /* = "" */)
+PLT_PersonRoles::Add(const NPT_String& name, const NPT_String& role /* = "" */, const NPT_String& thumb /* = "" */)
 {
     PLT_PersonRole person;
     person.name = name;
     person.role = role;
+    person.thumb = thumb;
 
     return NPT_List<PLT_PersonRole>::Add(person);
 }
@@ -82,6 +83,11 @@ PLT_PersonRoles::ToDidl(NPT_String& didl, const NPT_String& tag)
             PLT_Didl::AppendXmlEscape(tmp, it->role);
             tmp += "\"";
         }
+        if (!it->thumb.IsEmpty()) {
+            tmp += " thumb=\"";
+            PLT_Didl::AppendXmlEscape(tmp, it->thumb);
+            tmp += "\"";
+        }
         tmp += ">";
         PLT_Didl::AppendXmlEscape(tmp, it->name);
         tmp += "</upnp:" + tag + ">";
@@ -101,9 +107,11 @@ PLT_PersonRoles::FromDidl(const NPT_Array<NPT_XmlElementNode*>& nodes)
         PLT_PersonRole person;
         const NPT_String* name = nodes[i]->GetText();
         const NPT_String* role = nodes[i]->GetAttribute("role");
+        const NPT_String* thumb = nodes[i]->GetAttribute("thumb");
         // DLNA 7.3.17
         if (name) person.name = name->SubString(0, 1024);
         if (role) person.role = role->SubString(0, 1024);
+        if (thumb) person.thumb = thumb->SubString(0, 1024);
         NPT_CHECK(NPT_List<PLT_PersonRole>::Add(person));
     }
     return NPT_SUCCESS;

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="repository.mediaimport" name="Media Import Repository" version="0.0.4" provider-name="Montellese">
+	<extension point="xbmc.addon.repository" name="Media Import Repository">
+		<info compressed="false">https://raw.github.com/Montellese/repository.mediaimport/master/addons.xml</info>
+		<checksum>https://raw.github.com/Montellese/repository.mediaimport/master/addons.xml.md5</checksum>
+		<datadir zip="true">https://raw.github.com/Montellese/repository.mediaimport/master/downloads/</datadir>
+	</extension>
+	<extension point="xbmc.addon.metadata">
+		<summary lang="en_GB">Media Import Repository</summary>
+		<description lang="en_GB">Kodi media importer and additional add-ons.</description>
+		<disclaimer lang="en_GB"></disclaimer>
+		<platform>all</platform>
+		<license>GPL-2.0-or-later</license>
+		<source>https://github.com/Montellese/repository.mediaimport/</source>
+		<website>https://github.com/Montellese/</website>
+		<email>montellese@kodi.tv</email>
+	</extension>
+</addon>

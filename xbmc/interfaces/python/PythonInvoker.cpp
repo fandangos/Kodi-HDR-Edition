@@ -21,30 +21,28 @@
 # define HAVE_STD_ATOMIC
 #endif
 
-#include "PythonInvoker.h"
 #include "Application.h"
+#include "PythonInvoker.h"
 #include "ServiceBroker.h"
-#include "messaging/ApplicationMessenger.h"
 #include "addons/AddonManager.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "filesystem/File.h"
 #include "filesystem/SpecialProtocol.h"
 #include "guilib/GUIComponent.h"
-#include "windowing/GraphicContext.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/LocalizeStrings.h"
 #include "interfaces/python/PyContext.h"
+#include "interfaces/python/XBPython.h"
 #include "interfaces/python/pythreadstate.h"
 #include "interfaces/python/swig.h"
-#include "interfaces/python/XBPython.h"
+#include "messaging/ApplicationMessenger.h"
 #include "threads/SingleLock.h"
 #include "utils/CharsetConverter.h"
-#include "utils/log.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#ifdef TARGET_POSIX
-#include "platform/posix/XTimeUtils.h"
-#endif
+#include "utils/XTimeUtils.h"
+#include "utils/log.h"
+#include "windowing/GraphicContext.h"
 
 // clang-format off
 // This breaks fmt because of SEP define, don't include
@@ -329,7 +327,7 @@ bool CPythonInvoker::execute(const std::string& script, const std::vector<std::w
         return false;
       }
 #endif
-      FILE* fp = _Py_fopen(nativeFilename.c_str(), "r");
+      FILE* fp = _Py_fopen(nativeFilename.c_str(), "rb");
 
       if (fp != NULL)
       {
@@ -405,11 +403,6 @@ bool CPythonInvoker::execute(const std::string& script, const std::vector<std::w
 
   if (m_threadState)
   {
-    PyObject* m = PyImport_AddModule("xbmc");
-    if (m == NULL || PyObject_SetAttrString(m, "abortRequested", PyBool_FromLong(1)))
-      CLog::Log(LOGERROR, "CPythonInvoker(%d, %s): failed to set abortRequested", GetId(),
-                m_sourceFile.c_str());
-
     // make sure all sub threads have finished
     for (PyThreadState* old = nullptr; m_threadState != nullptr;)
     {
@@ -429,7 +422,7 @@ bool CPythonInvoker::execute(const std::string& script, const std::vector<std::w
 
       lock.Leave();
       CPyThreadState pyState;
-      Sleep(100);
+      KODI::TIME::Sleep(100);
       pyState.Restore();
       lock.Enter();
     }
@@ -498,14 +491,8 @@ bool CPythonInvoker::stop(bool abort)
       {
         CLog::Log(LOGDEBUG, "CPythonInvoker(%d, %s): trigger Monitor abort request", GetId(),
                   m_sourceFile.c_str());
-        onAbortRequested();
+        AbortNotification();
       }
-
-      PyObject* m;
-      m = PyImport_AddModule("xbmc");
-      if (m == NULL || PyObject_SetAttrString(m, "abortRequested", PyBool_FromLong(1)))
-        CLog::Log(LOGERROR, "CPythonInvoker(%d, %s): failed to set abortRequested", GetId(),
-                  m_sourceFile.c_str());
 
       PyEval_ReleaseThread(m_threadState);
     }

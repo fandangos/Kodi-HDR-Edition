@@ -22,6 +22,7 @@ namespace ADDON
   class CVFSAddonCache;
   class CServiceAddonManager;
   class CRepositoryUpdater;
+  class CMediaImportAddonManager;
 }
 
 namespace PVR
@@ -39,6 +40,7 @@ class CContextMenuManager;
 class XBPython;
 #endif
 class CDataCacheCore;
+class CMediaImportManager;
 class CFavouritesService;
 class CNetworkBase;
 class CWinSystemBase;
@@ -93,6 +95,7 @@ public:
   ADDON::CVFSAddonCache& GetVFSAddonCache();
   ADDON::CServiceAddonManager& GetServiceAddons();
   ADDON::CRepositoryUpdater& GetRepositoryUpdater();
+  ADDON::CMediaImportAddonManager& GetMediaImportAddons();
   CNetworkBase& GetNetwork();
 #ifdef HAS_PYTHON
   XBPython& GetXBPython();
@@ -110,6 +113,8 @@ public:
 
   PLAYLIST::CPlayListPlayer& GetPlaylistPlayer();
   int init_level = 0;
+
+  CMediaImportManager& GetMediaImportManager();
 
   CFavouritesService& GetFavouritesService();
   CInputManager &GetInputManager();
@@ -147,6 +152,7 @@ protected:
   std::unique_ptr<ADDON::CVFSAddonCache> m_vfsAddonCache;
   std::unique_ptr<ADDON::CServiceAddonManager> m_serviceAddons;
   std::unique_ptr<ADDON::CRepositoryUpdater> m_repositoryUpdater;
+  std::unique_ptr<ADDON::CMediaImportAddonManager> m_mediaImportAddons;
 #ifdef HAS_PYTHON
   std::unique_ptr<XBPython> m_XBPython;
 #endif
@@ -158,6 +164,7 @@ protected:
   std::unique_ptr<KODI::GAME::CControllerManager> m_gameControllerManager;
   std::unique_ptr<KODI::GAME::CGameServices> m_gameServices;
   std::unique_ptr<KODI::RETRO::CGUIGameRenderManager> m_gameRenderManager;
+  std::unique_ptr<CMediaImportManager> m_mediaImportManager;
   std::unique_ptr<PERIPHERALS::CPeripherals> m_peripherals;
   std::unique_ptr<CFavouritesService, delete_favouritesService> m_favouritesService;
   std::unique_ptr<CInputManager> m_inputManager;

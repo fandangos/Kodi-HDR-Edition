@@ -56,6 +56,9 @@ if(UNIX)
   option(ENABLE_INTERNAL_FMT "Enable internal fmt?" OFF)
   option(ENABLE_INTERNAL_FSTRCMP "Enable internal fstrcmp?" OFF)
   option(ENABLE_INTERNAL_FLATBUFFERS "Enable internal flatbuffers?" OFF)
+  option(ENABLE_INTERNAL_DAV1D "Enable internal dav1d?" OFF)
+  option(ENABLE_INTERNAL_UDFREAD "Enable internal udfread?" OFF)
+  option(ENABLE_INTERNAL_SPDLOG "Enable internal spdlog?" OFF)
 endif()
 # System options
 if(NOT WIN32)
@@ -120,6 +123,7 @@ set(required_deps ASS
                   Cdio
                   CrossGUID
                   Curl
+				  Dav1d
                   FFMPEG
                   FlatBuffers
                   Fmt
@@ -132,6 +136,7 @@ set(required_deps ASS
                   OpenSSL>=1.0.2
                   PCRE
                   RapidJSON
+                  Spdlog
                   Sqlite3
                   TagLib
                   TinyXML
@@ -148,6 +153,7 @@ set(optional_deps Alsa
                   CEC
                   ClangFormat
                   DBus
+                  Iso9660pp
                   LCMS2
                   LircClient
                   MDNS
@@ -159,6 +165,7 @@ set(optional_deps Alsa
                   SmbClient
                   Sndio
                   UDEV
+                  Udfread
                   XSLT
                   ${PLATFORM_OPTIONAL_DEPS})
 
@@ -266,7 +273,7 @@ copy_files_from_filelist_to_buildtree(${CMAKE_SOURCE_DIR}/cmake/installdata/comm
                                       ${CMAKE_SOURCE_DIR}/cmake/installdata/${CORE_SYSTEM_NAME}/*.txt)
 
 list(APPEND SKINS "${CMAKE_SOURCE_DIR}/addons/skin.estuary\;${CMAKE_SOURCE_DIR}")
-list(APPEND SKINS "${CMAKE_SOURCE_DIR}/addons/skin.estouchy\;${CMAKE_SOURCE_DIR}")
+list(APPEND SKINS "${CMAKE_SOURCE_DIR}/addons/skin.aeonmq9\;${CMAKE_SOURCE_DIR}")
 
 # These are skins that are copied into place from the source tree
 foreach(skin ${SKINS})
@@ -290,7 +297,7 @@ elseif(CORE_SYSTEM_NAME STREQUAL android)
                  ${CORE_BUILD_DIR}/DllPaths_generated_android.h @ONLY)
 endif()
 
-set(GLOBAL_TARGET_DEPS ffmpeg dvdnav crossguid fmt fstrcmp flatbuffers ${PLATFORM_GLOBAL_TARGET_DEPS})
+set(GLOBAL_TARGET_DEPS ffmpeg dvdnav crossguid fmt Spdlog::Spdlog fstrcmp flatbuffers ${PLATFORM_GLOBAL_TARGET_DEPS})
 
 # main library (used for main binary and tests)
 add_library(lib${APP_NAME_LC} STATIC $<TARGET_OBJECTS:compileinfo>)
@@ -326,6 +333,11 @@ if(NOT CORE_SYSTEM_NAME STREQUAL android)
 else()
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined")
   add_library(${APP_NAME_LC} SHARED ${CORE_MAIN_SOURCE} "${RESOURCES}" ${OTHER_FILES})
+  if(CPU MATCHES x86_64)
+    # Statically resolve global references to shared library (ie. ffmpeg) definitions.
+    # Related to https://stackoverflow.com/questions/46307266/including-objects-to-a-shared-library-from-a-c-archive-a
+    set_target_properties(${APP_NAME_LC} PROPERTIES LINK_FLAGS "-Wl,-Bsymbolic")
+  endif()
 endif()
 add_dependencies(${APP_NAME_LC} ${APP_NAME_LC}-libraries export-files pack-skins)
 whole_archive(_MAIN_LIBRARIES ${core_DEPENDS})

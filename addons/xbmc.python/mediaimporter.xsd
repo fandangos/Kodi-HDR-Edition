@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE schema PUBLIC "-//W3C//DTD XMLSCHEMA 200102//EN" "http://www.w3.org/2001/XMLSchema.dtd">
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="extension">
+    <xs:complexType>
+      <xs:all>
+        <xs:element name="canlookupprovider" minOccurs="0" maxOccurs="1">
+          <xs:complexType>
+            <xs:simpleContent>
+              <xs:extension base="xs:boolean">
+                <xs:attribute name="protocol" type="xs:string" use="required"/>
+              </xs:extension>
+            </xs:simpleContent>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="automaticallyaddasprovider" minOccurs="0" maxOccurs="1">
+          <xs:complexType>
+            <xs:all>
+              <xs:element name="supportedmediatypes" type="mediaTypes" minOccurs="1" maxOccurs="1"/>
+          </xs:all>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="providersettings" type="settings" minOccurs="0" maxOccurs="1"/>
+        <xs:element name="importsettings" type="settings" minOccurs="0" maxOccurs="1"/>
+      </xs:all>
+      <xs:attribute name="point" type="xs:string" use="required"/>
+      <xs:attribute name="library" type="xs:string" use="required"/>
+      <xs:attribute name="discovery" type="xs:string"/>
+      <xs:attribute name="observer" type="xs:string"/>
+    </xs:complexType>
+  </xs:element>
+  <xs:simpleType name="mediaType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="movies"/>
+      <xs:enumeration value="musicvideos"/>
+      <xs:enumeration value="tvshows"/>
+      <xs:enumeration value="seasons"/>
+      <xs:enumeration value="episodes"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="mediaTypes">
+    <xs:list itemType="mediaType"/>
+  </xs:simpleType>
+  <xs:complexType name="settings">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="prepare" type="xs:boolean"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+</xs:schema>

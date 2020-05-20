@@ -9,6 +9,7 @@
 #pragma once
 
 #include "AddonClass.h"
+#include "Dictionary.h"
 #include "video/VideoInfoTag.h"
 
 namespace XBMCAddon
@@ -45,10 +46,12 @@ namespace XBMCAddon
     {
     private:
       CVideoInfoTag* infoTag;
+      bool owned;
 
     public:
 #ifndef SWIG
-      explicit InfoTagVideo(const CVideoInfoTag& tag);
+      explicit InfoTagVideo(const CVideoInfoTag* tag);
+      explicit InfoTagVideo(CVideoInfoTag* tag);
 #endif
       InfoTagVideo();
       ~InfoTagVideo() override;
@@ -333,6 +336,24 @@ namespace XBMCAddon
       getPath();
 #else
       String getPath();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_InfoTagVideo
+      /// @brief \python_func{ getFilenameAndPath() }
+      ///-----------------------------------------------------------------------
+      /// To get the full path where the video is available.
+      ///
+      /// @return [string] Path
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getFilenameAndPath();
+#else
+      String getFilenameAndPath();
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
@@ -623,6 +644,60 @@ namespace XBMCAddon
       getDuration();
 #else
       unsigned int getDuration();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_InfoTagVideo
+      /// @brief \python_func{ getUniqueID(key) }
+      ///-----------------------------------------------------------------------
+      /// To get the uniqueID of the given key
+      ///
+      /// @param key            string - uniqueID name.
+      /// - Some default uniqueID values (any string possible):
+      ///  | Label         | Type                                             |
+      ///  |---------------|--------------------------------------------------|
+      ///  | imdb          | string - uniqueid name
+      ///  | tvdb          | string - uniqueid name
+      ///  | tmdb          | string - uniqueid name
+      ///  | anidb         | string - uniqueid name
+      ///
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getUniqueID(key);
+#else
+      String getUniqueID(const char* key);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_InfoTagVideo
+      /// @brief \python_func{ setUniqueIDs(values, defaultUniqueID) }
+      ///-----------------------------------------------------------------------
+      /// To set the given uniqueIDs
+      ///
+      /// @param values             dictionary - pairs of `{ label: value }`.
+      /// @param defaultUniqueID    [opt] string - the name of default uniqueID.
+      ///
+      ///  - Some example values (any string possible):
+      ///  | Label         | Type                                              |
+      ///  |:-------------:|:--------------------------------------------------|
+      ///  | imdb          | string - uniqueid name
+      ///  | tvdb          | string - uniqueid name
+      ///  | tmdb          | string - uniqueid name
+      ///  | anidb         | string - uniqueid name
+      ///
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      setUniqueIDs(...);
+#else
+      void setUniqueIDs(const XBMCAddon::Properties& dictionary, const String& defaultUniqueID = "");
 #endif
     };
   }

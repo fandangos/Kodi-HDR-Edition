@@ -363,7 +363,7 @@ void CPVRManager::Start()
   if (!m_addons->HasCreatedClients())
     return;
 
-  CLog::Log(LOGNOTICE, "PVR Manager: Starting");
+  CLog::Log(LOGINFO, "PVR Manager: Starting");
   SetState(ManagerStateStarting);
 
   /* create the pvrmanager thread, which will ensure that all data will be loaded */
@@ -386,7 +386,7 @@ void CPVRManager::Stop()
     CApplicationMessenger::GetInstance().SendMsg(TMSG_MEDIA_STOP);
   }
 
-  CLog::Log(LOGNOTICE, "PVR Manager: Stopping");
+  CLog::Log(LOGINFO, "PVR Manager: Stopping");
   SetState(ManagerStateStopping);
 
   m_addons->Stop();
@@ -403,7 +403,7 @@ void CPVRManager::Stop()
 
   ResetProperties();
 
-  CLog::Log(LOGNOTICE, "PVR Manager: Stopped");
+  CLog::Log(LOGINFO, "PVR Manager: Stopped");
   SetState(ManagerStateStopped);
 }
 
@@ -483,7 +483,7 @@ void CPVRManager::Process()
   while (!LoadComponents(progressHandler) && IsInitialising())
   {
     CLog::Log(LOGWARNING, "PVR Manager failed to load data, retrying");
-    Sleep(1000);
+    CThread::Sleep(1000);
 
     if (progressHandler && progressTimeout.IsTimePast())
     {
@@ -500,7 +500,7 @@ void CPVRManager::Process()
 
   if (!IsInitialising())
   {
-    CLog::Log(LOGNOTICE, "PVR Manager: Start aborted");
+    CLog::Log(LOGINFO, "PVR Manager: Start aborted");
     return;
   }
 
@@ -509,7 +509,7 @@ void CPVRManager::Process()
   m_pendingUpdates->Start();
 
   SetState(ManagerStateStarted);
-  CLog::Log(LOGNOTICE, "PVR Manager: Started");
+  CLog::Log(LOGINFO, "PVR Manager: Started");
 
   /* main loop */
   CLog::LogFC(LOGDEBUG, LOGPVR, "PVR Manager entering main loop");
@@ -531,6 +531,10 @@ void CPVRManager::Process()
       /* try to play channel on startup */
       TriggerPlayChannelOnStartup();
     }
+
+    if (m_addons->AnyClientSupportingRecordingsSize())
+      TriggerRecordingsSizeInProgressUpdate();
+
     /* execute the next pending jobs if there are any */
     try
     {
@@ -607,7 +611,7 @@ bool CPVRManager::LoadComponents(CPVRGUIProgressHandler* progressHandler)
 {
   /* load at least one client */
   while (IsInitialising() && m_addons && !m_addons->HasCreatedClients())
-    Sleep(50);
+    CThread::Sleep(50);
 
   if (!IsInitialising() || !m_addons->HasCreatedClients())
     return false;
@@ -755,6 +759,13 @@ void CPVRManager::TriggerRecordingsUpdate()
 {
   m_pendingUpdates->Append("pvr-update-recordings", [this]() {
     return Recordings()->Update();
+  });
+}
+
+void CPVRManager::TriggerRecordingsSizeInProgressUpdate()
+{
+  m_pendingUpdates->Append("pvr-update-recordings-size", [this]() {
+    return Recordings()->UpdateInProgressSize();
   });
 }
 

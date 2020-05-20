@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2020 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -25,6 +25,7 @@
 #include "games/addons/GameClient.h"
 #include "games/tags/GameInfoTag.h"
 #include "guilib/LocalizeStrings.h"
+#include "media/MediaLockState.h"
 #include "music/Album.h"
 #include "music/Artist.h"
 #include "music/MusicDatabase.h"
@@ -140,9 +141,9 @@ void CFileItem::FillMusicInfoTag(const std::shared_ptr<CPVRChannel>& channel, co
       musictag->SetGenre(tag->Genre());
       musictag->SetDuration(tag->GetDuration());
     }
-    else if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_EPG_HIDENOINFOAVAILABLE))
+    else
     {
-      musictag->SetTitle(g_localizeStrings.Get(19055)); // no information available
+      musictag->SetTitle(channel->ChannelName()); // can be overwritten by PVRGUIInfo
     }
     musictag->SetURL(channel->Path());
     musictag->SetArtist(channel->ChannelName());
@@ -215,6 +216,7 @@ CFileItem::CFileItem(const std::shared_ptr<CPVRRecording>& record)
   m_strPath = record->m_strFileNameAndPath;
   SetLabel(record->m_strTitle);
   m_dateTime = record->RecordingTimeAsLocalTime();
+  m_dwSize = record->GetSizeInBytes();
 
   // Set art
   if (!record->m_strIconPath.empty())
@@ -384,6 +386,7 @@ CFileItem& CFileItem::operator=(const CFileItem& item)
     return *this;
 
   CGUIListItem::operator=(item);
+  m_enabled = item.m_enabled;
   m_bLabelPreformatted=item.m_bLabelPreformatted;
   FreeMemory();
   m_strPath = item.m_strPath;
@@ -470,6 +473,8 @@ CFileItem& CFileItem::operator=(const CFileItem& item)
   m_specialSort = item.m_specialSort;
   m_bIsAlbum = item.m_bIsAlbum;
   m_doContentLookup = item.m_doContentLookup;
+  m_source = item.m_source;
+  m_importPath = item.m_importPath;
   return *this;
 }
 
@@ -479,6 +484,7 @@ void CFileItem::Initialize()
   m_videoInfoTag = NULL;
   m_pictureInfoTag = NULL;
   m_gameInfoTag = NULL;
+  m_enabled = true;
   m_bLabelPreformatted = false;
   m_bIsAlbum = false;
   m_dwSize = 0;
@@ -492,7 +498,7 @@ void CFileItem::Initialize()
   m_idepth = 1;
   m_iLockMode = LOCK_MODE_EVERYONE;
   m_iBadPwdCount = 0;
-  m_iHasLock = 0;
+  m_iHasLock = LOCK_STATE_NO_LOCK;
   m_bCanQueue = true;
   m_specialSort = SortSpecialNone;
   m_doContentLookup = true;
@@ -508,6 +514,8 @@ void CFileItem::Reset()
   m_bSelected = false;
   m_bIsFolder = false;
 
+  m_source.clear();
+  m_importPath.clear();
   m_strDVDLabel.clear();
   m_strTitle.clear();
   m_strPath.clear();
@@ -594,6 +602,10 @@ void CFileItem::Archive(CArchive& ar)
     }
     else
       ar << 0;
+
+    ar << m_enabled;
+    ar << m_source;
+    ar << m_importPath;
   }
   else
   {
@@ -637,6 +649,10 @@ void CFileItem::Archive(CArchive& ar)
     ar >> iType;
     if (iType == 1)
       ar >> *GetGameInfoTag();
+
+    ar >> m_enabled;
+    ar >> m_source;
+    ar >> m_importPath;
 
     SetInvalid();
   }
@@ -1301,6 +1317,11 @@ bool CFileItem::IsReadOnly() const
   return !CUtil::SupportsWriteFileOperations(m_strPath);
 }
 
+bool CFileItem::IsImported() const
+{
+  return !m_source.empty() && !m_importPath.empty();
+}
+
 void CFileItem::FillInDefaultIcon()
 {
   if (URIUtils::IsPVRGuideItem(m_strPath))
@@ -1880,10 +1901,8 @@ bool CFileItem::LoadTracksFromCueDocument(CFileItemList& scannedItems)
         if (!tag.GetCueSheet().empty())
           song.strCueSheet = tag.GetCueSheet();
 
-        SYSTEMTIME dateTime;
-        tag.GetReleaseDate(dateTime);
-        if (dateTime.wYear)
-          song.iYear = dateTime.wYear;
+        if (tag.GetYear())
+          song.strReleaseDate = tag.GetReleaseDate();
         if (song.embeddedArt.Empty() && !tag.GetCoverArtInfo().Empty())
           song.embeddedArt = tag.GetCoverArtInfo();
       }
@@ -1921,6 +1940,11 @@ CFileItemList::CFileItemList()
 CFileItemList::CFileItemList(const std::string& strPath)
 : CFileItem(strPath, true)
 {
+}
+
+CFileItemList::CFileItemList(const CFileItemList &other)
+{
+  Copy(other, true);
 }
 
 CFileItemList::~CFileItemList()
@@ -2560,7 +2584,7 @@ void CFileItemList::FilterCueItems()
               for (int j = 0; j < (int)m_items.size(); j++)
               {
                 CFileItemPtr pItem = m_items[j];
-                if (stricmp(pItem->GetPath().c_str(), strMediaFile.c_str()) == 0)
+                if (StringUtils::CompareNoCase(pItem->GetPath(), strMediaFile) == 0)
                   pItem->SetCueDocument(cuesheet);
               }
             }
@@ -2576,7 +2600,7 @@ void CFileItemList::FilterCueItems()
     for (int j = 0; j < (int)m_items.size(); j++)
     {
       CFileItemPtr pItem = m_items[j];
-      if (stricmp(pItem->GetPath().c_str(), itemstodelete[i].c_str()) == 0)
+      if (StringUtils::CompareNoCase(pItem->GetPath(), itemstodelete[i]) == 0)
       { // delete this item
         m_items.erase(m_items.begin() + j);
         break;
@@ -3500,6 +3524,26 @@ void CFileItemList::ClearSortState()
   m_sortDescription.sortBy = SortByNone;
   m_sortDescription.sortOrder = SortOrderNone;
   m_sortDescription.sortAttributes = SortAttributeNone;
+}
+
+MediaType CFileItem::GetMediaType() const
+{
+  if (HasVideoInfoTag())
+  {
+    if (GetVideoInfoTag()->m_type != MediaTypeNone)
+      return GetVideoInfoTag()->m_type;
+
+    return MediaTypeVideo;
+  }
+  if (HasMusicInfoTag())
+  {
+    if (GetMusicInfoTag()->GetType() != MediaTypeNone)
+      return GetMusicInfoTag()->GetType();
+
+    return MediaTypeMusic;
+  }
+  
+  return MediaTypeNone;
 }
 
 bool CFileItem::HasVideoInfoTag() const

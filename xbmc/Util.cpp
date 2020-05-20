@@ -687,7 +687,7 @@ void CUtil::ClearTempFonts()
     return;
 
   CFileItemList items;
-  CDirectory::GetDirectory(searchPath, items, "", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_BYPASS_CACHE);
+  CDirectory::GetDirectory(searchPath, items, "", DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_BYPASS_CACHE | DIR_FLAG_GET_HIDDEN);
 
   for (const auto &item : items)
   {
@@ -1040,8 +1040,6 @@ void CUtil::SplitExecFunction(const std::string &execString, std::string &functi
 
   // remove any whitespace, and the standard prefix (if it exists)
   StringUtils::Trim(function);
-  if( StringUtils::StartsWithNoCase(function, "xbmc.") )
-    function.erase(0, 5);
 
   SplitParams(paramString, parameters);
 }
@@ -1906,7 +1904,8 @@ void CUtil::ScanPathsForAssociatedItems(const std::string& videoName,
       else
       {
         associatedFiles.push_back(pItem->GetPath());
-        CLog::Log(LOGINFO, "%s: found associated file %s\n", __FUNCTION__, CURL::GetRedacted(pItem->GetPath()).c_str());
+        CLog::Log(LOGINFO, "%s: found associated file %s", __FUNCTION__,
+                  CURL::GetRedacted(pItem->GetPath()).c_str());
       }
     }
     else
@@ -1958,7 +1957,8 @@ int CUtil::ScanArchiveForAssociatedItems(const std::string& strArchivePath,
     {
       if (StringUtils::EqualsNoCase(strExt, ext))
       {
-        CLog::Log(LOGINFO, "%s: found associated file %s\n", __FUNCTION__, CURL::GetRedacted(strPathInRar).c_str());
+        CLog::Log(LOGINFO, "%s: found associated file %s", __FUNCTION__,
+                  CURL::GetRedacted(strPathInRar).c_str());
         associatedFiles.push_back(strPathInRar);
         nItemsAdded++;
         break;
@@ -1974,7 +1974,7 @@ void CUtil::ScanForExternalSubtitles(const std::string& strMovie, std::vector<st
   unsigned int startTimer = XbmcThreads::SystemClockMillis();
 
   CFileItem item(strMovie, false);
-  if (item.IsInternetStream()
+  if ((item.IsInternetStream() && !URIUtils::IsOnLAN(item.GetDynPath()))
     || item.IsPlayList()
     || item.IsLiveTV()
     || !item.IsVideo())
@@ -2051,7 +2051,8 @@ void CUtil::ScanForExternalSubtitles(const std::string& strMovie, std::vector<st
             std::string strDest = StringUtils::Format("special://temp/subtitle.%s.%zu.smi", lang.Name.c_str(), i);
             if (CFile::Copy(vecSubtitles[i], strDest))
             {
-              CLog::Log(LOGINFO, " cached subtitle %s->%s\n", CURL::GetRedacted(vecSubtitles[i]).c_str(), strDest.c_str());
+              CLog::Log(LOGINFO, " cached subtitle %s->%s",
+                        CURL::GetRedacted(vecSubtitles[i]).c_str(), strDest.c_str());
               vecSubtitles.push_back(strDest);
             }
           }

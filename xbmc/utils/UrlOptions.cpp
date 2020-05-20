@@ -6,6 +6,8 @@
  *  See LICENSES/README.md for more information.
  */
 
+#include <algorithm>
+
 #include "UrlOptions.h"
 
 #include "URL.h"
@@ -30,9 +32,28 @@ std::string CUrlOptions::GetOptionsString(bool withLeadingSeparator /* = false *
     if (!options.empty())
       options += "&";
 
-    options += CURL::Encode(opt.first);
-    if (!opt.second.empty())
-      options += "=" + CURL::Encode(opt.second.asString());
+    auto key = CURL::Encode(opt.first);
+    if (opt.second.empty())
+    {
+      options += key;
+      continue;
+    }
+
+    if (opt.second.isArray())
+    {
+      if (opt.second.size() > 1)
+        key += "[]";
+
+      for (auto option = opt.second.begin_array(); option != opt.second.end_array(); ++option)
+      {
+        if (option != opt.second.begin_array())
+          options += "&";
+
+        options += key + "=" + CURL::Encode(option->asString());
+      }
+    }
+    else
+      options += key + "=" + CURL::Encode(opt.second.asString());
   }
 
   if (withLeadingSeparator && !options.empty())
@@ -94,6 +115,72 @@ void CUrlOptions::AddOption(const std::string &key, bool value)
   m_options[key] = value;
 }
 
+void CUrlOptions::AddOption(const std::string &key, const std::vector<const char*>& values)
+{
+  if (key.empty())
+    return;
+
+  CVariant arr(CVariant::VariantTypeArray);
+  for (const auto& value : values)
+    arr.push_back(value);
+  m_options[key] = arr;
+}
+
+void CUrlOptions::AddOption(const std::string &key, const std::vector<std::string>& values)
+{
+  if (key.empty())
+    return;
+
+  CVariant arr(CVariant::VariantTypeArray);
+  for (const auto& value : values)
+    arr.push_back(value);
+  m_options[key] = arr;
+}
+
+void CUrlOptions::AddOption(const std::string &key, const std::vector<int>& values)
+{
+  if (key.empty())
+    return;
+
+  CVariant arr(CVariant::VariantTypeArray);
+  for (const auto& value : values)
+    arr.push_back(value);
+  m_options[key] = arr;
+}
+
+void CUrlOptions::AddOption(const std::string &key, const std::vector<float>& values)
+{
+  if (key.empty())
+    return;
+
+  CVariant arr(CVariant::VariantTypeArray);
+  for (const auto& value : values)
+    arr.push_back(value);
+  m_options[key] = arr;
+}
+
+void CUrlOptions::AddOption(const std::string &key, const std::vector<double>& values)
+{
+  if (key.empty())
+    return;
+
+  CVariant arr(CVariant::VariantTypeArray);
+  for (const auto& value : values)
+    arr.push_back(value);
+  m_options[key] = arr;
+}
+
+void CUrlOptions::AddOption(const std::string &key, const std::vector<bool>& values)
+{
+  if (key.empty())
+    return;
+
+  CVariant arr(CVariant::VariantTypeArray);
+  for (bool value : values)
+    arr.push_back(value);
+  m_options[key] = arr;
+}
+
 void CUrlOptions::AddOptions(const std::string &options)
 {
   if (options.empty())
@@ -113,6 +200,9 @@ void CUrlOptions::AddOptions(const std::string &options)
     strOptions.erase(0, 1);
   }
 
+  CVariant arr(CVariant::VariantTypeArray);
+  std::string lastKey;
+
   // split the options by & and process them one by one
   for (const auto &option : StringUtils::Split(strOptions, "&"))
   {
@@ -127,9 +217,37 @@ void CUrlOptions::AddOptions(const std::string &options)
       value = CURL::Decode(option.substr(pos + 1));
 
     // the key cannot be empty
-    if (!key.empty())
+    if (key.empty())
+      continue;
+
+    // check if this is an array option
+    bool isArrayOption = StringUtils::EndsWith(key, "[]");
+    if (isArrayOption)
+      key = key.substr(0, key.size() - 2);
+
+    // if we haven't finished processing the previous option and the new option
+    // is different, finish processing the previous option
+    if (!lastKey.empty() && key != lastKey)
+    {
+      m_options[lastKey] = arr;
+
+      lastKey.clear();
+      arr.clear();
+    }
+
+    // if this is not an array option just add it
+    if (!isArrayOption)
       AddOption(key, value);
+    else
+    {
+      // otherwise remember the key and add the value to the array
+      lastKey = key;
+      arr.push_back(value);
+    }
   }
+
+  if (!lastKey.empty())
+    m_options[lastKey] = arr;
 }
 
 void CUrlOptions::AddOptions(const CUrlOptions &options)

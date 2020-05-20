@@ -58,6 +58,9 @@
 #include "video/windows/GUIWindowFullScreen.h"
 #include "video/dialogs/GUIDialogVideoOSD.h"
 
+#include "media/import/dialogs/GUIDialogMediaImportInfo.h"
+#include "media/import/windows/GUIWindowMediaSourceBrowser.h"
+
 // Dialog includes
 #include "music/dialogs/GUIDialogMusicOSD.h"
 #include "music/dialogs/GUIDialogVisualisationPresetList.h"
@@ -299,6 +302,9 @@ void CGUIWindowManager::CreateWindows()
   Add(new GAME::CDialogGameAdvancedSettings);
   Add(new GAME::CDialogGameVideoRotation);
   Add(new RETRO::CGameWindowFullScreen);
+
+  Add(new CGUIWindowMediaSourceBrowser);
+  Add(new CGUIDialogMediaImportInfo);
 }
 
 bool CGUIWindowManager::DestroyWindows()
@@ -771,9 +777,18 @@ void CGUIWindowManager::ActivateWindow_Internal(int iWindowID, const std::vector
   // debug
   CLog::Log(LOGDEBUG, "Activating window ID: %i", iWindowID);
 
+  // make sure we check mediasources from home
+  if (GetActiveWindow() == WINDOW_HOME)
+    g_passwordManager.strMediasourcePath = !params.empty() ? params[0] : "";
+  else
+    g_passwordManager.strMediasourcePath = "";
+
   if (!g_passwordManager.CheckMenuLock(iWindowID))
   {
-    CLog::Log(LOGERROR, "MasterCode is Wrong: Window with id %d will not be loaded! Enter a correct MasterCode!", iWindowID);
+    CLog::Log(LOGERROR,
+              "MasterCode or Mediasource-code is wrong: Window with id {} will not be loaded! "
+              "Enter a correct code!",
+              iWindowID);
     if (GetActiveWindow() == WINDOW_INVALID && iWindowID != WINDOW_HOME)
       ActivateWindow(WINDOW_HOME);
     return;
@@ -851,7 +866,8 @@ void CGUIWindowManager::CloseDialogs(bool forceClose) const
   auto activeDialogs = m_activeDialogs;
   for (const auto& window : activeDialogs)
   {
-    window->Close(forceClose);
+    if (window->IsModalDialog())
+      window->Close(forceClose);
   }
 }
 

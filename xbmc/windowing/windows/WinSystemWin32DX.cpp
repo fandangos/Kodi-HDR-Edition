@@ -7,15 +7,18 @@
  */
 
 #include "WinSystemWin32DX.h"
+
 #include "commons/ilog.h"
-#include "platform/win32/CharsetConverter.h"
 #include "rendering/dx/RenderContext.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/log.h"
 #include "utils/SystemInfo.h"
+#include "utils/XTimeUtils.h"
+#include "utils/log.h"
 #include "windowing/GraphicContext.h"
+
+#include "platform/win32/CharsetConverter.h"
 
 #include "system.h"
 
@@ -79,7 +82,7 @@ void CWinSystemWin32DX::PresentRenderImpl(bool rendered)
   }
 
   if (!rendered)
-    Sleep(40);
+    KODI::TIME::Sleep(40);
 }
 
 bool CWinSystemWin32DX::CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res)
@@ -477,7 +480,7 @@ int CWinSystemWin32DX::WinHDR()
             if (getColorInfo.advancedColorSupported && !getColorInfo.advancedColorEnabled)
             {
               setColorState.enableAdvancedColor = TRUE;
-              CLog::LogF(LOGNOTICE, "Toggle Windows HDR On (OFF => ON).");
+              CLog::LogF(LOGINFO, "Toggle Windows HDR On (OFF => ON).");
               success = (ERROR_SUCCESS == DisplayConfigSetDeviceInfo(&setColorState.header));
               break;
             }
@@ -485,7 +488,7 @@ int CWinSystemWin32DX::WinHDR()
             else if (getColorInfo.advancedColorSupported && getColorInfo.advancedColorEnabled)
             {
               setColorState.enableAdvancedColor = FALSE;
-              CLog::LogF(LOGNOTICE, "Toggle Windows HDR Off (ON => OFF).");
+              CLog::LogF(LOGINFO, "Toggle Windows HDR Off (ON => OFF).");
               success = (ERROR_SUCCESS == DisplayConfigSetDeviceInfo(&setColorState.header));
               break;
             }

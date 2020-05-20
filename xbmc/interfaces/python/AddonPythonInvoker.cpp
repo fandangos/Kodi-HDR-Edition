@@ -19,7 +19,6 @@
 #define RUNSCRIPT_PREAMBLE \
         "" \
         "import " MODULE "\n" \
-        "xbmc.abortRequested = False\n" \
         "class xbmcout:\n" \
         "  def __init__(self, loglevel=" MODULE ".LOGDEBUG):\n" \
         "    self.ll=loglevel\n" \
@@ -70,6 +69,7 @@ PyObject* PyInit_Module_xbmc(void);
 PyObject* PyInit_Module_xbmcplugin(void);
 PyObject* PyInit_Module_xbmcaddon(void);
 PyObject* PyInit_Module_xbmcvfs(void);
+PyObject* PyInit_Module_xbmcmediaimport(void);
 }
 
 using namespace PythonBindings;
@@ -87,7 +87,8 @@ static PythonModule PythonModules[] =
     { "xbmc",       PyInit_Module_xbmc       },
     { "xbmcplugin", PyInit_Module_xbmcplugin },
     { "xbmcaddon",  PyInit_Module_xbmcaddon  },
-    { "xbmcvfs",    PyInit_Module_xbmcvfs    }
+    { "xbmcvfs",    PyInit_Module_xbmcvfs    },
+    { "xbmcmediaimport", PyInit_Module_xbmcmediaimport },
   };
 
 CAddonPythonInvoker::CAddonPythonInvoker(ILanguageInvocationHandler *invocationHandler)
@@ -99,6 +100,7 @@ CAddonPythonInvoker::CAddonPythonInvoker(ILanguageInvocationHandler *invocationH
   PyImport_AppendInittab("xbmcplugin", PyInit_Module_xbmcplugin);
   PyImport_AppendInittab("xbmcaddon", PyInit_Module_xbmcaddon);
   PyImport_AppendInittab("xbmcvfs", PyInit_Module_xbmcvfs);
+  PyImport_AppendInittab("xbmcmediaimport", PyInit_Module_xbmcmediaimport);
 }
 
 CAddonPythonInvoker::~CAddonPythonInvoker() = default;

@@ -11,6 +11,7 @@
 #include "FileItem.h"
 #include "GUIInfoManager.h"
 #include "GUIUserMessages.h"
+#include "LibraryQueue.h"
 #include "NfoFile.h"
 #include "ServiceBroker.h"
 #include "TextureCache.h"
@@ -44,7 +45,6 @@
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
-#include "video/VideoLibraryQueue.h"
 #include "video/VideoThumbLoader.h"
 
 #include <algorithm>
@@ -87,7 +87,7 @@ namespace VIDEO
       if (m_bClean && m_pathsToScan.empty())
       {
         std::set<int> paths;
-        CVideoLibraryQueue::GetInstance().CleanLibrary(paths, false, m_handle);
+        CLibraryQueue::GetInstance().CleanVideoLibrary(paths, false, m_handle);
 
         if (m_handle)
           m_handle->MarkFinished();
@@ -104,7 +104,7 @@ namespace VIDEO
 
       m_bCanInterrupt = true;
 
-      CLog::Log(LOGNOTICE, "VideoInfoScanner: Starting scan ..");
+      CLog::Log(LOGINFO, "VideoInfoScanner: Starting scan ..");
       CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnScanStarted");
 
       // Database operations should not be canceled
@@ -143,7 +143,7 @@ namespace VIDEO
       if (!bCancelled)
       {
         if (m_bClean)
-          CVideoLibraryQueue::GetInstance().CleanLibrary(m_pathsToClean, false, m_handle);
+          CLibraryQueue::GetInstance().CleanVideoLibrary(m_pathsToClean, false, m_handle);
         else
         {
           if (m_handle)
@@ -156,7 +156,8 @@ namespace VIDEO
       m_database.Close();
 
       tick = XbmcThreads::SystemClockMillis() - tick;
-      CLog::Log(LOGNOTICE, "VideoInfoScanner: Finished scan. Scanning for video info took %s", StringUtils::SecondsToTimeString(tick / 1000).c_str());
+      CLog::Log(LOGINFO, "VideoInfoScanner: Finished scan. Scanning for video info took %s",
+                StringUtils::SecondsToTimeString(tick / 1000).c_str());
     }
     catch (...)
     {
@@ -264,7 +265,10 @@ namespace VIDEO
 
     if (URIUtils::IsPlugin(strDirectory) && !CPluginDirectory::IsMediaLibraryScanningAllowed(TranslateContent(content), strDirectory))
     {
-      CLog::Log(LOGNOTICE, "VideoInfoScanner: Plugin '%s' does not support media library scanning for '%s' content", CURL::GetRedacted(strDirectory).c_str(), TranslateContent(content));
+      CLog::Log(
+          LOGINFO,
+          "VideoInfoScanner: Plugin '%s' does not support media library scanning for '%s' content",
+          CURL::GetRedacted(strDirectory).c_str(), TranslateContent(content));
       return true;
     }
 
@@ -905,7 +909,7 @@ namespace VIDEO
       if (m_bClean)
       {
         m_pathsToClean.insert(m_database.GetPathId(item->GetPath()));
-        m_database.GetPathsForTvShow(m_database.GetTvShowId(item->GetPath()), m_pathsToClean);
+        m_database.GetPathsForTvShowFromEpisodes(m_database.GetTvShowId(item->GetPath()), m_pathsToClean);
       }
       item->SetProperty("hash", hash);
     }
@@ -1872,8 +1876,8 @@ namespace VIDEO
       else
       {
         digest.Update(&pItem->m_dwSize, sizeof(pItem->m_dwSize));
-        FILETIME time = pItem->m_dateTime;
-        digest.Update(&time, sizeof(FILETIME));
+        KODI::TIME::FileTime time = pItem->m_dateTime;
+        digest.Update(&time, sizeof(KODI::TIME::FileTime));
       }
       if (pItem->IsVideo() && !pItem->IsPlayList() && !pItem->IsNFO())
         count++;

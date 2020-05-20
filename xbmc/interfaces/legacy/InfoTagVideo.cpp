@@ -18,19 +18,24 @@ namespace XBMCAddon
   namespace xbmc
   {
     InfoTagVideo::InfoTagVideo()
-    {
-      infoTag = new CVideoInfoTag();
-    }
+      : infoTag(new CVideoInfoTag)
+      , owned(true)
+    { }
 
-    InfoTagVideo::InfoTagVideo(const CVideoInfoTag& tag)
-    {
-      infoTag = new CVideoInfoTag();
-      *infoTag = tag;
-    }
+    InfoTagVideo::InfoTagVideo(const CVideoInfoTag* tag)
+      : infoTag(new CVideoInfoTag(*tag))
+      , owned(true)
+    { }
+
+    InfoTagVideo::InfoTagVideo(CVideoInfoTag* tag)
+      : infoTag(tag)
+      , owned(false)
+    { }
 
     InfoTagVideo::~InfoTagVideo()
     {
-      delete infoTag;
+      if (owned)
+        delete infoTag;
     }
 
     int InfoTagVideo::getDbId()
@@ -106,6 +111,11 @@ namespace XBMCAddon
     String InfoTagVideo::getPath()
     {
       return infoTag->m_strPath;
+    }
+
+    String InfoTagVideo::getFilenameAndPath()
+    {
+      return infoTag->m_strFileNameAndPath;
     }
 
     String InfoTagVideo::getIMDBNumber()
@@ -186,6 +196,22 @@ namespace XBMCAddon
     unsigned int InfoTagVideo::getDuration()
     {
       return infoTag->GetDuration();
+    }
+
+    String InfoTagVideo::getUniqueID(const char* key)
+    {
+      return infoTag->GetUniqueID(key);
+    }
+
+    void InfoTagVideo::setUniqueIDs(const XBMCAddon::Properties& dictionary, const String& defaultUniqueID /* = "" */)
+    {
+      infoTag->SetUniqueIDs(dictionary);
+      if (!defaultUniqueID.empty())
+      {
+        const auto& uniqueID = dictionary.find(defaultUniqueID);
+        if (uniqueID != dictionary.end())
+          infoTag->SetUniqueID(uniqueID->second, uniqueID->first, true);
+      }
     }
   }
 }

@@ -12,6 +12,7 @@
 #include "guilib/guiinfo/GUIControlsGUIInfo.h"
 #include "guilib/guiinfo/GamesGUIInfo.h"
 #include "guilib/guiinfo/LibraryGUIInfo.h"
+#include "guilib/guiinfo/MediaImportGUIInfo.h"
 #include "guilib/guiinfo/MusicGUIInfo.h"
 #include "guilib/guiinfo/PicturesGUIInfo.h"
 #include "guilib/guiinfo/PlayerGUIInfo.h"
@@ -142,6 +143,7 @@ private:
   CGamesGUIInfo m_gamesGUIInfo;
   CGUIControlsGUIInfo m_guiControlsGUIInfo;
   CLibraryGUIInfo m_libraryGUIInfo;
+  CMediaImportGUIInfo m_mediaImportGUIInfo;
   CMusicGUIInfo m_musicGUIInfo;
   CPicturesGUIInfo m_picturesGUIInfo;
   CPlayerGUIInfo m_playerGUIInfo;

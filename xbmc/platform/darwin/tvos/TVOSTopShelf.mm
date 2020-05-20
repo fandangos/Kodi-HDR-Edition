@@ -56,8 +56,8 @@ void CTVOSTopShelf::SetTopShelfItems(CFileItemList& movies, CFileItemList& tv)
 
     storeUrl = [storeUrl URLByAppendingPathComponent:@"RA" isDirectory:YES];
     const BOOL isJailbroken = [tvosShared isJailbroken];
-    CLog::Log(LOGDEBUG, "TopShelf: using shared path {} (jailbroken: {})\n",
-              storeUrl.path.UTF8String, isJailbroken ? "yes" : "no");
+    CLog::Log(LOGDEBUG, "TopShelf: using shared path {} (jailbroken: {})", storeUrl.path.UTF8String,
+              isJailbroken ? "yes" : "no");
 
     auto sharedDefaults = [[NSUserDefaults alloc] initWithSuiteName:[tvosShared getSharedID]];
     auto sharedDictJailbreak = isJailbroken ? [[NSMutableDictionary alloc] initWithCapacity:2 + 2]
@@ -106,7 +106,7 @@ void CTVOSTopShelf::SetTopShelfItems(CFileItemList& movies, CFileItemList& tv)
               }
 
               auto title = getTitleForItem(videoItem);
-              CLog::Log(LOGDEBUG, "TopShelf: - adding video to '{}' array: {}\n",
+              CLog::Log(LOGDEBUG, "TopShelf: - adding video to '{}' array: {}",
                         videosKey.UTF8String, title.c_str());
               [videosArray addObject:@{
                 @"title" : @(title.c_str()),
@@ -124,7 +124,14 @@ void CTVOSTopShelf::SetTopShelfItems(CFileItemList& movies, CFileItemList& tv)
         };
 
     fillSharedDicts(movies, @"movies", @"moviesTitle", 20386,
-                    [](CFileItemPtr videoItem) { return videoItem->GetArt("thumb"); },
+                    [](CFileItemPtr videoItem) {
+                      if (videoItem->HasArt("poster"))
+                      {
+                        return videoItem->GetArt("poster");
+                      }
+                      else
+                        return videoItem->GetArt("thumb");
+                    },
                     [](CFileItemPtr videoItem) { return videoItem->GetLabel(); });
 
     CVideoDatabase videoDb;

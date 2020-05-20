@@ -8,7 +8,7 @@
 
 #include "VideoLayerBridgeDRMPRIME.h"
 
-#include "cores/VideoPlayer/Process/gbm/VideoBufferDRMPRIME.h"
+#include "cores/VideoPlayer/Buffers/VideoBufferDRMPRIME.h"
 #include "utils/log.h"
 #include "windowing/gbm/DRMUtils.h"
 
@@ -72,8 +72,12 @@ bool CVideoLayerBridgeDRMPRIME::Map(CVideoBufferDRMPRIME* buffer)
   if (buffer->m_fb_id)
     return true;
 
-  if (!buffer->Map())
+  if (!buffer->AcquireDescriptor())
+  {
+    CLog::Log(LOGERROR, "CVideoLayerBridgeDRMPRIME::{} - failed to acquire descriptor",
+              __FUNCTION__);
     return false;
+  }
 
   AVDRMFrameDescriptor* descriptor = buffer->GetDescriptor();
   uint32_t handles[4] = {0}, pitches[4] = {0}, offsets[4] = {0}, flags = 0;
@@ -146,7 +150,7 @@ void CVideoLayerBridgeDRMPRIME::Unmap(CVideoBufferDRMPRIME* buffer)
     }
   }
 
-  buffer->Unmap();
+  buffer->ReleaseDescriptor();
 }
 
 void CVideoLayerBridgeDRMPRIME::Configure(CVideoBufferDRMPRIME* buffer)
@@ -154,12 +158,11 @@ void CVideoLayerBridgeDRMPRIME::Configure(CVideoBufferDRMPRIME* buffer)
   const VideoPicture& picture = buffer->GetPicture();
 
   struct plane* plane = m_DRM->GetVideoPlane();
-  if (m_DRM->SupportsProperty(plane, "COLOR_ENCODING") &&
-      m_DRM->SupportsProperty(plane, "COLOR_RANGE"))
-  {
+  if (m_DRM->SupportsPropertyAndValue(plane, "COLOR_ENCODING", GetColorEncoding(picture)))
     m_DRM->AddProperty(plane, "COLOR_ENCODING", GetColorEncoding(picture));
+
+  if (m_DRM->SupportsPropertyAndValue(plane, "COLOR_RANGE", GetColorRange(picture)))
     m_DRM->AddProperty(plane, "COLOR_RANGE", GetColorRange(picture));
-  }
 
   struct connector* connector = m_DRM->GetConnector();
   if (m_DRM->SupportsProperty(connector, "HDR_OUTPUT_METADATA"))

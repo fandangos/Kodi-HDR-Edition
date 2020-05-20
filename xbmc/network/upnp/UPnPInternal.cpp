@@ -279,17 +279,39 @@ PopulateObjectFromTag(CVideoInfoTag&         tag,
           object.m_Date = tag.GetPremiered().GetAsW3CDate().c_str();
           object.m_ReferenceID = NPT_String::Format("videodb://movies/titles/%i", tag.m_iDbId);
         } else {
-          object.m_ObjectClass.type = "object.item.videoItem.videoBroadcast";
-          object.m_Recorded.program_title  = "S" + ("0" + NPT_String::FromInteger(tag.m_iSeason)).Right(2);
-          object.m_Recorded.program_title += "E" + ("0" + NPT_String::FromInteger(tag.m_iEpisode)).Right(2);
-          object.m_Recorded.program_title += (" : " + tag.m_strTitle).c_str();
           object.m_Recorded.series_title = tag.m_strShowTitle.c_str();
-          int season = tag.m_iSeason > 1 ? tag.m_iSeason : 1;
-          object.m_Recorded.episode_number = season * 100 + tag.m_iEpisode;
-          object.m_Title = object.m_Recorded.series_title + " - " + object.m_Recorded.program_title;
-          object.m_Date = tag.m_firstAired.GetAsW3CDate().c_str();
-          if(tag.m_iSeason != -1)
-              object.m_ReferenceID = NPT_String::Format("videodb://tvshows/0/%i", tag.m_iDbId);
+
+          if (tag.m_type == MediaTypeTvShow) {
+              object.m_ObjectClass.type = "object.container.album.videoAlbum.videoBroadcastShow";
+              object.m_Title = tag.m_strTitle.c_str();
+              object.m_Recorded.episode_number = tag.m_iEpisode;
+              object.m_Recorded.episode_count = tag.m_iEpisode;
+              if (!tag.m_premiered.IsValid() && tag.GetYear() > 0)
+                  object.m_Date = CDateTime(tag.GetYear(), 1, 1, 0, 0, 0).GetAsW3CDate().c_str();
+              else
+                  object.m_Date = tag.m_premiered.GetAsW3CDate().c_str();
+              object.m_ReferenceID = NPT_String::Format("videodb://tvshows/titles/%i", tag.m_iDbId);
+          } else if (tag.m_type == MediaTypeSeason) {
+              object.m_ObjectClass.type = "object.container.album.videoAlbum.videoBroadcastSeason";
+              object.m_Title = tag.m_strTitle.c_str();
+              object.m_Recorded.episode_season = tag.m_iSeason;
+              object.m_Recorded.episode_count = tag.m_iEpisode;
+              if (!tag.m_premiered.IsValid() && tag.GetYear() > 0)
+                  object.m_Date = CDateTime(tag.GetYear(), 1, 1, 0, 0, 0).GetAsW3CDate().c_str();
+              else
+                  object.m_Date = tag.m_premiered.GetAsW3CDate().c_str();
+              object.m_ReferenceID = NPT_String::Format("videodb://tvshows/titles/%i/%i", tag.m_iIdShow, tag.m_iSeason);
+          } else {
+              object.m_ObjectClass.type = "object.item.videoItem.videoBroadcast";
+              object.m_Recorded.program_title  = "S" + ("0" + NPT_String::FromInteger(tag.m_iSeason)).Right(2);
+              object.m_Recorded.program_title += "E" + ("0" + NPT_String::FromInteger(tag.m_iEpisode)).Right(2);
+              object.m_Recorded.program_title += (" : " + tag.m_strTitle).c_str();
+              object.m_Recorded.episode_number = tag.m_iEpisode;
+              object.m_Recorded.episode_season = tag.m_iSeason;
+              object.m_Title = object.m_Recorded.series_title + " - " + object.m_Recorded.program_title;
+              object.m_ReferenceID = NPT_String::Format("videodb://tvshows/titles/%i/%i/%i", tag.m_iIdShow, tag.m_iSeason, tag.m_iDbId);
+              object.m_Date = tag.m_firstAired.GetAsW3CDate().c_str();
+          }
         }
     }
 
@@ -354,25 +376,29 @@ BuildObject(CFileItem&                    item,
             CUPnPServer*                  upnp_server /* = NULL */,
             UPnPService                   upnp_service /* = UPnPServiceNone */)
 {
-    PLT_MediaItemResource resource;
-    PLT_MediaObject*      object = NULL;
-    std::string thumb;
+  static Logger logger = CServiceBroker::GetLogging().GetLogger("UPNP::BuildObject");
 
-    CLog::Log(LOGDEBUG, "UPnP: Building didl for object '%s'", item.GetPath().c_str());
+  PLT_MediaItemResource resource;
+  PLT_MediaObject* object = NULL;
+  std::string thumb;
 
-    EClientQuirks quirks = GetClientQuirks(context);
+  logger->debug("Building didl for object '{}'", item.GetPath());
 
-    // get list of ip addresses
-    NPT_List<NPT_IpAddress> ips;
-    NPT_HttpUrl rooturi;
-    NPT_CHECK_LABEL(PLT_UPnPMessageHelper::GetIPAddresses(ips), failure);
+  EClientQuirks quirks = GetClientQuirks(context);
 
-    // if we're passed an interface where we received the request from
-    // move the ip to the top
-    if (context && context->GetLocalAddress().GetIpAddress().ToString() != "0.0.0.0") {
-        rooturi = NPT_HttpUrl(context->GetLocalAddress().GetIpAddress().ToString(), context->GetLocalAddress().GetPort(), "/");
-        ips.Remove(context->GetLocalAddress().GetIpAddress());
-        ips.Insert(ips.GetFirstItem(), context->GetLocalAddress().GetIpAddress());
+  // get list of ip addresses
+  NPT_List<NPT_IpAddress> ips;
+  NPT_HttpUrl rooturi;
+  NPT_CHECK_LABEL(PLT_UPnPMessageHelper::GetIPAddresses(ips), failure);
+
+  // if we're passed an interface where we received the request from
+  // move the ip to the top
+  if (context && context->GetLocalAddress().GetIpAddress().ToString() != "0.0.0.0")
+  {
+    rooturi = NPT_HttpUrl(context->GetLocalAddress().GetIpAddress().ToString(),
+                          context->GetLocalAddress().GetPort(), "/");
+    ips.Remove(context->GetLocalAddress().GetIpAddress());
+    ips.Insert(ips.GetFirstItem(), context->GetLocalAddress().GetIpAddress());
     } else if(upnp_server) {
         rooturi = NPT_HttpUrl("localhost", upnp_server->GetPort(), "/");
     }
@@ -512,29 +538,18 @@ BuildObject(CFileItem&                    item,
                   container->m_Title   = tag.m_strTitle.c_str();
                   break;
                 case VIDEODATABASEDIRECTORY::NODE_TYPE_SEASONS:
-                case VIDEODATABASEDIRECTORY::NODE_TYPE_TITLE_TVSHOWS:
-                  container->m_ObjectClass.type += ".album.videoAlbum";
-                  container->m_Recorded.series_title = tag.m_strShowTitle.c_str();
-                  container->m_Recorded.episode_number = tag.m_iEpisode;
-                  container->m_MiscInfo.play_count = tag.GetPlayCount();
-                  container->m_Title = tag.m_strTitle.c_str();
-                  container->m_Date = tag.GetPremiered().GetAsW3CDate().c_str();
-
-                  for (unsigned int index = 0; index < tag.m_genre.size(); index++)
-                    container->m_Affiliation.genres.Add(tag.m_genre.at(index).c_str());
-
-                  for(CVideoInfoTag::iCast it = tag.m_cast.begin();it != tag.m_cast.end();it++) {
-                      container->m_People.actors.Add(it->strName.c_str(), it->strRole.c_str());
+                  container->m_ObjectClass.type += ".album.videoAlbum.videoBroadcastSeason";
+                  if (item.HasVideoInfoTag()) {
+                      CVideoInfoTag *tag = (CVideoInfoTag*)item.GetVideoInfoTag();
+                      PopulateObjectFromTag(*tag, *container, &file_path, &resource, quirks);
                   }
-
-                  for (unsigned int index = 0; index < tag.m_director.size(); index++)
-                    container->m_People.directors.Add(tag.m_director[index].c_str());
-                  for (unsigned int index = 0; index < tag.m_writingCredits.size(); index++)
-                    container->m_People.authors.Add(tag.m_writingCredits[index].c_str());
-
-                  container->m_Description.description = tag.m_strTagLine.c_str();
-                  container->m_Description.long_description = tag.m_strPlot.c_str();
-
+                  break;
+                case VIDEODATABASEDIRECTORY::NODE_TYPE_TITLE_TVSHOWS:
+                  container->m_ObjectClass.type += ".album.videoAlbum.videoBroadcastShow";
+                  if (item.HasVideoInfoTag()) {
+                      CVideoInfoTag *tag = (CVideoInfoTag*)item.GetVideoInfoTag();
+                      PopulateObjectFromTag(*tag, *container, &file_path, &resource, quirks);
+                  }
                   break;
                 default:
                   container->m_ObjectClass.type += ".storageFolder";
@@ -576,7 +591,13 @@ BuildObject(CFileItem&                    item,
             thumb_loader->LoadItem(&item);
 
         // finally apply the found artwork
-        thumb = item.GetArt("thumb");
+        // note: movies should use poster as the preferred "thumb" image
+        if (item.HasVideoInfoTag() && item.GetVideoInfoTag()->m_type == MediaTypeMovie &&
+            item.HasArt("poster"))
+          thumb = item.GetArt("poster");
+        else
+          thumb = item.GetArt("thumb");
+
         if (!thumb.empty()) {
             PLT_AlbumArtInfo art;
             art.uri = upnp_server->BuildSafeResourceUri(
@@ -771,41 +792,70 @@ PopulateTagFromObject(CVideoInfoTag&         tag,
     CDateTime date;
     date.SetFromW3CDate((const char*)object.m_Date);
 
-    if(!object.m_Recorded.program_title.IsEmpty())
+    if(!object.m_Recorded.program_title.IsEmpty() || object.m_ObjectClass.type == "object.item.videoItem.videoBroadcast")
     {
         tag.m_type = MediaTypeEpisode;
+        tag.m_strShowTitle = object.m_Recorded.series_title;
+        if (date.IsValid())
+            tag.m_firstAired = date;
+
+        int title = object.m_Recorded.program_title.Find(" : ");
+        if (title >= 0)
+            tag.m_strTitle = object.m_Recorded.program_title.SubString(title + 3);
+        else
+            tag.m_strTitle = object.m_Recorded.program_title;
+
         int episode;
         int season;
-        int title = object.m_Recorded.program_title.Find(" : ");
-        if(sscanf(object.m_Recorded.program_title, "S%2dE%2d", &season, &episode) == 2 && title >= 0) {
-            tag.m_strTitle = object.m_Recorded.program_title.SubString(title + 3);
+        if (object.m_Recorded.episode_number >= 0 && object.m_Recorded.episode_season < (NPT_UInt32)-1) {
+            tag.m_iEpisode = object.m_Recorded.episode_number;
+            tag.m_iSeason = object.m_Recorded.episode_season;
+        } else if(sscanf(object.m_Recorded.program_title, "S%2dE%2d", &season, &episode) == 2 && title >= 0) {
             tag.m_iEpisode = episode;
             tag.m_iSeason  = season;
         } else {
-            tag.m_strTitle = object.m_Recorded.program_title;
             tag.m_iSeason  = object.m_Recorded.episode_number / 100;
             tag.m_iEpisode = object.m_Recorded.episode_number % 100;
         }
-        tag.m_firstAired = date;
     }
-    else if (!object.m_Recorded.series_title.IsEmpty()) {
-        tag.m_type= MediaTypeSeason;
-        tag.m_strTitle = object.m_Title; // because could be TV show Title, or Season 1 etc
-        tag.m_iSeason  = object.m_Recorded.episode_number / 100;
-        tag.m_iEpisode = object.m_Recorded.episode_number % 100;
-        tag.SetPremiered(date);
-    }
-    else if(object.m_ObjectClass.type == "object.item.videoItem.musicVideoClip") {
-        tag.m_type = MediaTypeMusicVideo;
-        for (unsigned int index = 0; index < object.m_People.artists.GetItemCount(); index++)
-          tag.m_artist.emplace_back(object.m_People.artists.GetItem(index)->name.GetChars());
-        tag.m_strAlbum = object.m_Affiliation.album;
-    }
-    else
-    {
-        tag.m_type         = MediaTypeMovie;
-        tag.m_strTitle     = object.m_Title;
-        tag.SetPremiered(date);
+    else {
+        tag.m_strTitle = object.m_Title;
+        if (date.IsValid())
+            tag.m_premiered = date;
+
+        if (!object.m_Recorded.series_title.IsEmpty()) {
+            if (object.m_ObjectClass.type == "object.container.album.videoAlbum.videoBroadcastSeason") {
+                tag.m_type = MediaTypeSeason;
+                tag.m_iSeason = object.m_Recorded.episode_season;
+                tag.m_strShowTitle = object.m_Recorded.series_title;
+            }
+            else {
+                tag.m_type = MediaTypeTvShow;
+                tag.m_strShowTitle = object.m_Title;
+            }
+
+            if (object.m_Recorded.episode_count > 0)
+                tag.m_iEpisode = object.m_Recorded.episode_count;
+            else
+                tag.m_iEpisode = object.m_Recorded.episode_number;
+        }
+        else if(object.m_ObjectClass.type == "object.item.videoItem.musicVideoClip") {
+            tag.m_type = MediaTypeMusicVideo;
+
+            if (object.m_People.artists.GetItemCount() > 0) {
+                for (unsigned int index = 0; index < object.m_People.artists.GetItemCount(); index++)
+                    tag.m_artist.emplace_back(object.m_People.artists.GetItem(index)->name.GetChars());
+            }
+            else if (!object.m_Creator.IsEmpty() && object.m_Creator != "Unknown")
+                tag.m_artist = StringUtils::Split(object.m_Creator.GetChars(), CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoItemSeparator);
+            tag.m_strAlbum = object.m_Affiliation.album;
+        }
+        else
+            tag.m_type = MediaTypeMovie;
+
+        tag.m_strTitle = object.m_Title;
+        if (date.IsValid())
+            tag.SetPremiered(date);
     }
 
     for (unsigned int index = 0; index < object.m_People.publisher.GetItemCount(); index++)
@@ -953,9 +1003,9 @@ CFileItemPtr BuildObject(PLT_MediaObject* entry,
 
   // look for date?
   if(entry->m_Description.date.GetLength()) {
-    SYSTEMTIME time = {};
-    sscanf(entry->m_Description.date, "%hu-%hu-%huT%hu:%hu:%hu",
-           &time.wYear, &time.wMonth, &time.wDay, &time.wHour, &time.wMinute, &time.wSecond);
+    KODI::TIME::SystemTime time = {};
+    sscanf(entry->m_Description.date, "%hu-%hu-%huT%hu:%hu:%hu", &time.year, &time.month, &time.day,
+           &time.hour, &time.minute, &time.second);
     pItem->m_dateTime = time;
   }
 
@@ -1036,6 +1086,8 @@ struct ResourcePrioritySort
 
 bool GetResource(const PLT_MediaObject* entry, CFileItem& item)
 {
+  static Logger logger = CServiceBroker::GetLogging().GetLogger("CUPnPDirectory::GetResource");
+
   PLT_MediaItemResource resource;
 
   // store original path so we remember it
@@ -1061,15 +1113,13 @@ bool GetResource(const PLT_MediaObject* entry, CFileItem& item)
 
   // look for content type in protocol info
   if (resource.m_ProtocolInfo.IsValid()) {
-    CLog::Log(LOGDEBUG, "CUPnPDirectory::GetResource - resource protocol info '%s'",
-              (const char*)(resource.m_ProtocolInfo.ToString()));
+    logger->debug("resource protocol info '{}'", (const char*)(resource.m_ProtocolInfo.ToString()));
 
     if (resource.m_ProtocolInfo.GetContentType().Compare("application/octet-stream") != 0) {
       item.SetMimeType((const char*)resource.m_ProtocolInfo.GetContentType());
     }
   } else {
-    CLog::Log(LOGERROR, "CUPnPDirectory::GetResource - invalid protocol info '%s'",
-              (const char*)(resource.m_ProtocolInfo.ToString()));
+    logger->error("invalid protocol info '{}'", (const char*)(resource.m_ProtocolInfo.ToString()));
   }
 
   // look for subtitles
@@ -1119,4 +1169,3 @@ CFileItemPtr GetFileItem(const NPT_String& uri, const NPT_String& meta)
 }
 
 } /* namespace UPNP */
-

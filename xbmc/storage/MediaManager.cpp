@@ -23,7 +23,6 @@
 #include <map>
 #include <utility>
 #include "DetectDVDType.h"
-#include "filesystem/iso9660.h"
 #endif
 #endif
 #include "Autorun.h"
@@ -100,7 +99,7 @@ bool CMediaManager::LoadSources()
     return false;
 
   TiXmlElement* pRootElement = xmlDoc.RootElement();
-  if ( !pRootElement || strcmpi(pRootElement->Value(), "mediasources") != 0)
+  if (!pRootElement || StringUtils::CompareNoCase(pRootElement->Value(), "mediasources") != 0)
   {
     CLog::Log(LOGERROR, "Error loading %s, Line %d (%s)", MEDIA_SOURCES_XML, xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
     return false;
@@ -214,7 +213,9 @@ void CMediaManager::GetNetworkLocations(VECSOURCES &locations, bool autolocation
         if (!info.type.empty() && info.supportBrowsing)
         {
           share.strPath = info.type + "://";
-          share.strName = g_localizeStrings.Get(info.label);
+          share.strName = g_localizeStrings.GetAddonString(addon->ID(), info.label);
+          if (share.strName.empty())
+            share.strName = g_localizeStrings.Get(info.label);
           locations.push_back(share);
         }
       }
@@ -603,7 +604,6 @@ void CMediaManager::EjectTray( const bool bEject, const char cDriveLetter )
 #else
   std::shared_ptr<CLibcdio> c_cdio = CLibcdio::GetInstance();
   char* dvdDevice = c_cdio->GetDeviceFileName();
-  m_isoReader.Reset();
   int nRetries=3;
   while (nRetries-- > 0)
   {

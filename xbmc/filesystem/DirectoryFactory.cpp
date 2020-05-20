@@ -18,6 +18,7 @@
 #include "MusicSearchDirectory.h"
 #include "VideoDatabaseDirectory.h"
 #include "FavouritesDirectory.h"
+#include "MediaImportDirectory.h"
 #include "LibraryDirectory.h"
 #include "EventsDirectory.h"
 #include "AddonsDirectory.h"
@@ -25,7 +26,9 @@
 #include "FTPDirectory.h"
 #include "HTTPDirectory.h"
 #include "DAVDirectory.h"
+#if defined(HAS_UDFREAD)
 #include "UDFDirectory.h"
+#endif
 #include "utils/log.h"
 #include "network/WakeOnAccess.h"
 
@@ -46,7 +49,9 @@
 #endif
 #include "CDDADirectory.h"
 #include "PluginDirectory.h"
+#if defined(HAS_ISO9660PP)
 #include "ISO9660Directory.h"
+#endif
 #ifdef HAS_UPNP
 #include "UPnPDirectory.h"
 #endif
@@ -128,8 +133,12 @@ IDirectory* CDirectoryFactory::Create(const CURL& url)
 #if defined(HAS_DVD_DRIVE)
   if (url.IsProtocol("cdda")) return new CCDDADirectory();
 #endif
+#if defined(HAS_ISO9660PP)
   if (url.IsProtocol("iso9660")) return new CISO9660Directory();
+#endif
+#if defined(HAS_UDFREAD)
   if (url.IsProtocol("udf")) return new CUDFDirectory();
+#endif
   if (url.IsProtocol("plugin")) return new CPluginDirectory();
 #if defined(TARGET_ANDROID)
   if (url.IsProtocol("apk")) return new CAPKDirectory();
@@ -144,6 +153,7 @@ IDirectory* CDirectoryFactory::Create(const CURL& url)
   if (url.IsProtocol("musicsearch")) return new CMusicSearchDirectory();
   if (url.IsProtocol("videodb")) return new CVideoDatabaseDirectory();
   if (url.IsProtocol("library")) return new CLibraryDirectory();
+  if (url.IsProtocol("import")) return new CMediaImportDirectory();
   if (url.IsProtocol("favourites")) return new CFavouritesDirectory();
 #if defined(TARGET_ANDROID)
   if (url.IsProtocol("androidapp")) return new CAndroidAppDirectory();

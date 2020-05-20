@@ -65,6 +65,7 @@ static const TypeMapping types[] =
    {"kodi.inputstream",                  ADDON_INPUTSTREAM,         24048, "DefaultAddonInputstream.png" },
    {"kodi.vfs",                          ADDON_VFS,                 39013, "DefaultAddonVfs.png" },
    {"kodi.imagedecoder",                 ADDON_IMAGEDECODER,        39015, "DefaultAddonImageDecoder.png" },
+   {"kodi.mediaimporter",                ADDON_MEDIAIMPORTER,       39029, "DefaultAddonMediaImporter.png" },
   };
 
 /**
@@ -150,7 +151,7 @@ const CAddonType* CAddonInfo::Type(TYPE type) const
   return &dummy;
 }
 
-bool CAddonInfo::IsType(TYPE type, bool mainOnly /*= false*/) const
+bool CAddonInfo::HasType(TYPE type, bool mainOnly /*= false*/) const
 {
   return (m_mainType == type || ProvidesSubContent(type, mainOnly ? m_mainType : ADDON_UNKNOWN));
 }

@@ -175,8 +175,6 @@ bool CDarwinUtils::IsIosSandboxed(void)
   std::call_once(flag, [] {
     auto executablePath = getExecutablePath();
     auto sandboxPrefixPaths = {
-        // since iOS 8
-        @"/var/mobile/Containers/Bundle/",
         // since iOS later than 9.0.2 but before 9.3.5
         @"/var/containers/Bundle/",
         // since iOS 13
@@ -245,11 +243,6 @@ bool CFStringRefToStringWithEncoding(CFStringRef source, std::string &destinatio
 
   destination = cstr;
   return true;
-}
-
-void CDarwinUtils::PrintDebugString(std::string debugString)
-{
-  NSLog(@"Debug Print: %s", debugString.c_str());
 }
 
 

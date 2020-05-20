@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window>
+	<defaultcontrol always="true">28</defaultcontrol>
+	<include>Animation_DialogPopupOpenClose</include>
+	<controls>
+		<control type="group">
+			<centertop>50%</centertop>
+			<height>900</height>
+			<centerleft>50%</centerleft>
+			<width>1820</width>
+			<include content="DialogBackgroundCommons">
+				<param name="width" value="1820" />
+				<param name="height" value="900" />
+				<param name="header_label" value="" />
+				<param name="header_id" value="20" />
+			</include>
+			<!-- Icon -->
+			<control type="group">
+				<left>20</left>
+				<top>70</top>
+				<control type="image">
+					<width>388</width>
+					<height>388</height>
+					<texture background="true">$INFO[ListItem.Icon]</texture>
+					<aspectratio>scale</aspectratio>
+					<bordertexture border="20">overlays/shadow.png</bordertexture>
+					<bordersize>20</bordersize>
+				</control>
+			</control>
+			<!-- Details -->
+			<control type="group">
+				<left>400</left>
+				<top>70</top>
+				<control type="image">
+					<width>1100</width>
+					<height>388</height>
+					<texture border="40">buttons/dialogbutton-nofo.png</texture>
+				</control>
+				<!-- Title -->
+				<control type="group">
+					<left>40</left>
+					<top>20</top>
+					<control type="label">
+						<width>1020</width>
+						<height>65</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<font>font12_title</font>
+						<textcolor>white</textcolor>
+						<label>[B]$INFO[ListItem.Property(Import.Name)][/B]</label>
+						<scroll>true</scroll>
+						<visible>!IsEmpty(ListItem.Property(Import.Path))</visible>
+					</control>
+					<control type="label">
+						<width>1020</width>
+						<height>65</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<font>font12_title</font>
+						<textcolor>white</textcolor>
+						<label>[B]$INFO[ListItem.Property(Source.Name)][/B]</label>
+						<scroll>true</scroll>
+						<visible>IsEmpty(ListItem.Property(Import.Path))</visible>
+					</control>
+				</control>
+				<!-- Metadata -->
+				<control type="grouplist">
+					<left>40</left>
+					<top>85</top>
+					<height>220</height>
+					<orientation>vertical</orientation>
+					<itemgap>-8</itemgap>
+					<control type="button" id="147">
+						<width>1020</width>
+						<height>49</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<textoffsetx>0</textoffsetx>
+						<font>font12</font>
+						<texturefocus />
+						<texturenofocus />
+						<onclick>noop</onclick>
+						<label>[COLOR button_focus]$LOCALIZE[39702]: [/COLOR]$INFO[ListItem.Property(Source.Name)]</label>
+						<visible>!IsEmpty(ListItem.Property(Import.Path)) + !String.IsEmpty(ListItem.Property(Source.Name))</visible>
+					</control>
+					<control type="button" id="148">
+						<width>1020</width>
+						<height>49</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<textoffsetx>0</textoffsetx>
+						<font>font12</font>
+						<texturefocus />
+						<texturenofocus />
+						<onclick>noop</onclick>
+						<label>[COLOR button_focus]$LOCALIZE[39703]: [/COLOR]$INFO[ListItem.Property(Import.MediaTypesLabel)]</label>
+						<visible>!IsEmpty(ListItem.Property(Import.Path)) + !String.IsEmpty(ListItem.Property(Import.MediaTypesLabel))</visible>
+					</control>
+					<control type="button" id="149">
+						<width>1020</width>
+						<height>49</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<textoffsetx>0</textoffsetx>
+						<font>font12</font>
+						<texturefocus />
+						<texturenofocus />
+						<onclick>noop</onclick>
+						<label>[COLOR button_focus]$LOCALIZE[39706]: [/COLOR]$INFO[ListItem.Property(Source.MediaTypesLabel)]</label>
+						<visible>IsEmpty(ListItem.Property(Import.Path)) + !String.IsEmpty(ListItem.Property(Source.MediaTypesLabel))</visible>
+					</control>
+					<control type="button" id="150">
+						<width>1020</width>
+						<height>49</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<textoffsetx>0</textoffsetx>
+						<font>font12</font>
+						<texturefocus />
+						<texturenofocus />
+						<onclick>noop</onclick>
+						<label>[COLOR button_focus]$LOCALIZE[573]: [/COLOR]$INFO[ListItem.Property(Import.Path)]</label>
+						<visible>!IsEmpty(ListItem.Property(Import.Path)) + !String.IsEmpty(ListItem.Property(Import.Path))</visible>
+					</control>
+					<control type="button" id="151">
+						<width>1020</width>
+						<height>49</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<textoffsetx>0</textoffsetx>
+						<font>font12</font>
+						<texturefocus />
+						<texturenofocus />
+						<onclick>noop</onclick>
+						<label>[COLOR button_focus]$LOCALIZE[39704]: [/COLOR]$INFO[ListItem.Property(Source.ActiveLabel)]</label>
+						<visible>!String.IsEmpty(ListItem.Property(Source.ActiveLabel))</visible>
+					</control>
+					<control type="button" id="152">
+						<width>1020</width>
+						<height>49</height>
+						<align>left</align>
+						<aligny>center</aligny>
+						<textoffsetx>0</textoffsetx>
+						<font>font12</font>
+						<texturefocus />
+						<texturenofocus />
+						<onclick>noop</onclick>
+						<label>[COLOR button_focus]$LOCALIZE[39705]: [/COLOR]$INFO[ListItem.DateTime]</label>
+						<!-- <visible>!String.IsEmpty(ListItem.DateTime)</visible> -->
+					</control>
+				</control>
+			</control>
+			<!-- Setting Categories -->
+			<control type="grouplist" id="3">
+				<description>button area</description>
+				<left>20</left>
+				<top>440</top>
+				<width>400</width>
+				<height>800</height>
+				<itemgap>-25</itemgap>
+				<orientation>vertical</orientation>
+				<onleft>9001</onleft>
+				<onright>5</onright>
+				<onup>9</onup>
+				<ondown>9</ondown>
+			</control>
+			<control type="button" id="10">
+				<description>Default Category Button</description>
+				<height>120</height>
+				<width>390</width>
+				<textoffsetx>20</textoffsetx>
+				<align>center</align>
+				<aligny>center</aligny>
+				<font>font25_title</font>
+				<texturenofocus border="40">buttons/dialogbutton-nofo.png</texturenofocus>
+			</control>
+			<!-- Settings -->
+			<control type="image">
+				<left>400</left>
+				<top>440</top>
+				<width>1100</width>
+				<height>452</height>
+				<texture border="40">buttons/dialogbutton-nofo.png</texture>
+			</control>
+			<control type="grouplist" id="5">
+				<description>control area</description>
+				<left>420</left>
+				<top>460</top>
+				<width>1060</width>
+				<height>410</height>
+				<onleft>3</onleft>
+				<onright>9000</onright>
+				<onup>5</onup>
+				<ondown>5</ondown>
+			</control>
+			<control type="button" id="7">
+				<description>Default Button</description>
+				<include>DefaultSettingButton</include>
+			</control>
+			<control type="radiobutton" id="8">
+				<description>Default RadioButton</description>
+				<include>DefaultSettingButton</include>
+				<textwidth>900</textwidth>
+			</control>
+			<control type="spincontrolex" id="9">
+				<description>Default SpinControlex</description>
+				<include>DefaultSettingButton</include>
+				<textwidth>900</textwidth>
+			</control>
+			<control type="image" id="11">
+				<description>separator image</description>
+				<height>3</height>
+				<texture colordiffuse="AAAAAAAA" border="3">dialogs/separator-grey.png</texture>
+			</control>
+			<control type="edit" id="12">
+				<include>DefaultSettingButton</include>
+			</control>
+			<control type="sliderex" id="13">
+				<description>Default Slider</description>
+				<include>DefaultSettingButton</include>
+			</control>
+			<control type="label" id="14">
+				<description>Default Label</description>
+				<include>DefaultSettingLabel</include>
+			</control>
+			<!-- Buttons -->
+			<control type="grouplist" id="9000">
+				<right>20</right>
+				<top>70</top>
+				<width>300</width>
+				<height>700</height>
+				<itemgap>dialogbuttons_itemgap</itemgap>
+				<align>left</align>
+				<orientation>vertical</orientation>
+				<onup>9000</onup>
+				<ondown>9000</ondown>
+				<onleft>5</onleft>
+				<onright>5</onright>
+				<include content="DefaultDialogButton">
+					<param name="id" value="28" />
+					<param name="label" value="$LOCALIZE[186]" />
+				</include>
+				<include content="DefaultDialogButton">
+					<param name="id" value="29" />
+					<param name="label" value="$LOCALIZE[222]" />
+				</include>
+				<include content="DefaultDialogButton">
+					<param name="id" value="30" />
+					<param name="label" value="$LOCALIZE[409]" />
+				</include>
+			</control>
+		</control>
+	</controls>
+</window>

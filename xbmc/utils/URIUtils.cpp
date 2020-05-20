@@ -198,7 +198,8 @@ std::string URIUtils::GetFileName(const std::string& strFileNameAndPath)
 }
 
 void URIUtils::Split(const std::string& strFileNameAndPath,
-                     std::string& strPath, std::string& strFileName)
+                     std::string& strPath, std::string& strFileName,
+                     bool ignoreOptions /* = true */)
 {
   //Splits a full filename in path and file.
   //ex. smb://computer/share/directory/filename.ext -> strPath:smb://computer/share/directory/ and strFileName:filename.ext
@@ -221,8 +222,8 @@ void URIUtils::Split(const std::string& strFileNameAndPath,
   // everything to the right of the directory separator
   strFileName = strFileNameAndPath.substr(i+1);
 
-  // if actual uri, ignore options
-  if (IsURL(strFileNameAndPath))
+  // ignore options
+  if (IsURL(strFileNameAndPath) && ignoreOptions)
   {
     i = strFileName.size() - 1;
     while (i > 0)
@@ -263,7 +264,8 @@ void URIUtils::GetCommonPath(std::string& strParent, const std::string& strPath)
 {
   // find the common path of parent and path
   unsigned int j = 1;
-  while (j <= std::min(strParent.size(), strPath.size()) && strnicmp(strParent.c_str(), strPath.c_str(), j) == 0)
+  while (j <= std::min(strParent.size(), strPath.size()) &&
+         StringUtils::CompareNoCase(strParent, strPath, j) == 0)
     j++;
   strParent.erase(j - 1);
   // they should at least share a / at the end, though for things such as path/cd1 and path/cd2 there won't be
@@ -276,12 +278,9 @@ void URIUtils::GetCommonPath(std::string& strParent, const std::string& strPath)
 
 bool URIUtils::HasParentInHostname(const CURL& url)
 {
-  return url.IsProtocol("zip")
-      || url.IsProtocol("apk")
-      || url.IsProtocol("bluray")
-      || url.IsProtocol("udf")
-      || url.IsProtocol("xbt")
-      || (CServiceBroker::IsBinaryAddonCacheUp() &&
+  return url.IsProtocol("zip") || url.IsProtocol("apk") || url.IsProtocol("bluray") ||
+         url.IsProtocol("udf") || url.IsProtocol("iso9660") || url.IsProtocol("xbt") ||
+         (CServiceBroker::IsBinaryAddonCacheUp() &&
           CServiceBroker::GetFileExtensionProvider().EncodedHostName(url.GetProtocol()));
 }
 
@@ -1395,7 +1394,8 @@ std::string URIUtils::resolvePath(const std::string &path)
   // put together the path
   realPath += StringUtils::Join(realParts, delim);
   // re-add any / or \ at the end
-  if (path.at(path.size() - 1) == delim.at(0) && realPath.at(realPath.size() - 1) != delim.at(0))
+  if (path.at(path.size() - 1) == delim.at(0) &&
+      realPath.size() > 0 && realPath.at(realPath.size() - 1) != delim.at(0))
     realPath += delim;
 
   return realPath;
@@ -1439,9 +1439,4 @@ bool URIUtils::UpdateUrlEncoding(std::string &strFilename)
 
   strFilename = newFilename;
   return true;
-}
-
-bool URIUtils::IsUsingFastSwitch(const std::string& strFile)
-{
-  return IsUDP(strFile) || IsTCP(strFile) || IsPVRChannel(strFile);
 }

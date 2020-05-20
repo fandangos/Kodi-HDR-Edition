@@ -1,3 +1,4 @@
+  
 /*
  *  Copyright (C) 2016-2018 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
@@ -264,8 +265,12 @@ void CVideoDatabase::CreateAnalytics()
   m_pDS->exec("CREATE INDEX ix_uniqueid1 ON uniqueid(media_id, media_type(20), type(20))");
   m_pDS->exec("CREATE INDEX ix_uniqueid2 ON uniqueid(media_type(20), value(20))");
 
+  m_pDS->exec("CREATE UNIQUE INDEX ix_actor_1 ON actor (name(255))");
+  m_pDS->exec("CREATE INDEX ix_actor_link_1 ON actor_link (media_type(20))");
+  m_pDS->exec("CREATE UNIQUE INDEX ix_actor_link_2 ON "
+              "actor_link (actor_id, media_id, media_type(20), role(255))");
+
   CreateLinkIndex("tag");
-  CreateLinkIndex("actor");
   CreateForeignLinkIndex("director", "actor");
   CreateForeignLinkIndex("writer", "actor");
   CreateLinkIndex("studio");
@@ -1724,7 +1729,9 @@ int CVideoDatabase::AddActor(const std::string& name, const std::string& thumbUR
 
 void CVideoDatabase::AddLinkToActor(int mediaId, const char *mediaType, int actorId, const std::string &role, int order)
 {
-  std::string sql=PrepareSQL("SELECT 1 FROM actor_link WHERE actor_id=%i AND media_id=%i AND media_type='%s'", actorId, mediaId, mediaType);
+  std::string sql = PrepareSQL("SELECT 1 FROM actor_link WHERE actor_id=%i AND "
+                               "media_id=%i AND media_type='%s' AND role='%s'",
+                               actorId, mediaId, mediaType, role.c_str());
 
   if (GetSingleValue(sql).empty())
   { // doesnt exists, add it
@@ -2290,8 +2297,8 @@ bool CVideoDatabase::GetFileInfo(const std::string& strFilenameAndPath, CVideoIn
       details.m_dateAdded.SetFromDBDateTime(m_pDS->fv("files.dateAdded").get_asString());
     if (!details.GetResumePoint().IsSet())
     {
-      details.SetResumePoint(m_pDS->fv("bookmark.timeInSeconds").get_asInt(),
-                             m_pDS->fv("bookmark.totalTimeInSeconds").get_asInt(),
+      details.SetResumePoint(m_pDS->fv("bookmark.timeInSeconds").get_asDouble(),
+                             m_pDS->fv("bookmark.totalTimeInSeconds").get_asDouble(),
                              m_pDS->fv("bookmark.playerState").get_asString());
     }
 
@@ -4304,23 +4311,12 @@ void CVideoDatabase::GetCast(int media_id, const std::string &media_type, std::v
     {
       SActorInfo info;
       info.strName = m_pDS2->fv(0).get_asString();
-      bool found = false;
-      for (const auto &i : cast)
-      {
-        if (i.strName == info.strName)
-        {
-          found = true;
-          break;
-        }
-      }
-      if (!found)
-      {
-        info.strRole = m_pDS2->fv(1).get_asString();
-        info.order = m_pDS2->fv(2).get_asInt();
-        info.thumbUrl.ParseString(m_pDS2->fv(3).get_asString());
-        info.thumb = m_pDS2->fv(4).get_asString();
-        cast.emplace_back(std::move(info));
-      }
+      info.strRole = m_pDS2->fv(1).get_asString();
+      info.order = m_pDS2->fv(2).get_asInt();
+      info.thumbUrl.ParseString(m_pDS2->fv(3).get_asString());
+      info.thumb = m_pDS2->fv(4).get_asString();
+      cast.emplace_back(std::move(info));
+
       m_pDS2->next();
     }
     m_pDS2->close();
@@ -4462,8 +4458,8 @@ bool CVideoDatabase::GetVideoSettings(int idFile, CVideoSettings &settings)
 
       if (settings.m_ToneMapParam == 0.0)
       {
-        settings.m_ToneMapMethod = VS_TONEMAPMETHOD_OFF;
-        settings.m_ToneMapParam = 0.0;
+        settings.m_ToneMapMethod = VS_TONEMAPMETHOD_REINHARD;
+        settings.m_ToneMapParam = 1.0;
       }
       return true;
     }
@@ -5681,7 +5677,7 @@ void CVideoDatabase::UpdateTables(int iVersion)
 
 int CVideoDatabase::GetSchemaVersion() const
 {
-  return 116;
+  return 117;
 }
 
 bool CVideoDatabase::LookupByFolders(const std::string &path, bool shows)
@@ -7136,7 +7132,13 @@ bool CVideoDatabase::GetItems(const std::string &strBaseDir, VIDEODB_CONTENT_TYP
   if (StringUtils::EqualsNoCase(itemType, "movies") && (mediaType == VIDEODB_CONTENT_MOVIES || mediaType == VIDEODB_CONTENT_MOVIE_SETS))
     return GetMoviesByWhere(strBaseDir, filter, items, sortDescription);
   else if (StringUtils::EqualsNoCase(itemType, "tvshows") && mediaType == VIDEODB_CONTENT_TVSHOWS)
-    return GetTvShowsByWhere(strBaseDir, filter, items, sortDescription);
+  {
+    Filter extFilter = filter;
+    if (!CServiceBroker::GetSettingsComponent()->GetSettings()->
+        GetBool(CSettings::SETTING_VIDEOLIBRARY_SHOWEMPTYTVSHOWS))
+      extFilter.AppendWhere("totalCount IS NOT NULL AND totalCount > 0");
+    return GetTvShowsByWhere(strBaseDir, extFilter, items, sortDescription);
+  }
   else if (StringUtils::EqualsNoCase(itemType, "musicvideos") && mediaType == VIDEODB_CONTENT_MUSICVIDEOS)
     return GetMusicVideosByWhere(strBaseDir, filter, items, true, sortDescription);
   else if (StringUtils::EqualsNoCase(itemType, "episodes") && mediaType == VIDEODB_CONTENT_EPISODES)
@@ -8913,7 +8915,7 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle, const st
       return;
 
     unsigned int time = XbmcThreads::SystemClockMillis();
-    CLog::Log(LOGNOTICE, "%s: Starting videodatabase cleanup ..", __FUNCTION__);
+    CLog::Log(LOGINFO, "%s: Starting videodatabase cleanup ..", __FUNCTION__);
     CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "xbmc", "OnCleanStarted");
 
     BeginTransaction();
@@ -9244,7 +9246,8 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle, const st
     CUtil::DeleteVideoDatabaseDirectoryCache();
 
     time = XbmcThreads::SystemClockMillis() - time;
-    CLog::Log(LOGNOTICE, "%s: Cleaning videodatabase done. Operation took %s", __FUNCTION__, StringUtils::SecondsToTimeString(time / 1000).c_str());
+    CLog::Log(LOGINFO, "%s: Cleaning videodatabase done. Operation took %s", __FUNCTION__,
+              StringUtils::SecondsToTimeString(time / 1000).c_str());
 
     for (const auto &i : movieIDs)
       AnnounceRemove(MediaTypeMovie, i, true);
@@ -10065,9 +10068,9 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
     // first count the number of items...
     while (movie)
     {
-      if (strnicmp(movie->Value(), MediaTypeMovie, 5)==0 ||
-          strnicmp(movie->Value(), MediaTypeTvShow, 6)==0 ||
-          strnicmp(movie->Value(), MediaTypeMusicVideo,10)==0 )
+      if (StringUtils::CompareNoCase(movie->Value(), MediaTypeMovie, 5) == 0 ||
+          StringUtils::CompareNoCase(movie->Value(), MediaTypeTvShow, 6) == 0 ||
+          StringUtils::CompareNoCase(movie->Value(), MediaTypeMusicVideo, 10) == 0)
         total++;
       movie = movie->NextSiblingElement();
     }
@@ -10110,7 +10113,7 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
     while (movie)
     {
       CVideoInfoTag info;
-      if (strnicmp(movie->Value(), MediaTypeMovie, 5) == 0)
+      if (StringUtils::CompareNoCase(movie->Value(), MediaTypeMovie, 5) == 0)
       {
         info.Load(movie);
         CFileItem item(info);
@@ -10144,7 +10147,7 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
         scanner.AddVideo(&item, CONTENT_MOVIES, useFolders, true, NULL, true);
         current++;
       }
-      else if (strnicmp(movie->Value(), MediaTypeMusicVideo, 10) == 0)
+      else if (StringUtils::CompareNoCase(movie->Value(), MediaTypeMusicVideo, 10) == 0)
       {
         info.Load(movie);
         CFileItem item(info);
@@ -10159,7 +10162,7 @@ void CVideoDatabase::ImportFromXML(const std::string &path)
         scanner.AddVideo(&item, CONTENT_MUSICVIDEOS, useFolders, true, NULL, true);
         current++;
       }
-      else if (strnicmp(movie->Value(), MediaTypeTvShow, 6) == 0)
+      else if (StringUtils::CompareNoCase(movie->Value(), MediaTypeTvShow, 6) == 0)
       {
         // load the TV show in.  NOTE: This deletes all episodes under the TV Show, which may not be
         // what we desire.  It may make better sense to only delete (or even better, update) the show information

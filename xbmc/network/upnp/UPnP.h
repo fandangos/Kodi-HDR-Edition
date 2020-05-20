@@ -14,6 +14,8 @@
 
 #include <string>
 
+#include "media/import/IMediaImporter.h"
+
 class NPT_LogHandler;
 class PLT_UPnP;
 class PLT_SyncMediaBrowser;
@@ -69,6 +71,8 @@ public:
     static bool SaveFileState(const CFileItem& item,
                               const CBookmark& bookmark,
                               const bool updatePlayCount);
+    static bool UpdateItem(const std::string& path,
+                           const CFileItem& item);
 
     static void RegisterUserdata(void* ptr);
     static void UnregisterUserdata(void* ptr);
@@ -95,6 +99,7 @@ private:
     CRendererReferenceHolder*   m_RendererHolder;
     CCtrlPointReferenceHolder*  m_CtrlPointHolder;
 
+    MediaImporterFactoryPtr     m_mediaImporterFactory;
 
     static CUPnP* upnp;
 };

@@ -379,7 +379,7 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
           int timeout;
           samples = *((CSampleBuffer**)msg->data);
           timeout = 1000*samples->pkt->nb_samples/samples->pkt->config.sample_rate;
-          Sleep(timeout);
+          CThread::Sleep(timeout);
           msg->Reply(CSinkDataProtocol::RETURNSAMPLE, &samples, sizeof(CSampleBuffer*));
           m_extTimeout = 0;
           return;
@@ -706,13 +706,13 @@ void CActiveAESink::EnumerateSinkList(bool force, std::string driver)
   CAESinkFactory::EnumerateEx(m_sinkInfoList, false, driver);
   while (m_sinkInfoList.empty() && c_retry > 0)
   {
-    CLog::Log(LOGNOTICE, "No Devices found - retry: %d", c_retry);
-    Sleep(1500);
+    CLog::Log(LOGINFO, "No Devices found - retry: %d", c_retry);
+    CThread::Sleep(1500);
     c_retry--;
     // retry the enumeration
     CAESinkFactory::EnumerateEx(m_sinkInfoList, true, driver);
   }
-  CLog::Log(LOGNOTICE, "Found %lu Lists of Devices", m_sinkInfoList.size());
+  CLog::Log(LOGINFO, "Found %lu Lists of Devices", m_sinkInfoList.size());
   PrintSinks(driver);
 }
 
@@ -723,16 +723,16 @@ void CActiveAESink::PrintSinks(std::string& driver)
     if (!driver.empty() && itt->m_sinkName != driver)
       continue;
 
-    CLog::Log(LOGNOTICE, "Enumerated %s devices:", itt->m_sinkName.c_str());
+    CLog::Log(LOGINFO, "Enumerated %s devices:", itt->m_sinkName.c_str());
     int count = 0;
     for (auto itt2 = itt->m_deviceInfoList.begin(); itt2 != itt->m_deviceInfoList.end(); ++itt2)
     {
-      CLog::Log(LOGNOTICE, "    Device %d", ++count);
+      CLog::Log(LOGINFO, "    Device %d", ++count);
       CAEDeviceInfo& info = *itt2;
       std::stringstream ss((std::string)info);
       std::string line;
       while(std::getline(ss, line, '\n'))
-        CLog::Log(LOGNOTICE, "        %s", line.c_str());
+        CLog::Log(LOGINFO, "        %s", line.c_str());
     }
   }
 }
@@ -1029,7 +1029,7 @@ unsigned int CActiveAESink::OutputSamples(CSampleBuffer* samples)
     written = m_sink->AddPackets(buffer, maxFrames, totalFrames - frames);
     if (written == 0)
     {
-      Sleep(500*m_sinkFormat.m_frames/m_sinkFormat.m_sampleRate);
+      CThread::Sleep(500 * m_sinkFormat.m_frames / m_sinkFormat.m_sampleRate);
       retry++;
       if (retry > 4)
       {

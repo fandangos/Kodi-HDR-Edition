@@ -46,6 +46,46 @@ CScraperUrl::CScraperUrl()
 
 CScraperUrl::~CScraperUrl() = default;
 
+bool CScraperUrl::operator==(const CScraperUrl& rhs) const
+{
+  if (m_xml != rhs.m_xml)
+    return false;
+  if (m_spoof != rhs.m_spoof)
+    return false;
+  if (strTitle != rhs.strTitle)
+    return false;
+  if (strId != rhs.strId)
+    return false;
+  if (relevance != rhs.relevance)
+    return false;
+  if (m_url != rhs.m_url)
+    return false;
+
+  return true;
+}
+
+bool CScraperUrl::SUrlEntry::operator==(const SUrlEntry& rhs) const
+{
+  if (m_spoof != rhs.m_spoof)
+    return false;
+  if (m_url != rhs.m_url)
+    return false;
+  if (m_cache != rhs.m_cache)
+    return false;
+  if (m_aspect != rhs.m_aspect)
+    return false;
+  if (m_type != rhs.m_type)
+    return false;
+  if (m_post != rhs.m_post)
+    return false;
+  if (m_isgz != rhs.m_isgz)
+    return false;
+  if (m_season != rhs.m_season)
+    return false;
+
+  return true;
+}
+
 void CScraperUrl::Clear()
 {
   m_url.clear();
@@ -74,12 +114,12 @@ bool CScraperUrl::ParseElement(const TiXmlElement* element)
   url.m_url = element->FirstChild()->Value();
   url.m_spoof = XMLUtils::GetAttribute(element, "spoof");
   const char* szPost=element->Attribute("post");
-  if (szPost && stricmp(szPost,"yes") == 0)
+  if (szPost && StringUtils::CompareNoCase(szPost, "yes") == 0)
     url.m_post = true;
   else
     url.m_post = false;
   const char* szIsGz=element->Attribute("gzip");
-  if (szIsGz && stricmp(szIsGz,"yes") == 0)
+  if (szIsGz && StringUtils::CompareNoCase(szIsGz, "yes") == 0)
     url.m_isgz = true;
   else
     url.m_isgz = false;
@@ -88,7 +128,7 @@ bool CScraperUrl::ParseElement(const TiXmlElement* element)
   const char* szType = element->Attribute("type");
   url.m_type = URL_TYPE_GENERAL;
   url.m_season = -1;
-  if (szType && stricmp(szType,"season") == 0)
+  if (szType && StringUtils::CompareNoCase(szType, "season") == 0)
   {
     url.m_type = URL_TYPE_SEASON;
     const char* szSeason = element->Attribute("season");

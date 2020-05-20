@@ -8,6 +8,7 @@ set(SOURCES GUIInfo.cpp
             GamesGUIInfo.cpp
             GUIControlsGUIInfo.cpp
             LibraryGUIInfo.cpp
+            MediaImportGUIInfo.cpp
             MusicGUIInfo.cpp
             PicturesGUIInfo.cpp
             PlayerGUIInfo.cpp
@@ -30,6 +31,7 @@ set(HEADERS GUIInfo.h
             GamesGUIInfo.h
             GUIControlsGUIInfo.h
             LibraryGUIInfo.h
+            MediaImportGUIInfo.h
             MusicGUIInfo.h
             PicturesGUIInfo.h
             PlayerGUIInfo.h

@@ -21,6 +21,7 @@
 #include "guilib/GUIWindowManager.h"
 #include "interfaces/AnnouncementManager.h"
 #include "log.h"
+#include "media/import/MediaImportManager.h"
 #include "music/MusicDatabase.h"
 #include "music/tags/MusicInfoTag.h"
 #include "network/upnp/UPnP.h"
@@ -50,7 +51,8 @@ void CSaveFileState::DoWork(CFileItem& item,
   {
 #ifdef HAS_UPNP
     // checks if UPnP server of this file is available and supports updating
-    if (URIUtils::IsUPnP(progressTrackingFile)
+    if (!item.IsImported() &&
+        URIUtils::IsUPnP(progressTrackingFile)
         && UPNP::CUPnP::SaveFileState(item, bookmark, updatePlayCount))
     {
       return;
@@ -109,7 +111,11 @@ void CSaveFileState::DoWork(CFileItem& item,
             }
           }
           else
+          {
+            if (item.HasVideoInfoTag())
+              item.GetVideoInfoTag()->m_lastPlayed = CDateTime::GetCurrentDateTime();
             videodatabase.UpdateLastPlayed(item);
+          }
 
           if (!item.HasVideoInfoTag() ||
               item.GetVideoInfoTag()->GetResumePoint().timeInSeconds != bookmark.timeInSeconds)
@@ -207,5 +213,8 @@ void CSaveFileState::DoWork(CFileItem& item,
         musicdatabase.Close();
       }
     }
+
+    if (item.IsImported())
+      CServiceBroker::GetMediaImportManager().UpdateImportedItemOnSource(item);
   }
 }

@@ -33,8 +33,17 @@ public:
   virtual void AddOption(const std::string &key, float value);
   virtual void AddOption(const std::string &key, double value);
   virtual void AddOption(const std::string &key, bool value);
+
+  virtual void AddOption(const std::string &key, const std::vector<const char*>& values);
+  virtual void AddOption(const std::string &key, const std::vector<std::string>& values);
+  virtual void AddOption(const std::string &key, const std::vector<int>& values);
+  virtual void AddOption(const std::string &key, const std::vector<float>& values);
+  virtual void AddOption(const std::string &key, const std::vector<double>& values);
+  virtual void AddOption(const std::string &key, const std::vector<bool>& values);
+
   virtual void AddOptions(const std::string &options);
   virtual void AddOptions(const CUrlOptions &options);
+
   virtual void RemoveOption(const std::string &key);
 
   bool HasOption(const std::string &key) const;

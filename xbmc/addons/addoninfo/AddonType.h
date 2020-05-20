@@ -56,6 +56,7 @@ typedef enum
   ADDON_SCRIPT_MODULE,
   ADDON_GAME_CONTROLLER,
   ADDON_VIDEOCODEC,
+  ADDON_MEDIAIMPORTER,
 
   /**
     * @brief virtual addon types

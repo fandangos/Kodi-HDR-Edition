@@ -6,33 +6,31 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include <functional>
-#include <limits>
-
-#include "filesystem/BlurayCallback.h"
 #include "DVDInputStreamBluray.h"
-#include "IVideoPlayer.h"
+
 #include "DVDCodecs/Overlay/DVDOverlay.h"
 #include "DVDCodecs/Overlay/DVDOverlayImage.h"
-#include "settings/Settings.h"
-#include "settings/SettingsComponent.h"
+#include "IVideoPlayer.h"
 #include "LangInfo.h"
 #include "ServiceBroker.h"
-#include "utils/log.h"
-#include "utils/URIUtils.h"
-#include "filesystem/File.h"
-#include "filesystem/Directory.h"
 #include "URL.h"
-#include "utils/Geometry.h"
+#include "filesystem/BlurayCallback.h"
+#include "filesystem/Directory.h"
+#include "filesystem/File.h"
+#include "filesystem/SpecialProtocol.h"
 #include "guilib/LocalizeStrings.h"
 #include "settings/DiscSettings.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "utils/Geometry.h"
 #include "utils/LangCodeExpander.h"
-#include "filesystem/SpecialProtocol.h"
 #include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/XTimeUtils.h"
+#include "utils/log.h"
 
-#ifdef TARGET_POSIX
-#include "platform/posix/XTimeUtils.h"
-#endif
+#include <functional>
+#include <limits>
 
 #include <libbluray/bluray.h>
 #include <libbluray/log_control.h>
@@ -520,7 +518,7 @@ void CDVDInputStreamBluray::ProcessEvent() {
 
   case BD_EVENT_CHAPTER:
     CLog::Log(LOGDEBUG, "CDVDInputStreamBluray - BD_EVENT_CHAPTER %d", m_event.param);
-	m_chapter = m_event.param;
+    m_chapter = m_event.param;  
     break;
 
     /* stream selection */
@@ -550,14 +548,14 @@ void CDVDInputStreamBluray::ProcessEvent() {
   case BD_EVENT_MENU:
     CLog::Log(LOGDEBUG, "CDVDInputStreamBluray - BD_EVENT_MENU %d",
         m_event.param);
-      if (m_event.param == 1)
+        if (m_event.param == 1)
         m_menu = true;
       else
         m_menu = false;
       break;
 
   case BD_EVENT_IDLE:
-    Sleep(100);
+    KODI::TIME::Sleep(100);
     break;
 
   case BD_EVENT_SOUND_EFFECT:
@@ -765,7 +763,7 @@ void CDVDInputStreamBluray::OverlayFlush(int64_t pts)
 
   m_player->OnDiscNavResult(static_cast<void*>(group), BD_EVENT_MENU_OVERLAY);
   group->Release();
-//  m_menu = true;
+//  m_menu = true;  
 #endif
 }
 
@@ -1025,8 +1023,12 @@ void CDVDInputStreamBluray::GetStreamInfo(int pid, std::string &language)
     find_stream(pid, m_clip->audio_streams, m_clip->audio_stream_count, language);
   else if (HDMV_PID_PG_FIRST <= pid && pid <= HDMV_PID_PG_LAST)
     find_stream(pid, m_clip->pg_streams, m_clip->pg_stream_count, language);
+  else if (HDMV_PID_PG_HDR_FIRST <= pid && pid <= HDMV_PID_PG_HDR_LAST)
+    find_stream(pid, m_clip->pg_streams, m_clip->pg_stream_count, language);	
   else if (HDMV_PID_IG_FIRST <= pid && pid <= HDMV_PID_IG_LAST)
     find_stream(pid, m_clip->ig_streams, m_clip->ig_stream_count, language);
+  else
+    CLog::Log(LOGDEBUG, "CDVDInputStreamBluray::GetStreamInfo - unhandled pid %d", pid);	
 }
 
 CDVDInputStream::ENextStream CDVDInputStreamBluray::NextStream()
@@ -1115,8 +1117,8 @@ void CDVDInputStreamBluray::OnMenu()
   }
 
   if(bd_user_input(m_bd, -1, BD_VK_POPUP) >= 0)
-  {
-	m_menu = !m_menu;
+  {    
+	   m_menu = !m_menu;  
     return;
   }
   CLog::Log(LOGDEBUG, "CDVDInputStreamBluray::OnMenu - popup failed, trying root");
@@ -1171,11 +1173,15 @@ void CDVDInputStreamBluray::SetupPlayerSettings()
   }
   bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_REGION_CODE, static_cast<uint32_t>(region));
   bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_PARENTAL, 99);
-  bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_PLAYER_PROFILE, BLURAY_PLAYER_PROFILE_6_v3_1);
   bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_3D_CAP, 0xffffffff);
+#if (BLURAY_VERSION >= BLURAY_VERSION_CODE(1, 0, 2))  
+  bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_PLAYER_PROFILE, BLURAY_PLAYER_PROFILE_6_v3_1);
   bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_UHD_CAP, 0xffffffff);
   bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_UHD_DISPLAY_CAP, 0xffffffff);
   bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_HDR_PREFERENCE, 0xffffffff);
+#else
+  bd_set_player_setting(m_bd, BLURAY_PLAYER_SETTING_PLAYER_PROFILE, BLURAY_PLAYER_PROFILE_5_v2_4);
+#endif
 
   std::string langCode;
   g_LangCodeExpander.ConvertToISO6392T(g_langInfo.GetDVDAudioLanguage(), langCode);

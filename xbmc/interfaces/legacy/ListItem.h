@@ -48,17 +48,16 @@ namespace XBMCAddon
     ///
     /// The list item control is used for creating item lists in Kodi
     ///
-    /// \python_class{ ListItem([label, label2, iconImage, thumbnailImage, path]) }
+    /// \python_class{ ListItem([label, label2, path]) }
     ///
     /// @param label                [opt] string
     /// @param label2               [opt] string
-    /// @param iconImage            __Deprecated. Use setArt__
-    /// @param thumbnailImage       __Deprecated. Use setArt__
     /// @param path                 [opt] string
     ///
     ///
     ///-----------------------------------------------------------------------
     /// @python_v16 **iconImage** and **thumbnailImage** are deprecated. Use **setArt()**.
+    /// @python_v19 Removed **iconImage** and **thumbnailImage**. Use **setArt()**.
     ///
     /// **Example:**
     /// ~~~~~~~~~~~~~{.py}
@@ -76,8 +75,6 @@ namespace XBMCAddon
 
       ListItem(const String& label = emptyString,
                const String& label2 = emptyString,
-               const String& iconImage = emptyString,
-               const String& thumbnailImage = emptyString,
                const String& path = emptyString,
                bool offscreen = false);
 
@@ -199,33 +196,51 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
-      /// @brief \python_func{ setIconImage(iconImage) }
+      /// @brief \python_func{ getDateTime() }
       ///-----------------------------------------------------------------------
-      /// @python_v16 Deprecated. Use **setArt()**.
-      /// @python_v19 setIconImage results in nop and will be removed in future
-      /// versions. Use **setArt()**.
+      /// Returns the listitem datetime (ISO 8601).
       ///
-      /// @todo Remove in future kodi versions
+      /// @return                       datetime (ISO 8601) of item
       ///
-      setIconImage(...);
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// # getDateTime()
+      /// dateTime = listitem.getDateTime()
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      getDateTime();
 #else
-      void setIconImage(const String& iconImage);
+      String getDateTime();
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
-      /// @brief \python_func{ setThumbnailImage(thumbFilename) }
+      /// @brief \python_func{ setDateTime(dateTime) }
       ///-----------------------------------------------------------------------
-      /// @python_v16 Deprecated. Use **setArt()**.
-      /// @python_v19 setThumbnailImage results in nop and will be removed in future
-      /// versions. Use **setArt()**.
+      /// Sets the listitem's datetime (ISO 8601).
       ///
-      /// @todo Remove in future kodi versions
+      /// @param label              string or unicode - datetime string (ISO 8601).
       ///
-      setThumbnailImage(...);
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// # setDate(dateTime)
+      /// listitem.setDateTime('TODO')
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      setDateTime(...);
 #else
-      void setThumbnailImage(const String& thumbFilename);
+      void setDateTime(const String& dateTime);
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
@@ -427,6 +442,28 @@ namespace XBMCAddon
       getArt(key);
 #else
       String getArt(const char* key);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ isFolder() }
+      ///-----------------------------------------------------------------------
+      /// Returns whether the item is a folder or not.
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// isFolder = listitem.isFolder()
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      isFolder();
+#else
+      bool isFolder() const;
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS
@@ -1023,6 +1060,35 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ setDynamicPath(path) }
+      ///-----------------------------------------------------------------------
+      /// Sets the listitem's dynamic path.
+      ///
+      /// @param path           string or unicode - dynamic path.
+      ///
+      /// @note You can use the above as keywords for arguments.
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// listitem.setDynamicPath(path='/path/to/some/file.ext')
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      setDynamicPath(...);
+#else
+      void setDynamicPath(const String& path);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
       /// @brief \python_func{ setMimeType(mimetype) }
       ///-----------------------------------------------------------------------
       /// Sets the listitem's mimetype if known.
@@ -1086,45 +1152,6 @@ namespace XBMCAddon
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
       /// \ingroup python_xbmcgui_listitem
-      /// @brief \python_func{ getdescription() }
-      ///-----------------------------------------------------------------------
-      /// @python_v17 Deprecated.
-      ///
-      ///
-      getdescription();
-#else
-      String getdescription();
-#endif
-
-#ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcgui_listitem
-      /// @brief \python_func{ getduration() }
-      ///-----------------------------------------------------------------------
-      /// @python_v17 Deprecated. Use **InfoTagMusic**.
-      ///
-      ///
-      getduration();
-#else
-      String getduration();
-#endif
-
-#ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcgui_listitem
-      /// @brief \python_func{ getfilename() }
-      ///-----------------------------------------------------------------------
-      /// @python_v17 Deprecated.
-      ///
-      ///
-      getfilename();
-#else
-      String getfilename();
-#endif
-
-#ifdef DOXYGEN_SHOULD_USE_THIS
-      ///
-      /// \ingroup python_xbmcgui_listitem
       /// @brief \python_func{ getPath() }
       ///-----------------------------------------------------------------------
       /// Returns the path of this listitem.
@@ -1175,6 +1202,42 @@ namespace XBMCAddon
       getMusicInfoTag();
 #else
       xbmc::InfoTagMusic* getMusicInfoTag();
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ getMediaProviderId() }
+      ///-----------------------------------------------------------------------
+      /// Returns the identifier of the media provider this item was imported from.
+      ///
+      /// @return    media provider identifer
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getMediaProviderId();
+#else
+      String getMediaProviderId() const;
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_xbmcgui_listitem
+      /// @brief \python_func{ getMediaImportPath() }
+      ///-----------------------------------------------------------------------
+      /// Returns the path of the media import this item was imported from.
+      ///
+      /// @return    media import path
+      ///
+      ///
+      ///-----------------------------------------------------------------------
+      /// @python_v19 New function added.
+      ///
+      getMediaImportPath();
+#else
+      String getMediaImportPath() const;
 #endif
 
 private:

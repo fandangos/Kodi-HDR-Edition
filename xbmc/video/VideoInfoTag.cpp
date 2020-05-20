@@ -24,6 +24,30 @@
 #include <string>
 #include <vector>
 
+bool operator==(const CRating& lhs, const CRating& rhs)
+{
+  return lhs.rating == rhs.rating && lhs.votes == rhs.votes;
+}
+
+bool operator!=(const CRating& lhs, const CRating& rhs)
+{
+  return !(lhs == rhs);
+}
+
+bool SActorInfo::operator==(const SActorInfo &rhs) const
+{
+  if (strName.compare(rhs.strName) != 0)
+    return false;
+  if (strRole.compare(rhs.strRole) != 0)
+    return false;
+  if (thumb.compare(rhs.thumb) != 0)
+    return false;
+  if (thumbUrl != rhs.thumbUrl)
+    return false;
+
+  return true;
+}
+
 void CVideoInfoTag::Reset()
 {
   m_director.clear();
@@ -132,7 +156,7 @@ bool CVideoInfoTag::Save(TiXmlNode *node, const std::string &tag, bool savePathI
   if (m_EpBookmark.timeInSeconds > 0)
   {
     TiXmlElement epbookmark("episodebookmark");
-    XMLUtils::SetFloat(&epbookmark, "position", (float)m_EpBookmark.timeInSeconds);
+    XMLUtils::SetDouble(&epbookmark, "position", m_EpBookmark.timeInSeconds);
     if (!m_EpBookmark.playerState.empty())
     {
       TiXmlElement playerstate("playerstate");
@@ -291,8 +315,8 @@ bool CVideoInfoTag::Save(TiXmlNode *node, const std::string &tag, bool savePathI
   }
 
   TiXmlElement resume("resume");
-  XMLUtils::SetFloat(&resume, "position", (float)m_resumePoint.timeInSeconds);
-  XMLUtils::SetFloat(&resume, "total", (float)m_resumePoint.totalTimeInSeconds);
+  XMLUtils::SetDouble(&resume, "position", m_resumePoint.timeInSeconds);
+  XMLUtils::SetDouble(&resume, "total", m_resumePoint.totalTimeInSeconds);
   if (!m_resumePoint.playerState.empty())
   {
     TiXmlElement playerstate("playerstate");
@@ -617,8 +641,8 @@ void CVideoInfoTag::Serialize(CVariant& value) const
   value["showlink"] = m_showLink;
   m_streamDetails.Serialize(value["streamdetails"]);
   CVariant resume = CVariant(CVariant::VariantTypeObject);
-  resume["position"] = (float)m_resumePoint.timeInSeconds;
-  resume["total"] = (float)m_resumePoint.totalTimeInSeconds;
+  resume["position"] = m_resumePoint.timeInSeconds;
+  resume["total"] = m_resumePoint.totalTimeInSeconds;
   value["resume"] = resume;
   value["tvshowid"] = m_iIdShow;
   value["dateadded"] = m_dateAdded.IsValid() ? m_dateAdded.GetAsDBDateTime() : StringUtils::Empty;
@@ -671,6 +695,7 @@ void CVideoInfoTag::ToSortable(SortItem& sortable, Field field) const
       sortable[FieldSortTitle] = m_strSortTitle;
     break;
   }
+  case FieldOriginalTitle:            sortable[FieldOriginalTitle] = m_strOriginalTitle; break;
   case FieldTvShowStatus:             sortable[FieldTvShowStatus] = m_strStatus; break;
   case FieldProductionCode:           sortable[FieldProductionCode] = m_strProductionCode; break;
   case FieldAirDate:                  sortable[FieldAirDate] = m_firstAired.IsValid() ? m_firstAired.GetAsDBDate() : (m_premiered.IsValid() ? m_premiered.GetAsDBDate() : StringUtils::Empty); break;
@@ -687,6 +712,7 @@ void CVideoInfoTag::ToSortable(SortItem& sortable, Field field) const
   case FieldNumberOfWatchedEpisodes:  sortable[FieldNumberOfWatchedEpisodes] = m_iEpisode; break;
   case FieldEpisodeNumberSpecialSort: sortable[FieldEpisodeNumberSpecialSort] = m_iSpecialSortEpisode; break;
   case FieldSeasonSpecialSort:        sortable[FieldSeasonSpecialSort] = m_iSpecialSortSeason; break;
+  case FieldUniqueId:                 sortable[FieldUniqueId] = GetUniqueID(); break;
   case FieldRating:                   sortable[FieldRating] = GetRating().rating; break;
   case FieldUserRating:               sortable[FieldUserRating] = m_iUserRating; break;
   case FieldId:                       sortable[FieldId] = m_iDbId; break;
@@ -834,7 +860,10 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
         r.rating = r.rating / max_value * 10; // Normalise the Movie Rating to between 1 and 10
       SetRating(r, name);
       bool isDefault = false;
-      if ((child->QueryBoolAttribute("default", &isDefault) == TIXML_SUCCESS) && isDefault)
+      // guard against assert in tinyxml
+      const char* rAtt = child->Attribute("default", static_cast<int*>(nullptr));
+      if (rAtt && strlen(rAtt) != 0 &&
+          (child->QueryBoolAttribute("default", &isDefault) == TIXML_SUCCESS) && isDefault)
         m_strDefaultRating = name;
     }
   }
@@ -1050,7 +1079,7 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
         thumb = thumb->NextSiblingElement("thumb");
       }
       const char* clear=node->Attribute("clear");
-      if (clear && stricmp(clear,"true"))
+      if (clear && StringUtils::CompareNoCase(clear, "true"))
         m_cast.clear();
       m_cast.push_back(info);
     }
@@ -1099,7 +1128,7 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
     if (pValue)
     {
       const char* clear=node->Attribute("clear");
-      if (clear && stricmp(clear,"true")==0)
+      if (clear && StringUtils::CompareNoCase(clear, "true") == 0)
         artist.clear();
       std::vector<std::string> newArtists = StringUtils::Split(pValue, itemSeparator);
       artist.insert(artist.end(), newArtists.begin(), newArtists.end());
@@ -1168,7 +1197,8 @@ void CVideoInfoTag::ParseNative(const TiXmlElement* movie, bool prioritise)
   if (epguide)
   {
     // DEPRECIATE ME - support for old XML-encoded <episodeguide> blocks.
-    if (epguide->FirstChild() && strnicmp("<episodeguide", epguide->FirstChild()->Value(), 13) == 0)
+    if (epguide->FirstChild() &&
+        StringUtils::CompareNoCase("<episodeguide", epguide->FirstChild()->Value(), 13) == 0)
       m_strEpisodeGuide = epguide->FirstChild()->Value();
     else
     {
@@ -1603,4 +1633,232 @@ bool CVideoInfoTag::SetResumePoint(double timeInSeconds, double totalTimeInSecon
 
   m_resumePoint = resumePoint;
   return true;
+}
+
+bool CVideoInfoTag::Equals(const CVideoInfoTag& rhs, bool metadataOnly /* = false */) const
+{
+  bool ret = true;
+
+  if (!metadataOnly)
+  {
+    // check paths
+    ret &= m_parentPathID == rhs.m_parentPathID;
+    ret &= StringUtils::EqualsNoCase(m_basePath, rhs.m_basePath);
+    ret &= StringUtils::EqualsNoCase(m_strFile, rhs.m_strFile);
+    ret &= StringUtils::EqualsNoCase(m_strPath, rhs.m_strPath);
+    ret &= StringUtils::EqualsNoCase(m_strFileNameAndPath, rhs.m_strFileNameAndPath);
+
+    // check IDs
+    ret &= m_set.id <= 0 || rhs.m_set.id <= 0 || m_set.id == rhs.m_set.id;
+    ret &= m_iBookmarkId == rhs.m_iBookmarkId;
+    ret &= m_iIdShow <= 0 || rhs.m_iIdShow <= 0 || m_iIdShow == rhs.m_iIdShow;
+    ret &= m_iIdSeason <= 0 || rhs.m_iIdSeason <= 0 || m_iIdSeason == rhs.m_iIdSeason;
+
+    ret &= m_parsedDetails == rhs.m_parsedDetails;
+  }
+
+  ret &= m_playCount == rhs.m_playCount;
+  ret &= m_lastPlayed == rhs.m_lastPlayed || !rhs.m_lastPlayed.IsValid();
+  ret &= m_iTop250 == rhs.m_iTop250;
+  ret &= GetYear() == rhs.GetYear();
+  ret &= m_ratings.size() == rhs.m_ratings.size() && std::equal(m_ratings.begin(), m_ratings.end(), rhs.m_ratings.begin());
+  ret &= m_iUserRating == rhs.m_iUserRating;
+  ret &= m_duration == rhs.m_duration;
+
+  ret &= m_strPlot == rhs.m_strPlot;
+  ret &= m_strTitle == rhs.m_strTitle;
+  ret &= m_strSortTitle == rhs.m_strSortTitle;
+  ret &= m_strOriginalTitle == rhs.m_strOriginalTitle;
+  ret &= m_strShowTitle == rhs.m_strShowTitle;
+  ret &= m_uniqueIDs.size() == rhs.m_uniqueIDs.size() && std::equal(m_uniqueIDs.begin(), m_uniqueIDs.end(), rhs.m_uniqueIDs.begin()) && m_strDefaultUniqueID == rhs.m_strDefaultUniqueID;
+  ret &= StringUtils::EqualsNoCase(m_type, rhs.m_type);
+
+  ret &= m_director == rhs.m_director;
+  ret &= m_writingCredits == rhs.m_writingCredits;
+  ret &= m_country == rhs.m_country;
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "musicvideo")
+  {
+    ret &= m_genre == rhs.m_genre;
+    ret &= m_tags == rhs.m_tags;
+    ret &= m_studio == rhs.m_studio;
+
+    if (m_type == "movie" || m_type == "tvshow")
+    {
+      ret &= m_strMPAARating == rhs.m_strMPAARating;
+
+      if (m_type == "movie")
+      {
+        ret &= m_strTagLine == rhs.m_strTagLine;
+        ret &= m_strPlotOutline == rhs.m_strPlotOutline;
+        ret &= m_strTrailer == rhs.m_strTrailer;
+        ret &= m_set.title == rhs.m_set.title;
+      }
+      else if (m_type == "tvshow")
+      {
+        ret &= m_premiered == rhs.m_premiered;
+        ret &= m_strStatus == rhs.m_strStatus;
+      }
+    }
+    else if (m_type == "musicvideo")
+    {
+      ret &= m_iTrack == rhs.m_iTrack;
+      ret &= m_strAlbum == rhs.m_strAlbum;
+      ret &= m_artist == rhs.m_artist;
+    }
+  }
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "episode")
+  {
+    ret &= m_cast == rhs.m_cast;
+  }
+
+  if (m_type == "season" || m_type == "episode")
+  {
+    ret &= m_iSeason == rhs.m_iSeason;
+    ret &= m_iSpecialSortSeason == rhs.m_iSpecialSortSeason;
+    ret &= m_iSpecialSortEpisode == rhs.m_iSpecialSortEpisode;
+
+    if (m_type == "episode")
+    {
+      // TODO: ret &= m_EpBookmark == rhs.m_EpBookmark;
+      ret &= m_iEpisode == rhs.m_iEpisode;
+      ret &= m_strEpisodeGuide == rhs.m_strEpisodeGuide;
+      ret &= m_strProductionCode == rhs.m_strProductionCode;
+      ret &= m_firstAired == rhs.m_firstAired;
+    }
+  }
+
+  return ret;
+}
+
+bool CVideoInfoTag::GetDifferences(const CVideoInfoTag &rhs, std::set<Field> &fields, bool metadataOnly /* = false */) const
+{
+  fields.clear();
+
+  if (!metadataOnly)
+  {
+    // check IDs
+    if (m_iDbId > 0 && rhs.m_iDbId > 0 && m_iDbId != rhs.m_iDbId)
+      fields.insert(FieldId);
+
+    // check paths
+    if (!StringUtils::EqualsNoCase(m_strFile, rhs.m_strFile))
+      fields.insert(FieldFilename);
+    if (!StringUtils::EqualsNoCase(m_strPath, rhs.m_strPath))
+      fields.insert(FieldPath);
+  }
+
+  if (m_playCount != rhs.m_playCount)
+    fields.insert(FieldPlaycount);
+  if (m_lastPlayed != rhs.m_lastPlayed && !rhs.m_lastPlayed.IsValid())
+    fields.insert(FieldLastPlayed);
+  if (m_iTop250 != rhs.m_iTop250)
+    fields.insert(FieldTop250);
+  if (m_ratings.size() != rhs.m_ratings.size() ||
+      !std::equal(m_ratings.begin(), m_ratings.end(), rhs.m_ratings.begin()))
+    fields.insert(FieldRating);
+  if (m_iUserRating != rhs.m_iUserRating)
+    fields.insert(FieldUserRating);
+  if (m_duration != rhs.m_duration)
+    fields.insert(FieldTime);
+
+  if (m_strPlot != rhs.m_strPlot)
+    fields.insert(FieldPlot);
+  if (m_strTitle != rhs.m_strTitle)
+    fields.insert(FieldTitle);
+  if (m_strSortTitle != rhs.m_strSortTitle)
+    fields.insert(FieldSortTitle);
+  if (m_strOriginalTitle != rhs.m_strOriginalTitle)
+    fields.insert(FieldOriginalTitle);
+  if (m_strShowTitle != rhs.m_strShowTitle)
+    fields.insert(FieldTvShowTitle);
+
+ if (m_uniqueIDs.size() != rhs.m_uniqueIDs.size() || !std::equal(m_uniqueIDs.begin(), m_uniqueIDs.end(), rhs.m_uniqueIDs.begin()) || m_strDefaultUniqueID != rhs.m_strDefaultUniqueID)
+    fields.insert(FieldUniqueId);
+  if (!StringUtils::EqualsNoCase(m_type, rhs.m_type))
+    fields.insert(FieldMediaType);
+
+  if (m_director != rhs.m_director)
+    fields.insert(FieldDirector);
+  if (m_writingCredits != rhs.m_writingCredits)
+    fields.insert(FieldWriter);
+  if (m_country != rhs.m_country)
+    fields.insert(FieldCountry);
+
+  if (m_resumePoint.IsPartWay() != rhs.m_resumePoint.IsPartWay())
+    fields.insert(FieldInProgress);
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "musicvideo")
+  {
+    if (m_genre != rhs.m_genre)
+      fields.insert(FieldGenre);
+    if (m_tags != rhs.m_tags)
+      fields.insert(FieldTag);
+    if (m_studio != rhs.m_studio)
+      fields.insert(FieldStudio);
+
+    if (m_type == "movie" || m_type == "tvshow")
+    {
+      if (m_strMPAARating != rhs.m_strMPAARating)
+        fields.insert(FieldMPAA);
+
+      if (m_type == "movie")
+      {
+        if (m_strTagLine != rhs.m_strTagLine)
+          fields.insert(FieldTagline);
+        if (m_strPlotOutline != rhs.m_strPlotOutline)
+          fields.insert(FieldPlotOutline);
+        if (m_strTrailer != rhs.m_strTrailer)
+          fields.insert(FieldTrailer);
+        if (m_set.title != rhs.m_set.title ||
+           (m_set.id > 0 && rhs.m_set.id > 0 && m_set.id != rhs.m_set.id))
+          fields.insert(FieldSet);
+      }
+      else if (m_type == "tvshow")
+      {
+        if (m_premiered.GetAsDBDate() != rhs.m_premiered.GetAsDBDate())
+          fields.insert(FieldAirDate);
+        if (m_strStatus != rhs.m_strStatus)
+          fields.insert(FieldTvShowStatus);
+      }
+    }
+    else if (m_type == "musicvideo")
+    {
+      if (m_iTrack != rhs.m_iTrack)
+        fields.insert(FieldTrackNumber);
+      if (m_strAlbum != rhs.m_strAlbum)
+        fields.insert(FieldAlbum);
+      if (m_artist != rhs.m_artist)
+        fields.insert(FieldArtist);
+    }
+  }
+
+  if (m_type == "movie" || m_type == "tvshow" || m_type == "episode")
+  {
+    if (m_cast != rhs.m_cast)
+      fields.insert(FieldActor);
+  }
+
+  if (m_type == "season" || m_type == "episode")
+  {
+    if (m_iSeason != rhs.m_iSeason)
+      fields.insert(FieldSeason);
+    if (m_iSpecialSortSeason != rhs.m_iSpecialSortSeason)
+      fields.insert(FieldSeasonSpecialSort);
+    if (m_iSpecialSortEpisode != rhs.m_iSpecialSortEpisode)
+      fields.insert(FieldEpisodeNumberSpecialSort);
+
+    if (m_type == "episode")
+    {
+      if (m_iEpisode != rhs.m_iEpisode)
+        fields.insert(FieldEpisodeNumber);
+      if (m_strProductionCode != rhs.m_strProductionCode)
+        fields.insert(FieldProductionCode);
+      if (m_firstAired.GetAsDBDate() != rhs.m_firstAired.GetAsDBDate())
+        fields.insert(FieldAirDate);
+    }
+  }
+
+  return !fields.empty();
 }

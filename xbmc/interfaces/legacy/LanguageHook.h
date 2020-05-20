@@ -26,6 +26,11 @@ namespace XBMCAddon
     class Monitor;
   }
 
+  namespace xbmcmediaimport
+  {
+    class Observer;
+  }
+
   class LanguageHook : public AddonClass
   {
   protected:
@@ -104,6 +109,8 @@ namespace XBMCAddon
     virtual void UnregisterPlayerCallback(IPlayerCallback* player) = 0;
     virtual void RegisterMonitorCallback(XBMCAddon::xbmc::Monitor* player) = 0;
     virtual void UnregisterMonitorCallback(XBMCAddon::xbmc::Monitor* player) = 0;
+    virtual void RegisterMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer) = 0;
+    virtual void UnregisterMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer) = 0;
     virtual bool WaitForEvent(CEvent& hEvent, unsigned int milliseconds) = 0;
 
     static void SetLanguageHook(LanguageHook* languageHook);

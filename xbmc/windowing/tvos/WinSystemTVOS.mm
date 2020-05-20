@@ -36,6 +36,7 @@
 #import "platform/darwin/DarwinUtils.h"
 #import "platform/darwin/tvos/TVOSDisplayManager.h"
 #import "platform/darwin/tvos/XBMCController.h"
+#include "platform/darwin/tvos/powermanagement/TVOSPowerSyscall.h"
 
 #include <memory>
 #include <vector>
@@ -135,6 +136,7 @@ CWinSystemTVOS::CWinSystemTVOS() : CWinSystemBase(), m_lostDeviceTimer(this)
   m_winEvents.reset(new CWinEventsTVOS());
 
   CAESinkDARWINTVOS::Register();
+  CTVOSPowerSyscall::Register();
 }
 
 CWinSystemTVOS::~CWinSystemTVOS()
@@ -282,7 +284,7 @@ void CWinSystemTVOS::FillInVideoModes(int screenIdx)
   {
     RESOLUTION_INFO res;
     UpdateDesktopResolution(res, CONST_HDMI, w, h, refreshrate, 0);
-    CLog::Log(LOGNOTICE, "Found possible resolution for display {} with {} x {} RefreshRate:{} \n",
+    CLog::Log(LOGINFO, "Found possible resolution for display {} with {} x {} RefreshRate:{} ",
               screenIdx, w, h, refreshrate);
 
     CServiceBroker::GetWinSystem()->GetGfxContext().ResetOverscan(res);

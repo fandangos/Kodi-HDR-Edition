@@ -23,6 +23,9 @@ public:
   CScraperUrl();
   ~CScraperUrl();
 
+  bool operator==(const CScraperUrl& rhs) const;
+  bool operator!=(const CScraperUrl& rhs) const { return !(*this == rhs); }
+
   enum URLTYPES
   {
     URL_TYPE_GENERAL = 1,
@@ -31,6 +34,8 @@ public:
 
   struct SUrlEntry
   {
+    bool operator==(const SUrlEntry& rhs) const;
+
     std::string m_spoof;
     std::string m_url;
     std::string m_cache;

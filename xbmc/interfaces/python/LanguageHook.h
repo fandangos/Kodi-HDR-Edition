@@ -67,6 +67,8 @@ namespace XBMCAddon
       void UnregisterPlayerCallback(IPlayerCallback* player) override;
       void RegisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) override;
       void UnregisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) override;
+      void RegisterMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer) override;
+      void UnregisterMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer) override;
       bool WaitForEvent(CEvent& hEvent, unsigned int milliseconds) override;
 
       static AddonClass::Ref<PythonLanguageHook> GetIfExists(PyInterpreterState* interp);

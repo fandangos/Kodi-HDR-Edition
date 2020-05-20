@@ -8,6 +8,7 @@
 
 #include "VideoLibrary.h"
 
+#include "LibraryQueue.h"
 #include "TextureDatabase.h"
 #include "Util.h"
 #include "messaging/ApplicationMessenger.h"
@@ -16,7 +17,6 @@
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "video/VideoDatabase.h"
-#include "video/VideoLibraryQueue.h"
 
 using namespace JSONRPC;
 using namespace KODI::MESSAGING;
@@ -547,7 +547,7 @@ JSONRPC_STATUS CVideoLibrary::SetMovieDetails(const std::string &method, ITransp
 
   UpdateResumePoint(parameterObject, infos, videodatabase);
 
-  CJSONRPCUtils::NotifyItemUpdated(infos);
+  CJSONRPCUtils::NotifyItemUpdated(infos, artwork);
   return ACK;
 }
 
@@ -777,7 +777,7 @@ JSONRPC_STATUS CVideoLibrary::RefreshMovie(const std::string &method, ITransport
 
   bool ignoreNfo = parameterObject["ignorenfo"].asBoolean();
   std::string searchTitle = parameterObject["title"].asString();
-  CVideoLibraryQueue::GetInstance().RefreshItem(CFileItemPtr(new CFileItem(infos)), ignoreNfo, true, false, searchTitle);
+  CLibraryQueue::GetInstance().RefreshItem(CFileItemPtr(new CFileItem(infos)), ignoreNfo, true, false, searchTitle);
 
   return ACK;
 }
@@ -800,7 +800,7 @@ JSONRPC_STATUS CVideoLibrary::RefreshTVShow(const std::string &method, ITranspor
   bool ignoreNfo = parameterObject["ignorenfo"].asBoolean();
   bool refreshEpisodes = parameterObject["refreshepisodes"].asBoolean();
   std::string searchTitle = parameterObject["title"].asString();
-  CVideoLibraryQueue::GetInstance().RefreshItem(item, ignoreNfo, true, refreshEpisodes, searchTitle);
+  CLibraryQueue::GetInstance().RefreshItem(item, ignoreNfo, true, refreshEpisodes, searchTitle);
 
   return ACK;
 }
@@ -825,7 +825,7 @@ JSONRPC_STATUS CVideoLibrary::RefreshEpisode(const std::string &method, ITranspo
 
   bool ignoreNfo = parameterObject["ignorenfo"].asBoolean();
   std::string searchTitle = parameterObject["title"].asString();
-  CVideoLibraryQueue::GetInstance().RefreshItem(item, ignoreNfo, true, false, searchTitle);
+  CLibraryQueue::GetInstance().RefreshItem(item, ignoreNfo, true, false, searchTitle);
 
   return ACK;
 }
@@ -844,7 +844,7 @@ JSONRPC_STATUS CVideoLibrary::RefreshMusicVideo(const std::string &method, ITran
 
   bool ignoreNfo = parameterObject["ignorenfo"].asBoolean();
   std::string searchTitle = parameterObject["title"].asString();
-  CVideoLibraryQueue::GetInstance().RefreshItem(CFileItemPtr(new CFileItem(infos)), ignoreNfo, true, false, searchTitle);
+  CLibraryQueue::GetInstance().RefreshItem(CFileItemPtr(new CFileItem(infos)), ignoreNfo, true, false, searchTitle);
 
   return ACK;
 }
@@ -1050,14 +1050,14 @@ void CVideoLibrary::UpdateResumePoint(const CVariant &parameterObject, CVideoInf
 {
   if (!parameterObject["resume"].isNull())
   {
-    int position = (int)parameterObject["resume"]["position"].asInteger();
-    if (position == 0)
+    double position = (double)parameterObject["resume"]["position"].asDouble();
+    if (position == 0.0)
       videodatabase.ClearBookMarksOfFile(details.m_strFileNameAndPath, CBookmark::RESUME);
     else
     {
       CBookmark bookmark;
-      int total = (int)parameterObject["resume"]["total"].asInteger();
-      if (total <= 0 && !videodatabase.GetResumeBookMark(details.m_strFileNameAndPath, bookmark))
+      double total = (double)parameterObject["resume"]["total"].asDouble();
+      if (total <= 0.0 && !videodatabase.GetResumeBookMark(details.m_strFileNameAndPath, bookmark))
         bookmark.totalTimeInSeconds = details.m_streamDetails.GetVideoDuration();
       else
         bookmark.totalTimeInSeconds = total;

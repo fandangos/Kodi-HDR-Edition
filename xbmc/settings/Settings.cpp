@@ -204,9 +204,8 @@ const std::string CSettings::SETTING_EPG_SELECTACTION = "epg.selectaction";
 const std::string CSettings::SETTING_EPG_HIDENOINFOAVAILABLE = "epg.hidenoinfoavailable";
 const std::string CSettings::SETTING_EPG_EPGUPDATE = "epg.epgupdate";
 const std::string CSettings::SETTING_EPG_PREVENTUPDATESWHILEPLAYINGTV = "epg.preventupdateswhileplayingtv";
-const std::string CSettings::SETTING_EPG_STOREEPGINDATABASE = "epg.storeepgindatabase";
 const std::string CSettings::SETTING_EPG_RESETEPG = "epg.resetepg";
-const std::string CSettings::SETTING_PVRPLAYBACK_SWITCHTOFULLSCREEN = "pvrplayback.switchtofullscreen";
+const std::string CSettings::SETTING_PVRPLAYBACK_SWITCHTOFULLSCREENCHANNELTYPES = "pvrplayback.switchtofullscreenchanneltypes";
 const std::string CSettings::SETTING_PVRPLAYBACK_SIGNALQUALITY = "pvrplayback.signalquality";
 const std::string CSettings::SETTING_PVRPLAYBACK_CONFIRMCHANNELSWITCH = "pvrplayback.confirmchannelswitch";
 const std::string CSettings::SETTING_PVRPLAYBACK_CHANNELENTRYTIMEOUT = "pvrplayback.channelentrytimeout";
@@ -233,6 +232,7 @@ const std::string CSettings::SETTING_PVRCLIENT_MENUHOOK = "pvrclient.menuhook";
 const std::string CSettings::SETTING_PVRTIMERS_HIDEDISABLEDTIMERS = "pvrtimers.hidedisabledtimers";
 const std::string CSettings::SETTING_MUSICLIBRARY_SHOWCOMPILATIONARTISTS = "musiclibrary.showcompilationartists";
 const std::string CSettings::SETTING_MUSICLIBRARY_SHOWDISCS = "musiclibrary.showdiscs";
+const std::string CSettings::SETTING_MUSICLIBRARY_USEORIGINALDATE = "musiclibrary.useoriginaldate";
 const std::string CSettings::SETTING_MUSICLIBRARY_USEARTISTSORTNAME = "musiclibrary.useartistsortname";
 const std::string CSettings::SETTING_MUSICLIBRARY_DOWNLOADINFO = "musiclibrary.downloadinfo";
 const std::string CSettings::SETTING_MUSICLIBRARY_ARTISTSFOLDER = "musiclibrary.artistsfolder";
@@ -264,6 +264,7 @@ const std::string CSettings::SETTING_MUSICPLAYER_REPLAYGAINAVOIDCLIPPING = "musi
 const std::string CSettings::SETTING_MUSICPLAYER_CROSSFADE = "musicplayer.crossfade";
 const std::string CSettings::SETTING_MUSICPLAYER_CROSSFADEALBUMTRACKS = "musicplayer.crossfadealbumtracks";
 const std::string CSettings::SETTING_MUSICPLAYER_VISUALISATION = "musicplayer.visualisation";
+const std::string CSettings::SETTING_MUSICFILES_SELECTACTION = "musicfiles.selectaction";
 const std::string CSettings::SETTING_MUSICFILES_USETAGS = "musicfiles.usetags";
 const std::string CSettings::SETTING_MUSICFILES_TRACKFORMAT = "musicfiles.trackformat";
 const std::string CSettings::SETTING_MUSICFILES_NOWPLAYINGTRACKFORMAT = "musicfiles.nowplayingtrackformat";
@@ -299,6 +300,8 @@ const std::string CSettings::SETTING_SERVICES_UPNPCONTROLLER = "services.upnpcon
 const std::string CSettings::SETTING_SERVICES_UPNPRENDERER = "services.upnprenderer";
 const std::string CSettings::SETTING_SERVICES_WEBSERVER = "services.webserver";
 const std::string CSettings::SETTING_SERVICES_WEBSERVERPORT = "services.webserverport";
+const std::string CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION =
+    "services.webserverauthentication";
 const std::string CSettings::SETTING_SERVICES_WEBSERVERUSERNAME = "services.webserverusername";
 const std::string CSettings::SETTING_SERVICES_WEBSERVERPASSWORD = "services.webserverpassword";
 const std::string CSettings::SETTING_SERVICES_WEBSERVERSSL = "services.webserverssl";
@@ -479,7 +482,7 @@ bool CSettings::Load(const std::string &file)
   CXBMCTinyXML xmlDoc;
   bool updated = false;
   if (!XFILE::CFile::Exists(file) || !xmlDoc.LoadFile(file) ||
-      !Load(xmlDoc.RootElement(), updated) || !Load(xmlDoc.RootElement()))
+      !Load(xmlDoc.RootElement(), updated))
   {
     CLog::Log(LOGERROR, "CSettings: unable to load settings from %s, creating new default settings", file.c_str());
     if (!Reset())

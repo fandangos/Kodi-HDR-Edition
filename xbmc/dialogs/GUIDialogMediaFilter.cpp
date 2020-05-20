@@ -116,6 +116,7 @@ static const CGUIDialogMediaFilter::Filter filterList[] = {
   { "albums",       FieldMusicLabel,    21899,  SettingType::List,    "list",   "string",   CDatabaseQueryRule::OPERATOR_EQUALS },
   { "albums",       FieldCompilation,   204,    SettingType::Boolean, "toggle", "",         CDatabaseQueryRule::OPERATOR_FALSE },
   { "albums",       FieldIsBoxset,      38074,  SettingType::Boolean, "toggle", "",         CDatabaseQueryRule::OPERATOR_FALSE },
+  { "albums",       FieldOrigYear,      38078,  SettingType::String,  "edit",   "string",   CDatabaseQueryRule::OPERATOR_CONTAINS },
 
   { "songs",        FieldTitle,         556,    SettingType::String,  "edit",   "string",   CDatabaseQueryRule::OPERATOR_CONTAINS },
   { "songs",        FieldAlbum,         558,    SettingType::List,    "list",   "string",   CDatabaseQueryRule::OPERATOR_EQUALS },
@@ -435,9 +436,9 @@ void CGUIDialogMediaFilter::InitializeSettings()
         value = filter.rule->m_operator == CDatabaseQueryRule::OPERATOR_TRUE ? CHECK_YES : CHECK_NO;
 
       TranslatableIntegerSettingOptions entries;
-      entries.push_back(std::pair<int, int>(CHECK_LABEL_ALL, CHECK_ALL));
-      entries.push_back(std::pair<int, int>(CHECK_LABEL_NO,  CHECK_NO));
-      entries.push_back(std::pair<int, int>(CHECK_LABEL_YES, CHECK_YES));
+      entries.push_back(TranslatableIntegerSettingOption(CHECK_LABEL_ALL, CHECK_ALL));
+      entries.push_back(TranslatableIntegerSettingOption(CHECK_LABEL_NO, CHECK_NO));
+      entries.push_back(TranslatableIntegerSettingOption(CHECK_LABEL_YES, CHECK_YES));
 
       filter.setting = AddSpinner(group, settingId, filter.label, SettingLevel::Basic, value, entries, true);
     }

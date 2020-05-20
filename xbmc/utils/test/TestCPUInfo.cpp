@@ -10,15 +10,12 @@
 #  include <windows.h>
 #endif
 
-#include "utils/CPUInfo.h"
-#include "utils/Temperature.h"
 #include "ServiceBroker.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
-
-#ifdef TARGET_POSIX
-#include "platform/posix/XTimeUtils.h"
-#endif
+#include "utils/CPUInfo.h"
+#include "utils/Temperature.h"
+#include "utils/XTimeUtils.h"
 
 #include <gtest/gtest.h>
 
@@ -54,36 +51,6 @@ TEST_F(TestCPUInfo, GetTemperature)
   CTemperature t;
   EXPECT_TRUE(CServiceBroker::GetCPUInfo()->GetTemperature(t));
   EXPECT_TRUE(t.IsValid());
-}
-
-TEST_F(TestCPUInfo, GetCPUModel)
-{
-  std::string s = CServiceBroker::GetCPUInfo()->GetCPUModel();
-  EXPECT_STRNE("", s.c_str());
-}
-
-TEST_F(TestCPUInfo, GetCPUBogoMips)
-{
-  std::string s = CServiceBroker::GetCPUInfo()->GetCPUBogoMips();
-  EXPECT_STRNE("", s.c_str());
-}
-
-TEST_F(TestCPUInfo, GetCPUHardware)
-{
-  std::string s = CServiceBroker::GetCPUInfo()->GetCPUHardware();
-  EXPECT_STRNE("", s.c_str());
-}
-
-TEST_F(TestCPUInfo, GetCPURevision)
-{
-  std::string s = CServiceBroker::GetCPUInfo()->GetCPURevision();
-  EXPECT_STRNE("", s.c_str());
-}
-
-TEST_F(TestCPUInfo, GetCPUSerial)
-{
-  std::string s = CServiceBroker::GetCPUInfo()->GetCPUSerial();
-  EXPECT_STRNE("", s.c_str());
 }
 
 TEST_F(TestCPUInfo, CoreInfo)

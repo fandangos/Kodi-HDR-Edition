@@ -23,10 +23,8 @@ set(SOURCES AddonsDirectory.cpp
             IDirectory.cpp
             IFile.cpp
             ImageFile.cpp
-            iso9660.cpp
-            ISO9660Directory.cpp
-            ISOFile.cpp
             LibraryDirectory.cpp
+            MediaImportDirectory.cpp
             MultiPathDirectory.cpp
             MultiPathFile.cpp
             MusicDatabaseDirectory.cpp
@@ -40,6 +38,7 @@ set(SOURCES AddonsDirectory.cpp
             PlaylistDirectory.cpp
             PlaylistFileDirectory.cpp
             PluginDirectory.cpp
+            PluginFile.cpp
             PVRDirectory.cpp
             ResourceDirectory.cpp
             ResourceFile.cpp
@@ -51,9 +50,6 @@ set(SOURCES AddonsDirectory.cpp
             SpecialProtocolDirectory.cpp
             SpecialProtocolFile.cpp
             StackDirectory.cpp
-            udf25.cpp
-            UDFDirectory.cpp
-            UDFFile.cpp
             VideoDatabaseDirectory.cpp
             VideoDatabaseFile.cpp
             VirtualDirectory.cpp
@@ -92,10 +88,8 @@ set(HEADERS AddonsDirectory.h
             IFileDirectory.h
             IFileTypes.h
             ImageFile.h
-            ISO9660Directory.h
-            ISOFile.h
-            iso9660.h
             LibraryDirectory.h
+            MediaImportDirectory.h
             MultiPathDirectory.h
             MultiPathFile.h
             MusicDatabaseDirectory.h
@@ -110,6 +104,7 @@ set(HEADERS AddonsDirectory.h
             PlaylistDirectory.h
             PlaylistFileDirectory.h
             PluginDirectory.h
+            PluginFile.h
             RSSDirectory.h
             ResourceDirectory.h
             ResourceFile.h
@@ -120,9 +115,6 @@ set(HEADERS AddonsDirectory.h
             SpecialProtocolDirectory.h
             SpecialProtocolFile.h
             StackDirectory.h
-            udf25.h
-            UDFDirectory.h
-            UDFFile.h
             VideoDatabaseDirectory.h
             VirtualDirectory.h
             XbtDirectory.h
@@ -132,6 +124,22 @@ set(HEADERS AddonsDirectory.h
             ZipDirectory.h
             ZipFile.h
             ZipManager.h)
+
+if(ISO9660PP_FOUND)
+  list(APPEND SOURCES ISO9660Directory.cpp
+                      ISO9660File.cpp)
+  list(APPEND HEADERS ISO9660Directory.h
+                      ISO9660File.h)
+endif()
+
+if(UDFREAD_FOUND)
+  list(APPEND SOURCES UDFBlockInput.cpp
+                      UDFDirectory.cpp
+                      UDFFile.cpp)
+  list(APPEND HEADERS UDFBlockInput.h
+                      UDFDirectory.h
+                      UDFFile.h)
+endif()
 
 if(BLURAY_FOUND)
   list(APPEND SOURCES BlurayCallback.cpp

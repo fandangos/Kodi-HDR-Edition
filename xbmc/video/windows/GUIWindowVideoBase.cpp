@@ -12,6 +12,7 @@
 #include "Autorun.h"
 #include "GUIPassword.h"
 #include "GUIUserMessages.h"
+#include "LibraryQueue.h"
 #include "PartyModeManager.h"
 #include "PlayListPlayer.h"
 #include "ServiceBroker.h"
@@ -51,7 +52,6 @@
 #include "utils/log.h"
 #include "video/VideoInfoDownloader.h"
 #include "video/VideoInfoScanner.h"
-#include "video/VideoLibraryQueue.h"
 #include "video/dialogs/GUIDialogVideoInfo.h"
 #include "view/GUIViewState.h"
 
@@ -354,6 +354,26 @@ bool CGUIWindowVideoBase::ShowIMDB(CFileItemPtr item, const ScraperPtr &info2, b
   }
   else if(item->HasVideoInfoTag())
   {
+    if (item->GetVideoInfoTag()->m_parsedDetails != VideoDbDetailsAll)
+    {
+      std::string path = item->GetPath();
+      CVideoInfoTag &videoInfo = *item->GetVideoInfoTag();
+      int dbId = videoInfo.m_iDbId;
+
+      m_database.Open();
+
+      if (item->GetVideoInfoTag()->m_type == MediaTypeMovie)
+        m_database.GetMovieInfo(path, videoInfo, dbId);
+      else if (item->GetVideoInfoTag()->m_type == MediaTypeEpisode)
+        m_database.GetEpisodeInfo(path, videoInfo, dbId);
+      else if (item->GetVideoInfoTag()->m_type == MediaTypeTvShow)
+        m_database.GetTvShowInfo(path, videoInfo, dbId);
+      else if (item->GetVideoInfoTag()->m_type == MediaTypeMusicVideo)
+        m_database.GetMusicVideoInfo(path, videoInfo, dbId);
+
+      m_database.Close();
+    }
+
     bHasInfo = true;
     movieDetails = *item->GetVideoInfoTag();
   }
@@ -416,7 +436,7 @@ bool CGUIWindowVideoBase::ShowIMDB(CFileItemPtr item, const ScraperPtr &info2, b
   // 3. Run a loop so that if we Refresh we re-run this block
   do
   {
-    if (!CVideoLibraryQueue::GetInstance().RefreshItemModal(item, needsRefresh, pDlgInfo->RefreshAll()))
+    if (!CLibraryQueue::GetInstance().RefreshItemModal(item, needsRefresh, pDlgInfo->RefreshAll()))
       return listNeedsUpdating;
 
     // remove directory caches and reload images
@@ -746,7 +766,8 @@ bool CGUIWindowVideoBase::OnItemInfo(int iItem)
     if (!scraper &&
         !(m_database.HasMovieInfo(item->GetPath()) ||
           m_database.HasTvShowInfo(strDir)           ||
-          m_database.HasEpisodeInfo(item->GetPath())))
+          m_database.HasEpisodeInfo(item->GetPath())) &&
+        !item->IsImported())
     {
       return false;
     }

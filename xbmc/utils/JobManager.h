@@ -60,7 +60,7 @@ private:
 
  \sa CJob and IJobCallback
  */
-class CJobQueue: public IJobCallback
+class CJobQueue: public virtual IJobCallback
 {
   class CJobPointer
   {

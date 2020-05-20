@@ -7,17 +7,16 @@
  */
 
 #include "AudioSinkAE.h"
-#include "threads/SingleLock.h"
-#include "utils/log.h"
+
 #include "DVDClock.h"
 #include "DVDCodecs/Audio/DVDAudioCodec.h"
 #include "ServiceBroker.h"
 #include "cores/AudioEngine/Interfaces/AE.h"
 #include "cores/AudioEngine/Utils/AEAudioFormat.h"
 #include "cores/AudioEngine/Utils/AEStreamData.h"
-#ifdef TARGET_POSIX
-#include "platform/posix/XTimeUtils.h"
-#endif
+#include "threads/SingleLock.h"
+#include "utils/XTimeUtils.h"
+#include "utils/log.h"
 
 CAudioSinkAE::CAudioSinkAE(CDVDClock *clock) : m_pClock(clock)
 {
@@ -41,13 +40,9 @@ CAudioSinkAE::~CAudioSinkAE()
 
 bool CAudioSinkAE::Create(const DVDAudioFrame &audioframe, AVCodecID codec, bool needresampler)
 {
-  CLog::Log(LOGNOTICE,
-    "Creating audio stream (codec id: %i, channels: %i, sample rate: %i, %s)",
-    codec,
-    audioframe.format.m_channelLayout.Count(),
-    audioframe.format.m_sampleRate,
-    audioframe.passthrough ? "pass-through" : "no pass-through"
-  );
+  CLog::Log(LOGINFO, "Creating audio stream (codec id: %i, channels: %i, sample rate: %i, %s)",
+            codec, audioframe.format.m_channelLayout.Count(), audioframe.format.m_sampleRate,
+            audioframe.passthrough ? "pass-through" : "no pass-through");
 
   // if passthrough isset do something else
   CSingleLock lock(m_critSection);
@@ -148,7 +143,7 @@ unsigned int CAudioSinkAE::AddPackets(const DVDAudioFrame &audioframe)
     }
 
     lock.Leave();
-    Sleep(1);
+    KODI::TIME::Sleep(1);
     lock.Enter();
   } while (!m_bAbort);
 

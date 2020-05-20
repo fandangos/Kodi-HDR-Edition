@@ -54,7 +54,7 @@ public:
   static std::string ReplaceExtension(const std::string& strFile,
                                      const std::string& strNewExtension);
   static void Split(const std::string& strFileNameAndPath,
-                    std::string& strPath, std::string& strFileName);
+                    std::string& strPath, std::string& strFileName, bool ignoreOptions = true);
   static std::vector<std::string> SplitPath(const std::string& strPath);
 
   static void GetCommonPath(std::string& strPath, const std::string& strPath2);
@@ -157,7 +157,6 @@ public:
   static bool IsPVRChannel(const std::string& strFile);
   static bool IsPVRChannelGroup(const std::string& strFile);
   static bool IsPVRGuideItem(const std::string& strFile);
-  static bool IsUsingFastSwitch(const std::string& strFile);
 
   static std::string AppendSlash(std::string strFolder);
   static void AddSlashAtEnd(std::string& strFolder);

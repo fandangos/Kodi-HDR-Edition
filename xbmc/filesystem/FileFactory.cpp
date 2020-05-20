@@ -27,7 +27,9 @@
 #endif
 #endif
 #include "CDDAFile.h"
-#include "ISOFile.h"
+#if defined(HAS_ISO9660PP)
+#include "ISO9660File.h"
+#endif
 #if defined(TARGET_ANDROID)
 #include "platform/android/filesystem/APKFile.h"
 #endif
@@ -51,9 +53,12 @@
 #include "PipeFile.h"
 #include "MusicDatabaseFile.h"
 #include "VideoDatabaseFile.h"
+#include "PluginFile.h"
 #include "SpecialProtocolFile.h"
 #include "MultiPathFile.h"
+#if defined(HAS_UDFREAD)
 #include "UDFFile.h"
+#endif
 #include "ImageFile.h"
 #include "ResourceFile.h"
 #include "URL.h"
@@ -99,6 +104,7 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
   else if (url.IsProtocol("xbt")) return new CXbtFile();
   else if (url.IsProtocol("musicdb")) return new CMusicDatabaseFile();
   else if (url.IsProtocol("videodb")) return new CVideoDatabaseFile();
+  else if (url.IsProtocol("plugin")) return new CPluginFile();
   else if (url.IsProtocol("library")) return nullptr;
   else if (url.IsProtocol("pvr")) return nullptr;
   else if (url.IsProtocol("special")) return new CSpecialProtocolFile();
@@ -126,8 +132,14 @@ IFile* CFileFactory::CreateLoader(const CURL& url)
 #if defined(HAS_DVD_DRIVE)
   else if (url.IsProtocol("cdda")) return new CFileCDDA();
 #endif
-  else if (url.IsProtocol("iso9660")) return new CISOFile();
-  else if(url.IsProtocol("udf")) return new CUDFFile();
+#if defined(HAS_ISO9660PP)
+  else if (url.IsProtocol("iso9660"))
+    return new CISO9660File();
+#endif
+#if defined(HAS_UDFREAD)
+  else if(url.IsProtocol("udf"))
+    return new CUDFFile();
+#endif
 #if defined(TARGET_ANDROID)
   else if (url.IsProtocol("androidapp")) return new CFileAndroidApp();
 #endif

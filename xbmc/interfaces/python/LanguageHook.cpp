@@ -164,6 +164,8 @@ namespace XBMCAddon
     void PythonLanguageHook::UnregisterPlayerCallback(IPlayerCallback* player) { XBMC_TRACE; g_pythonParser.UnregisterPythonPlayerCallBack(player); }
     void PythonLanguageHook::RegisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) { XBMC_TRACE; g_pythonParser.RegisterPythonMonitorCallBack(monitor); }
     void PythonLanguageHook::UnregisterMonitorCallback(XBMCAddon::xbmc::Monitor* monitor) { XBMC_TRACE; g_pythonParser.UnregisterPythonMonitorCallBack(monitor); }
+    void PythonLanguageHook::RegisterMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer) { XBMC_TRACE; g_pythonParser.RegisterPythonMediaImporterObserverCallback(importerId, observer); }
+    void PythonLanguageHook::UnregisterMediaImporterObserverCallback(const std::string& importerId, XBMCAddon::xbmcmediaimport::Observer* observer) { XBMC_TRACE; g_pythonParser.UnregisterPythonMediaImporterObserverCallback(importerId, observer); }
 
     bool PythonLanguageHook::WaitForEvent(CEvent& hEvent, unsigned int milliseconds)
     {

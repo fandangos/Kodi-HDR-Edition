@@ -802,7 +802,7 @@ const infomap integer_bools[] =  {{ "isequal",          INTEGER_IS_EQUAL },
 ///     @deprecated \link Player_Cutlist `Player.Cutlist`\endlink is deprecated and will be removed in the next version.
 ///     <p><hr>
 ///     @skinning_v19 **[New Infolabel]** \link Player_Cutlist `Player.Cutlist`\endlink
-///     @skinning_v20 \link Player_Cutlist `Player.Cutlist`\endlink is deprecated\, use \link Player_Editlist `Player.Editlist`\endlink instead
+///     @skinning_v20 \link Player_Cutlist `Player.Cutlist`\endlink is deprecated\, use \link Player_Cuts `Player.Cuts`\endlink instead
 ///     <p>
 ///   }
 ///   \table_row3{   <b>`Player.Editlist`</b>,
@@ -5207,9 +5207,6 @@ const infomap container_str[]  = {{ "property",         CONTAINER_PROPERTY },
 ///     <p>
 ///     @deprecated \link ListItem_PictureColour `ListItem.PictureColour`\endlink is deprecated and will be removed in future Kodi versions
 ///     <p><hr>
-///     @skinning_v20 **[Deprecated]** \link ListItem_PictureColour `ListItem.PictureColour`\endlink is deprecated and will be removed in future Kodi versions
-///     <p>
-///     <p><hr>
 ///     @skinning_v13 **[New Infolabel]** \link ListItem_PictureColour `ListItem.PictureColour`\endlink
 ///     <p>
 ///   }
@@ -5529,9 +5526,6 @@ const infomap container_str[]  = {{ "property",         CONTAINER_PROPERTY },
 ///     @return The process used to compress the selected picture.
 ///     <p>
 ///     @deprecated \link ListItem_PictureProcess `ListItem.PictureProcess`\endlink is deprecated and will be removed in future Kodi versions
-///     <p><hr>
-///     @skinning_v20 **[Deprecated]** \link ListItem_PictureProcess `ListItem.PictureProcess`\endlink is deprecated and will be removed in future Kodi versions
-///     <p>
 ///     <p><hr>
 ///     @skinning_v13 **[New Infolabel]** \link ListItem_PictureProcess `ListItem.PictureProcess`\endlink
 ///     <p>
@@ -9138,9 +9132,6 @@ const infomap rds[] =            {{ "hasrds",                   RDS_HAS_RDS },
 ///     <p>
 ///     @deprecated Slideshow_Colour `Slideshow.Colour`\endlink is deprecated and will be removed in future Kodi versions
 ///     <p><hr>
-///     @skinning_v20 **[Deprecated]** \link Slideshow_Colour `Slideshow.Colour`\endlink is deprecated and will be removed in future Kodi versions
-///     <p>
-///     <p><hr>
 ///     @skinning_v13 **[New Infolabel]** \link Slideshow_Colour `Slideshow.Colour`\endlink
 ///     <p>
 ///   }
@@ -9471,9 +9462,6 @@ const infomap rds[] =            {{ "hasrds",                   RDS_HAS_RDS },
 ///     @return The process used to compress the current picture.
 ///     <p>
 ///     @deprecated \link Slideshow_Process `Slideshow.Process`\endlink is deprecated and will be removed in future Kodi versions
-///     <p><hr>
-///     @skinning_v20 **[Deprecated]** \link Slideshow_Process `Slideshow.Process`\endlink is deprecated and will be removed in future Kodi versions
-///     <p>
 ///     <p><hr>
 ///     @skinning_v13 **[New Infolabel]** \link Slideshow_Process `Slideshow.Process`\endlink
 ///     <p>

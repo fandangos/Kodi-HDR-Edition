@@ -562,8 +562,12 @@ HRESULT CFGLoader::LoadFilterRules(const CFileItem& _pFileItem)
         && filter == CGraphFilters::INTERNAL_XYSUBFILTER)
         filter = CGraphFilters::INTERNAL_XYVSFILTER;
 
+      // A subtitle filter is optional. Failing to add it must not abort graph building,
+      // otherwise a media rule naming a filter that isn't installed on the system makes
+      // the file completely unplayable instead of just losing subtitle support.
       if (FAILED(InsertFilter(filter, CGraphFilters::Get()->Subs)))
-        return E_FAIL;
+        CLog::Log(LOGWARNING, "{} Unable to add the subtitle filter \"{}\" to the graph. "
+                              "Playback continues without subtitle support", __FUNCTION__, filter.c_str());
       END_PERFORMANCE_COUNTER("Loading subs filter");
     }
 

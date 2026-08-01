@@ -1,5 +1,20 @@
 <mediasconfig>
   <rules>
+    <!--
+      The <subs> entries below reference "xysubfilter_internal", which is resolved by
+      path (userdata/dsplayer/, then system/players/dsplayer/) and otherwise falls back
+      to a system registered XySubFilter. Adding a subtitle filter to the graph is what
+      lets the OSD list and select subtitle tracks. Without one, DSPlayer falls back to
+      its internal libsubs manager, which is unavailable for the madVR renderer and
+      leaves the subtitle list empty.
+
+      If the filter cannot be found the graph is built without it and playback still
+      works, only subtitle support is lost.
+
+      DVD rules are deliberately left without a subtitle filter, DVD subtitles are
+      handled by the dvd navigator.
+    -->
+
     <!-- DVD RULES -->
     <!-- Iso still return a crash on this filter. -->
     <rule filetypes="iso">
@@ -21,42 +36,49 @@
       <splitter filter="lavf_splitter" />
       <video filter="lavvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <rule filetypes="ogm">
       <source filter="lavfsplitter" />
       <splitter filter="oggsplitter" />
       <video filter="mpcvideodec" />
       <audio filter="lavaudiodec" />
-    </rule>  
+      <subs filter="xysubfilter_internal" />
+    </rule>
       <rule filetypes="flv">
       <source filter="lavfsplitter" />
       <splitter filter="lavf_splitter" />
       <video filter="mpcvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <rule filetypes="mp4">
       <source filter="lavfsplitter" />
       <splitter filter="lavf_splitter" />
       <video filter="lavvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <rule filetypes="mov|m4v">
       <source filter="lavfsplitter" />
       <splitter filter="lavf_splitter" />
       <video filter="lavvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <rule filetypes="m2v">
       <source filter="lavfsplitter" />
       <splitter filter="lavf_splitter" />
       <video filter="lavvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <rule filetypes="ts|mpeg|mpg|m2ts">
       <source filter="lavfsplitter" />
       <splitter filter="lavf_splitter" />
       <video filter="cyberlinkvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <rule filetypes="mkv">
       <source filter="lavfsplitter" />
@@ -70,18 +92,19 @@
         <video filter="mpcvideodec" />
       </video> -->
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
       <!--<extra>
         <extra filter="ac3filter" />
         <extra filter="dcgraphiceq" />
       </extra>-->
-      
+
       <!-- Shaders example
-      
+
       Must starts with <shaders> and ends with </shaders>
-      
+
       Inside, specify your shader like that :
         <shader id="x" dxva="true" videocodec="h264" audiocodec="mp3" ... />
-        
+
       x is the ID of the shader, declared in the /system/DSPlayer/Shaders/shaders.xml file
       -->
       <!--
@@ -96,7 +119,7 @@
       <video filter="wmvideodecoder" />
       <audio filter="wmaudiodecoder" />
     </rule>
-    
+
     <!-- You need Real Alternative in order to read real media files -->
     <rule filetypes="rmvb">
       <source filter="realsource" />
@@ -104,13 +127,13 @@
       <video filter="realvideodec" />
       <audio filter="realaudiodec" />
     </rule>
-    
+
     <rule protocols="http">
       <source filter="urlfilesource" />
       <splitter filter="avsplitter" />
       <video filter="cyberlinkvideodec" />
       <audio filter="lavaudiodec" />
     </rule>
-    
+
   </rules>
 </mediasconfig>

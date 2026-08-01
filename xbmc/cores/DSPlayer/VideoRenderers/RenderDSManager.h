@@ -33,6 +33,7 @@
 #include "VideoRenderers/MPCVRRenderer.h"
 #include "../VideoPlayer/Videorenderers/baserenderer.h"
 #include "../VideoPlayer/Videorenderers/DebugRenderer.h"
+#include "../VideoPlayer/Videorenderers/OverlayRenderer.h"
 #include "threads/Event.h"
 #include "threads/systemclock.h"
 
@@ -94,11 +95,22 @@ protected:
 
   void PresentSingle(bool clear, DWORD flags, DWORD alpha);
 
+  /*!
+   * \brief Draw the menus of a Blu-ray that is running its own navigation
+   *
+   * Called with the render target already pointing at the layer that is composited over
+   * the video, so whatever is drawn here lands on top of the picture the renderer shows.
+   */
+  void RenderBlurayMenu();
+
   bool Configure();
   void CreateRenderer();
   void DeleteRenderer();
 
   CDebugRenderer m_debugRenderer;
+  //! Draws the disc's own menu overlays. Kodi's overlay renderer already knows how to turn
+  //! the images libbluray produces into something on screen, for both HDMV and BD-J discs.
+  OVERLAY::CRenderer m_blurayMenuRenderer;
   std::shared_ptr<CBaseRenderer> m_pRenderer;
   mutable CCriticalSection m_statelock;
   CCriticalSection m_datalock;

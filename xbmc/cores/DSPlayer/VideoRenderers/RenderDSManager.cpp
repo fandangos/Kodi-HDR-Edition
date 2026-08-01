@@ -36,8 +36,10 @@
 #include "cores/DataCacheCore.h"
 #include "GraphFilters.h"
 
+#include "DSBlurayNavigator.h"
 #include "DSGraph.h"
 #include "StreamsManager.h"
+#include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlay.h"
 
 #include "utils/CPUInfo.h"
 #include "ServiceBroker.h"
@@ -392,6 +394,10 @@ void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
   if (m_currentRenderer == DIRECTSHOW_RENDERER_MADVR)
     g_application.GetComponent<CApplicationPlayer>()->RenderToTexture(RENDER_LAYER_OVER);
 
+  // Menus belong over the picture, and the render target now points at the layer that is
+  // composited on top of it
+  RenderBlurayMenu();
+
   if (!gui && m_pRenderer->IsGuiLayer())
     return;
 
@@ -425,6 +431,35 @@ void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
     }
   }
 #endif
+}
+
+void CRenderDSManager::RenderBlurayMenu()
+{
+  CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+  if (!navigator)
+    return;
+
+  // The disc replaces its overlay outright rather than amending it, so a new one always
+  // supersedes what came before. An empty overlay is how the disc says to clear the menu.
+  std::shared_ptr<CDVDOverlayGroup> overlay;
+  if (navigator->TakeOverlay(overlay))
+  {
+    m_blurayMenuRenderer.Release(0);
+    if (overlay && !overlay->m_overlays.empty())
+      m_blurayMenuRenderer.AddOverlay(overlay, 0.0, 0);
+  }
+
+  if (!m_blurayMenuRenderer.HasOverlay(0))
+    return;
+
+  CRect source, dest, view;
+  m_pRenderer->GetVideoRect(source, dest, view);
+  m_blurayMenuRenderer.SetVideoRect(source, dest, view);
+  m_blurayMenuRenderer.Render(0);
+
+  // The shared renderer decides whether to composite this layer by counting what was
+  // drawn into it, and the overlay renderer draws without going through CGUITexture
+  CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->IncRenderCount();
 }
 
 bool CRenderDSManager::IsGuiLayer()

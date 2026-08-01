@@ -12,9 +12,17 @@
 
 #include "DSBluraySource.h"
 
+#include "ServiceBroker.h"
+#include "cores/DSPlayer/DSBlurayNavigator.h"
+#include "settings/DiscSettings.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "threads/SingleLock.h"
 #include "utils/CharsetConverter.h"
 #include "utils/log.h"
+#include "utils/XTimeUtils.h"
+
+using namespace std::chrono_literals;
 
 #if defined(HAVE_LIBBLURAY)
 #include <libbluray/bluray.h>
@@ -27,6 +35,24 @@ namespace
 //! Blu-ray aligned unit size. bd_seek() lands on a multiple of this, so a read that
 //! starts mid unit has to skip the remainder.
 constexpr DWORD BLURAY_UNIT_SIZE = 6144;
+
+//! How far back a navigated stream can be read. The splitter reads forwards and only
+//! looks back over the packets it is currently parsing, so this needs to cover a moment
+//! of parsing rather than any real seek.
+constexpr size_t HISTORY_SIZE = 16 * 1024 * 1024;
+
+//! Bytes pulled from the disc in one go when the history window has to grow
+constexpr int PULL_SIZE = 128 * 1024;
+
+//! How far a navigated stream will skip forwards by throwing bytes away. A splitter
+//! probing for the end of the file asks for a position far beyond anything the disc has
+//! played, and reading the whole way there would burn through the disc.
+constexpr LONGLONG MAX_FORWARD_SKIP = 8 * 1024 * 1024;
+
+//! Reported as the distance still to come in navigation mode, where the real length is
+//! not known until the disc has finished deciding what to play. It only has to be large
+//! enough that the splitter treats the stream as unfinished rather than truncated.
+constexpr LONGLONG NAVIGATION_LOOKAHEAD = 256 * 1024 * 1024;
 } // unnamed namespace
 
 CDSBlurayStream::~CDSBlurayStream()
@@ -61,6 +87,14 @@ void CDSBlurayStream::ReportThroughput(DWORD bytesRead, double readMilliseconds)
 
 void CDSBlurayStream::Close()
 {
+  m_navigator.reset();
+  m_history.clear();
+  m_history.shrink_to_fit();
+  m_historyBytes = 0;
+  m_historyEnd = 0;
+  m_produced = 0;
+  m_exhausted = false;
+
 #if defined(HAVE_LIBBLURAY)
   if (m_bd)
   {
@@ -79,11 +113,70 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
   CLog::Log(LOGERROR, "{} - built without libbluray", __FUNCTION__);
   return E_FAIL;
 #else
-  CSingleExit lock(m_lock);
+  std::unique_lock<CCriticalSection> lock(m_lock);
 
   Close();
   m_path = path;
 
+  m_statsSince = std::chrono::steady_clock::now();
+  m_statsBytes = 0;
+  m_statsReads = 0;
+  m_statsSeeks = 0;
+  m_statsSlowestRead = 0.0;
+
+  // Kodi already lets the user say they only ever want the main title. Anything else means
+  // the disc should be allowed to present itself.
+  const int mode =
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DISC_PLAYBACK);
+
+  if (mode != BD_PLAYBACK_MAIN_TITLE && OpenNavigation(path))
+    return S_OK;
+
+  return OpenTitle(path);
+#endif
+}
+
+bool CDSBlurayStream::OpenNavigation(const std::string& path)
+{
+  auto navigator = std::make_unique<CDSBlurayNavigator>();
+  if (!navigator->Open(path))
+    return false;
+
+  m_history.assign(HISTORY_SIZE, 0);
+  m_historyBytes = 0;
+  m_historyEnd = 0;
+  m_produced = 0;
+  m_exhausted = false;
+  m_navigator = std::move(navigator);
+
+  // The splitter inspects the opening bytes before it will connect, so the disc has to have
+  // started playing something before the graph is built. Give it a moment: a disc spends
+  // the first instant loading its menu code, and BD-J discs start a Java VM to do it.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (m_produced == 0 && !m_exhausted && std::chrono::steady_clock::now() < deadline)
+  {
+    if (Pull() == 0)
+      KODI::TIME::Sleep(50ms);
+  }
+
+  if (m_produced == 0)
+  {
+    CLog::Log(LOGERROR, "{} - \"{}\" navigated but produced nothing to play", __FUNCTION__, path);
+    m_navigator.reset();
+    return false;
+  }
+
+  CLog::Log(LOGINFO, "{} - the disc started playing after {} bytes", __FUNCTION__, m_produced);
+
+  CLog::Log(LOGINFO, "{} - reading \"{}\" through its own menus", __FUNCTION__, path);
+  return true;
+}
+
+HRESULT CDSBlurayStream::OpenTitle(const std::string& path)
+{
+#if !defined(HAVE_LIBBLURAY)
+  return E_FAIL;
+#else
   m_bd = bd_open(path.c_str(), nullptr);
   if (!m_bd)
   {
@@ -100,8 +193,8 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
     return E_FAIL;
   }
 
-  // Until title selection is wired to the GUI, play what libbluray considers the main
-  // title, falling back to the longest one when it cannot decide
+  // Play what libbluray considers the main title, falling back to the longest one when it
+  // cannot decide
   int title = bd_get_main_title(m_bd);
   if (title < 0)
   {
@@ -132,21 +225,18 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
   m_position = 0;
   m_bdPosition = 0;
 
-  m_statsSince = std::chrono::steady_clock::now();
-  m_statsBytes = 0;
-  m_statsReads = 0;
-  m_statsSeeks = 0;
-  m_statsSlowestRead = 0.0;
-
-  CLog::Log(LOGINFO, "{} - playing title {} of {}, {} bytes", __FUNCTION__, title, titleCount,
-            m_length);
+  CLog::Log(LOGINFO, "{} - playing title {} of {} directly, {} bytes", __FUNCTION__, title,
+            titleCount, m_length);
   return (m_length > 0) ? S_OK : E_FAIL;
 #endif
 }
 
 HRESULT CDSBlurayStream::SetPointer(LONGLONG llPos)
 {
-  if (llPos < 0 || llPos > m_length)
+  if (llPos < 0)
+    return S_FALSE;
+
+  if (!m_navigator && llPos > m_length)
     return S_FALSE;
 
   // Applied in Read(), so that a seek landing inside an aligned unit can skip forward
@@ -155,32 +245,143 @@ HRESULT CDSBlurayStream::SetPointer(LONGLONG llPos)
   return S_OK;
 }
 
-HRESULT CDSBlurayStream::Read(PBYTE pbBuffer,
-                              DWORD dwBytesToRead,
-                              BOOL bAlign,
-                              LPDWORD pdwBytesRead)
+DWORD CDSBlurayStream::Pull()
+{
+  if (m_exhausted)
+    return 0;
+
+  uint8_t buffer[PULL_SIZE];
+  const int read = m_navigator->Read(buffer, sizeof(buffer));
+  if (read < 0)
+  {
+    CLog::Log(LOGERROR, "{} - the disc reported a read error", __FUNCTION__);
+    m_exhausted = true;
+    return 0;
+  }
+
+  if (read == 0)
+  {
+    // Nothing to read is the normal state of a menu waiting for the viewer, so it only
+    // means the end of the stream when the disc says it has finished
+    if (m_navigator->Finished())
+    {
+      CLog::Log(LOGINFO, "{} - the disc has finished after {} bytes", __FUNCTION__, m_produced);
+      m_exhausted = true;
+    }
+    return 0;
+  }
+
+  // Append to the history window, oldest bytes falling out of the far end
+  size_t offset = 0;
+  size_t remaining = static_cast<size_t>(read);
+  if (remaining > m_history.size())
+  {
+    // Cannot happen while PULL_SIZE is below the window size, but dropping the bytes that
+    // would be overwritten anyway keeps the arithmetic below true
+    offset = remaining - m_history.size();
+    remaining = m_history.size();
+  }
+
+  while (remaining > 0)
+  {
+    const size_t chunk = std::min(remaining, m_history.size() - m_historyEnd);
+    std::copy_n(buffer + offset, chunk, m_history.begin() + m_historyEnd);
+
+    m_historyEnd = (m_historyEnd + chunk) % m_history.size();
+    offset += chunk;
+    remaining -= chunk;
+  }
+
+  m_historyBytes = std::min(m_history.size(), m_historyBytes + static_cast<size_t>(read));
+  m_produced += read;
+  return static_cast<DWORD>(read);
+}
+
+void CDSBlurayStream::CopyFromHistory(LONGLONG position, PBYTE buffer, DWORD length) const
+{
+  // How far back in the window the read starts, counted from the newest byte
+  const size_t back = static_cast<size_t>(m_produced - position);
+  size_t index = (m_historyEnd + m_history.size() - back) % m_history.size();
+
+  DWORD copied = 0;
+  while (copied < length)
+  {
+    const size_t chunk = std::min<size_t>(length - copied, m_history.size() - index);
+    std::copy_n(m_history.begin() + index, chunk, buffer + copied);
+
+    index = (index + chunk) % m_history.size();
+    copied += static_cast<DWORD>(chunk);
+  }
+}
+
+HRESULT CDSBlurayStream::ReadNavigation(PBYTE pbBuffer, DWORD dwBytesToRead, LPDWORD pdwBytesRead)
+{
+  if (dwBytesToRead > m_history.size() / 2)
+  {
+    CLog::Log(LOGERROR, "{} - asked for {} bytes at once, more than the window holds",
+              __FUNCTION__, dwBytesToRead);
+    return E_FAIL;
+  }
+
+  // A navigated disc cannot be rewound, so a read that starts before the window is one we
+  // will never be able to answer
+  if (m_position < m_produced - static_cast<LONGLONG>(m_historyBytes))
+  {
+    CLog::Log(LOGWARNING, "{} - cannot go back to {}, the disc is already at {}", __FUNCTION__,
+              m_position, m_produced);
+    return S_FALSE;
+  }
+
+  if (m_position - m_produced > MAX_FORWARD_SKIP)
+  {
+    // Almost certainly the splitter looking for the end of the file, which a disc that is
+    // still deciding what to play does not have
+    CLog::Log(LOGDEBUG, "{} - refusing to skip forward from {} to {}", __FUNCTION__, m_produced,
+              m_position);
+    return S_FALSE;
+  }
+
+  // Reaching a position the disc has not played yet means reading and discarding until it
+  // gets there
+  while (m_produced < m_position)
+  {
+    if (Pull() == 0)
+      return S_FALSE;
+  }
+
+  while (m_produced < m_position + dwBytesToRead)
+  {
+    if (Pull() == 0)
+      break;
+  }
+
+  const DWORD available =
+      static_cast<DWORD>(std::min<LONGLONG>(dwBytesToRead, m_produced - m_position));
+  if (available > 0)
+  {
+    CopyFromHistory(m_position, pbBuffer, available);
+    m_position += available;
+  }
+
+  if (pdwBytesRead)
+    *pdwBytesRead = available;
+
+  return (available == dwBytesToRead) ? S_OK : S_FALSE;
+}
+
+HRESULT CDSBlurayStream::ReadTitle(PBYTE pbBuffer, DWORD dwBytesToRead, LPDWORD pdwBytesRead)
 {
 #if !defined(HAVE_LIBBLURAY)
   return E_FAIL;
 #else
-  CSingleExit lock(m_lock);
-
-  if (pdwBytesRead)
-    *pdwBytesRead = 0;
-
-  if (!m_bd)
-    return E_FAIL;
-
-  const auto readStarted = std::chrono::steady_clock::now();
-
-  // Reads from the splitter are almost entirely sequential, so only seek when the
-  // stream is not already sitting at the requested position
+  // Reads from the splitter are almost entirely sequential, so only seek when the stream is
+  // not already sitting at the requested position
   if (m_position != m_bdPosition)
   {
     m_statsSeeks++;
 
-    // bd_seek() rounds down to an aligned unit, so read and discard the remainder to
-    // land exactly where the caller asked
+    // bd_seek() rounds down to an aligned unit, so read and discard the remainder to land
+    // exactly where the caller asked
     const int64_t sought = bd_seek(m_bd, static_cast<uint64_t>(m_position));
     if (sought < 0)
       return E_FAIL;
@@ -216,18 +417,60 @@ HRESULT CDSBlurayStream::Read(PBYTE pbBuffer,
   if (pdwBytesRead)
     *pdwBytesRead = done;
 
-  const double readMilliseconds =
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - readStarted)
-          .count();
-  ReportThroughput(done, readMilliseconds);
-
   // A short read at the end of the title is not an error
   return S_OK;
 #endif
 }
 
+HRESULT CDSBlurayStream::Read(PBYTE pbBuffer,
+                              DWORD dwBytesToRead,
+                              BOOL bAlign,
+                              LPDWORD pdwBytesRead)
+{
+  // The reader already holds this through Lock(), but Size() is called from elsewhere and
+  // the section is recursive
+  std::unique_lock<CCriticalSection> lock(m_lock);
+
+  if (pdwBytesRead)
+    *pdwBytesRead = 0;
+
+  if (!m_navigator && !m_bd)
+    return E_FAIL;
+
+  const auto readStarted = std::chrono::steady_clock::now();
+
+  DWORD done = 0;
+  const HRESULT hr = m_navigator ? ReadNavigation(pbBuffer, dwBytesToRead, &done)
+                                 : ReadTitle(pbBuffer, dwBytesToRead, &done);
+
+  if (pdwBytesRead)
+    *pdwBytesRead = done;
+
+  const double readMilliseconds =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - readStarted)
+          .count();
+  ReportThroughput(done, readMilliseconds);
+
+  return hr;
+}
+
 LONGLONG CDSBlurayStream::Size(LONGLONG* pSizeAvailable)
 {
+  // Asked from whichever thread wants to know how long the stream is, while the streaming
+  // thread is still adding to it
+  std::unique_lock<CCriticalSection> lock(m_lock);
+
+  if (m_navigator)
+  {
+    // Only what the disc has played so far exists. Describing the stream as unfinished
+    // rather than as a file of that length stops the splitter treating the end of what we
+    // have as the end of the disc.
+    if (pSizeAvailable)
+      *pSizeAvailable = m_produced;
+
+    return m_exhausted ? m_produced : m_produced + NAVIGATION_LOOKAHEAD;
+  }
+
   if (pSizeAvailable)
     *pSizeAvailable = m_length;
 

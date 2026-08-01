@@ -145,8 +145,9 @@ public:
   virtual float GetSpeed() override;
   virtual bool SupportsTempo() override;
   virtual bool OnAction(const CAction& action) override;
-  virtual bool HasMenu() const override { return g_dsGraph->IsDvd(); };
-  bool IsInMenu() const override { return g_dsGraph->IsInMenu(); };
+  bool HasMenu() const override;
+  bool IsInMenu() const override;
+  MenuType GetSupportedMenuType() const override;
   void GetAudioStreamInfo(int index, AudioStreamInfo& info) const override;
 #if TODO
   virtual bool SwitchChannel(const PVR::CPVRChannelPtr& channel) override;

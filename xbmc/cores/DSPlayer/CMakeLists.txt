@@ -1,4 +1,5 @@
 set(SOURCES ChaptersManager.cpp
+            DSBlurayNavigator.cpp
             DSBlurayProbe.cpp
             DSFilterVersion.cpp
             DSGraph.cpp
@@ -20,6 +21,7 @@ set(SOURCES ChaptersManager.cpp
             subtitles/ILogImpl.cpp)
 
 set(HEADERS ChaptersManager.h
+            DSBlurayNavigator.h
             DSBlurayProbe.h
             DSFilterVersion.h
             DSGraph.h

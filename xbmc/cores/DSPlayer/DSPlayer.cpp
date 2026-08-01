@@ -25,6 +25,7 @@
 #if HAS_DS_PLAYER
 
 #include "DSPlayer.h"
+#include "DSBlurayNavigator.h"
 #include "DSUtil/DSUtil.h" // unload loaded filters
 #include "SComCli.h"
 #include "Filters/RendererSettings.h"
@@ -32,6 +33,8 @@
 #include "windowing/windows/winsystemwin32.h" //Important needed to get the right hwnd
 #include "xbmc/GUIInfoManager.h"
 #include "utils/SystemInfo.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "input/mouse/MouseStat.h"
 #include "settings/Settings.h"
 #include "FileItem.h"
@@ -1064,8 +1067,65 @@ void CDSPlayer::SeekPercentage(float iPercent)
   PostMessage(new CDSMsgDouble(CDSMsg::PLAYER_SEEK_PERCENT, iPercent));
 }
 
+bool CDSPlayer::HasMenu() const
+{
+  return CDSBlurayNavigator::Get() != nullptr || g_dsGraph->IsDvd();
+}
+
+bool CDSPlayer::IsInMenu() const
+{
+  CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+  if (navigator)
+    return navigator->IsInMenu();
+
+  return g_dsGraph->IsInMenu();
+}
+
+MenuType CDSPlayer::GetSupportedMenuType() const
+{
+  // A navigated disc presents its own menus. Saying so is what makes the application route
+  // navigation keys to the player instead of treating them as seeks.
+  return CDSBlurayNavigator::Get() ? MenuType::NATIVE : MenuType::NONE;
+}
+
 bool CDSPlayer::OnAction(const CAction &action)
 {
+  if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+  {
+    if (action.GetID() == ACTION_SHOW_VIDEOMENU)
+      return navigator->ShowMenu();
+
+    // Everything else only belongs to the disc while a menu is up, otherwise the arrow keys
+    // would stop seeking during normal playback
+    if (navigator->IsInMenu())
+    {
+      switch (action.GetID())
+      {
+        case ACTION_PREVIOUS_MENU:
+        case ACTION_NAV_BACK:
+          navigator->OnBack();
+          return true;
+        case ACTION_MOVE_LEFT:
+          navigator->OnLeft();
+          return true;
+        case ACTION_MOVE_RIGHT:
+          navigator->OnRight();
+          return true;
+        case ACTION_MOVE_UP:
+          navigator->OnUp();
+          return true;
+        case ACTION_MOVE_DOWN:
+          navigator->OnDown();
+          return true;
+        case ACTION_SELECT_ITEM:
+          navigator->OnSelect();
+          return true;
+        default:
+          break;
+      }
+    }
+  }
+
 #if TODO
   if (g_dsGraph->IsDvd())
   {

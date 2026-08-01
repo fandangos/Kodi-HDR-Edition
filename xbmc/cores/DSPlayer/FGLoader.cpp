@@ -25,6 +25,7 @@
 #if HAS_DS_PLAYER
 
 #include "FGLoader.h"
+#include "DSBlurayProbe.h"
 #include "DSPlayer.h"
 #include "Filters/RendererSettings.h"
 #include "PixelShaderList.h"
@@ -242,6 +243,10 @@ HRESULT CFGLoader::InsertSourceFilter(CFileItem& pFileItem, const std::string& f
   
   if (!URIUtils::IsInternetStream(pFileItem.GetDynPath(), true))
     StringUtils::Replace(pWinFilePath, "/", "\\");
+
+  // Report what libbluray makes of the disc before the graph is built, so the result is
+  // logged even when the source filter cannot load the file
+  CDSBlurayProbe::Probe(pWinFilePath);
 
   std::wstring strFileW;
   g_charsetConverter.utf8ToW(pWinFilePath, strFileW, false);

@@ -1,4 +1,5 @@
 set(SOURCES ChaptersManager.cpp
+            DSBlurayProbe.cpp
             DSFilterVersion.cpp
             DSGraph.cpp
             DSInputStreamPVRManager.cpp
@@ -19,6 +20,7 @@ set(SOURCES ChaptersManager.cpp
             subtitles/ILogImpl.cpp)
 
 set(HEADERS ChaptersManager.h
+            DSBlurayProbe.h
             DSFilterVersion.h
             DSGraph.h
             DSInputStreamPVRManager.h

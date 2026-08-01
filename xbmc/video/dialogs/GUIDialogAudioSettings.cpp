@@ -396,10 +396,10 @@ void CGUIDialogAudioSettings::AudioStreamsOptionFiller(const SettingConstPtr& se
     textInfo += std::to_string(info.channels) + " " + channelsLabel + ")";
 
     textInfo += FormatFlags(info.flags);
-    textInfo += StringUtils::Format(" ({}/{})", i + 1, audioStreamCount);
-    list.emplace_back(textInfo, i);
-	
+
 #if HAS_DS_PLAYER
+    // DSPlayer stream names already carry language, codec and channel layout, so use the
+    // name verbatim instead of the generic description composed above
     if (CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->GetCurrentPlayer() == "DSPlayer")
       textInfo = info.name;
 #endif

@@ -421,7 +421,9 @@ void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(
     strItem += FormatFlags(info.flags);
 
 #if HAS_DS_PLAYER
-    if (g_application.GetCurrentPlayer() == "DSPlayer")
+    // Only override when the player actually gave us a name, otherwise keep the
+    // language based label composed above
+    if (g_application.GetCurrentPlayer() == "DSPlayer" && !info.name.empty())
       strItem = info.name;
 #endif
 

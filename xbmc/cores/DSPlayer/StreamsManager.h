@@ -197,6 +197,11 @@ public:
    * @param[out] strStreamName Name of the iStream audio stream
    */
   void GetAudioStreamName(int iStream, std::string &strStreamName);
+  /** Get the ISO 639 language code of an audio stream
+   * @param[in] iStream Index of the audio stream to get the language of
+   * @param[out] strStreamLang ISO 639 code of the iStream audio stream, empty if unknown
+   */
+  void GetAudioStreamLanguage(int iStream, std::string &strStreamLang);
   /** Change the current audio stream
    * @param[in] iStream Index of the audio stream
    * @remarks If the IAMStreamSelect interface wasn't found, the graph must be stopped and restarted in order to change the audio stream

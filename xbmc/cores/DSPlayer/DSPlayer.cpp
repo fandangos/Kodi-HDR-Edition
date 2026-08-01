@@ -508,7 +508,9 @@ void CDSPlayer::GetAudioStreamInfo(int index, AudioStreamInfo& info) const
   info.bitrate = (CStreamsManager::Get()) ? CStreamsManager::Get()->GetBitsPerSample(index) : 0;
   info.codecName = (CStreamsManager::Get()) ? CStreamsManager::Get()->GetAudioCodecName(index) : "";
   if (CStreamsManager::Get()) CStreamsManager::Get()->GetAudioStreamName(index, strStreamName);
-  info.language = strStreamName;
+  // language must hold an ISO 639 code, not the displayname. The GUI resolves it through
+  // g_LangCodeExpander and falls back to "Unknown" whenever the lookup fails
+  if (CStreamsManager::Get()) CStreamsManager::Get()->GetAudioStreamLanguage(index, info.language);
   info.channels = (CStreamsManager::Get()) ? CStreamsManager::Get()->GetChannels(index) : 0;
   info.samplerate = (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSampleRate(index) : 0;
   codecname = (CStreamsManager::Get()) ? CStreamsManager::Get()->GetAudioCodecDisplayName(index) : "";

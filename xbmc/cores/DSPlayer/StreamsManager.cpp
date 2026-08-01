@@ -177,6 +177,28 @@ void CStreamsManager::GetAudioStreamName(int iStream, std::string &strStreamName
   }
 }
 
+void CStreamsManager::GetAudioStreamLanguage(int iStream, std::string &strStreamLang)
+{
+  if (m_audioStreams.size() == 0)
+    return;
+
+  int i = 0;
+  for (std::vector<CDSStreamDetailAudio *>::const_iterator it = m_audioStreams.begin();
+    it != m_audioStreams.end(); ++it, i++)
+  {
+    if (i == iStream && (*it)->lcid)
+    {
+      wchar_t buffer[64];
+      int len = 0;
+      if (len = GetLocaleInfo((*it)->lcid, LOCALE_SISO639LANGNAME, buffer, 64))
+      {
+        strStreamLang = WToA(buffer);
+        strStreamLang.resize(len - 1); //get rid of last \0
+      }
+    }
+  }
+}
+
 void CStreamsManager::GetVideoStreamName(std::string &strStreamName)
 {
     strStreamName = m_videoStream.displayname;
@@ -670,6 +692,13 @@ void CStreamsManager::LoadStreams()
   SubtitleManager->Initialize();
   if (!SubtitleManager->Ready())
   {
+    // No subtitle renderer is available, either because no subtitle filter was added to
+    // the graph or because the internal subtitle manager could not be created (it is not
+    // implemented for the madVR renderer). Nothing could be drawn, so the streams
+    // collected above are dropped instead of offering tracks that would never show up.
+    CLog::Log(LOGWARNING, "{} No subtitle renderer available, subtitles are disabled for this file. "
+                          "Add a subtitle filter such as XySubFilter to the matching rule in "
+                          "mediasconfig.xml to enable subtitle support", __FUNCTION__);
     SubtitleManager->Unload();
     return;
   }
@@ -724,9 +753,12 @@ void CStreamsManager::GetSubtitleInfo(int iStream, SubtitleStreamInfo& strStream
 {
   if (!m_bHasSubsFilter)
   {
-    std::string strStreamLang;//useless
+    std::string strStreamLang;
     //if -1 its current stream which mean we get the stream which as the used flag
     SubtitleManager->GetSubtitleName(iStream, strStreamName.name, strStreamLang);
+    // The ISO language is needed by the GUI to resolve a readable language, otherwise
+    // every subtitle ends up labelled "Unknown"
+    strStreamName.language = strStreamLang;
     return;
   }
 

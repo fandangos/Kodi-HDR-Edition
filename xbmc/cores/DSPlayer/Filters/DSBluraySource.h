@@ -40,6 +40,12 @@
 struct bluray;
 class CDSBlurayNavigator;
 
+//! Name this filter is registered and selected by, see FilterCoreFactory and
+//! mediasconfig.xml. Unlike every other source filter this one is given Kodi's own path
+//! rather than a Windows one, because navigating a disc reads it through Kodi's virtual
+//! file system, which is the only thing that can reach a network share the way Kodi does.
+constexpr const char* INTERNAL_BLURAY_SOURCE = "internal_bluraysource";
+
 /*!
  * \brief Exposes a Blu-ray as a byte stream the splitter can demux
  */

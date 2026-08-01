@@ -26,6 +26,7 @@
 
 #include "FGLoader.h"
 #include "DSBlurayProbe.h"
+#include "Filters/DSBluraySource.h"
 #include "DSPlayer.h"
 #include "Filters/RendererSettings.h"
 #include "PixelShaderList.h"
@@ -248,8 +249,14 @@ HRESULT CFGLoader::InsertSourceFilter(CFileItem& pFileItem, const std::string& f
   // logged even when the source filter cannot load the file
   CDSBlurayProbe::Probe(pWinFilePath);
 
+  // Our Blu-ray source reads the disc through Kodi rather than opening the file itself, so
+  // it wants the path Kodi uses. Everything else is a DirectShow filter that can only open
+  // a Windows path.
+  const bool wantsKodiPath = (filterName == INTERNAL_BLURAY_SOURCE);
+
   std::wstring strFileW;
-  g_charsetConverter.utf8ToW(pWinFilePath, strFileW, false);
+  g_charsetConverter.utf8ToW(wantsKodiPath ? pFileItem.GetDynPath() : pWinFilePath, strFileW,
+                             false);
   SFilterInfos infos;
   try // Load() may crash on bad designed codec. Prevent XBMC to hang
   {

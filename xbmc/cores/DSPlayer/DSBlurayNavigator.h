@@ -29,6 +29,7 @@
 #include "cores/VideoPlayer/IVideoPlayer.h"
 #include "threads/CriticalSection.h"
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -98,7 +99,14 @@ public:
   void OnLeft();
   void OnRight();
   void OnSelect();
-  bool IsInMenu();
+  /*!
+   * \brief Whether a menu is on screen
+   *
+   * Answered from a cached flag rather than by asking the disc. The interface polls this
+   * constantly, and the disc is held by whichever read is in progress, so asking directly
+   * would leave the interface waiting on disc reads.
+   */
+  bool IsInMenu() const { return m_inMenu; }
   /*! \} */
 
   /*!
@@ -128,9 +136,14 @@ private:
   int64_t m_produced{0};
   bool m_finished{false};
 
-  //! A still is the disc holding one picture and sending nothing, which is exactly what a
-  //! menu waiting for the viewer looks like. Discs also use timed stills to pause between
-  //! pieces of the opening sequence, and those have to expire on their own.
+  //! Kept in step by the thread reading the disc, so the interface can ask without taking
+  //! the lock that reads are holding
+  std::atomic<bool> m_inMenu{false};
+
+  //! A still is the disc holding one picture and sending nothing. Only menus drawn over a
+  //! fixed background arrive this way: a menu with moving video behind it is an ordinary
+  //! playlist that loops, and its data flows like anything else. Discs also use timed
+  //! stills to pause between pieces of the opening sequence, and those expire on their own.
   bool m_still{false};
   bool m_stillIsIndefinite{false};
   std::chrono::steady_clock::time_point m_stillUntil{};

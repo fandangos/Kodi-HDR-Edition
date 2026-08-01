@@ -14,6 +14,8 @@
 
 #include "ServiceBroker.h"
 #include "cores/DSPlayer/DSBlurayNavigator.h"
+#include "cores/DSPlayer/Utils/DSFileUtils.h"
+#include "utils/StringUtils.h"
 #include "settings/DiscSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -172,11 +174,16 @@ bool CDSBlurayStream::OpenNavigation(const std::string& path)
   return true;
 }
 
-HRESULT CDSBlurayStream::OpenTitle(const std::string& path)
+HRESULT CDSBlurayStream::OpenTitle(const std::string& kodiPath)
 {
 #if !defined(HAVE_LIBBLURAY)
   return E_FAIL;
 #else
+  // Reading a title directly means libbluray opens the file itself, and it can only do that
+  // with a path Windows understands
+  std::string path = CDSFile::SmbToUncPath(kodiPath);
+  StringUtils::Replace(path, "/", "\\");
+
   m_bd = bd_open(path.c_str(), nullptr);
   if (!m_bd)
   {

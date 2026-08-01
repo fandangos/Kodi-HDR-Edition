@@ -14,15 +14,20 @@
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlay.h"
 #include "cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h"
+#include "utils/XTimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
 
 namespace
 {
-//! A disc that neither produces data nor finishes is stuck. Bail out of the read rather
-//! than spinning forever on the graph's streaming thread.
-constexpr int MAX_HOLD_ATTEMPTS = 32;
+//! How long to wait each time the disc has nothing to give before asking it again
+constexpr auto HOLD_WAIT = std::chrono::milliseconds(20);
+
+//! How many of those waits to sit through before letting the caller have an empty read.
+//! A menu can hold its picture indefinitely, so this is not an error, it just puts a bound
+//! on how long one read occupies the graph's streaming thread.
+constexpr int MAX_HOLD_ATTEMPTS = 10;
 } // unnamed namespace
 
 CDSBlurayNavigator* CDSBlurayNavigator::m_instance = nullptr;
@@ -114,8 +119,10 @@ bool CDSBlurayNavigator::ReleaseHold()
       return true;
 
     case CDVDInputStream::NEXTSTREAM_RETRY:
-      // A still. Skipping it would walk straight past the menu it is holding the picture
-      // for, so the only still we end early is one the disc gave a time limit to.
+      // A still. Skipping it would walk straight past whatever it is holding the picture
+      // for, a menu included, so the only still ended early is one the disc gave a time
+      // limit to. Menus with moving backgrounds never come through here at all, they are
+      // playlists that loop and their holds are the loop points below.
       if (!m_stillIsIndefinite && std::chrono::steady_clock::now() >= m_stillUntil)
       {
         CLog::Log(LOGDEBUG, "{} - timed still expired", __FUNCTION__);
@@ -135,7 +142,7 @@ bool CDSBlurayNavigator::ReleaseHold()
 
 void CDSBlurayNavigator::EndStill()
 {
-  if (!m_still && !m_input)
+  if (!m_input)
     return;
 
   m_input->SkipStill();
@@ -144,14 +151,16 @@ void CDSBlurayNavigator::EndStill()
 
 int CDSBlurayNavigator::Read(uint8_t* buffer, int size)
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-
-  if (!m_input)
-    return -1;
-
   for (int attempt = 0; attempt < MAX_HOLD_ATTEMPTS; ++attempt)
   {
+    std::unique_lock<CCriticalSection> lock(m_lock);
+
+    if (!m_input)
+      return -1;
+
     const int read = m_input->Read(buffer, size);
+    m_inMenu = m_input->IsInMenu();
+
     if (read > 0)
     {
       // Whatever the disc was holding for is over. Forgetting the terms of that still
@@ -168,13 +177,21 @@ int CDSBlurayNavigator::Read(uint8_t* buffer, int size)
       return read;
 
     // Nothing came back, so either the disc is between things and needs letting on, or it
-    // is deliberately sitting still and there is nothing to wait for
-    if (!ReleaseHold())
+    // is deliberately sitting still with nothing to give
+    if (ReleaseHold())
+      continue;
+
+    if (m_finished)
       return 0;
+
+    // The disc is holding a fixed picture and will send nothing until the viewer chooses.
+    // Wait with the lock released: returning straight away would have the graph ask again
+    // immediately and spin, which starves every other thread that needs the disc, the
+    // interface included, until Windows declares the application hung.
+    lock.unlock();
+    KODI::TIME::Sleep(HOLD_WAIT);
   }
 
-  CLog::Log(LOGWARNING, "{} - disc produced nothing after {} attempts", __FUNCTION__,
-            MAX_HOLD_ATTEMPTS);
   return 0;
 }
 
@@ -188,12 +205,6 @@ bool CDSBlurayNavigator::ShowMenu()
 {
   std::unique_lock<CCriticalSection> lock(m_lock);
   return m_input && m_input->OnMenu();
-}
-
-bool CDSBlurayNavigator::IsInMenu()
-{
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  return m_input && m_input->IsInMenu();
 }
 
 void CDSBlurayNavigator::OnBack()

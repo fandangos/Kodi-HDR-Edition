@@ -17,11 +17,17 @@
 
     <!-- DVD RULES -->
     <!-- Iso still return a crash on this filter. -->
+    <!-- Blu-ray images expose their PGS tracks through the splitter, so unlike the
+         dvd rules below this one does need a subtitle filter. -->
     <rule filetypes="iso">
-      <source filter="lavfsplitter" />
-      <splitter filter="avsource" />
+      <!-- Read the disc through libbluray rather than letting the splitter open the
+           image itself. libbluray uses the disc's own title list and copes with images
+           the splitter cannot open at all. -->
+      <source filter="internal_bluraysource" />
+      <splitter filter="lavf_splitter" />
       <video filter="lavvideodec" />
       <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <!-- If you want to play a dvd select the file /dvdfolder/VIDEO_TS/VIDEO_TS.ifo -->
     <rule filetypes="ifo">

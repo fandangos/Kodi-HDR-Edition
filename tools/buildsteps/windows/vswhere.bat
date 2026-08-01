@@ -37,14 +37,24 @@ IF "%arch%" NEQ "x64" (
 
 SET vswhere="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 
-FOR /f "usebackq tokens=1* delims=" %%i in (`%vswhere% -latest -property installationPath`) do (
+REM Prefer the newest VS we are known to build against (2017-2022), so that a side by side
+REM install of a newer VS does not silently switch the toolset. Fall back to whatever is
+REM latest when no supported version is present.
+SET vsrange=-version "[15.0,18.0)"
+FOR /f "usebackq tokens=1 delims=." %%i in (`%vswhere% -latest %vsrange% -property installationVersion`) do SET vsmajor=%%i
+IF "%vsmajor%"=="" SET vsrange=
+
+REM Newer installs (VS 2026 and up) no longer carry the year in the install path,
+REM so derive the version from the major of installationVersion instead
+FOR /f "usebackq tokens=1 delims=." %%i in (`%vswhere% -latest %vsrange% -property installationVersion`) do SET vsmajor=%%i
+
+FOR /f "usebackq tokens=1* delims=" %%i in (`%vswhere% -latest %vsrange% -property installationPath`) do (
   IF EXIST "%%i\VC\Auxiliary\Build\vcvarsall.bat" (
     SET vcvars="%%i\VC\Auxiliary\Build\vcvarsall.bat"
     SET vsver=15 2017
-    ECHO %%i | findstr "2019" >NUL 2>NUL
-    IF NOT ERRORLEVEL 1 SET vsver=16 2019
-    ECHO %%i | findstr "2022" >NUL 2>NUL
-    IF NOT ERRORLEVEL 1 SET vsver=17 2022
+    IF "%vsmajor%"=="16" SET vsver=16 2019
+    IF "%vsmajor%"=="17" SET vsver=17 2022
+    IF "%vsmajor%"=="18" SET vsver=18 2026
   )
 )
 

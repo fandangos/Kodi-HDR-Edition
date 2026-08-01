@@ -92,9 +92,11 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SAFESEH:NO")
 link_directories(${DEPENDS_PATH}/lib)
 
 # Additional libraries
+# runtimeobject.lib provides the WinRT activation entrypoints (RoGetActivationFactory and
+# friends) pulled in by the C++/WinRT based sinks, eg Sinks/windows/AESinkFactoryWinRT.cpp
 list(APPEND DEPLIBS bcrypt.lib d3d11.lib DInput8.lib DSound.lib winmm.lib Mpr.lib Iphlpapi.lib WS2_32.lib
                     PowrProf.lib setupapi.lib Shlwapi.lib dwmapi.lib dxguid.lib DelayImp.lib version.lib
-                    crypt32.lib Comctl32.lib)
+                    crypt32.lib Comctl32.lib runtimeobject.lib)
 
 # NODEFAULTLIB option
 set(_nodefaultlibs_RELEASE libcmtd)

@@ -84,6 +84,44 @@ public:
    * asked to.
    */
   void StopRenderingIntoDirectShow();
+
+  /*!
+   * \brief Join the handshake above for one piece of drawing
+   *
+   * Returns false when the graph is going away, and then the caller must not touch the
+   * renderer's shared surfaces at all. While it returns true the caller is counted as
+   * drawing, and StopRenderingIntoDirectShow() waits for that count to reach zero. Anything
+   * on the application thread that reaches into the video renderer needs this, not just
+   * Render(): a Blu-ray rebuilding its graph closes from another thread while this one is
+   * still rendering frames.
+   *
+   * Prefer the scoped CDrawingIntoDirectShow below to calling these directly.
+   */
+  bool EnterRenderingIntoDirectShow();
+  void LeaveRenderingIntoDirectShow();
+
+  //! Scoped form of Enter/LeaveRenderingIntoDirectShow. Test it: if (!drawing) return;
+  class CDrawingIntoDirectShow
+  {
+  public:
+    explicit CDrawingIntoDirectShow(CRenderDSManager& manager)
+      : m_manager(manager), m_entered(manager.EnterRenderingIntoDirectShow())
+    {
+    }
+    ~CDrawingIntoDirectShow()
+    {
+      if (m_entered)
+        m_manager.LeaveRenderingIntoDirectShow();
+    }
+    CDrawingIntoDirectShow(const CDrawingIntoDirectShow&) = delete;
+    CDrawingIntoDirectShow& operator=(const CDrawingIntoDirectShow&) = delete;
+    explicit operator bool() const { return m_entered; }
+
+  private:
+    CRenderDSManager& m_manager;
+    const bool m_entered;
+  };
+
   bool Flush();
   bool IsConfigured() const;
   void ToggleDebug();

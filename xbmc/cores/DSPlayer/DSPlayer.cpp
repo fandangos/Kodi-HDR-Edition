@@ -442,7 +442,18 @@ bool CDSPlayer::CloseFile(bool reopen)
   // closes the player more than once, and the disc has to survive every one of them. The
   // open clears it once the new player is truly under way.
   if (!m_keepDiscOpen)
+  {
+    // This close is the end of the disc, not a step towards its next programme. Ending the
+    // session shuts BD-J down, and a disc being shut down leaves its playlist like any other
+    // move - which the graph management thread would answer by opening the disc all over
+    // again, so pressing stop started the film instead of ending it. Stop asking the disc
+    // what it wants before it is touched, and drop anything it asked for on the way in.
+    if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+      navigator->SuspendProgrammeChanges();
+    TakeDiscProgrammeChanged();
+
     CDSBlurayNavigator::EndSession();
+  }
 
   // zoom
   if (m_pAllocatorCallback)
@@ -469,8 +480,19 @@ bool CDSPlayer::CloseFile(bool reopen)
   // Telling the application playback has ended sets its own teardown in motion, which runs
   // a second close alongside this one. When the close is only making way for the programme
   // the disc moved to, playback has not ended at all.
+  //
+  // "Ended" and "stopped" are not interchangeable: ended means the file reached its end, and
+  // Kodi answers it by opening whatever comes next - which for a disc opened on its own is
+  // the same disc again, so pressing stop started it over from first play. Only a close that
+  // finds the graph at the end of its stream has ended; every other one is a stop. This is
+  // the rule the dead `#if TODO` block in OnExit already spells out, on the path that runs.
   if (!m_keepDiscOpen)
-    m_callback.OnPlayBackEnded();
+  {
+    if (m_bEof)
+      m_callback.OnPlayBackEnded();
+    else
+      m_callback.OnPlayBackStopped();
+  }
 
   // stop the rendering on dsplayer device
   m_renderOnDs = false;
@@ -2158,21 +2180,42 @@ void CDSPlayer::Reset(bool bForceWindowed)
 }
 
 // IDSRendererPaintCallback
+//
+// All four run on the application thread, every frame, and go straight into the surfaces the
+// video renderer shares with madVR. Closing the graph destroys the renderer and those
+// surfaces, so each has to join the same handshake CRenderDSManager::Render does - a null
+// check on m_pPaintCallback is not enough, because the callback can be unregistered and the
+// object destroyed between the test and the call. A Blu-ray rebuilding its graph does
+// exactly that: it closes from the graph management thread while this one keeps rendering,
+// and the crash lands in CMadvrSharedRender::BeginRender on freed textures.
 void CDSPlayer::BeginRender()
 {
+  CRenderDSManager::CDrawingIntoDirectShow drawing(m_renderManager);
+  if (!drawing)
+    return;
+
   if (m_pPaintCallback && ReadyDS())
     m_pPaintCallback->BeginRender();
 }
 
 void CDSPlayer::RenderToTexture(DS_RENDER_LAYER layer)
 {
+  CRenderDSManager::CDrawingIntoDirectShow drawing(m_renderManager);
+  if (!drawing)
+    return;
+
   if (m_pPaintCallback && ReadyDS())
     m_pPaintCallback->RenderToTexture(layer);
 }
 
 void CDSPlayer::EndRender()
 {
+  // Not part of the handshake: this only clears Kodi's own back buffer
   m_renderManager.EndRender();
+
+  CRenderDSManager::CDrawingIntoDirectShow drawing(m_renderManager);
+  if (!drawing)
+    return;
 
   if (m_pPaintCallback && ReadyDS())
     m_pPaintCallback->EndRender();
@@ -2180,6 +2223,10 @@ void CDSPlayer::EndRender()
 
 void CDSPlayer::IncRenderCount()
 {
+  CRenderDSManager::CDrawingIntoDirectShow drawing(m_renderManager);
+  if (!drawing)
+    return;
+
   if (m_pPaintCallback && ReadyDS())
     m_pPaintCallback->IncRenderCount();
 }
@@ -2350,15 +2397,24 @@ void CGraphManagementThread::Process()
     if (CDSPlayer::PlayerState == DSPLAYER_CLOSED)
       break;
 
-    // The disc decides what plays; when it moves to another programme the graph has to be
-    // built again around it, and this is the thread that can do it without holding up
-    // either the interface or the disc.
-    if (CDSPlayer::TakeDiscProgrammeChanged())
-      m_pPlayer->RebuildGraphForDisc();
+    // Nothing the disc asks for may be acted on once the player is on its way out. A stop
+    // ends the disc session, the disc answers by leaving its playlist, and answering *that*
+    // by rebuilding the graph is what made stop restart the film rather than end it.
+    const bool closing = CDSPlayer::PlayerState == DSPLAYER_CLOSING ||
+                         CDSPlayer::PlayerState == DSPLAYER_CLOSED;
 
-    // Smaller things a disc's menu can ask for, which the graph survives: a chapter, a
-    // language, subtitles on or off
-    m_pPlayer->ApplyWhatTheDiscAsked();
+    if (!closing)
+    {
+      // The disc decides what plays; when it moves to another programme the graph has to be
+      // built again around it, and this is the thread that can do it without holding up
+      // either the interface or the disc.
+      if (CDSPlayer::TakeDiscProgrammeChanged())
+        m_pPlayer->RebuildGraphForDisc();
+
+      // Smaller things a disc's menu can ask for, which the graph survives: a chapter, a
+      // language, subtitles on or off
+      m_pPlayer->ApplyWhatTheDiscAsked();
+    }
 
     // This loop had no pause of its own and span flat out whenever the player was not in
     // its steady state, which starved the very threads a teardown waits for

@@ -83,17 +83,24 @@ void CMadvrSharedRender::BeginRender()
   // Lock madVR thread while kodi rendering
   m_dsWait.Lock();
 
-  // Clear RenderTarget
-  ID3D11RenderTargetView* pSurface11;
+  // Clear RenderTarget. CreateRenderTargetView leaves the pointer alone when it fails, so it
+  // starts null and is only used once it has actually been given something - a texture that
+  // has gone away otherwise means clearing and releasing whatever the stack happened to hold.
+  ID3D11RenderTargetView* pSurface11 = nullptr;
   ID3D11DeviceContext* pContext = DX::DeviceResources::Get()->GetD3DContext();
 
-  m_pD3DDeviceKodi->CreateRenderTargetView(m_pKodiUnderTexture, NULL, &pSurface11);
-  pContext->ClearRenderTargetView(pSurface11, m_fColor);
-  pSurface11->Release();
+  if (SUCCEEDED(m_pD3DDeviceKodi->CreateRenderTargetView(m_pKodiUnderTexture, NULL, &pSurface11)) && pSurface11)
+  {
+    pContext->ClearRenderTargetView(pSurface11, m_fColor);
+    pSurface11->Release();
+    pSurface11 = nullptr;
+  }
 
-  m_pD3DDeviceKodi->CreateRenderTargetView(m_pKodiOverTexture, NULL, &pSurface11);
-  pContext->ClearRenderTargetView(pSurface11, m_fColor);
-  pSurface11->Release();
+  if (SUCCEEDED(m_pD3DDeviceKodi->CreateRenderTargetView(m_pKodiOverTexture, NULL, &pSurface11)) && pSurface11)
+  {
+    pContext->ClearRenderTargetView(pSurface11, m_fColor);
+    pSurface11->Release();
+  }
 
   // Reset RenderCount
   ResetRenderCount();
@@ -104,11 +111,15 @@ void CMadvrSharedRender::RenderToTexture(DS_RENDER_LAYER layer)
   m_currentVideoLayer = layer;
 
   ID3D11DeviceContext* pContext = DX::DeviceResources::Get()->GetD3DContext();
-  ID3D11RenderTargetView* pSurface11;
+  ID3D11RenderTargetView* pSurface11 = nullptr;
 
-  m_pD3DDeviceKodi->CreateRenderTargetView(layer == RENDER_LAYER_UNDER ? m_pKodiUnderTexture : m_pKodiOverTexture, NULL, &pSurface11);
-  pContext->OMSetRenderTargets(1, &pSurface11, 0);
-  pSurface11->Release();
+  if (SUCCEEDED(m_pD3DDeviceKodi->CreateRenderTargetView(
+          layer == RENDER_LAYER_UNDER ? m_pKodiUnderTexture : m_pKodiOverTexture, NULL, &pSurface11)) &&
+      pSurface11)
+  {
+    pContext->OMSetRenderTargets(1, &pSurface11, 0);
+    pSurface11->Release();
+  }
 }
 
 void CMadvrSharedRender::EndRender()

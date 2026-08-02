@@ -320,6 +320,30 @@ void CRenderDSManager::StopRenderingIntoDirectShow()
             __FUNCTION__, m_rendering.load());
 }
 
+bool CRenderDSManager::EnterRenderingIntoDirectShow()
+{
+  if (m_closingDown)
+    return false;
+
+  m_rendering++;
+
+  // The close can land between the test above and the count, and whoever is closing is
+  // already waiting on that count - so look again rather than let this one slip through
+  // behind their back.
+  if (m_closingDown)
+  {
+    m_rendering--;
+    return false;
+  }
+
+  return true;
+}
+
+void CRenderDSManager::LeaveRenderingIntoDirectShow()
+{
+  m_rendering--;
+}
+
 void CRenderDSManager::UnInit()
 {
 #if TODO
@@ -424,15 +448,9 @@ void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
   // Everything below draws through the video renderer's shared surfaces. Once the graph is
   // being taken down those are being destroyed, and drawing into them keeps the renderer
   // from finishing - which is a deadlock, since the thread destroying it is waiting here.
-  if (m_closingDown)
+  CDrawingIntoDirectShow drawing(*this);
+  if (!drawing)
     return;
-
-  m_rendering++;
-  struct LeaveRender
-  {
-    std::atomic<int>& count;
-    ~LeaveRender() { count--; }
-  } leaveRender{m_rendering};
 
   CSingleExit exitLock(CServiceBroker::GetWinSystem()->GetGfxContext());
 

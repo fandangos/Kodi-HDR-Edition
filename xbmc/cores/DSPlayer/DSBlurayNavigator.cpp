@@ -491,6 +491,14 @@ bool CDSBlurayNavigator::InMainMenu() const
   return input && input->IsInMainMenu();
 }
 
+int CDSBlurayNavigator::PlaylistDuration() const
+{
+  // The input stream reads the playlist's own information whenever the disc announces a new
+  // one, so this follows the disc around without asking libbluray anything here
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  return input ? input->GetTotalTime() : 0;
+}
+
 void CDSBlurayNavigator::Abort()
 {
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())

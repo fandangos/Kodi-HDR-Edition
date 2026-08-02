@@ -128,6 +128,16 @@ public:
   bool InMainMenu() const;
 
   /*!
+   * \brief How long the playlist the disc is on runs for, in milliseconds, 0 when unknown
+   *
+   * Tells a programme from the transit clips a disc passes through on its way to one. Only
+   * the first is worth taking away from the disc and playing on its own; doing that to a
+   * transit clip strands the disc on it, because a disc only moves while it is read and
+   * nothing reads it in that mode.
+   */
+  int PlaylistDuration() const;
+
+  /*!
    * rief Whether the disc currently has menu graphics on screen
    *
    * The honest answer to "is the viewer looking at a menu", and the one to use for deciding

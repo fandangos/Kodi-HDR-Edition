@@ -867,6 +867,14 @@ void CDSPlayer::Process()
   // Start playback
   // If there's an error, the lock must be released in order to show the error dialog
   CLog::Log(LOGDEBUG, "{} - graph built, releasing the thread that opened the file", __FUNCTION__);
+
+  // The splitter has finished scanning the stream and is demuxing it, so let the disc off the
+  // hold that kept the start of the stream where the splitter could go back to it. Everything
+  // below -- choosing streams, madVR bringing its device up, the retries that follow -- takes
+  // seconds, and the splitter spends them reading the disc: held any longer it reaches the end
+  // of the hold, is told the stream is short, and takes that for the end of the film.
+  CDSBlurayStream::NoteGraphBuilt();
+
   m_hReadyEvent.Set();
 
   if (PlayerState != DSPLAYER_ERROR)
@@ -923,16 +931,15 @@ void CDSPlayer::Process()
       g_dsGraph->UpdateState();
 
       if (PlayerState == DSPLAYER_PLAYING)
-      {
-        // The disc has been held near where this programme started so the splitter could go
-        // back to the beginning to play it. It has, so let the disc run on.
-        CDSBlurayStream::NoteGraphRunning();
         break;
-      }
 
       CLog::Log(LOGDEBUG, "{} - the graph is not running yet (state {}), asking again",
                 __FUNCTION__, static_cast<int>(PlayerState));
     }
+
+    // Already done above for a disc that got this far, and here for anything that reached
+    // playback another way
+    CDSBlurayStream::NoteGraphRunning();
 
     if (CGraphFilters::Get()->IsDVD())
       CStreamsManager::Get()->LoadDVDStreams();

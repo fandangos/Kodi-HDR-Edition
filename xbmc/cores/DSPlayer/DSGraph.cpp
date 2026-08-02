@@ -481,6 +481,16 @@ HRESULT CDSGraph::HandleGraphEvent()
       // whatever the disc plays next.
       if (CDSBlurayNavigator::Get() && !CDSBlurayNavigator::Get()->Finished())
       {
+        // Except that keeping it moving means reading it, and a playlist being played on its
+        // own is read from a handle of its own: the disc itself is not being read at all, so
+        // nothing here can move it. It has to go back to its own navigation to get any
+        // further, which is a rebuild.
+        if (CDSBlurayStream::HandBackToTheDisc())
+        {
+          CDSPlayer::NoteDiscProgrammeChanged();
+          break;
+        }
+
         CDSBlurayStream::FollowTheDisc();
         break;
       }

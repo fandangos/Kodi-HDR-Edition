@@ -89,14 +89,39 @@ public:
   static void FollowTheDisc();
 
   /*!
-   * rief The graph is running, so the disc may be read on past its opening bytes
+   * rief The graph is built, so the disc may be read on past its opening bytes
    *
    * A splitter reads forward through the stream while it works out what is in it, and then
    * goes back to the beginning to play it. A navigated disc cannot be rewound, so the
-   * beginning has to still be in the window when it comes back for it: until playback is
-   * under way the disc is held near its start, however far ahead the splitter reads.
+   * beginning has to still be in the window when it comes back for it, and until the splitter
+   * has finished scanning the disc is held near its start however far ahead it reads.
+   *
+   * The hold is expressed to the splitter as a short read, which is how this interface says
+   * the stream has ended -- so it has to be lifted the moment the splitter stops scanning and
+   * starts demuxing, which is when the graph is built. From then on the only thing keeping the
+   * opening bytes reachable is READAHEAD, which holds the disc close behind the splitter
+   * anyway, and a rewind further back than the window reaches would say so in the log.
+   */
+  static void NoteGraphBuilt();
+
+  /*!
+   * rief Playback has started
+   *
+   * Lifts the same hold, for any path that reaches here without the graph having been
+   * announced as built.
    */
   static void NoteGraphRunning();
+
+  /*!
+   * rief Give a stranded playlist back to the disc's own navigation
+   * eturn true when the disc was stranded and the graph should be rebuilt
+   *
+   * A playlist taken away and played directly comes to an end, and the disc that chose it is
+   * still sitting exactly where it was: a disc only moves while it is read, and in this mode
+   * nothing reads it. It can never reach whatever it was leading to. Played through
+   * navigation instead, reading it is what carries the disc on.
+   */
+  static bool HandBackToTheDisc();
 
   /*!
    * rief Whether what is playing is a playlist read directly, rather than the disc's own
@@ -121,9 +146,16 @@ private:
 
   /*!
    * \brief Start the disc in navigation mode
+   * \param following A playlist the caller has already found the disc to be on and decided
+   *                  should play, or 0 to let the disc settle first
    * \return true when the disc is running its own menus
+   *
+   * Settling means reading the disc until it stops changing its mind, and a disc is read far
+   * faster than it plays. That is the right price for finding out where a disc is heading,
+   * and the wrong one when the caller has just looked and knows: a transit clip is seconds
+   * long, and settling on it would throw away most of it before a frame was shown.
    */
-  bool OpenNavigation(const std::string& path);
+  bool OpenNavigation(const std::string& path, uint32_t following = 0);
 
   /*!
    * rief Read one playlist of the disc directly, from its beginning
@@ -194,14 +226,17 @@ private:
   std::atomic<bool> m_producerStop{false};
   //! Read the disc onwards even though the splitter is no longer keeping up, see FollowTheDisc
   std::atomic<bool> m_followDisc{false};
-  //! Whether playback has started; until it has, the disc is held near its opening bytes so
-  //! the splitter can go back to them, see NoteGraphRunning
-  std::atomic<bool> m_graphRunning{false};
+  //! Whether the disc is still being held near its opening bytes so the splitter can go back
+  //! to them while it scans, see NoteGraphBuilt
+  std::atomic<bool> m_holdingOpeningBytes{true};
   //! The stream currently feeding the graph, so it can be stopped before teardown
   static CDSBlurayStream* m_feeding;
   //! Whether the stream being fed to the graph is a playlist read directly, see
   //! PlayingPlaylistDirectly
   static std::atomic<bool> m_playingPlaylist;
+  //! Set when a directly played playlist strands the disc, and taken by the next Open, which
+  //! then leaves that playlist to the disc's own navigation, see HandBackToTheDisc
+  static std::atomic<bool> m_backToNavigation;
   //! The bytes most recently produced, oldest overwritten first. Navigation cannot rewind,
   //! so this is the only thing a backward read can be answered from.
   std::vector<uint8_t> m_history;

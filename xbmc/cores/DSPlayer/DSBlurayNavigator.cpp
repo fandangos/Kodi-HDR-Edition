@@ -10,6 +10,7 @@
 
 #include "DSBlurayNavigator.h"
 
+#include "DSPlayer.h"
 #include "FileItem.h"
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlay.h"
@@ -31,6 +32,38 @@ constexpr int MAX_HOLD_ATTEMPTS = 10;
 } // unnamed namespace
 
 CDSBlurayNavigator* CDSBlurayNavigator::m_instance = nullptr;
+std::shared_ptr<CDSBlurayNavigator> CDSBlurayNavigator::m_session;
+std::string CDSBlurayNavigator::m_sessionPath;
+
+std::shared_ptr<CDSBlurayNavigator> CDSBlurayNavigator::Session(const std::string& path)
+{
+  if (m_session && m_sessionPath == path)
+  {
+    CLog::Log(LOGINFO, "{} - carrying on with the disc already playing", __FUNCTION__);
+    return m_session;
+  }
+
+  EndSession();
+
+  auto navigator = std::make_shared<CDSBlurayNavigator>();
+  if (!navigator->Open(path))
+    return nullptr;
+
+  m_session = navigator;
+  m_sessionPath = path;
+  return m_session;
+}
+
+void CDSBlurayNavigator::EndSession()
+{
+  if (!m_session)
+    return;
+
+  CLog::Log(LOGINFO, "{} - finished with the disc", __FUNCTION__);
+  m_session->Close();
+  m_session.reset();
+  m_sessionPath.clear();
+}
 
 CDSBlurayNavigator::CDSBlurayNavigator() = default;
 
@@ -46,7 +79,7 @@ bool CDSBlurayNavigator::Open(const std::string& path)
   Close();
 
   CFileItem item(path, false);
-  auto input = std::make_unique<CDVDInputStreamBluray>(this, item);
+  auto input = std::make_shared<CDVDInputStreamBluray>(this, item);
 
   if (!input->Open())
   {
@@ -63,7 +96,10 @@ bool CDSBlurayNavigator::Open(const std::string& path)
     return false;
   }
 
-  m_input = std::move(input);
+  {
+    std::unique_lock<CCriticalSection> inputLock(m_inputLock);
+    m_input = std::move(input);
+  }
   m_produced = 0;
   m_overlayCount = 0;
   m_instance = this;
@@ -77,20 +113,43 @@ void CDSBlurayNavigator::Close()
   if (m_instance == this)
     m_instance = nullptr;
 
-  if (!m_input)
+  std::shared_ptr<CDVDInputStreamBluray> input;
+  {
+    std::unique_lock<CCriticalSection> inputLock(m_inputLock);
+    input.swap(m_input);
+  }
+
+  if (!input)
     return;
 
   CLog::Log(LOGINFO, "{} - closing after {} bytes and {} overlay update(s)", __FUNCTION__,
             m_produced, m_overlayCount);
 
-  m_input->Close();
-  m_input.reset();
+  // A read may still be inside libbluray. Telling it to give up first means Close does not
+  // wait on a disc that has stopped producing anything.
+  input->Abort();
+  input->Close();
+  input.reset();
   m_produced = 0;
 
   // Leave an empty overlay behind so the renderer clears whatever menu was on screen
   std::unique_lock<CCriticalSection> overlayLock(m_overlayLock);
   m_overlay.reset();
   m_overlayPending = true;
+  m_menuOnScreen = false;
+}
+
+void CDSBlurayNavigator::ClearMenu()
+{
+  std::unique_lock<CCriticalSection> overlayLock(m_overlayLock);
+
+  if (!m_menuOnScreen && !m_overlay)
+    return;
+
+  CLog::Log(LOGDEBUG, "{} - taking the disc's menu off the screen", __FUNCTION__);
+  m_overlay.reset();
+  m_overlayPending = true;
+  m_menuOnScreen = false;
 }
 
 bool CDSBlurayNavigator::TakeOverlay(std::shared_ptr<CDVDOverlayGroup>& overlay)
@@ -142,24 +201,31 @@ bool CDSBlurayNavigator::ReleaseHold()
 
 void CDSBlurayNavigator::EndStill()
 {
-  if (!m_input)
-    return;
+  // Harmless when the disc is not holding anything: SkipStill only acts on a still
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    input->SkipStill();
 
-  m_input->SkipStill();
   m_still = false;
 }
 
 int CDSBlurayNavigator::Read(uint8_t* buffer, int size)
 {
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  if (!input)
+    return -1;
+
   for (int attempt = 0; attempt < MAX_HOLD_ATTEMPTS; ++attempt)
   {
-    std::unique_lock<CCriticalSection> lock(m_lock);
+    // No lock of ours around this. The call can sit inside libbluray indefinitely and
+    // anything waiting on us would wait exactly as long, the interface included.
+    const int read = input->Read(buffer, size);
+    m_inMenu = input->IsInMenu();
 
-    if (!m_input)
-      return -1;
-
-    const int read = m_input->Read(buffer, size);
-    m_inMenu = m_input->IsInMenu();
+    // libbluray does not call the player back when the playlist changes, so the change is
+    // watched for here as well as in the callbacks. A menu over moving video announces
+    // itself through overlay callbacks; a menu over a still picture only shows up here,
+    // once choosing something makes the disc produce data again.
+    NotePlaylist();
 
     if (read > 0)
     {
@@ -185,10 +251,8 @@ int CDSBlurayNavigator::Read(uint8_t* buffer, int size)
       return 0;
 
     // The disc is holding a fixed picture and will send nothing until the viewer chooses.
-    // Wait with the lock released: returning straight away would have the graph ask again
-    // immediately and spin, which starves every other thread that needs the disc, the
-    // interface included, until Windows declares the application hung.
-    lock.unlock();
+    // Wait rather than returning straight away, or the graph asks again immediately and the
+    // two spin, which burns a core and starves everything else.
     KODI::TIME::Sleep(HOLD_WAIT);
   }
 
@@ -197,60 +261,129 @@ int CDSBlurayNavigator::Read(uint8_t* buffer, int size)
 
 bool CDSBlurayNavigator::Finished() const
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
   return m_finished;
+}
+
+void CDSBlurayNavigator::AnnounceProgrammeChanges()
+{
+  m_playlistSeen = Playlist();
+  m_announceChanges = true;
+}
+
+uint32_t CDSBlurayNavigator::Playlist() const
+{
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  return input ? input->GetPlaylist() : 0;
+}
+
+bool CDSBlurayNavigator::InMainMenu() const
+{
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  return input && input->IsInMainMenu();
+}
+
+void CDSBlurayNavigator::Abort()
+{
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    CLog::Log(LOGWARNING, "{} - giving up on the disc", __FUNCTION__);
+    input->Abort();
+  }
+}
+
+std::shared_ptr<CDVDInputStreamBluray> CDSBlurayNavigator::Input() const
+{
+  std::unique_lock<CCriticalSection> lock(m_inputLock);
+  return m_input;
 }
 
 bool CDSBlurayNavigator::ShowMenu()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  return m_input && m_input->OnMenu();
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  if (!input)
+    return false;
+
+  // A disc sitting in a still is waiting to be let go of before it will act on anything
+  EndStill();
+
+  const bool shown = input->OnMenu();
+  CLog::Log(LOGDEBUG, "{} - asking the disc for its menu: {}", __FUNCTION__,
+            shown ? "accepted" : "refused");
+  return shown;
 }
 
 void CDSBlurayNavigator::OnBack()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  if (m_input)
-    m_input->OnBack();
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    input->OnBack();
 }
 
 void CDSBlurayNavigator::OnUp()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  if (m_input)
-    m_input->OnUp();
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    input->OnUp();
 }
 
 void CDSBlurayNavigator::OnDown()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  if (m_input)
-    m_input->OnDown();
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    input->OnDown();
 }
 
 void CDSBlurayNavigator::OnLeft()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  if (m_input)
-    m_input->OnLeft();
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    input->OnLeft();
 }
 
 void CDSBlurayNavigator::OnRight()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  if (m_input)
-    m_input->OnRight();
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    input->OnRight();
 }
 
 void CDSBlurayNavigator::OnSelect()
 {
-  std::unique_lock<CCriticalSection> lock(m_lock);
-  if (m_input)
-    m_input->ActivateButton();
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    EndStill();
+    input->ActivateButton();
+
+    // Choosing something is what makes the disc change programme, and the events saying so
+    // are consumed right here on this thread, with no callback for the playlist itself
+    NotePlaylist();
+  }
+}
+
+void CDSBlurayNavigator::NotePlaylist()
+{
+  const uint32_t playlist = Playlist();
+  if (playlist == m_playlistSeen)
+    return;
+
+  const uint32_t previous = m_playlistSeen;
+  m_playlistSeen = playlist;
+
+  // Nothing to announce while the disc is still finding its way in and no graph has been
+  // built on any of it yet
+  if (previous == 0 || !m_announceChanges)
+    return;
+
+  CLog::Log(LOGINFO, "{} - the disc moved from playlist {} to {}", __FUNCTION__, previous,
+            playlist);
+
+  // A splitter parses its stream once, so it cannot follow the disc across this. Noticed
+  // here rather than while reading, because the disc changes programme when the viewer
+  // chooses something, which happens on the thread carrying the keypress, and reading may
+  // have gone quiet by then.
+  CDSPlayer::NoteDiscProgrammeChanged();
 }
 
 int CDSBlurayNavigator::OnDiscNavResult(void* pData, int iMessage)
 {
+  // Any event may be the one that follows a change of programme
+  NotePlaylist();
+
   // Called from inside libbluray's callbacks, so the lock is already held by whoever
   // called into the input stream.
   switch (iMessage)
@@ -265,6 +398,18 @@ int CDSBlurayNavigator::OnDiscNavResult(void* pData, int iMessage)
       m_overlay = *group;
       m_overlayPending = true;
       m_overlayCount++;
+
+      // Whether a menu is on screen is this, and only this: whether the disc is currently
+      // asking for anything to be drawn. The disc replaces its overlay outright and clears
+      // a menu by sending an empty one. Asking libbluray instead answers yes for as long as
+      // the title's menu code is loaded, which on a BD-J disc is the whole film.
+      const bool drawing = m_overlay && !m_overlay->m_overlays.empty();
+      if (drawing != m_menuOnScreen)
+      {
+        CLog::Log(LOGDEBUG, "{} - the disc {} drawing a menu", __FUNCTION__,
+                  drawing ? "is now" : "has stopped");
+        m_menuOnScreen = drawing;
+      }
 
       // Logged sparsely: a moving menu highlight produces one of these per frame
       if (m_overlayCount == 1 || (m_overlayCount % 100) == 0)

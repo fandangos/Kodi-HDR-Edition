@@ -24,6 +24,7 @@
 #error DSPlayer's header file included without HAS_DS_PLAYER defined
 #endif
 
+#include <atomic>
 #include <list>
 
 #include "windowing/Resolution.h"
@@ -73,6 +74,16 @@ public:
   void SetViewMode(int iViewMode);
   void PreInit(DIRECTSHOW_RENDERER renderer);
   void UnInit();
+
+  /*!
+   * rief Stop drawing into the video renderer, and wait until nothing is still doing it
+   *
+   * Taking the graph down destroys the video renderer. madVR only finishes going away once
+   * the application thread has stopped drawing into the surfaces it shares with it, so the
+   * thread doing the closing has to know that drawing has actually stopped, not merely been
+   * asked to.
+   */
+  void StopRenderingIntoDirectShow();
   bool Flush();
   bool IsConfigured() const;
   void ToggleDebug();
@@ -111,6 +122,16 @@ protected:
   //! Draws the disc's own menu overlays. Kodi's overlay renderer already knows how to turn
   //! the images libbluray produces into something on screen, for both HDMV and BD-J discs.
   OVERLAY::CRenderer m_blurayMenuRenderer;
+  //! Counts drawn menu frames, only so the first few can be traced
+  uint64_t m_blurayMenuFrames{0};
+  //! Counts calls to Render, so the log shows whether Kodi's render loop is still turning
+  uint64_t m_renderCalls{0};
+  //! Counts per-frame calls on the application thread, so the log shows whether it is alive
+  uint64_t m_frameMoves{0};
+  //! Set while the graph is going away, to keep drawing off the renderer being destroyed
+  std::atomic<bool> m_closingDown{false};
+  //! How many threads are inside Render right now, so a close can wait for them to leave
+  std::atomic<int> m_rendering{0};
   std::shared_ptr<CBaseRenderer> m_pRenderer;
   mutable CCriticalSection m_statelock;
   CCriticalSection m_datalock;

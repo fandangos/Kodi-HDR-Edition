@@ -69,6 +69,15 @@ public:
     PLAYER_DVD_MENU_AUDIO,
     PLAYER_DVD_MENU_ANGLE,
 
+    //! A navigated Blu-ray has moved to a different programme. A splitter parses its
+    //! stream once, so the graph has to be built again on what is playing now.
+    PLAYER_BD_PROGRAMME_CHANGED,
+
+    //! Take the graph apart. This has to happen on the thread that built it: destroying the
+    //! graph destroys the video renderer, and madVR only finishes going away on the thread
+    //! that created it and owns its window.
+    PLAYER_CLOSE_GRAPH,
+
     RESET_DEVICE
   };
 

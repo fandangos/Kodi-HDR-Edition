@@ -25,6 +25,8 @@
 #if HAS_DS_PLAYER
 
 #include "DSGraph.h"
+#include "DSBlurayNavigator.h"
+#include "Filters/DSBluraySource.h"
 #include "DSPlayer.h"
 #include "Filters/RendererSettings.h"
 #include "PixelShaderList.h"
@@ -197,15 +199,34 @@ void CDSGraph::CloseFile()
     if (m_pAMOpenProgress)
       m_pAMOpenProgress->AbortOperation();
 
+    // TEMPORARY: each stage of this teardown has blocked at least once; which one gets
+    // reached tells where the next block is
+    CLog::Log(LOGDEBUG, "{} waiting for the streams manager", __FUNCTION__);
     if (CStreamsManager::Get())
       CStreamsManager::Get()->WaitUntilReady();
 
-    Stop(true);
+    // A graph that is already stopped has nothing to stop, and asking again is not free:
+    // the stop runs through the video renderer, and on some threads that never comes back.
+    // A navigated disc arrives here already stopped, by the rebuild that asked for this
+    // close.
+    if (m_State.current_filter_state != State_Stopped)
+    {
+      CLog::Log(LOGDEBUG, "{} stopping the graph", __FUNCTION__);
+      Stop(true);
+      CLog::Log(LOGDEBUG, "{} graph stopped", __FUNCTION__);
+    }
+    else
+      CLog::Log(LOGDEBUG, "{} the graph is already stopped", __FUNCTION__);
 
-    CSingleExit lock(m_ObjectLock);
+    // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
 
+    CLog::Log(LOGDEBUG, "{} destroying the streams manager", __FUNCTION__);
     CStreamsManager::Destroy();
+    CLog::Log(LOGDEBUG, "{} destroying the chapters manager", __FUNCTION__);
     CChaptersManager::Destroy();
+    CLog::Log(LOGDEBUG, "{} managers destroyed", __FUNCTION__);
     g_dsSettings.pixelShaderList->DisableAll();
 
     m_VideoInfo.Clear();
@@ -228,7 +249,11 @@ void CDSGraph::CloseFile()
       g_application.GetComponent<CApplicationPlayer>()->EnableExclusive(false);
     }
 
+    // TEMPORARY: releasing the graph takes the video renderer down with it, which is where
+    // a close on the wrong thread stops coming back
+    CLog::Log(LOGDEBUG, "{} releasing the filter graph", __FUNCTION__);
     pFilterGraph.Release();
+    CLog::Log(LOGDEBUG, "{} filter graph released", __FUNCTION__);
 
     m_pVideoWindow.Release();
     m_pMediaControl.Release();
@@ -239,8 +264,10 @@ void CDSGraph::CloseFile()
     m_pDvdState.Release();
     m_pAMOpenProgress.Release();
 
+    CLog::Log(LOGDEBUG, "{} deleting the graph builder", __FUNCTION__);
     hr = m_pGraphBuilder->RemoveFromROT();
     SAFE_DELETE(m_pGraphBuilder);
+    CLog::Log(LOGDEBUG, "{} graph builder deleted", __FUNCTION__);
   }
   else
   {
@@ -257,7 +284,9 @@ void CDSGraph::UpdateTime()
     //return;
   //}
   
-  CSingleExit lock(m_ObjectLock);
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
 
   if (!m_pMediaSeeking)
     return;
@@ -446,6 +475,15 @@ HRESULT CDSGraph::HandleGraphEvent()
       break;
     case EC_COMPLETE:
       CLog::Log(LOGDEBUG, "{} EC_COMPLETE", __FUNCTION__);
+      // On a navigated Blu-ray the disc decides when playback is over, not the graph: the
+      // graph finishing only means the programme it was built on has run out. Keep the disc
+      // moving instead, and the playlist change that follows has the graph built again on
+      // whatever the disc plays next.
+      if (CDSBlurayNavigator::Get() && !CDSBlurayNavigator::Get()->Finished())
+      {
+        CDSBlurayStream::FollowTheDisc();
+        break;
+      }
       m_State.eof = true;
       CServiceBroker::GetAppMessenger()->PostMsg(TMSG_MEDIA_STOP);
       break;
@@ -573,7 +611,9 @@ HRESULT CDSGraph::HandleGraphEvent()
 //USER ACTIONS
 void CDSGraph::SetVolume(float nVolume)
 {
-  CSingleExit lock(m_ObjectLock);
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
 
   if (m_pBasicAudio && (nVolume != m_currentVolume))
   {
@@ -586,11 +626,21 @@ void CDSGraph::Stop(bool rewind)
 {
   if (!CDSPlayer::IsDSPlayerThread())
   {
+    // TEMPORARY: whether this wait comes back tells whether the player thread is still
+    // taking messages
+    CLog::Log(LOGDEBUG, "{} - marshalling the stop to the player thread", __FUNCTION__);
     CDSPlayer::PostMessage(new CDSMsgBool(CDSMsg::PLAYER_STOP, rewind));
+    CLog::Log(LOGDEBUG, "{} - the player thread finished the stop", __FUNCTION__);
     return;
   }
-  
-  CSingleExit lock(m_ObjectLock);
+
+  // TEMPORARY: the renderer is involved in stopping, and on the wrong thread that never
+  // comes back; each stage logged until the stop is trusted again
+  CLog::Log(LOGDEBUG, "{} - stopping the graph inline (rewind {})", __FUNCTION__, rewind);
+
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
 
   LONGLONG pos = 0;
 
@@ -605,9 +655,13 @@ void CDSGraph::Stop(bool rewind)
     }
   }
 
+  CLog::Log(LOGDEBUG, "{} - the graph reports itself stopped", __FUNCTION__);
+
   UpdateState();
 
-  if (rewind && m_pMediaSeeking)
+  // A navigated disc cannot be rewound: it is wherever its navigation put it, and asking
+  // the splitter to go back to the start stalls on a stream that only moves forward
+  if (rewind && m_pMediaSeeking && !CDSBlurayNavigator::Get())
     m_pMediaSeeking->SetPositions(&pos, AM_SEEKING_AbsolutePositioning, NULL, AM_SEEKING_NoPositioning);
 
   if (!m_pGraphBuilder)
@@ -631,6 +685,8 @@ void CDSGraph::Stop(bool rewind)
     }
   }
   EndEnumFilters
+
+  CLog::Log(LOGDEBUG, "{} - stop complete", __FUNCTION__);
 }
 
 bool CDSGraph::OnMouseClick(tagPOINT pt)
@@ -640,7 +696,9 @@ bool CDSGraph::OnMouseClick(tagPOINT pt)
 
 bool CDSGraph::OnMouseMove(tagPOINT pt)
 {
-  CSingleExit lock(m_ObjectLock);
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
 
   HRESULT hr;
   hr = CGraphFilters::Get()->DVD.dvdControl->SelectAtPosition(pt);
@@ -656,7 +714,9 @@ void CDSGraph::Play(bool force/* = false*/)
     CDSPlayer::PostMessage(new CDSMsgBool(CDSMsg::PLAYER_PLAY, force));
     return;
   }
-  CSingleExit lock(m_ObjectLock);
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
   if (m_pMediaControl && (force || m_State.current_filter_state != State_Running))
     m_pMediaControl->Run();
 
@@ -674,7 +734,9 @@ void CDSGraph::Pause()
     return;
   }
 
-  CSingleExit lock(m_ObjectLock);
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
   if (CDSPlayer::PlayerState == DSPLAYER_PAUSED)
   {
     if (m_State.current_filter_state != State_Running)
@@ -726,7 +788,9 @@ void CDSGraph::Seek(uint64_t position, uint32_t flags /*= AM_SEEKING_AbsolutePos
     CDSPlayer::PostMessage(new CDSMsgPlayerSeekTime(position, flags));
     return;
   }
-  CSingleExit lock(m_ObjectLock);
+  // CSingleExit(m_ObjectLock) removed: nothing ever holds that lock, so it released a
+  // mutex this thread did not own and then acquired it for good on scope exit, wedging
+  // the next thread through here
 #if 0
   if (g_pPVRStream || CGraphFilters::Get()->UsingMediaPortalTsReader())
   {

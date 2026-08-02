@@ -224,11 +224,14 @@ HRESULT CFilterCoreFactory::GetSubsFilter(const CFileItem& pFileItem, std::strin
 HRESULT CFilterCoreFactory::GetExtraFilters(const CFileItem& pFileItem, std::vector<std::string>& filters, bool dxva /*= false*/)
 {
   filters.clear();
+  CLog::Log(LOGDEBUG, "{} looking for a rule", __FUNCTION__);
   CGlobalFilterSelectionRule * pRule = GetGlobalFilterSelectionRule(pFileItem);
   if (!pRule)
     return E_FAIL;
 
+  CLog::Log(LOGDEBUG, "{} rule found, collecting extra filters", __FUNCTION__);
   pRule->GetExtraFilters(pFileItem, filters, dxva);
+  CLog::Log(LOGDEBUG, "{} collected {} extra filter(s)", __FUNCTION__, filters.size());
   return S_OK;
 }
 

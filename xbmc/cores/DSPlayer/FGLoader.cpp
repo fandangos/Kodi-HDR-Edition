@@ -119,7 +119,9 @@ CFGLoader::CFGLoader()
 
 CFGLoader::~CFGLoader()
 {
-  CSingleExit lock(*this);
+  // CSingleExit(*this) removed: it released this object's own lock without holding it and
+  // then re-acquired it an instant before the lock itself is destroyed - on the reopen of
+  // a navigated disc that acquire never returned
 
   CFilterCoreFactory::Destroy();
   SAFE_DELETE(m_pFGF);
@@ -597,15 +599,22 @@ HRESULT CFGLoader::LoadFilterRules(const CFileItem& _pFileItem)
       if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_MYVIDEOS_EXTRACTFLAGS)) // Only warn user if the option is enabled
         CLog::Log(LOGWARNING, __FUNCTION__" VideoPlayer failed to fetch streams details. Using DirectShow ones");
 
+      CLog::Log(LOGDEBUG, "{} copying stream details, video detail {}", __FUNCTION__,
+                CStreamsManager::Get()->GetVideoStreamDetail() ? "present" : "MISSING");
+
       pFileItem.GetVideoInfoTag()->m_streamDetails.AddStream(
         new CDSStreamDetailVideo((const CDSStreamDetailVideo &)(*CStreamsManager::Get()->GetVideoStreamDetail()))
         );
       std::vector<CDSStreamDetailAudio *>& streams = CStreamsManager::Get()->GetAudios();
+      CLog::Log(LOGDEBUG, "{} copying {} audio detail(s)", __FUNCTION__, streams.size());
+
       for (std::vector<CDSStreamDetailAudio *>::const_iterator it = streams.begin();
         it != streams.end(); ++it)
         pFileItem.GetVideoInfoTag()->m_streamDetails.AddStream(
         new CDSStreamDetailAudio((const CDSStreamDetailAudio &)(**it))
         );
+
+      CLog::Log(LOGDEBUG, "{} stream details copied", __FUNCTION__);
     }
 
     std::vector<std::string> extras;
@@ -623,19 +632,28 @@ HRESULT CFGLoader::LoadFilterRules(const CFileItem& _pFileItem)
       if (SUCCEEDED(InsertFilter(extras[i], f)))
         CGraphFilters::Get()->Extras.push_back(f);
     }
+    CLog::Log(LOGDEBUG, "{} extras inserted, reading the filter management setting", __FUNCTION__);
     if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DSPLAYER_FILTERSMANAGEMENT) == INTERNALFILTERS)
     {
+      CLog::Log(LOGDEBUG, "{} internal filters, checking for extra filter settings", __FUNCTION__);
       for (unsigned int i = 0; i < 3; i++)
       {
+        CLog::Log(LOGDEBUG, "{} extra filter slot {}", __FUNCTION__, i);
+
         std::string filter;
-        std::string setting;
-        setting = StringUtils::Format("dsplayer.extrafilter%i", i);
+        // "%i" is printf syntax and StringUtils::Format takes fmt syntax, so this asked for
+        // a setting literally named dsplayer.extrafilter%i, which does not exist. The
+        // lookup failed every time and the three configured slots were never read.
+        std::string setting = "dsplayer.extrafilter" + std::to_string(i);
+        CLog::Log(LOGDEBUG, "{} extra filter slot {}, reading \"{}\"", __FUNCTION__, i, setting);
         filter = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(setting);
+        CLog::Log(LOGDEBUG, "{} extra filter slot {} is \"{}\"", __FUNCTION__, i, filter);
         if (filter != "[null]")
         {
           SFilterInfos f;
           if (SUCCEEDED(InsertFilter(filter, f)))
             CGraphFilters::Get()->Extras.push_back(f);
+          CLog::Log(LOGDEBUG, "{} extra filter slot {} handled", __FUNCTION__, i);
         }
         else
           break;

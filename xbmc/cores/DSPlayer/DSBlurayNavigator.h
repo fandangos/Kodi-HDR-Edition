@@ -59,6 +59,37 @@ public:
   static CDSBlurayNavigator* Get() { return m_instance; }
 
   /*!
+   * \brief The disc being navigated, opened if it is not already
+   * \return The running disc, or nullptr if it cannot be navigated
+   *
+   * The disc outlives the filter graph on purpose. When the disc moves from its menu to a
+   * title the graph has to be built again for the new programme, and the disc must carry
+   * on where it was: rewinding it to first play would take the viewer back to the menu
+   * they just chose from, and a BD-J disc would lose everything its menu was running.
+   */
+  static std::shared_ptr<CDSBlurayNavigator> Session(const std::string& path);
+
+  //! \brief Finish with the disc, when playback really ends rather than between graphs
+  static void EndSession();
+
+  /*!
+   * \brief Start reporting when the disc moves to another programme
+   *
+   * Called once a graph has been built on what the disc is playing. Before that the disc is
+   * still finding its way in and there is no player to tell, so changes are only remembered.
+   */
+  void AnnounceProgrammeChanges();
+
+  /*!
+   * rief Stop reporting changes while the player is opening the disc again
+   *
+   * A disc on its way from a menu to a title passes through short playlists. Each is a
+   * change, and reporting them while an open is already under way asks for the disc to be
+   * opened again on top of itself.
+   */
+  void SuspendProgrammeChanges() { m_announceChanges = false; }
+
+  /*!
    * \brief Open a disc and start it at its first play title
    * \param path Path to a disc image or a disc folder
    * \return true when the disc opened and navigation mode is running
@@ -83,6 +114,47 @@ public:
 
   //! \brief Whether the disc has played everything it intends to
   bool Finished() const;
+
+  /*!
+   * \brief The playlist being played, which changes as the disc moves around
+   *
+   * Bytes either side of a change belong to different programmes. Handing both to one
+   * demuxer as though they were one file gives it something it cannot parse.
+   */
+  uint32_t Playlist() const;
+
+  //! \brief Whether the disc has arrived at its top menu, which is where it was heading
+  bool InMainMenu() const;
+
+  /*!
+   * rief Whether the disc currently has menu graphics on screen
+   *
+   * The honest answer to "is the viewer looking at a menu", and the one to use for deciding
+   * where their key presses should go. It covers a popup menu over a playing film exactly
+   * as it covers a top menu, because both are the disc asking for something to be drawn.
+   * libbluray's own answer is about the title's menu code being loaded, which stays true
+   * for the whole of a BD-J film and so is no use for this.
+   */
+  bool MenuOnScreen() const { return m_menuOnScreen; }
+
+  /*!
+   * rief Take the menu off the screen
+   *
+   * The disc clears its own menus by sending an empty overlay, but it only does that while
+   * it is being read. When a playlist is taken away and played directly the disc stops
+   * being read mid-menu, so the last thing it asked for would otherwise stay drawn over the
+   * film, and the player would go on believing a menu was up.
+   */
+  void ClearMenu();
+
+  /*!
+   * \brief Give up on a disc that is not going to produce anything
+   *
+   * A disc whose menu failed to start returns nothing but idle events for as long as it is
+   * asked, and the read that is asking never comes back on its own. Safe to call from
+   * another thread, which is the only way it is any use.
+   */
+  void Abort();
 
   //! \brief Total bytes handed out so far, for reporting how much of the stream exists
   int64_t Produced() const { return m_produced; }
@@ -125,20 +197,45 @@ public:
   void GetVideoResolution(unsigned int& width, unsigned int& height) override;
 
 private:
+  /*!
+   * \brief Notice when the disc has moved to a different programme
+   *
+   * Checked on every event, because the change happens when the viewer chooses something,
+   * which is the thread carrying the keypress rather than the one reading the disc.
+   */
+  void NotePlaylist();
+
   //! \brief Let the disc out of a hold so bytes keep flowing, see Read()
   bool ReleaseHold();
 
   //! \brief Leave a still early, which is what choosing something from a menu does
   void EndStill();
 
+  /*!
+   * \brief The running disc, safe to call into from any thread
+   *
+   * Menu commands must never wait on the thread reading the disc. A read can sit inside
+   * libbluray indefinitely -- a disc whose menu failed to start returns nothing but idle
+   * events forever -- and anything queued behind it waits just as long. libbluray locks
+   * itself for user input, which is how Kodi's own player drives menus from the interface
+   * while its reader is mid-read, so no lock of ours belongs in the way. Taking a copy of
+   * the pointer keeps the disc alive for the duration of the call and nothing more.
+   */
+  std::shared_ptr<CDVDInputStreamBluray> Input() const;
+
   mutable CCriticalSection m_lock;
-  std::unique_ptr<CDVDInputStreamBluray> m_input;
+  //! Guards only assignment and copying of m_input, never a call into it
+  mutable CCriticalSection m_inputLock;
+  std::shared_ptr<CDVDInputStreamBluray> m_input;
   int64_t m_produced{0};
-  bool m_finished{false};
+  std::atomic<bool> m_finished{false};
 
   //! Kept in step by the thread reading the disc, so the interface can ask without taking
   //! the lock that reads are holding
   std::atomic<bool> m_inMenu{false};
+  //! Last playlist noticed, so a change is announced once
+  uint32_t m_playlistSeen{0};
+  std::atomic<bool> m_announceChanges{false};
 
   //! A still is the disc holding one picture and sending nothing. Only menus drawn over a
   //! fixed background arrive this way: a menu with moving video behind it is an ordinary
@@ -153,9 +250,16 @@ private:
   mutable CCriticalSection m_overlayLock;
   std::shared_ptr<CDVDOverlayGroup> m_overlay;
   bool m_overlayPending{false};
+  //! Whether the last thing the disc asked to be drawn was a menu rather than nothing, see
+  //! MenuOnScreen. Read from the GUI thread, written from the disc's, hence atomic.
+  std::atomic<bool> m_menuOnScreen{false};
   uint64_t m_overlayCount{0};
 
   static CDSBlurayNavigator* m_instance;
+
+  //! The disc kept between graphs, see Session()
+  static std::shared_ptr<CDSBlurayNavigator> m_session;
+  static std::string m_sessionPath;
 };
 
 #endif

@@ -28,6 +28,9 @@
 #error DSPlayer's header file included without HAS_DS_PLAYER defined
 #endif
 
+#include <chrono>
+#include <vector>
+
 #include "cores/IPlayer.h"
 #include "threads/Thread.h"
 #include "threads/SingleLock.h"
@@ -91,6 +94,8 @@ protected:
 
 class CDSPlayer : public IPlayer, public CThread, public IDispResource, public IRenderDSMsg, public IRenderLoop
 {
+  friend class CGraphManagementThread;
+
 public:
   // IPlayer
   CDSPlayer(IPlayerCallback& callback);
@@ -259,8 +264,14 @@ public:
 
   static void PostMessage(CDSMsg* msg, bool wait = true)
   {
-    if (!m_threadID || PlayerState == DSPLAYER_CLOSED || (PlayerState == DSPLAYER_CLOSING && msg->GetMessageType() != CDSMsg::PLAYER_STOP) )
+    // Closing is exactly when the graph has to be taken apart, so those two messages have to
+    // get through a close rather than be dropped by it
+    if (!m_threadID || PlayerState == DSPLAYER_CLOSED ||
+        (PlayerState == DSPLAYER_CLOSING && msg->GetMessageType() != CDSMsg::PLAYER_STOP &&
+         msg->GetMessageType() != CDSMsg::PLAYER_CLOSE_GRAPH))
     {
+      CLog::Log(LOGWARNING, "CDSPlayer::PostMessage - message {} dropped, thread {} state {}",
+                static_cast<int>(msg->GetMessageType()), m_threadID, static_cast<int>(PlayerState));
       msg->Release();
       return;
     }
@@ -269,7 +280,11 @@ public:
       msg->Acquire();
 
     //CLog::Log(LOGDEBUG, "{} Message posted : %d on thread 0x%X", __FUNCTION__, msg->GetMessageType(), m_threadID);
-    PostThreadMessage(m_threadID, WM_GRAPHMESSAGE, msg->GetMessageType(), (LPARAM)msg);
+    if (!PostThreadMessage(m_threadID, WM_GRAPHMESSAGE, msg->GetMessageType(), (LPARAM)msg))
+    {
+      CLog::Log(LOGERROR, "CDSPlayer::PostMessage - could not post message {} to thread {}, error {}",
+                static_cast<int>(msg->GetMessageType()), m_threadID, GetLastError());
+    }
 
     if (wait)
     {
@@ -298,6 +313,52 @@ protected:
   }
 
   void HandleMessages();
+
+  /*!
+   * rief Wait, while still answering messages sent to this thread's windows
+   *
+   * This thread builds the graph and so owns the video renderer's window. Anything the
+   * application thread does to the window it sits in - resizing it, going fullscreen -
+   * sends a message to that child window and waits for this thread to answer. Sleeping
+   * here without answering leaves the interface frozen for as long as the sleep, and
+   * Windows kills an application whose window has not answered for long enough.
+   */
+  void SleepAnsweringMessages(std::chrono::milliseconds duration);
+
+  /*!
+   * rief Build the graph again for what a navigated disc has moved on to
+   *
+   * A splitter parses its stream once, when it connects, so it cannot follow a disc from
+   * its menu to a title. The disc is left open across this so it carries on where it is.
+   */
+  void RebuildGraphForDisc();
+
+public:
+  /*!
+   * rief Note that a navigated disc has moved to a different programme
+   *
+   * Left as a flag for the graph thread to pick up rather than sent as a message, because
+   * it is raised on whichever thread the disc happened to be running on, which may be one
+   * of the disc's own.
+   */
+  static void NoteDiscProgrammeChanged() { m_discProgrammeChanged = true; }
+  static bool TakeDiscProgrammeChanged() { return m_discProgrammeChanged.exchange(false); }
+
+  /*!
+   * rief Whether the player is between programmes of a navigated disc
+   *
+   * Set while the file is closed only to be opened again on the programme the disc moved
+   * to. The close must not be treated as the end of playback, and the open must reach the
+   * player directly rather than wait for an end that is never announced.
+   */
+  static bool KeepingDiscOpen() { return m_keepDiscOpen; }
+
+private:
+  static std::atomic<bool> m_discProgrammeChanged;
+  //! Set while the file is being closed only to reopen it on what the disc moved to, so the
+  //! disc is not finished with in between
+  static bool m_keepDiscOpen;
+
 
   bool ShowPVRChannelInfo();
 

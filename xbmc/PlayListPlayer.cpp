@@ -950,7 +950,11 @@ void PLAYLIST::CPlayListPlayer::OnApplicationMessage(KODI::MESSAGING::ThreadMess
       Reset();
 
       CFileItem *item = static_cast<CFileItem*>(pMsg->lpVoid);
+      // TEMPORARY: whether the application thread gets this far, and back out again, brackets
+      // everything PlayFile does on it
+      CLog::Log(LOGDEBUG, "TMSG_MEDIA_PLAY - dequeued on the application thread");
       g_application.PlayFile(*item, "", pMsg->param1 != 0);
+      CLog::Log(LOGDEBUG, "TMSG_MEDIA_PLAY - PlayFile returned");
       delete item;
       return;
     }

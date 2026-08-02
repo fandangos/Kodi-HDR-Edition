@@ -668,6 +668,14 @@ int CDVDInputStreamBluray::Read(uint8_t* buf, int buf_size)
             m_hold = HOLD_HELD;
           return result;
 
+        case BD_EVENT_IDLE:
+          /* The disc has nothing to give and nothing to wait for. Looping here until it
+             does can never end while a menu waits for the viewer, and it holds up the
+             caller for exactly that long. Let the event be handled, which pauses briefly,
+             then hand the decision back. */
+          ProcessEvent();
+          return 0;
+
         default:
           break;
       }

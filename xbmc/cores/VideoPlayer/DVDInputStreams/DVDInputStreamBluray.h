@@ -111,6 +111,23 @@ public:
   bool MouseMove(const CPoint &point);
   bool MouseClick(const CPoint &point);
 
+  /*!
+   * \brief The playlist the disc is currently playing
+   *
+   * Everything read between one playlist and the next belongs to a different programme.
+   * A player that hands the bytes to a demuxer it does not own has no other way to tell
+   * where one ends and the next begins.
+   */
+  uint32_t GetPlaylist() const { return m_playlist; }
+
+  /*!
+   * \brief Whether the disc has reached its top menu
+   *
+   * Distinct from IsInMenu(), which is also true while an overlay from anything else is on
+   * screen. This says the disc has arrived where it was heading.
+   */
+  bool IsInMainMenu() const { return m_isInMainMenu; }
+
   int GetChapter() override;
   int GetChapterCount() override;
   void GetChapterName(std::string& name, int ch=-1) override {};

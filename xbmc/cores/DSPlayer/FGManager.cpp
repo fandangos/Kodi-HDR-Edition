@@ -81,8 +81,12 @@ CFGManager::~CFGManager()
   CSingleExit CSingleExit(*this);
 
   SAFE_DELETE(m_CfgLoader);
+  CLog::Log(LOGDEBUG, "{} releasing the filter mapper", __FUNCTION__);
   m_pFM = NULL;
 
+  // TEMPORARY: this releases the real filter graph manager, and with it every filter still
+  // in the graph including madVR. It is the last thing a close on the wrong thread reaches.
+  CLog::Log(LOGDEBUG, "{} releasing the inner graph", __FUNCTION__);
   m_pUnkInner = NULL;
 
   CLog::Log(LOGDEBUG, "{} Resources released", __FUNCTION__);

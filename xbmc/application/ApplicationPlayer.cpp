@@ -18,6 +18,11 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "video/VideoFileItemClassify.h"
+#include "utils/log.h"
+
+#if HAS_DS_PLAYER
+#include "DSPlayer.h"
+#endif
 
 #include <mutex>
 
@@ -97,6 +102,13 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
   // check if we need to close current player
   // VideoPlayer can open a new file while playing
   std::shared_ptr<IPlayer> player = GetInternal();
+
+  // TEMPORARY: which way the reopen of a navigated disc goes through here decides whether
+  // it ever reaches the player, so the decision is worth a line
+  CLog::Log(LOGDEBUG, "{} - current player {} ({}), asked for {}, playing {}", __FUNCTION__,
+            player ? player->m_name : "none", player ? player->m_type : "-", newPlayer,
+            player && player->IsPlaying());
+
   if (player && player->IsPlaying())
   {
     bool needToClose = false;
@@ -110,6 +122,21 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
     if (player->m_type != "video" && player->m_type != "remote")
       needToClose = true;
 
+#if HAS_DS_PLAYER
+    // A navigated Blu-ray moving from its menu to a title comes back through here with the
+    // same disc image. Its disc session is being kept alive across the rebuild, and closing
+    // here would defer the open to OpenNext(), which only runs when playback is announced
+    // as ended - an announcement this close deliberately never makes. Hand the item straight
+    // to the player: its own open path closes what needs closing.
+    if (needToClose && player->m_name == newPlayer && CDSPlayer::KeepingDiscOpen())
+    {
+      CLog::Log(LOGDEBUG,
+                "{} - the disc is between programmes, opening over the running player",
+                __FUNCTION__);
+      needToClose = false;
+    }
+#endif
+
     if (needToClose)
     {
       m_nextItem.pItem = std::make_shared<CFileItem>(item);
@@ -117,6 +144,10 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
       m_nextItem.playerName = newPlayer;
       m_nextItem.callback = &callback;
 
+      // TEMPORARY: this close runs on whichever thread asked for the open, and the open
+      // itself is put off until playback is announced as ended
+      CLog::Log(LOGDEBUG, "{} - closing the current player first, the open waits for the end",
+                __FUNCTION__);
       CloseFile();
       if (player->m_name != newPlayer)
       {

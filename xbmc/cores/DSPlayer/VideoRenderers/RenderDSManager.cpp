@@ -23,6 +23,8 @@
 #include "RenderDSManager.h"
 #include "cores/VideoPlayer/Videorenderers/RenderFlags.h"
 #include "threads/SingleLock.h"
+#include "threads/SystemClock.h"
+#include "utils/TimeUtils.h"
 #include "utils/log.h"
 #include "utils/StringUtils.h"
 
@@ -40,6 +42,8 @@
 #include "DSGraph.h"
 #include "StreamsManager.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlay.h"
+#include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlayImage.h"
+#include "guilib/GUITexture.h"
 
 #include "utils/CPUInfo.h"
 #include "ServiceBroker.h"
@@ -50,6 +54,7 @@
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
 #include <chrono>
+#include <cmath>
 
 using namespace KODI::MESSAGING;
 using namespace std::chrono_literals;
@@ -100,13 +105,24 @@ bool CRenderDSManager::Configure(unsigned int width, unsigned int height, unsign
   {
     CSingleExit lock(m_statelock);
 
+    // The frame rate is worked out from the time between frames, so it wanders by a
+    // fraction. Comparing it exactly made every frame look like a change of format: each
+    // one put the renderer back into configuring, which made it report that it was not
+    // rendering, which brought it straight back here. On a Blu-ray menu, looping every few
+    // seconds, that loop eventually wedged the player.
+    // Nothing having changed only means there is nothing to do if the renderer is actually
+    // configured. After a graph is rebuilt on the same disc every one of these still holds
+    // the last graph's values, so this said "no change" to a renderer that had been torn
+    // down and never configured it: the picture played, drawn by the video renderer itself,
+    // but Kodi drew nothing over it - no OSD, and no mouse pointer.
     if (m_width == width &&
       m_height == height &&
       m_dwidth == d_width &&
       m_dheight == d_height &&
-      m_fps == fps &&
+      std::fabs(m_fps - fps) < 0.001f &&
       (m_flags & ~CONF_FLAGS_FULLSCREEN) == (flags & ~CONF_FLAGS_FULLSCREEN) &&
-      m_pRenderer != NULL)
+      m_pRenderer != NULL &&
+      m_renderState == STATE_CONFIGURED)
       return true;
   }
 
@@ -218,6 +234,13 @@ bool CRenderDSManager::HasFrame()
 
 void CRenderDSManager::FrameMove()
 {
+  // Runs on the application thread every frame. If this stops, that thread is stuck
+  // somewhere else; if it continues while Render never runs, the video window was never
+  // brought to the front.
+  if ((m_frameMoves++ % 200) == 0)
+    CLog::Log(LOGDEBUG, "{} - frame move {}, state {}, waiting for DS {}", __FUNCTION__,
+              m_frameMoves, static_cast<int>(m_renderState), m_bWaitingForRenderOnDS);
+
   UpdateResolution();
 
   {
@@ -274,12 +297,27 @@ void CRenderDSManager::PreInit(DIRECTSHOW_RENDERER renderer)
   CSingleExit lock(m_statelock);
 
   m_currentRenderer = renderer;
+  m_closingDown = false;
   if (!m_pRenderer)
     CreateRenderer();
 
   UpdateDisplayLatency();
 
   m_bPreInit = true;
+}
+
+void CRenderDSManager::StopRenderingIntoDirectShow()
+{
+  m_closingDown = true;
+
+  // Wait for whoever is drawing to come out. Bounded: if the drawing thread is stuck for
+  // some other reason, waiting forever here only makes a second stuck thread.
+  XbmcThreads::EndTime<> timeout{std::chrono::milliseconds(2000)};
+  while (m_rendering > 0 && !timeout.IsTimePast())
+    KODI::TIME::Sleep(1ms);
+
+  CLog::Log(LOGDEBUG, "{} - drawing into the renderer has stopped ({} still inside)",
+            __FUNCTION__, m_rendering.load());
 }
 
 void CRenderDSManager::UnInit()
@@ -383,10 +421,30 @@ RESOLUTION CRenderDSManager::GetResolution()
 
 void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
 {
+  // Everything below draws through the video renderer's shared surfaces. Once the graph is
+  // being taken down those are being destroyed, and drawing into them keeps the renderer
+  // from finishing - which is a deadlock, since the thread destroying it is waiting here.
+  if (m_closingDown)
+    return;
+
+  m_rendering++;
+  struct LeaveRender
+  {
+    std::atomic<int>& count;
+    ~LeaveRender() { count--; }
+  } leaveRender{m_rendering};
+
   CSingleExit exitLock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   {
     std::unique_lock<CCriticalSection> lock(m_statelock);
+
+    // Heartbeat: whether Kodi's own render loop is still running, and whether it is getting
+    // past the state check, decides whether menus can be drawn at all
+    if ((m_renderCalls++ % 200) == 0)
+      CLog::Log(LOGDEBUG, "{} - render call {}, state {}", __FUNCTION__, m_renderCalls,
+                static_cast<int>(m_renderState));
+
     if (m_renderState != STATE_CONFIGURED)
       return;
   }
@@ -394,12 +452,13 @@ void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
   if (m_currentRenderer == DIRECTSHOW_RENDERER_MADVR)
     g_application.GetComponent<CApplicationPlayer>()->RenderToTexture(RENDER_LAYER_OVER);
 
-  // Menus belong over the picture, and the render target now points at the layer that is
-  // composited on top of it
-  RenderBlurayMenu();
-
+  // Menus are drawn at the end of this whichever way it goes, so the picture cannot paint
+  // over them, and the paths that draw no picture still show them
   if (!gui && m_pRenderer->IsGuiLayer())
+  {
+    RenderBlurayMenu();
     return;
+  }
 
   if (!gui || m_pRenderer->IsGuiLayer())
   {
@@ -409,8 +468,11 @@ void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
   if (gui)
   {
     if (!m_pRenderer->IsGuiLayer())
-      m_pRenderer->Update(); 
+      m_pRenderer->Update();
   }
+
+  RenderBlurayMenu();
+
   //add overlays
 #if TODO
     CRect src, dst, view;
@@ -435,7 +497,19 @@ void CRenderDSManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
 
 void CRenderDSManager::RenderBlurayMenu()
 {
+  // TEMPORARY: isolating whether drawing menus from here is what stalls graph building
+  static const bool disabled = (getenv("KODI_NO_BLURAY_MENU_DRAW") != nullptr);
+  if (disabled)
+    return;
+
   CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+
+  // Why nothing is being drawn is otherwise invisible: there may be no disc being
+  // navigated, or one with nothing to show
+  if ((m_renderCalls % 200) == 1)
+    CLog::Log(LOGDEBUG, "{} - navigator {}, overlay held {}", __FUNCTION__,
+              navigator ? "present" : "MISSING", m_blurayMenuRenderer.HasOverlay(0) ? "yes" : "no");
+
   if (!navigator)
     return;
 
@@ -444,22 +518,101 @@ void CRenderDSManager::RenderBlurayMenu()
   std::shared_ptr<CDVDOverlayGroup> overlay;
   if (navigator->TakeOverlay(overlay))
   {
+    const size_t images = overlay ? overlay->m_overlays.size() : 0;
+    CLog::Log(LOGDEBUG, "{} - took an overlay of {} image(s)", __FUNCTION__, images);
+
+    // What the disc actually asked to be drawn, and where
+    if (overlay)
+    {
+      for (const auto& image : overlay->m_overlays)
+      {
+        if (const auto* picture = dynamic_cast<const CDVDOverlayImage*>(image.get()))
+        {
+          CLog::Log(LOGDEBUG,
+                    "{} -   image {}x{} at {},{} against a {}x{} source, {} palette entries, "
+                    "{} bytes of pixels",
+                    __FUNCTION__, picture->width, picture->height, picture->x, picture->y,
+                    picture->source_width, picture->source_height, picture->palette.size(),
+                    picture->pixels.size());
+        }
+        else
+        {
+          CLog::Log(LOGDEBUG, "{} -   an overlay that is not an image", __FUNCTION__);
+        }
+      }
+    }
+
+    // Add the pictures, not the group holding them. The overlay renderer converts each
+    // overlay it is given into something drawable and has no conversion for a group, so
+    // handing it the group drew nothing at all.
+    //
+    // No overlay at all is how a menu is taken off the screen, so this has to cope with
+    // being handed nothing: releasing what was there and adding none is exactly right.
     m_blurayMenuRenderer.Release(0);
-    if (overlay && !overlay->m_overlays.empty())
-      m_blurayMenuRenderer.AddOverlay(overlay, 0.0, 0);
+    if (overlay)
+    {
+      for (const auto& image : overlay->m_overlays)
+        m_blurayMenuRenderer.AddOverlay(image, 0.0, 0);
+    }
   }
 
   if (!m_blurayMenuRenderer.HasOverlay(0))
     return;
 
-  CRect source, dest, view;
-  m_pRenderer->GetVideoRect(source, dest, view);
+  // Render() releases the graphics lock for its whole length, so that madVR can get on
+  // while Kodi waits. Drawing needs it back: this goes to the same immediate context
+  // everything else draws with, and that context tolerates exactly one thread at a time.
+  std::unique_lock<CCriticalSection> graphicsLock(CServiceBroker::GetWinSystem()->GetGfxContext());
+
+  // Logged for the first few frames only, so a menu that wedges the renderer shows whether
+  // it got in and back out again
+  const bool trace = (m_blurayMenuFrames < 3);
+
+  // Point drawing back at the layer that is composited over the video. Showing the picture
+  // leaves the target somewhere else, and menus drawn there go nowhere anyone can see.
+  if (m_currentRenderer == DIRECTSHOW_RENDERER_MADVR)
+    g_application.GetComponent<CApplicationPlayer>()->RenderToTexture(RENDER_LAYER_OVER);
+
+  // The rectangle the renderer reports is where madVR puts the picture, in its own output
+  // size. Menus are drawn in Kodi's coordinates, which is the size of the window, and using
+  // madVR's numbers scaled them off the screen. The disc composes its menus against the
+  // video, so the video fills the window here.
+  CRect source, madvrDest, madvrView;
+  m_pRenderer->GetVideoRect(source, madvrDest, madvrView);
+
+  // Drawn in the coordinates the disc composed the menu in, which is the same space Kodi
+  // draws its own interface in. Scaling to madVR's output put the buttons off the screen.
+  CRect dest = source;
+  CRect view = source;
+
+  if (trace)
+  {
+    // An overlay drawn into a rectangle of no size is drawn nowhere, which looks exactly
+    // like not drawing at all
+    CLog::Log(LOGDEBUG,
+              "{} - drawing menu frame {} into source {}x{} at {},{} dest {}x{} at {},{} "
+              "view {}x{} at {},{}",
+              __FUNCTION__, m_blurayMenuFrames, source.Width(), source.Height(), source.x1,
+              source.y1, dest.Width(), dest.Height(), dest.x1, dest.y1, view.Width(),
+              view.Height(), view.x1, view.y1);
+  }
+
+  // TEMPORARY: a block of colour where the menu buttons are. If this shows and the menu does
+  // not, drawing here reaches the screen and the fault is in how the overlays are converted;
+  // if neither shows, nothing drawn at this point reaches the screen at all.
+  if (getenv("KODI_BLURAY_MENU_PROBE") != nullptr)
+    CGUITexture::DrawQuad(CRect(600.0f, 800.0f, 1400.0f, 1000.0f), 0xA0FF0000);
+
   m_blurayMenuRenderer.SetVideoRect(source, dest, view);
   m_blurayMenuRenderer.Render(0);
 
   // The shared renderer decides whether to composite this layer by counting what was
   // drawn into it, and the overlay renderer draws without going through CGUITexture
   CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->IncRenderCount();
+
+  m_blurayMenuFrames++;
+  if (trace)
+    CLog::Log(LOGDEBUG, "{} - menu frame drawn", __FUNCTION__);
 }
 
 bool CRenderDSManager::IsGuiLayer()

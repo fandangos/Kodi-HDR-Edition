@@ -26,6 +26,7 @@
 
 #include "DSPlayer.h"
 #include "DSBlurayNavigator.h"
+#include "Filters/DSBluraySource.h"
 #include "DSUtil/DSUtil.h" // unload loaded filters
 #include "SComCli.h"
 #include "Filters/RendererSettings.h"
@@ -39,6 +40,7 @@
 #include "settings/Settings.h"
 #include "FileItem.h"
 #include "utils/log.h"
+#include "utils/XTimeUtils.h"
 #include "URL.h"
 
 #include "guilib/GUIWindowManager.h"
@@ -83,10 +85,13 @@
 #include "utils/URIUtils.h"
 
 using namespace PVR;
+using namespace std::chrono_literals;
 using namespace std;
 using namespace KODI::MESSAGING;
 
 DSPLAYER_STATE CDSPlayer::PlayerState = DSPLAYER_CLOSED;
+std::atomic<bool> CDSPlayer::m_discProgrammeChanged{false};
+bool CDSPlayer::m_keepDiscOpen = false;
 CGUIDialogBoxBase *CDSPlayer::errorWindow = NULL;
 ThreadIdentifier CDSPlayer::m_threadID = 0;
 HWND CDSPlayer::m_hWnd = 0;
@@ -246,6 +251,10 @@ bool CDSPlayer::OpenFileInternal(const CFileItem& file)
     if(!WaitForFileClose())
       return false;
 
+    // Any closes on the way here were making room for this open; from now on a close is a
+    // real stop again and finishes with the disc
+    m_keepDiscOpen = false;
+
     PlayerState = DSPLAYER_LOADING;
     m_currentFileItem = file;
 
@@ -402,13 +411,33 @@ bool CDSPlayer::OpenFile(const CFileItem& file, const CPlayerOptions &options)
 
 bool CDSPlayer::CloseFile(bool reopen)
 {
-  CSingleExit lock(m_CleanSection);
+  // TEMPORARY: which thread runs this close, and whether it is one of the closes that keeps
+  // the disc alive, decides which of the known blocks it can run into
+  CLog::Log(LOGDEBUG, "{} - closing (reopen {}, keeping the disc open {}, state {})",
+            __FUNCTION__, reopen, m_keepDiscOpen, static_cast<int>(PlayerState));
+
+  // CSingleExit(m_CleanSection) removed: it was this section's only user, so it provided
+  // no exclusion - it released a mutex this thread never held and then kept it on exit,
+  // which wedged the second close of a reopen
 
   if (PlayerState == DSPLAYER_LOADING)
   {
     g_dsGraph->QueueStop();
     return false;
   }
+
+  // Stopping the graph waits for its streaming threads, and on a navigated disc those sit
+  // in reads that block until the disc gives more. Cut them loose first, whatever the
+  // close is for, or the stop waits on a read that is waiting on a menu.
+  CDSBlurayStream::StopFeedingTheGraph();
+
+  // A disc is kept open across graph rebuilds, so this is where it is really finished with,
+  // unless the close is only there to make way for the programme the disc moved on to. The
+  // flag is deliberately not consumed here: the way back round to opening the disc again
+  // closes the player more than once, and the disc has to survive every one of them. The
+  // open clears it once the new player is truly under way.
+  if (!m_keepDiscOpen)
+    CDSBlurayNavigator::EndSession();
 
   // zoom
   if (m_pAllocatorCallback)
@@ -432,22 +461,52 @@ bool CDSPlayer::CloseFile(bool reopen)
   // set the abort request so that other threads can finish up
   m_bEof = g_dsGraph->IsEof();
 
-  m_callback.OnPlayBackEnded();
+  // Telling the application playback has ended sets its own teardown in motion, which runs
+  // a second close alongside this one. When the close is only making way for the programme
+  // the disc moved to, playback has not ended at all.
+  if (!m_keepDiscOpen)
+    m_callback.OnPlayBackEnded();
 
   // stop the rendering on dsplayer device
   m_renderOnDs = false;
 
-  g_dsGraph->CloseFile();
+  // Closing the graph destroys the video renderer, and madVR does not finish going away
+  // while the application thread is still drawing into the surfaces they share. Make the
+  // drawing stop, and know that it has, before anything is taken apart.
+  m_renderManager.StopRenderingIntoDirectShow();
+
+  // Taking the graph apart destroys the video renderer, and madVR only finishes going away
+  // on the thread that built the graph; asked from anywhere else it never comes back. That
+  // only matters when a navigated disc rebuilds its graph, which is driven from the graph
+  // management thread — an ordinary stop comes from the application thread, where closing
+  // in place has always worked, and where waiting on another thread would be the deadlock
+  // madVR is famous for here.
+  CLog::Log(LOGDEBUG, "{} - closing the graph", __FUNCTION__);
+  if (m_keepDiscOpen && m_threadID && ::GetCurrentThreadId() != m_threadID)
+    PostMessage(new CDSMsg(CDSMsg::PLAYER_CLOSE_GRAPH), true);
+  else
+    g_dsGraph->CloseFile();
+  CLog::Log(LOGDEBUG, "{} - graph closed", __FUNCTION__);
 
   PlayerState = DSPLAYER_CLOSED;
 
-  // Stop threads
-  m_pGraphThread.StopThread();
+  // Stop threads. Closing can be initiated from the graph thread itself, when a navigated
+  // disc moves to another programme, and a thread cannot wait for its own end: ask it to
+  // finish without waiting and it falls out of its loop on return.
+  CLog::Log(LOGDEBUG, "{} - stopping the graph thread", __FUNCTION__);
+  m_pGraphThread.StopThread(!m_pGraphThread.IsCurrentThread());
+
+  // The player thread sits in GetMessage and nothing on this path sends it anything, so
+  // waiting for it without waking it first waits forever
+  CLog::Log(LOGDEBUG, "{} - stopping the player thread {}", __FUNCTION__, m_threadID);
+  if (m_threadID)
+    PostThreadMessage(m_threadID, WM_QUIT, 0, 0);
   StopThread();
 
+  CLog::Log(LOGDEBUG, "{} - releasing the renderer", __FUNCTION__);
   m_renderManager.UnInit();
 
-  CLog::Log(LOGDEBUG, "{} File closed", __FUNCTION__);
+  CLog::Log(LOGDEBUG, "{} File closed (state {})", __FUNCTION__, static_cast<int>(PlayerState));
   return true;
 }
 
@@ -780,6 +839,7 @@ void CDSPlayer::Process()
 
   // Start playback
   // If there's an error, the lock must be released in order to show the error dialog
+  CLog::Log(LOGDEBUG, "{} - graph built, releasing the thread that opened the file", __FUNCTION__);
   m_hReadyEvent.Set();
 
   if (PlayerState != DSPLAYER_ERROR)
@@ -788,12 +848,16 @@ void CDSPlayer::Process()
     m_HasAudio = true;
 
     // Select Audio Stream, Delay
+    CLog::Log(LOGDEBUG, "{} - choosing the audio stream", __FUNCTION__);
     if (CStreamsManager::Get()) CStreamsManager::Get()->SelectBestAudio();
+    CLog::Log(LOGDEBUG, "{} - audio stream chosen", __FUNCTION__);
     SetAVDelay(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_AudioDelay);
 
     // Select Subtitle Stream, Delay, On/Off
     
+    CLog::Log(LOGDEBUG, "{} - choosing the subtitle stream", __FUNCTION__);
     if (CStreamsManager::Get()) CStreamsManager::Get()->SelectBestSubtitle(m_currentFileItem.GetPath());
+    CLog::Log(LOGDEBUG, "{} - subtitle stream chosen", __FUNCTION__);
     SetSubTitleDelay(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleDelay);
     SetSubtitleVisible(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleOn);
 
@@ -803,13 +867,45 @@ void CDSPlayer::Process()
       ShowEditionDlg(true);
 
     // Seek
-    if (m_PlayerOptions.starttime > 0)
+    if (CDSBlurayNavigator::Get())
+    {
+      // A disc running its own navigation plays what it decides to play, from wherever it
+      // has got to. There is no position to seek to, and asking for one stalls the graph
+      // and everything waiting behind it, the interface included.
+      CLog::Log(LOGDEBUG, "{} - the disc is navigating itself, starting where it is",
+                __FUNCTION__);
+    }
+    else if (m_PlayerOptions.starttime > 0)
       g_dsGraph->Seek(SEC_TO_DS_TIME(m_PlayerOptions.starttime), 1U, false);
     else
       g_dsGraph->Seek(SEC_TO_DS_TIME(0), 1U, false);
 
-    // Starts playback
-    g_dsGraph->Play(true);
+    // Starts playback. Run() is asynchronous and a renderer that is still getting ready can
+    // leave the graph cued rather than running, with nothing to try again — madVR brings its
+    // device up a moment after the graph is built. Keep asking until the graph really runs,
+    // or nothing will consume the stream: the picture freezes on whatever was pushed while
+    // connecting, and a disc menu neither animates nor reacts.
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+      g_dsGraph->Play(true);
+
+      // Waiting here without answering messages froze the interface for the whole of this
+      // loop: the application thread was left waiting on the video window this thread owns,
+      // which is what the startup race was
+      SleepAnsweringMessages(250ms);
+      g_dsGraph->UpdateState();
+
+      if (PlayerState == DSPLAYER_PLAYING)
+      {
+        // The disc has been held near where this programme started so the splitter could go
+        // back to the beginning to play it. It has, so let the disc run on.
+        CDSBlurayStream::NoteGraphRunning();
+        break;
+      }
+
+      CLog::Log(LOGDEBUG, "{} - the graph is not running yet (state {}), asking again",
+                __FUNCTION__, static_cast<int>(PlayerState));
+    }
 
     if (CGraphFilters::Get()->IsDVD())
       CStreamsManager::Get()->LoadDVDStreams();
@@ -827,15 +923,101 @@ void CDSPlayer::Process()
 
 }
 
+void CDSPlayer::RebuildGraphForDisc()
+{
+  CLog::Log(LOGINFO, "{} - the disc has moved to another programme, opening it again",
+            __FUNCTION__);
+
+  // Taking the graph apart and building another one by hand deadlocked against the graph's
+  // own streaming threads. Going round through the player instead uses the path that opens
+  // every other file, which is well travelled and already knows how to stop cleanly.
+  //
+  // The disc itself is deliberately left open across this, so it carries on from whatever it
+  // moved to rather than starting over at first play, and a BD-J disc keeps everything its
+  // menu was running.
+  m_keepDiscOpen = true;
+
+  // The disc may pass through another playlist or two before it settles on what it is really
+  // going to play. Those are not separate requests to open it again.
+  if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+    navigator->SuspendProgrammeChanges();
+
+  // Close the whole thing from this thread, not just stop it. Taking the graph down
+  // destroys the video renderer, and madVR only finishes going away once the application
+  // thread has answered its render handshake — so the application thread cannot be the one
+  // taking it down, or it waits for a reply only it could give. Leaving the close to the
+  // application's ordinary open path put it exactly there.
+  CDSBlurayStream::StopFeedingTheGraph();
+  CloseFile();
+  CLog::Log(LOGINFO, "{} - closed, asking for the new programme", __FUNCTION__);
+
+  CFileItem* item = new CFileItem(m_currentFileItem);
+  CServiceBroker::GetAppMessenger()->PostMsg(TMSG_MEDIA_PLAY, 0, 0, static_cast<void*>(item));
+}
+
+void CDSPlayer::SleepAnsweringMessages(std::chrono::milliseconds duration)
+{
+  const DWORD deadline = GetTickCount() + static_cast<DWORD>(duration.count());
+
+  for (;;)
+  {
+    const DWORD now = GetTickCount();
+    if (now >= deadline)
+      return;
+
+    // Wake for a message as readily as for the end of the wait
+    MsgWaitForMultipleObjects(0, nullptr, FALSE, deadline - now, QS_ALLINPUT);
+
+    // Answer what was sent to this thread's windows. Messages posted to the thread itself
+    // belong to HandleMessages, which knows how to complete and release them, so they are
+    // taken out of the way and put back once the window messages have been dealt with.
+    std::vector<MSG> ours;
+    MSG msg;
+    while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+    {
+      if (msg.message == WM_QUIT)
+      {
+        PostQuitMessage(static_cast<int>(msg.wParam));
+        break;
+      }
+
+      if (msg.hwnd == NULL)
+      {
+        ours.push_back(msg);
+        continue;
+      }
+
+      TranslateMessage(&msg);
+      DispatchMessage(&msg);
+    }
+
+    for (const MSG& mine : ours)
+      PostThreadMessage(::GetCurrentThreadId(), mine.message, mine.wParam, mine.lParam);
+  }
+}
+
 void CDSPlayer::HandleMessages()
 {
   //std::shared_ptr<CDs> pMsg = nullptr;
   MSG msg;
   while (GetMessage(&msg, NULL, 0, 0) != 0)
   {
+    if (msg.message != WM_GRAPHMESSAGE)
+    {
+      // This thread owns windows besides this loop's own mailbox: the video renderer makes
+      // one on whichever thread builds the graph. Their messages have to be dispatched, or
+      // anything that sends to those windows waits forever - stopping madVR does exactly
+      // that, which left the graph impossible to stop.
+      TranslateMessage(&msg);
+      DispatchMessage(&msg);
+      continue;
+    }
+
     if (msg.message == WM_GRAPHMESSAGE)
     {
       CDSMsg* pMsg = reinterpret_cast<CDSMsg *>(msg.lParam);
+      CLog::Log(LOGDEBUG, "{} - received message {}, state {}", __FUNCTION__,
+                static_cast<int>(pMsg->GetMessageType()), static_cast<int>(PlayerState));
       //CLog::Log(LOGDEBUG, "{} Message received : {} on thread 0x{}", __FUNCTION__, pMsg->GetMessageType(), m_threadID);
 
       if (CDSPlayer::PlayerState == DSPLAYER_CLOSED || CDSPlayer::PlayerState == DSPLAYER_LOADING)
@@ -911,6 +1093,15 @@ void CDSPlayer::HandleMessages()
         CDSMsgBool* speMsg = reinterpret_cast<CDSMsgBool *>(pMsg);
         g_dsGraph->Play(speMsg->m_value);
       }
+      else if (pMsg->IsType(CDSMsg::PLAYER_CLOSE_GRAPH))
+      {
+        // This thread built the graph, so this thread owns the video renderer's window and
+        // whatever apartment it lives in. Releasing madVR anywhere else never comes back.
+        CLog::Log(LOGDEBUG, "{} - taking the graph apart on the thread that built it",
+                  __FUNCTION__);
+        g_dsGraph->CloseFile();
+        CLog::Log(LOGDEBUG, "{} - the graph is gone", __FUNCTION__);
+      }
       else if (pMsg->IsType(CDSMsg::PLAYER_UPDATE_TIME))
       {
         g_dsGraph->UpdateTime();
@@ -924,6 +1115,28 @@ void CDSPlayer::HandleMessages()
       }
 
       /*DVD COMMANDS*/
+      // Everything below drives a DVD through DirectShow's DVD Navigator, which only exists
+      // when a DVD is playing. A Blu-ray navigated by us has none of it, and the handlers
+      // reach straight through those pointers - one mouse movement over the window was
+      // enough to take this thread down, and with it every message that would ever be sent
+      // to it, which is what made the player stop answering after entering a disc menu.
+      const bool haveDvdNavigator =
+          CGraphFilters::Get()->DVD.dvdInfo && CGraphFilters::Get()->DVD.dvdControl;
+
+      // The two mouse messages are not only for DVDs: they are also how the pointer reaches
+      // the interface at all while a video window is up, which is what lets the viewer move
+      // the mouse and click on the OSD. They are handled below whatever is playing, and only
+      // their DVD button lookup is skipped.
+      if (!haveDvdNavigator && pMsg->GetMessageType() > CDSMsg::PLAYER_DVD_MOUSE_CLICK &&
+          pMsg->GetMessageType() <= CDSMsg::PLAYER_DVD_MENU_ANGLE)
+      {
+        CLog::Log(LOGDEBUG, "{} - ignoring a DVD command ({}), this disc is not a DVD",
+                  __FUNCTION__, static_cast<int>(pMsg->GetMessageType()));
+        pMsg->Set();
+        pMsg->Release();
+        continue;
+      }
+
       if (pMsg->IsType(CDSMsg::PLAYER_DVD_MOUSE_MOVE))
       {
         CDSMsgInt* speMsg = reinterpret_cast<CDSMsgInt *>(pMsg);
@@ -942,7 +1155,11 @@ void CDSPlayer::HandleMessages()
         /*CGUIMessage pMsg(GUI_MSG_VIDEO_MENU_STARTED, 0, 0);
         g_windowManager.SendMessage(pMsg);*/
         /**** End of ugly hack ***/
-        if (SUCCEEDED(CGraphFilters::Get()->DVD.dvdInfo->GetButtonAtPosition(pt, &pButtonIndex)))
+
+        // Only a DVD has buttons to look up here; a Blu-ray has no DVD navigator at all, and
+        // reaching through those pointers is what used to kill this thread
+        if (haveDvdNavigator &&
+            SUCCEEDED(CGraphFilters::Get()->DVD.dvdInfo->GetButtonAtPosition(pt, &pButtonIndex)))
           CGraphFilters::Get()->DVD.dvdControl->SelectButton(pButtonIndex);
       }
       else if (pMsg->IsType(CDSMsg::PLAYER_DVD_MOUSE_CLICK))
@@ -952,7 +1169,21 @@ void CDSPlayer::HandleMessages()
         pt.x = GET_X_LPARAM(speMsg->m_value);
         pt.y = GET_Y_LPARAM(speMsg->m_value);
         ULONG pButtonIndex;
-        if (SUCCEEDED(CGraphFilters::Get()->DVD.dvdInfo->GetButtonAtPosition(pt, &pButtonIndex)))
+
+        // A click has to reach the interface the same way a movement does, or the OSD can be
+        // pointed at but never pressed
+        XBMC_Event newEvent;
+        newEvent.type = XBMC_MOUSEBUTTONDOWN;
+        newEvent.button.button = XBMC_BUTTON_LEFT;
+        newEvent.button.x = (uint16_t)pt.x;
+        newEvent.button.y = (uint16_t)pt.y;
+        CServiceBroker::GetAppPort()->OnEvent(newEvent);
+
+        newEvent.type = XBMC_MOUSEBUTTONUP;
+        CServiceBroker::GetAppPort()->OnEvent(newEvent);
+
+        if (haveDvdNavigator &&
+            SUCCEEDED(CGraphFilters::Get()->DVD.dvdInfo->GetButtonAtPosition(pt, &pButtonIndex)))
           CGraphFilters::Get()->DVD.dvdControl->SelectAndActivateButton(pButtonIndex);
       }
       else if (pMsg->IsType(CDSMsg::PLAYER_DVD_NAV_UP))
@@ -1076,7 +1307,14 @@ bool CDSPlayer::IsInMenu() const
 {
   CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
   if (navigator)
-    return navigator->IsInMenu();
+  {
+    // Whether a menu is up is whether the disc is drawing one, not whether its menu code is
+    // loaded. libbluray answers the latter, and on a BD-J disc that stays true for the whole
+    // film, which sent every key press to the disc and left Kodi's own OSD unreachable.
+    // Asking what is drawn is also what makes a popup menu over a playing film work: it is
+    // a menu exactly while its graphics are there.
+    return navigator->MenuOnScreen();
+  }
 
   return g_dsGraph->IsInMenu();
 }
@@ -1096,8 +1334,9 @@ bool CDSPlayer::OnAction(const CAction &action)
       return navigator->ShowMenu();
 
     // Everything else only belongs to the disc while a menu is up, otherwise the arrow keys
-    // would stop seeking during normal playback
-    if (navigator->IsInMenu())
+    // would stop seeking during normal playback. IsInMenu() rather than the navigator's own
+    // answer, because the disc keeps its menu up underneath a film played from a playlist.
+    if (IsInMenu())
     {
       switch (action.GetID())
       {
@@ -1507,7 +1746,22 @@ bool CDSPlayer::ShowPVRChannelInfo()
 void CDSPlayer::FrameMove()
 {
   m_renderManager.FrameMove();
-  m_processInfo->SetPlayTimes(0, DS_TIME_TO_MSEC(g_dsGraph->GetTime()), 0, DS_TIME_TO_MSEC(g_dsGraph->GetTotalTime()));
+
+  // Asking the graph the time goes down to the splitter and, through it, to the source. It
+  // is done every frame on the application thread, so anything slow in that chain stops the
+  // interface. Traced sparsely to show whether that is what happened.
+  static uint64_t times = 0;
+  const bool trace = ((times++ % 200) == 0);
+  if (trace)
+    CLog::Log(LOGDEBUG, "{} - asking the graph for the time", __FUNCTION__);
+
+  const double played = g_dsGraph->GetTime();
+  const double total = g_dsGraph->GetTotalTime();
+
+  if (trace)
+    CLog::Log(LOGDEBUG, "{} - the graph says {} of {}", __FUNCTION__, played, total);
+
+  m_processInfo->SetPlayTimes(0, DS_TIME_TO_MSEC(played), 0, DS_TIME_TO_MSEC(total));
 }
 
 void CDSPlayer::Render(bool clear, uint32_t alpha, bool gui)
@@ -1998,6 +2252,17 @@ void CGraphManagementThread::Process()
 
     if (CDSPlayer::PlayerState == DSPLAYER_CLOSED)
       break;
+
+    // The disc decides what plays; when it moves to another programme the graph has to be
+    // built again around it, and this is the thread that can do it without holding up
+    // either the interface or the disc.
+    if (CDSPlayer::TakeDiscProgrammeChanged())
+      m_pPlayer->RebuildGraphForDisc();
+
+    // This loop had no pause of its own and span flat out whenever the player was not in
+    // its steady state, which starved the very threads a teardown waits for
+    KODI::TIME::Sleep(10ms);
+
     if (m_bSpeedChanged)
     {
       m_pPlayer->GetClock().SetSpeed(m_currentRate * 1000);

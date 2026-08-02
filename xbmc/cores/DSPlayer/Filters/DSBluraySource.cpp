@@ -14,6 +14,7 @@
 
 #include "ServiceBroker.h"
 #include "cores/DSPlayer/DSBlurayNavigator.h"
+#include "cores/DSPlayer/DSPlayer.h"
 #include "cores/DSPlayer/Utils/DSFileUtils.h"
 #include "utils/StringUtils.h"
 #include "settings/DiscSettings.h"
@@ -31,6 +32,8 @@ using namespace std::chrono_literals;
 #endif
 
 #include <algorithm>
+#include <atomic>
+#include <thread>
 
 namespace
 {
@@ -38,10 +41,10 @@ namespace
 //! starts mid unit has to skip the remainder.
 constexpr DWORD BLURAY_UNIT_SIZE = 6144;
 
-//! How far back a navigated stream can be read. The splitter reads forwards and only
-//! looks back over the packets it is currently parsing, so this needs to cover a moment
-//! of parsing rather than any real seek.
-constexpr size_t HISTORY_SIZE = 16 * 1024 * 1024;
+//! How far back a navigated stream can be read. Bigger than a moment of parsing needs,
+//! because the splitter hunts for the end of the stream by reading near it and backing off
+//! in doubling steps, the last of which lands about 32 MB short.
+constexpr size_t HISTORY_SIZE = 64 * 1024 * 1024;
 
 //! Bytes pulled from the disc in one go when the history window has to grow
 constexpr int PULL_SIZE = 128 * 1024;
@@ -51,11 +54,104 @@ constexpr int PULL_SIZE = 128 * 1024;
 //! played, and reading the whole way there would burn through the disc.
 constexpr LONGLONG MAX_FORWARD_SKIP = 8 * 1024 * 1024;
 
-//! Reported as the distance still to come in navigation mode, where the real length is
-//! not known until the disc has finished deciding what to play. It only has to be large
-//! enough that the splitter treats the stream as unfinished rather than truncated.
-constexpr LONGLONG NAVIGATION_LOOKAHEAD = 256 * 1024 * 1024;
+//! Reported as the distance still to come in navigation mode, where the real length is not
+//! known until the disc has finished deciding what to play.
+//!
+//! Deliberately small. The splitter looks for the end of the stream by reading near the
+//! length we claim, so whatever we claim has to be somewhere the disc can actually reach:
+//! claiming a length far beyond anything that exists means every one of those reads fails
+//! and the splitter gives up on the stream entirely. Kept below MAX_FORWARD_SKIP so that
+//! reaching the claimed end is allowed rather than refused.
+constexpr LONGLONG NAVIGATION_LOOKAHEAD = 4 * 1024 * 1024;
+
+//! How long a disc gets to start playing something before navigation is abandoned. Long
+//! enough for a BD-J disc to start a Java VM and run its menu code.
+constexpr std::chrono::milliseconds NAVIGATION_START_TIMEOUT{40000};
+
+//! Longest to spend waiting for the disc to stop changing playlist before taking whatever
+//! it is on. Must leave room inside NAVIGATION_START_TIMEOUT for priming afterwards.
+constexpr std::chrono::milliseconds NAVIGATION_SETTLE_LIMIT{14000};
+
+//! How long one read will wait for the disc before giving the splitter less than it asked
+//! for, which the splitter reads as the end of the stream
+constexpr std::chrono::milliseconds NAVIGATION_READ_TIMEOUT{1000};
+
+//! How many of the opening reads to trace
+constexpr uint32_t TRACED_READS = 60;
+
+//! How long the disc has to stay on one playlist before its bytes are worth showing the
+//! splitter.
+//!
+//! This has to outlast the transitions a disc makes on its way in, not just the gaps
+//! between them. Mortal Kombat II passes through a playlist that sits still for nearly
+//! three seconds before moving to its menu, and settling on that one left the splitter
+//! parsing a programme the disc had already left, after which it never produced a frame.
+constexpr std::chrono::milliseconds NAVIGATION_SETTLE{6000};
+
+//! How long the disc has to stay on one playlist once it says it is showing its top menu.
+//! Short, because reaching the menu is the disc telling us it has arrived.
+constexpr std::chrono::milliseconds MENU_SETTLE{700};
+
+//! How long the disc has to stay put when the player is following it to what it moved to.
+//! Shorter than the first time round, because the choosing has already happened.
+constexpr std::chrono::milliseconds RESUME_SETTLE{2500};
+
+//! Most that is kept while waiting for the disc to settle. Only there to stop a disc that
+//! reads faster than it plays from running away with the whole playlist.
+constexpr LONGLONG SETTLE_CAP = 8 * 1024 * 1024;
+
+//! How much of the settled playlist to have ready before the graph is built. Well inside
+//! HISTORY_SIZE, so the splitter can still reach the first byte while it scans.
+constexpr LONGLONG PRIME_BYTES = 2 * 1024 * 1024;
+
+//! How far ahead of the splitter the disc is read. Enough that a read never waits, small
+//! enough that what the splitter may still ask for stays inside HISTORY_SIZE.
+constexpr LONGLONG READAHEAD = 8 * 1024 * 1024;
+
+//! How far the disc is allowed to run before playback starts. Comfortably inside
+//! HISTORY_SIZE, so that everything read while the splitter works out what the stream holds
+//! is still there when it goes back to the beginning to play it.
+constexpr LONGLONG OPENING_BYTES_HELD = 48 * 1024 * 1024;
+
+//! Longest to spend collecting those opening bytes before going with what arrived
+constexpr std::chrono::milliseconds PRIME_TIME{4000};
 } // unnamed namespace
+
+CDSBlurayStream* CDSBlurayStream::m_feeding = nullptr;
+std::atomic<bool> CDSBlurayStream::m_playingPlaylist{false};
+
+void CDSBlurayStream::StopFeedingTheGraph()
+{
+  CDSBlurayStream* stream = m_feeding;
+  if (!stream)
+    return;
+
+  CLog::Log(LOGDEBUG, "{} - no more bytes for the graph, it is being taken down", __FUNCTION__);
+  stream->m_producerStop = true;
+  stream->m_ringGrew.notify_all();
+}
+
+void CDSBlurayStream::FollowTheDisc()
+{
+  CDSBlurayStream* stream = m_feeding;
+  if (!stream)
+    return;
+
+  CLog::Log(LOGINFO, "{} - the programme has ended, following the disc to the next one",
+            __FUNCTION__);
+  stream->m_followDisc = true;
+}
+
+void CDSBlurayStream::NoteGraphRunning()
+{
+  CDSBlurayStream* stream = m_feeding;
+  if (!stream || stream->m_graphRunning)
+    return;
+
+  CLog::Log(LOGINFO, "{} - playback has started, the disc may run on from its opening bytes",
+            __FUNCTION__);
+  stream->m_graphRunning = true;
+}
 
 CDSBlurayStream::~CDSBlurayStream()
 {
@@ -89,6 +185,20 @@ void CDSBlurayStream::ReportThroughput(DWORD bytesRead, double readMilliseconds)
 
 void CDSBlurayStream::Close()
 {
+  // Stop reading, but leave the disc alone: this also runs when the graph is being rebuilt
+  // because the disc moved to another programme, and giving up on the disc there would end
+  // the very thing being followed. Reads are bounded, so the thread comes back on its own.
+  if (m_feeding == this)
+  {
+    m_feeding = nullptr;
+    m_playingPlaylist = false;
+  }
+
+  m_producerStop = true;
+  m_ringGrew.notify_all();
+  if (m_producer.joinable())
+    m_producer.join();
+
   m_navigator.reset();
   m_history.clear();
   m_history.shrink_to_fit();
@@ -131,8 +241,30 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
   const int mode =
       CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DISC_PLAYBACK);
 
-  if (mode != BD_PLAYBACK_MAIN_TITLE && OpenNavigation(path))
-    return S_OK;
+  if (mode != BD_PLAYBACK_MAIN_TITLE)
+  {
+    // A disc that is already running has been through its menus and chosen what to play.
+    // What it chose is an ordinary playlist, and read as one it has a length and can be
+    // seeked, which is what a splitter needs to play a whole film. Navigation output is
+    // sequential and endless-looking, which is right for a menu and wrong for a feature.
+    if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+    {
+      const uint32_t playlist = navigator->Playlist();
+      if (playlist > 0 && !navigator->InMainMenu())
+      {
+        CLog::Log(LOGINFO, "{} - the disc has settled on playlist {}, playing it directly",
+                  __FUNCTION__, playlist);
+        if (SUCCEEDED(OpenPlaylist(path, playlist)))
+          return S_OK;
+
+        CLog::Log(LOGWARNING, "{} - playlist {} could not be played on its own, staying with "
+                              "the disc's own navigation", __FUNCTION__, playlist);
+      }
+    }
+
+    if (OpenNavigation(path))
+      return S_OK;
+  }
 
   return OpenTitle(path);
 #endif
@@ -140,8 +272,13 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
 
 bool CDSBlurayStream::OpenNavigation(const std::string& path)
 {
-  auto navigator = std::make_unique<CDSBlurayNavigator>();
-  if (!navigator->Open(path))
+  // The disc may already be playing, if this graph is being built again because the disc
+  // moved from its menu to a title. In that case carry on from where it is rather than
+  // starting the disc over.
+  const bool resuming = (CDSBlurayNavigator::Get() != nullptr);
+
+  std::shared_ptr<CDSBlurayNavigator> navigator = CDSBlurayNavigator::Session(path);
+  if (!navigator)
     return false;
 
   m_history.assign(HISTORY_SIZE, 0);
@@ -154,12 +291,113 @@ bool CDSBlurayStream::OpenNavigation(const std::string& path)
   // The splitter inspects the opening bytes before it will connect, so the disc has to have
   // started playing something before the graph is built. Give it a moment: a disc spends
   // the first instant loading its menu code, and BD-J discs start a Java VM to do it.
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-  while (m_produced == 0 && !m_exhausted && std::chrono::steady_clock::now() < deadline)
+  //
+  // The waiting cannot be done by watching the clock here, because a disc whose menu failed
+  // to start never returns from the read at all. It takes another thread to call time on it.
+  std::atomic<bool> started{false};
+  std::thread watchdog(
+      [this, &started]()
+      {
+        for (int waited = 0; waited < NAVIGATION_START_TIMEOUT.count() && !started; waited += 100)
+          KODI::TIME::Sleep(100ms);
+
+        if (!started)
+        {
+          CLog::Log(LOGWARNING, "{} - the disc has played nothing in {}s, abandoning navigation",
+                    __FUNCTION__, NAVIGATION_START_TIMEOUT.count() / 1000);
+          m_navigator->Abort();
+        }
+      });
+
+  // A disc runs through several playlists on its way in: a logo, a warning, then whatever
+  // it settles on, often its menu. Each is a different programme, and the splitter is given
+  // one stream and reads it as one file, so the bytes it is shown have to belong to a
+  // single one of them. Play until the disc stops changing its mind, throwing away what
+  // belongs to the playlists it passed through, and present what it settles on from its
+  // first byte.
+  uint32_t playlist = m_navigator->Playlist();
+  const auto waitingSince = std::chrono::steady_clock::now();
+  auto settledAt = waitingSince;
+
+  // None of this applies when the disc is already playing and only the graph is being
+  // rebuilt: the disc has already chosen, and what it is playing now is exactly what the
+  // splitter should be shown.
+  while (!m_exhausted)
+  {
+    // Keep reading the whole time. A disc only advances while it is being read, so pausing
+    // here stops the menu: its background stops playing and whatever runs it decides nothing
+    // is happening and moves on to something else. Bytes beyond what is worth keeping are
+    // thrown away instead.
+    if (Pull() == 0)
+      KODI::TIME::Sleep(10ms);
+
+    if (m_produced > SETTLE_CAP)
+      Discard();
+
+    const uint32_t current = m_navigator->Playlist();
+    if (current != playlist)
+    {
+      CLog::Log(LOGDEBUG, "{} - the disc moved from playlist {} to {}", __FUNCTION__, playlist,
+                current);
+
+      // What was collected belongs to the programme the disc has just left
+      playlist = current;
+      settledAt = std::chrono::steady_clock::now();
+      Discard();
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+
+    // Waiting for the disc to go quiet is guesswork, and guessing wrong means handing the
+    // splitter a programme the disc is about to leave. The disc says where it was heading:
+    // once it announces its top menu, that is what to show.
+    if (m_navigator->InMainMenu() && now - settledAt >= MENU_SETTLE)
+    {
+      CLog::Log(LOGDEBUG, "{} - the disc reached its top menu on playlist {}", __FUNCTION__,
+                playlist);
+      break;
+    }
+
+    // A disc being followed to what it just moved to has already chosen; it only needs long
+    // enough to stop passing through the short playlists on the way there.
+    if (now - settledAt >= (resuming ? RESUME_SETTLE : NAVIGATION_SETTLE))
+      break;
+
+    // Some discs never stop moving between playlists, and waiting for a quiet moment that
+    // never comes is worse than taking whatever is playing now
+    if (now - waitingSince >= NAVIGATION_SETTLE_LIMIT)
+    {
+      CLog::Log(LOGDEBUG, "{} - the disc is still moving about after {}s, taking playlist {}",
+                __FUNCTION__, NAVIGATION_SETTLE_LIMIT.count() / 1000, playlist);
+      break;
+    }
+
+    // A disc read from a local file runs far faster than it plays, and every byte read here
+    // is a byte of the menu played and thrown away
+    KODI::TIME::Sleep(5ms);
+  }
+
+  // Start the stream the splitter will parse from nothing, so its first byte is the first
+  // byte of the playlist the disc settled on, and so the whole of it stays inside the window
+  // for as long as the splitter is scanning it.
+  // Settling may have landed just after the collected bytes were thrown away, so top up
+  // enough for the splitter to parse. Nothing is discarded here, and a menu with nothing more
+  // to give simply runs out the clock with what it already handed over.
+  const auto topUpUntil = std::chrono::steady_clock::now() + PRIME_TIME;
+  while (m_produced < PRIME_BYTES && !m_exhausted &&
+         std::chrono::steady_clock::now() < topUpUntil)
   {
     if (Pull() == 0)
-      KODI::TIME::Sleep(50ms);
+      KODI::TIME::Sleep(10ms);
   }
+
+  CLog::Log(LOGDEBUG, "{} - playlist {} gave {} bytes to open with", __FUNCTION__, playlist,
+            static_cast<LONGLONG>(m_produced));
+
+  started = true;
+  watchdog.join();
+
+  m_playlist = playlist;
 
   if (m_produced == 0)
   {
@@ -169,6 +407,14 @@ bool CDSBlurayStream::OpenNavigation(const std::string& path)
   }
 
   CLog::Log(LOGINFO, "{} - the disc started playing after {} bytes", __FUNCTION__, m_produced);
+
+  // From here the disc is read on its own thread, so that a read never waits on it
+  m_producerStop = false;
+  m_feeding = this;
+  m_producer = std::thread(&CDSBlurayStream::Produce, this);
+
+  // From here on, a change of programme means the graph has to be built again
+  m_navigator->AnnounceProgrammeChanges();
 
   CLog::Log(LOGINFO, "{} - reading \"{}\" through its own menus", __FUNCTION__, path);
   return true;
@@ -238,6 +484,54 @@ HRESULT CDSBlurayStream::OpenTitle(const std::string& kodiPath)
 #endif
 }
 
+HRESULT CDSBlurayStream::OpenPlaylist(const std::string& kodiPath, uint32_t playlist)
+{
+#if !defined(HAVE_LIBBLURAY)
+  return E_FAIL;
+#else
+  // libbluray opens the file itself here, so it needs a path Windows understands
+  std::string path = CDSFile::SmbToUncPath(kodiPath);
+  StringUtils::Replace(path, "/", "\\");
+
+  m_bd = bd_open(path.c_str(), nullptr);
+  if (!m_bd)
+  {
+    CLog::Log(LOGERROR, "{} - libbluray could not open \"{}\"", __FUNCTION__, path.c_str());
+    return E_FAIL;
+  }
+
+  if (bd_select_playlist(m_bd, playlist) <= 0)
+  {
+    CLog::Log(LOGERROR, "{} - playlist {} cannot be played on its own", __FUNCTION__, playlist);
+    Close();
+    return E_FAIL;
+  }
+
+  m_length = static_cast<LONGLONG>(bd_get_title_size(m_bd));
+  m_position = 0;
+  m_bdPosition = 0;
+
+  if (m_length <= 0)
+  {
+    CLog::Log(LOGERROR, "{} - playlist {} has no length", __FUNCTION__, playlist);
+    Close();
+    return E_FAIL;
+  }
+
+  // What is on screen from here on is the film. The disc was left mid-menu and is no longer
+  // being read, so it cannot clear that menu itself: say so on its behalf, or it stays drawn
+  // over the film and every key press goes on being treated as menu navigation.
+  m_playingPlaylist = true;
+  m_feeding = this;
+  if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+    navigator->ClearMenu();
+
+  CLog::Log(LOGINFO, "{} - playing playlist {} directly, {} bytes", __FUNCTION__, playlist,
+            m_length);
+  return S_OK;
+#endif
+}
+
 HRESULT CDSBlurayStream::SetPointer(LONGLONG llPos)
 {
   if (llPos < 0)
@@ -278,6 +572,8 @@ DWORD CDSBlurayStream::Pull()
     return 0;
   }
 
+  std::lock_guard<std::mutex> ring(m_ringMutex);
+
   // Append to the history window, oldest bytes falling out of the far end
   size_t offset = 0;
   size_t remaining = static_cast<size_t>(read);
@@ -301,7 +597,56 @@ DWORD CDSBlurayStream::Pull()
 
   m_historyBytes = std::min(m_history.size(), m_historyBytes + static_cast<size_t>(read));
   m_produced += read;
+
+  // Once the stream has been handed over, a change of playlist means the bytes from here on
+  // belong to a different programme than the ones the splitter parsed. It has no way to be
+  // told that, so note it: rebuilding the graph at this point is the next thing needed.
+  // Whether the disc has moved to another programme is noticed by the navigator, which
+  // sees the events wherever they arrive, including on the thread carrying a keypress.
+
   return static_cast<DWORD>(read);
+}
+
+void CDSBlurayStream::Produce()
+{
+  while (!m_producerStop && !m_exhausted)
+  {
+    // Keep a little ahead of where the splitter is reading, no more. Running further ahead
+    // would push the bytes it may still ask for out of the far end of the window. The one
+    // exception is when the splitter has stopped reading because it believes its programme
+    // has ended: the disc has to be kept moving or it never reaches whatever comes next,
+    // and the change of playlist that follows is what triggers the graph being built again.
+    if (m_produced - m_position > READAHEAD && !m_followDisc)
+    {
+      KODI::TIME::Sleep(5ms);
+      continue;
+    }
+
+    // Until playback is under way, hold the disc near where it started. A splitter reads
+    // forward through the stream to work out what is in it and then goes back to the
+    // beginning to play it, and a navigated disc cannot be rewound: reading on while it
+    // scans pushed the opening bytes out of the window, and when it came back for them
+    // there was nothing to give it, so the graph never started.
+    if (!m_graphRunning && !m_followDisc && m_produced >= OPENING_BYTES_HELD)
+    {
+      KODI::TIME::Sleep(5ms);
+      continue;
+    }
+
+    if (Pull() > 0)
+      m_ringGrew.notify_all();
+  }
+
+  // Whatever is waiting for bytes should stop waiting
+  m_ringGrew.notify_all();
+}
+
+void CDSBlurayStream::Discard()
+{
+  m_historyBytes = 0;
+  m_historyEnd = 0;
+  m_produced = 0;
+  m_position = 0;
 }
 
 void CDSBlurayStream::CopyFromHistory(LONGLONG position, PBYTE buffer, DWORD length) const
@@ -349,19 +694,48 @@ HRESULT CDSBlurayStream::ReadNavigation(PBYTE pbBuffer, DWORD dwBytesToRead, LPD
   }
 
   // Reaching a position the disc has not played yet means reading and discarding until it
-  // gets there
-  while (m_produced < m_position)
+  // gets there. Worth knowing about: it costs disc reads and it moves the disc on.
+  if (m_position > m_produced)
   {
-    if (Pull() == 0)
+    CLog::Log(LOGDEBUG, "{} - playing forward {} bytes to reach {}", __FUNCTION__,
+              m_position - m_produced, m_position);
+  }
+
+  // Wait for the producer to have the bytes, never for the disc itself. A short read is how
+  // this interface says end of file, and a disc between one thing and the next is not at its
+  // end, so it is worth waiting a little; but the wait releases the ring, so nothing else is
+  // held up by it.
+  {
+    // Wait for the bytes with no deadline of our own. A short read is how this interface
+    // says the stream has ended, and a menu holding its picture is not the end of anything:
+    // ending the stream there had the player stop playback in the middle of every menu.
+    // Blocking here is safe, this is the graph's own streaming thread, and teardown
+    // interrupts the wait through m_producerStop.
+    const LONGLONG wanted = m_position + static_cast<LONGLONG>(dwBytesToRead);
+
+    // While the disc is being held near its start, bytes beyond what is held are never
+    // going to arrive, so waiting for them would wait for ever. Saying the stream ends
+    // there is what stops the splitter scanning further, which is the point of holding it.
+    if (!m_graphRunning && wanted > OPENING_BYTES_HELD)
+    {
+      if (pdwBytesRead)
+        *pdwBytesRead = 0;
       return S_FALSE;
+    }
+
+    std::unique_lock<std::mutex> ring(m_ringMutex);
+    while (m_produced < wanted && !m_exhausted && !m_producerStop)
+    {
+      if (!m_ringGrew.wait_for(ring, NAVIGATION_READ_TIMEOUT,
+                               [&] { return m_produced >= wanted || m_exhausted || m_producerStop; }))
+        CLog::Log(LOGDEBUG, "{} - still waiting for the disc at {}", __FUNCTION__, m_position);
+    }
   }
 
-  while (m_produced < m_position + dwBytesToRead)
-  {
-    if (Pull() == 0)
-      break;
-  }
+  if (m_producerStop)
+    return S_FALSE;
 
+  std::lock_guard<std::mutex> ring(m_ringMutex);
   const DWORD available =
       static_cast<DWORD>(std::min<LONGLONG>(dwBytesToRead, m_produced - m_position));
   if (available > 0)
@@ -446,6 +820,8 @@ HRESULT CDSBlurayStream::Read(PBYTE pbBuffer,
 
   const auto readStarted = std::chrono::steady_clock::now();
 
+  const LONGLONG asked = m_position;
+
   DWORD done = 0;
   const HRESULT hr = m_navigator ? ReadNavigation(pbBuffer, dwBytesToRead, &done)
                                  : ReadTitle(pbBuffer, dwBytesToRead, &done);
@@ -456,6 +832,18 @@ HRESULT CDSBlurayStream::Read(PBYTE pbBuffer,
   const double readMilliseconds =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - readStarted)
           .count();
+
+  // The opening exchange with the splitter decides whether it will play the stream at all,
+  // and it is short, so trace every read of it. After that only the reads worth explaining:
+  // one that took a while, or one that came up short, which is how this interface says the
+  // stream has ended.
+  if (m_navigator && (m_traced < TRACED_READS || readMilliseconds > 100.0 || done < dwBytesToRead))
+  {
+    m_traced++;
+    CLog::Log(LOGDEBUG, "{} - read {} at {} -> {} bytes, hr {:#x}, played {}, took {:.0f} ms",
+              __FUNCTION__, dwBytesToRead, asked, done, static_cast<uint32_t>(hr), m_produced,
+              readMilliseconds);
+  }
   ReportThroughput(done, readMilliseconds);
 
   return hr;
@@ -463,19 +851,26 @@ HRESULT CDSBlurayStream::Read(PBYTE pbBuffer,
 
 LONGLONG CDSBlurayStream::Size(LONGLONG* pSizeAvailable)
 {
-  // Asked from whichever thread wants to know how long the stream is, while the streaming
-  // thread is still adding to it
-  std::unique_lock<CCriticalSection> lock(m_lock);
-
+  // Deliberately takes no lock. A read holds one while it waits on the disc, and a disc
+  // showing a menu can have nothing to give for as long as the viewer takes to choose, so
+  // anything answered under that lock would hang for just as long. The interface asks this
+  // constantly, and hanging it hangs the application.
   if (m_navigator)
   {
-    // Only what the disc has played so far exists. Describing the stream as unfinished
-    // rather than as a file of that length stops the splitter treating the end of what we
-    // have as the end of the disc.
-    if (pSizeAvailable)
-      *pSizeAvailable = m_produced;
+    // A navigated disc has no length: how much it will play depends on what the viewer
+    // chooses. Report more to come rather than only what has been played, because what has
+    // been played only grows when the splitter reads, and a splitter told there is nothing
+    // more to read stops reading. Reads wait for the disc instead.
+    const LONGLONG played = m_produced;
+    const LONGLONG length = m_exhausted ? played : played + NAVIGATION_LOOKAHEAD;
 
-    return m_exhausted ? m_produced : m_produced + NAVIGATION_LOOKAHEAD;
+    if (m_traced < TRACED_READS)
+      CLog::Log(LOGDEBUG, "{} - reporting length {}, played {}", __FUNCTION__, length, m_produced);
+
+    if (pSizeAvailable)
+      *pSizeAvailable = length;
+
+    return length;
   }
 
   if (pSizeAvailable)

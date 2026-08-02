@@ -128,6 +128,31 @@ public:
    */
   bool IsInMainMenu() const { return m_isInMainMenu; }
 
+  /*!
+   * \brief Act on everything the disc has queued, without reading any of it
+   *
+   * A disc's state machine only moves when somebody attends to it, and every other caller
+   * here does that as a side effect of reading, seeking or sending a keypress. A player
+   * that has taken a playlist away to play by itself is doing none of those, so its disc
+   * would sit on whatever its menu asked for and never act on it. This is that attention on
+   * its own: the queue is drained and the events acted on, and not one byte of the disc is
+   * consumed, so where the disc stands is left exactly as it was found.
+   */
+  void ProcessEvents();
+
+  /*!
+   * \brief Which of the current clip's streams carries this pid, counting from one
+   * \return 0 when the clip has no such stream
+   *
+   * The disc asks for a stream by its number within the clip, and that number is turned
+   * into a pid before anyone outside hears about it. A player choosing between the streams
+   * a demuxer found needs the number back.
+   * \{
+   */
+  int AudioStreamIndexByPid(int pid) const;
+  int SubtitleStreamIndexByPid(int pid) const;
+  /*! \} */
+
   int GetChapter() override;
   int GetChapterCount() override;
   void GetChapterName(std::string& name, int ch=-1) override {};

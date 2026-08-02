@@ -353,8 +353,51 @@ public:
    */
   static bool KeepingDiscOpen() { return m_keepDiscOpen; }
 
+  /*!
+   * \brief Note what a disc's menu has asked for, to be carried out shortly
+   *
+   * A popup menu can ask for things that do not need the graph rebuilding: another chapter,
+   * another language, subtitles on or off. They arrive on the thread attending to the disc,
+   * which must not be the one that goes and does them -- it is inside libbluray, and the
+   * graph work it would be starting can come back round to the disc. Left here for the graph
+   * management thread, the same way a change of programme is.
+   * \{
+   */
+  static void NoteDiscWantsSeek(int64_t milliseconds) { m_discSeekWanted = milliseconds; }
+  static void NoteDiscWantsAudioStream(int stream) { m_discAudioWanted = stream; }
+  static void NoteDiscWantsSubtitleStream(int stream) { m_discSubtitleWanted = stream; }
+  static void NoteDiscWantsSubtitles(bool visible) { m_discSubtitlesVisibleWanted = visible ? 1 : 0; }
+  /*! \} */
+
+  //! \brief Carry out whatever the disc's menu last asked for, on the graph thread
+  void ApplyWhatTheDiscAsked();
+
+  /*!
+   * \brief Send the keyboard to whichever of the disc and Kodi is not getting it now
+   *
+   * Where input goes is normally decided by whether the disc has a menu drawn, which is the
+   * honest question and the right one. It can still be wrong: a disc can leave a menu on
+   * screen it will never take down, and then nothing the viewer presses opens the OSD ever
+   * again. So the answer can always be overruled by hand, and the override is dropped the
+   * moment the disc draws or clears a menu, since by then the automatic answer is fresh and
+   * has more right to be believed than a decision made about the state before it.
+   */
+  void ToggleDiscInput();
+
+  //! \brief Go back to deciding where input goes by what is on screen, see ToggleDiscInput
+  static void ForgetDiscInputOverride();
+
 private:
   static std::atomic<bool> m_discProgrammeChanged;
+  //! What a disc's menu has asked for and nobody has done yet. -1 means nothing outstanding;
+  //! a seek uses a negative time for the same, since a disc can legitimately ask for zero.
+  static std::atomic<int64_t> m_discSeekWanted;
+  static std::atomic<int> m_discAudioWanted;
+  static std::atomic<int> m_discSubtitleWanted;
+  static std::atomic<int> m_discSubtitlesVisibleWanted;
+  //! Where the viewer has insisted their key presses go: -1 to decide it from what is on
+  //! screen, 0 for Kodi, 1 for the disc. See ToggleDiscInput.
+  static std::atomic<int> m_discInputForced;
   //! Set while the file is being closed only to reopen it on what the disc moved to, so the
   //! disc is not finished with in between
   static bool m_keepDiscOpen;

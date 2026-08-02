@@ -14,6 +14,7 @@
 #include "FileItem.h"
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlay.h"
+#include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlayImage.h"
 #include "cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
@@ -29,6 +30,79 @@ constexpr auto HOLD_WAIT = std::chrono::milliseconds(20);
 //! A menu can hold its picture indefinitely, so this is not an error, it just puts a bound
 //! on how long one read occupies the graph's streaming thread.
 constexpr int MAX_HOLD_ATTEMPTS = 10;
+
+//! How often the disc is attended to while a playlist plays directly, see StartPump.
+//! Short enough that a button on a popup menu answers at once, long enough that the disc is
+//! not being interrupted for nothing tens of times a second.
+constexpr auto PUMP_INTERVAL = std::chrono::milliseconds(50);
+
+//! How long a menu may stay on screen with nothing arriving before it is called stuck. Long
+//! enough that a viewer reading a menu is not accused of it.
+constexpr auto STUCK_MENU_AFTER = std::chrono::seconds(30);
+
+//! Every how many pixels the overlay is sampled when asking whether anything is visible.
+//! The smallest thing a disc has ever drawn to mean "a menu is up" is a button, and a button
+//! is tens of pixels across in both directions, so looking at one pixel in an 8x8 block
+//! cannot miss one -- while reading a sixty-fourth of an eight megabyte frame.
+constexpr int VISIBILITY_STRIDE = 8;
+
+//! How opaque a pixel has to be to count as visible. Discs fade menus in and out, and a menu
+//! faded almost to nothing is not one the viewer can use.
+constexpr uint8_t VISIBLE_ALPHA = 8;
+
+//! \brief The alpha of one pixel of an overlay image, whether paletted or plain ARGB
+uint8_t AlphaAt(const CDVDOverlayImage& image, int x, int y)
+{
+  if (image.palette.empty())
+  {
+    // Plain ARGB, which is what a BD-J disc draws with
+    const size_t offset = static_cast<size_t>(y) * image.linesize + static_cast<size_t>(x) * 4;
+    if (offset + 3 >= image.pixels.size())
+      return 0;
+    return image.pixels[offset + 3];
+  }
+
+  // Paletted, which is what an HDMV disc draws with
+  const size_t offset = static_cast<size_t>(y) * image.linesize + static_cast<size_t>(x);
+  if (offset >= image.pixels.size())
+    return 0;
+
+  const uint8_t index = image.pixels[offset];
+  if (index >= image.palette.size())
+    return 0;
+
+  return static_cast<uint8_t>((image.palette[index] >> 24) & 0xff);
+}
+
+/*!
+ * \brief Whether an overlay would put anything the viewer can see on the screen
+ *
+ * The question "is a menu on screen" has no honest answer short of this one. Asking libbluray
+ * gets the title's menu code being loaded, which on a BD-J disc is true for the whole film.
+ * Asking whether the disc sent an overlay at all is nearly right, and fails on the discs that
+ * matter: Mortal Kombat II keeps its graphics plane up for the entire feature and simply
+ * empties the pixels when its popup menu goes away, so it never once sends the empty overlay
+ * that would mean "menu gone". Only the pixels know.
+ */
+bool AnythingVisible(const std::shared_ptr<CDVDOverlayGroup>& overlay)
+{
+  if (!overlay)
+    return false;
+
+  for (const auto& element : overlay->m_overlays)
+  {
+    const auto* image = dynamic_cast<const CDVDOverlayImage*>(element.get());
+    if (!image || image->width <= 0 || image->height <= 0 || image->pixels.empty())
+      continue;
+
+    for (int y = 0; y < image->height; y += VISIBILITY_STRIDE)
+      for (int x = 0; x < image->width; x += VISIBILITY_STRIDE)
+        if (AlphaAt(*image, x, y) >= VISIBLE_ALPHA)
+          return true;
+  }
+
+  return false;
+}
 } // unnamed namespace
 
 CDSBlurayNavigator* CDSBlurayNavigator::m_instance = nullptr;
@@ -110,6 +184,9 @@ bool CDSBlurayNavigator::Open(const std::string& path)
 
 void CDSBlurayNavigator::Close()
 {
+  // Before the disc goes, or the pump is left calling into something being torn down
+  StopPump();
+
   if (m_instance == this)
     m_instance = nullptr;
 
@@ -150,6 +227,138 @@ void CDSBlurayNavigator::ClearMenu()
   m_overlay.reset();
   m_overlayPending = true;
   m_menuOnScreen = false;
+  CDSPlayer::ForgetDiscInputOverride();
+}
+
+void CDSBlurayNavigator::StartPump(uint32_t playlistBeingPlayed)
+{
+  m_playedDirectly = playlistBeingPlayed;
+
+  // The chapter the disc is on now is where the film is about to start from, so it is not
+  // something the viewer asked for
+  if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    m_chapterSeen = input->GetChapter();
+
+  if (m_pump.joinable())
+    return;
+
+  m_pumpStop = false;
+  m_menuSince = {};
+  m_stuckMenuReported = false;
+  m_pump = std::thread([this]() { Pump(); });
+}
+
+void CDSBlurayNavigator::StopPump()
+{
+  m_playedDirectly = 0;
+  m_pumpStop = true;
+  if (m_pump.joinable())
+    m_pump.join();
+}
+
+void CDSBlurayNavigator::Pump()
+{
+  CLog::Log(LOGINFO, "{} - attending to the disc while its playlist plays", __FUNCTION__);
+
+  while (!m_pumpStop)
+  {
+    if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+    {
+      std::unique_lock<CCriticalSection> lock(m_discLock);
+      input->ProcessEvents();
+    }
+
+    // The disc changes programme when its menu is used, which is a thing that happens
+    // between events rather than in one of them
+    NotePlaylist();
+
+    WatchForAStuckMenu();
+
+    KODI::TIME::Sleep(PUMP_INTERVAL);
+  }
+
+  CLog::Log(LOGINFO, "{} - no longer attending to the disc", __FUNCTION__);
+}
+
+void CDSBlurayNavigator::WatchForAStuckMenu()
+{
+  if (!m_menuOnScreen)
+  {
+    m_menuSince = {};
+    m_stuckMenuReported = false;
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  uint64_t overlays = 0;
+  {
+    std::unique_lock<CCriticalSection> overlayLock(m_overlayLock);
+    overlays = m_overlayCount;
+  }
+
+  // Restart the clock whenever the menu changes: a viewer moving between buttons produces a
+  // new overlay each time, and a menu being used is not a menu that is stuck
+  if (m_menuSince == std::chrono::steady_clock::time_point{} || overlays != m_menuSinceOverlay)
+  {
+    m_menuSince = now;
+    m_menuSinceOverlay = overlays;
+    m_stuckMenuReported = false;
+    return;
+  }
+
+  if (m_stuckMenuReported || (now - m_menuSince) < STUCK_MENU_AFTER)
+    return;
+
+  m_stuckMenuReported = true;
+  CLog::Log(LOGWARNING,
+            "{} - the disc has had a menu on screen for {}s without changing it, and the disc "
+            "itself says its menu is {}. Every key press is going to the disc; if it is not "
+            "answering, the input toggle will hand them back to Kodi.",
+            __FUNCTION__, STUCK_MENU_AFTER.count(),
+            m_discSaysMenu ? "visible" : "not visible");
+}
+
+void CDSBlurayNavigator::SeekPlaybackToChapter(int chapter)
+{
+  const uint32_t playing = m_playedDirectly;
+  if (playing == 0)
+    return;
+
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  if (!input)
+    return;
+
+  // The disc leaving the programme on screen is a change of programme, not a seek within it,
+  // and the graph has to be rebuilt for it. NotePlaylist is what notices that.
+  if (input->GetPlaylist() != playing)
+  {
+    CLog::Log(LOGDEBUG,
+              "{} - the disc is on chapter {} of playlist {}, but playlist {} is playing, so "
+              "this is not a seek", __FUNCTION__, chapter, input->GetPlaylist(), playing);
+    return;
+  }
+
+  // Seconds from the start of the playlist, which is also where the stream being played
+  // begins, because it is that same playlist opened on its own
+  const int64_t seconds = input->GetChapterPos(chapter);
+  if (seconds < 0)
+    return;
+
+  CLog::Log(LOGINFO, "{} - the disc's menu skipped to chapter {}, {} s in", __FUNCTION__, chapter,
+            seconds);
+  CDSPlayer::NoteDiscWantsSeek(seconds * 1000);
+}
+
+int CDSBlurayNavigator::WhereTheDiscsAudioStreamSits(int pid) const
+{
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  return input ? input->AudioStreamIndexByPid(pid) : 0;
+}
+
+int CDSBlurayNavigator::WhereTheDiscsSubtitleSits(int pid) const
+{
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  return input ? input->SubtitleStreamIndexByPid(pid) : 0;
 }
 
 bool CDSBlurayNavigator::TakeOverlay(std::shared_ptr<CDVDOverlayGroup>& overlay)
@@ -306,6 +515,7 @@ bool CDSBlurayNavigator::ShowMenu()
   // A disc sitting in a still is waiting to be let go of before it will act on anything
   EndStill();
 
+  std::unique_lock<CCriticalSection> lock(m_discLock);
   const bool shown = input->OnMenu();
   CLog::Log(LOGDEBUG, "{} - asking the disc for its menu: {}", __FUNCTION__,
             shown ? "accepted" : "refused");
@@ -315,31 +525,46 @@ bool CDSBlurayNavigator::ShowMenu()
 void CDSBlurayNavigator::OnBack()
 {
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    std::unique_lock<CCriticalSection> lock(m_discLock);
     input->OnBack();
+  }
 }
 
 void CDSBlurayNavigator::OnUp()
 {
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    std::unique_lock<CCriticalSection> lock(m_discLock);
     input->OnUp();
+  }
 }
 
 void CDSBlurayNavigator::OnDown()
 {
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    std::unique_lock<CCriticalSection> lock(m_discLock);
     input->OnDown();
+  }
 }
 
 void CDSBlurayNavigator::OnLeft()
 {
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    std::unique_lock<CCriticalSection> lock(m_discLock);
     input->OnLeft();
+  }
 }
 
 void CDSBlurayNavigator::OnRight()
 {
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
+  {
+    std::unique_lock<CCriticalSection> lock(m_discLock);
     input->OnRight();
+  }
 }
 
 void CDSBlurayNavigator::OnSelect()
@@ -347,7 +572,11 @@ void CDSBlurayNavigator::OnSelect()
   if (std::shared_ptr<CDVDInputStreamBluray> input = Input())
   {
     EndStill();
-    input->ActivateButton();
+
+    {
+      std::unique_lock<CCriticalSection> lock(m_discLock);
+      input->ActivateButton();
+    }
 
     // Choosing something is what makes the disc change programme, and the events saying so
     // are consumed right here on this thread, with no callback for the playlist itself
@@ -361,8 +590,11 @@ void CDSBlurayNavigator::NotePlaylist()
   if (playlist == m_playlistSeen)
     return;
 
-  const uint32_t previous = m_playlistSeen;
-  m_playlistSeen = playlist;
+  // Exchanged rather than assigned: the reading thread, the pump and whichever thread is
+  // carrying a key press all come through here, and only one of them should announce a move
+  const uint32_t previous = m_playlistSeen.exchange(playlist);
+  if (previous == playlist)
+    return;
 
   // Nothing to announce while the disc is still finding its way in and no graph has been
   // built on any of it yet
@@ -399,16 +631,21 @@ int CDSBlurayNavigator::OnDiscNavResult(void* pData, int iMessage)
       m_overlayPending = true;
       m_overlayCount++;
 
-      // Whether a menu is on screen is this, and only this: whether the disc is currently
-      // asking for anything to be drawn. The disc replaces its overlay outright and clears
-      // a menu by sending an empty one. Asking libbluray instead answers yes for as long as
-      // the title's menu code is loaded, which on a BD-J disc is the whole film.
-      const bool drawing = m_overlay && !m_overlay->m_overlays.empty();
+      // Whether a menu is on screen is this, and only this: whether anything the viewer can
+      // see is being drawn. Not whether an overlay arrived -- Mortal Kombat II holds its
+      // graphics plane up for the whole film and empties the pixels when its popup menu goes
+      // away, so by that test its menu was up from the first frame to the last and the OSD
+      // could never be reached again. And not libbluray's own answer either, which is about
+      // the title's menu code being loaded and stays true just as long.
+      const bool drawing = AnythingVisible(m_overlay);
       if (drawing != m_menuOnScreen)
       {
         CLog::Log(LOGDEBUG, "{} - the disc {} drawing a menu", __FUNCTION__,
                   drawing ? "is now" : "has stopped");
         m_menuOnScreen = drawing;
+
+        // A fresh answer, so any decision the viewer made about the old one has had its day
+        CDSPlayer::ForgetDiscInputOverride();
       }
 
       // Logged sparsely: a moving menu highlight produces one of these per frame
@@ -450,12 +687,73 @@ int CDSBlurayNavigator::OnDiscNavResult(void* pData, int iMessage)
       CLog::Log(LOGDEBUG, "{} - playlist stopped", __FUNCTION__);
       break;
 
-    case BD_EVENT_AUDIO_STREAM:
-    case BD_EVENT_PG_TEXTST:
-    case BD_EVENT_PG_TEXTST_STREAM:
-      // The disc is asking for a particular stream. The splitter chooses streams itself
-      // today; honouring the disc's choice needs the stream manager and comes later.
+    case BD_EVENT_MENU:
+    {
+      // The disc's own word on whether its menu is visible. Kept beside the answer taken
+      // from the overlays rather than replacing it: a disc says yes for a menu it has built
+      // and not drawn, and where the viewer's keys go has to follow what they can see.
+      const bool visible = pData && *static_cast<int*>(pData) != 0;
+      if (visible != m_discSaysMenu)
+      {
+        CLog::Log(LOGDEBUG, "{} - the disc says its menu is {} (we can see {})", __FUNCTION__,
+                  visible ? "visible" : "not visible", m_menuOnScreen ? "one" : "none");
+        m_discSaysMenu = visible;
+      }
       break;
+    }
+
+    case BD_EVENT_CHAPTER:
+    {
+      // A menu skipping chapters. The disc moves its own idea of where it is; the film is
+      // being played from a separate handle that knows nothing about it, so the move has to
+      // be repeated here as an ordinary seek.
+      const int chapter = pData ? *static_cast<int*>(pData) : 0;
+      if (chapter <= 0 || chapter == m_chapterSeen.exchange(chapter))
+        break;
+
+      SeekPlaybackToChapter(chapter);
+      break;
+    }
+
+    case BD_EVENT_AUDIO_STREAM:
+    {
+      // The disc names the stream by its pid, which means nothing to a splitter that found
+      // the streams for itself. Its place in the clip does: both count them in the order
+      // they appear in the programme.
+      const int pid = pData ? *static_cast<int*>(pData) : -1;
+      const int index = WhereTheDiscsAudioStreamSits(pid);
+      if (index > 0 && m_playedDirectly != 0)
+      {
+        CLog::Log(LOGINFO, "{} - the disc chose audio stream {} (pid {})", __FUNCTION__, index,
+                  pid);
+        CDSPlayer::NoteDiscWantsAudioStream(index - 1);
+      }
+      break;
+    }
+
+    case BD_EVENT_PG_TEXTST_STREAM:
+    {
+      const int pid = pData ? *static_cast<int*>(pData) : -1;
+      const int index = WhereTheDiscsSubtitleSits(pid);
+      if (index > 0 && m_playedDirectly != 0)
+      {
+        CLog::Log(LOGINFO, "{} - the disc chose subtitle stream {} (pid {})", __FUNCTION__, index,
+                  pid);
+        CDSPlayer::NoteDiscWantsSubtitleStream(index - 1);
+      }
+      break;
+    }
+
+    case BD_EVENT_PG_TEXTST:
+    {
+      const bool on = pData && *static_cast<int*>(pData) != 0;
+      if (m_playedDirectly != 0)
+      {
+        CLog::Log(LOGINFO, "{} - the disc turned subtitles {}", __FUNCTION__, on ? "on" : "off");
+        CDSPlayer::NoteDiscWantsSubtitles(on);
+      }
+      break;
+    }
 
     default:
       CLog::Log(LOGDEBUG, "{} - unhandled navigation result {}", __FUNCTION__, iMessage);

@@ -398,6 +398,10 @@
       <b mod="ctrl">CreateBookmark</b>
       <b mod="alt">CreateEpisodeBookmark</b>
       <f11 mod="alt">CycleToneMapMethod</f11>
+      <!-- Hand the keyboard to a disc's menu, or take it back. Bound here as well as in
+           VideoMenu because its whole purpose is to work when the player has the wrong
+           idea about which of the two the viewer is looking at. -->
+      <d>ToggleDiscInput</d>
     </keyboard>
   </FullscreenVideo>
   <FullscreenGame>
@@ -591,6 +595,8 @@
       <enter>Select</enter>      <!-- backspace>Fullscreen</backspace -->
       <pageup>SkipNext</pageup>
       <pagedown>SkipPrevious</pagedown>
+      <!-- See the note on the same binding in FullscreenVideo -->
+      <d>ToggleDiscInput</d>
     </keyboard>
   </VideoMenu>
   <OSDVideoSettings>

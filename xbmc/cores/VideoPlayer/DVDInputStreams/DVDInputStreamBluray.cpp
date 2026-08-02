@@ -544,6 +544,16 @@ void CDVDInputStreamBluray::ProcessEvent() {
 
   case BD_EVENT_CHAPTER:
     CLog::Log(LOGDEBUG, "CDVDInputStreamBluray - BD_EVENT_CHAPTER {}", m_event.param);
+    // Passed on because a player that is playing this playlist by itself, rather than
+    // through the disc, has no other way of hearing that a menu just skipped a chapter
+    pid = static_cast<int>(m_event.param);
+    m_player->OnDiscNavResult(static_cast<void*>(&pid), BD_EVENT_CHAPTER);
+    break;
+
+  case BD_EVENT_POPUP:
+    // Whether the title offers a popup menu at all, which is not the same as one being on
+    // screen. Logged rather than acted on, so it stops turning up as an unhandled event.
+    CLog::Log(LOGDEBUG, "CDVDInputStreamBluray - BD_EVENT_POPUP {}", m_event.param);
     break;
 
     /* stream selection */
@@ -576,6 +586,11 @@ void CDVDInputStreamBluray::ProcessEvent() {
     m_menu = (m_event.param != 0);
     if (!m_menu)
       m_isInMainMenu = false;
+    // The disc saying in so many words whether its menu is visible. Passed on because a
+    // player drawing the disc's overlays itself otherwise has only the overlays to go on,
+    // and has to guess from them whether the viewer is looking at a menu.
+    pid = static_cast<int>(m_event.param);
+    m_player->OnDiscNavResult(static_cast<void*>(&pid), BD_EVENT_MENU);
     break;
 
   case BD_EVENT_IDLE:
@@ -1185,6 +1200,41 @@ bool CDVDInputStreamBluray::IsInMenu()
   if(m_menu || m_hasOverlay)
     return true;
   return false;
+}
+
+void CDVDInputStreamBluray::ProcessEvents()
+{
+  if (m_bd == nullptr || !m_navmode)
+    return;
+
+  while (bd_get_event(m_bd, &m_event))
+    ProcessEvent();
+}
+
+int CDVDInputStreamBluray::AudioStreamIndexByPid(int pid) const
+{
+  if (!m_clip || pid < 0)
+    return 0;
+
+  for (uint8_t i = 0; i < m_clip->audio_stream_count; ++i)
+  {
+    if (m_clip->audio_streams[i].pid == pid)
+      return i + 1;
+  }
+  return 0;
+}
+
+int CDVDInputStreamBluray::SubtitleStreamIndexByPid(int pid) const
+{
+  if (!m_clip || pid < 0)
+    return 0;
+
+  for (uint8_t i = 0; i < m_clip->pg_stream_count; ++i)
+  {
+    if (m_clip->pg_streams[i].pid == pid)
+      return i + 1;
+  }
+  return 0;
 }
 
 void CDVDInputStreamBluray::SkipStill()

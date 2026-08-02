@@ -91,6 +91,11 @@ using namespace KODI::MESSAGING;
 
 DSPLAYER_STATE CDSPlayer::PlayerState = DSPLAYER_CLOSED;
 std::atomic<bool> CDSPlayer::m_discProgrammeChanged{false};
+std::atomic<int64_t> CDSPlayer::m_discSeekWanted{-1};
+std::atomic<int> CDSPlayer::m_discAudioWanted{-1};
+std::atomic<int> CDSPlayer::m_discSubtitleWanted{-1};
+std::atomic<int> CDSPlayer::m_discSubtitlesVisibleWanted{-1};
+std::atomic<int> CDSPlayer::m_discInputForced{-1};
 bool CDSPlayer::m_keepDiscOpen = false;
 CGUIDialogBoxBase *CDSPlayer::errorWindow = NULL;
 ThreadIdentifier CDSPlayer::m_threadID = 0;
@@ -923,6 +928,43 @@ void CDSPlayer::Process()
 
 }
 
+void CDSPlayer::ApplyWhatTheDiscAsked()
+{
+  // Each of these is what a viewer just chose from the disc's own menu, so it is worth a
+  // line in the log whether or not it turns out to be possible.
+
+  const int64_t seekTo = m_discSeekWanted.exchange(-1);
+  if (seekTo >= 0)
+  {
+    CLog::Log(LOGINFO, "{} - the disc's menu asked for {} ms into the programme", __FUNCTION__,
+              seekTo);
+    SeekTime(seekTo);
+  }
+
+  const int audio = m_discAudioWanted.exchange(-1);
+  if (audio >= 0)
+  {
+    CLog::Log(LOGINFO, "{} - the disc's menu asked for audio stream {}", __FUNCTION__, audio);
+    SetAudioStream(audio);
+  }
+
+  const int subtitle = m_discSubtitleWanted.exchange(-1);
+  if (subtitle >= 0)
+  {
+    CLog::Log(LOGINFO, "{} - the disc's menu asked for subtitle stream {}", __FUNCTION__,
+              subtitle);
+    SetSubtitle(subtitle);
+  }
+
+  const int subtitlesVisible = m_discSubtitlesVisibleWanted.exchange(-1);
+  if (subtitlesVisible >= 0)
+  {
+    CLog::Log(LOGINFO, "{} - the disc's menu asked for subtitles {}", __FUNCTION__,
+              subtitlesVisible ? "on" : "off");
+    SetSubtitleVisible(subtitlesVisible != 0);
+  }
+}
+
 void CDSPlayer::RebuildGraphForDisc()
 {
   CLog::Log(LOGINFO, "{} - the disc has moved to another programme, opening it again",
@@ -1303,8 +1345,37 @@ bool CDSPlayer::HasMenu() const
   return CDSBlurayNavigator::Get() != nullptr || g_dsGraph->IsDvd();
 }
 
+void CDSPlayer::ToggleDiscInput()
+{
+  const bool toTheDisc = !IsInMenu();
+  m_discInputForced = toTheDisc ? 1 : 0;
+
+  CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+  CLog::Log(LOGINFO,
+            "{} - the viewer has sent the keyboard to {}. What we could see was {}, and the "
+            "disc said its menu was {}.",
+            __FUNCTION__, toTheDisc ? "the disc" : "Kodi",
+            navigator && navigator->MenuOnScreen() ? "a menu" : "no menu",
+            navigator && navigator->DiscSaysMenuVisible() ? "visible" : "not visible");
+}
+
+void CDSPlayer::ForgetDiscInputOverride()
+{
+  if (m_discInputForced.exchange(-1) != -1)
+  {
+    CLog::Log(LOGDEBUG, "{} - the disc has changed what is on screen, so where the keyboard "
+                        "goes is its business again", __FUNCTION__);
+  }
+}
+
 bool CDSPlayer::IsInMenu() const
 {
+  // The viewer has overruled us, and until the disc changes what is on screen they are right
+  // by definition: this exists precisely for the times the answer below is wrong.
+  const int forced = m_discInputForced;
+  if (forced >= 0)
+    return forced != 0;
+
   CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
   if (navigator)
   {
@@ -1330,8 +1401,34 @@ bool CDSPlayer::OnAction(const CAction &action)
 {
   if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
   {
+    // Answered before anything looks at IsInMenu(), because being unable to reach this while
+    // the player believes a menu is up would defeat the whole point of it
+    if (action.GetID() == ACTION_DSPLAYER_TOGGLE_DISC_INPUT)
+    {
+      ToggleDiscInput();
+      return true;
+    }
+
     if (action.GetID() == ACTION_SHOW_VIDEOMENU)
       return navigator->ShowMenu();
+
+    // The key that opens the OSD asks the disc for its menu instead, while the disc has no
+    // menu up. Someone watching a Blu-ray who presses it wants the disc's popup -- that is
+    // what the button does on a player and on a remote -- and until the disc drew a menu of
+    // its own there was no way to ask for one from the keyboard at all.
+    //
+    // Only while nothing is up. Once the popup is on screen the same key has to reach Kodi's
+    // OSD again, so it is left alone and the window handles it as it always did; the two
+    // therefore alternate, and neither can be locked out by the other. If the disc has no
+    // popup to give, the key is not swallowed and the OSD opens as usual.
+    if (action.GetID() == ACTION_SHOW_OSD && !IsInMenu())
+    {
+      if (navigator->ShowMenu())
+        return true;
+
+      CLog::Log(LOGDEBUG, "{} - the disc had no menu to show, leaving the key for the OSD",
+                __FUNCTION__);
+    }
 
     // Everything else only belongs to the disc while a menu is up, otherwise the arrow keys
     // would stop seeking during normal playback. IsInMenu() rather than the navigator's own
@@ -2258,6 +2355,10 @@ void CGraphManagementThread::Process()
     // either the interface or the disc.
     if (CDSPlayer::TakeDiscProgrammeChanged())
       m_pPlayer->RebuildGraphForDisc();
+
+    // Smaller things a disc's menu can ask for, which the graph survives: a chapter, a
+    // language, subtitles on or off
+    m_pPlayer->ApplyWhatTheDiscAsked();
 
     // This loop had no pause of its own and span flat out whenever the player was not in
     // its steady state, which starved the very threads a teardown waits for

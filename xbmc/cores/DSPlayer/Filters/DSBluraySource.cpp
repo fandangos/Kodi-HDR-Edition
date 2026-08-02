@@ -281,6 +281,10 @@ bool CDSBlurayStream::OpenNavigation(const std::string& path)
   if (!navigator)
     return false;
 
+  // From here the disc's own output is what plays, and reading it is all the attention it
+  // needs. A second thread inside libbluray at the same time is not.
+  navigator->StopPump();
+
   m_history.assign(HISTORY_SIZE, 0);
   m_historyBytes = 0;
   m_historyEnd = 0;
@@ -521,10 +525,25 @@ HRESULT CDSBlurayStream::OpenPlaylist(const std::string& kodiPath, uint32_t play
   // What is on screen from here on is the film. The disc was left mid-menu and is no longer
   // being read, so it cannot clear that menu itself: say so on its behalf, or it stays drawn
   // over the film and every key press goes on being treated as menu navigation.
+  m_playlist = playlist;
   m_playingPlaylist = true;
   m_feeding = this;
   if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+  {
     navigator->ClearMenu();
+
+    // Nothing reads the disc from here on, and a disc nobody reads never acts on anything.
+    // It will still draw a popup menu over the film, so without this the viewer gets a menu
+    // whose buttons do nothing and which never comes down again.
+    navigator->StartPump(playlist);
+
+    // Announcing was switched off while the graph was being rebuilt, so the playlists the
+    // disc passed through on its way here were not each taken for another request. It is
+    // here now, and the next move it makes is a real one -- a popup menu sending the viewer
+    // back to the top menu, or on to another title -- so start listening again. Without
+    // this the disc would be pumped, act on its menu, change programme, and be ignored.
+    navigator->AnnounceProgrammeChanges();
+  }
 
   CLog::Log(LOGINFO, "{} - playing playlist {} directly, {} bytes", __FUNCTION__, playlist,
             m_length);

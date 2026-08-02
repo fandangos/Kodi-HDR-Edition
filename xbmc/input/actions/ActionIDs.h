@@ -221,6 +221,12 @@ constexpr const int ACTION_DSPLAYER_USERSETTINGS_SD     = 904;
 constexpr const int ACTION_DSPLAYER_USERSETTINGS_720    = 905;
 constexpr const int ACTION_DSPLAYER_USERSETTINGS_1080   = 906;
 constexpr const int ACTION_DSPLAYER_USERSETTINGS_2160   = 907;
+
+//! Hand the keyboard to the disc, or take it back for Kodi's own on-screen display.
+//! Normally that is decided by whether the disc has a menu drawn, but a disc can leave one
+//! on screen that it will never act on, and the viewer needs a way out that does not depend
+//! on the player having guessed right.
+constexpr const int ACTION_DSPLAYER_TOGGLE_DISC_INPUT   = 908;
 #endif
 constexpr const int ACTION_PLAYER_PROGRAM_SELECT = 70;
 

@@ -72,6 +72,7 @@ static const std::map<ActionName, ActionID> ActionMappings = {
     { "loaddsplayersettings1080"     , ACTION_DSPLAYER_USERSETTINGS_1080 },
     { "loaddsplayersettings2160"     , ACTION_DSPLAYER_USERSETTINGS_2160 },
     { "loaddsplayersettingsatstart" , ACTION_DSPLAYER_USERSETTINGS_ATSTART },
+    { "togglediscinput"             , ACTION_DSPLAYER_TOGGLE_DISC_INPUT },
 #endif
     {"playerprogramselect", ACTION_PLAYER_PROGRAM_SELECT},
     {"playerresolutionselect", ACTION_PLAYER_RESOLUTION_SELECT},

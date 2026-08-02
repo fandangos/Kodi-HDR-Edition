@@ -588,13 +588,20 @@ void CRenderDSManager::RenderBlurayMenu()
   if (trace)
   {
     // An overlay drawn into a rectangle of no size is drawn nowhere, which looks exactly
-    // like not drawing at all
+    // like not drawing at all -- hence printing the rectangle rather than trusting it.
+    //
+    // The other two are printed beside it because a menu drawn in one coordinate space and
+    // composited in another is the obvious explanation for an invisible menu, and it is
+    // worth being able to rule out from a log rather than by experiment. Measured
+    // 2026-08-02 on the UHD reference disc: all three are 3840x2160, so they agree.
+    const RESOLUTION_INFO res = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
     CLog::Log(LOGDEBUG,
-              "{} - drawing menu frame {} into source {}x{} at {},{} dest {}x{} at {},{} "
-              "view {}x{} at {},{}",
+              "{} - drawing menu frame {} into {}x{} at {},{}; the interface is {}x{} and the "
+              "screen says {}x{}",
               __FUNCTION__, m_blurayMenuFrames, source.Width(), source.Height(), source.x1,
-              source.y1, dest.Width(), dest.Height(), dest.x1, dest.y1, view.Width(),
-              view.Height(), view.x1, view.y1);
+              source.y1, CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
+              CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight(), res.iWidth,
+              res.iHeight);
   }
 
   // TEMPORARY: a block of colour where the menu buttons are. If this shows and the menu does

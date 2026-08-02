@@ -33,6 +33,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 
 class CDVDInputStreamBluray;
 class CDVDOverlayGroup;
@@ -148,6 +149,35 @@ public:
   void ClearMenu();
 
   /*!
+   * \brief Keep attending to the disc although nothing is reading it
+   *
+   * A playlist taken away and played directly leaves the disc unread, and an unread disc
+   * never acts on anything. Its menu code still runs -- a BD-J title will happily draw a
+   * popup menu over the film -- but pressing a button on that menu does nothing, the menu
+   * never comes down again, and the player goes on believing a menu is up and sending every
+   * key press to a disc that cannot use them. This gives the disc the attention that reading
+   * it used to, and takes none of its bytes: what it asks for arrives as events, which are
+   * acted on and passed to the player as changes of chapter, stream or programme.
+   *
+   * Only for the direct-playlist case. While the disc's own output is being read, reading it
+   * is the attention it needs, and a second thread in libbluray at the same time is not.
+   * \{
+   */
+  void StartPump(uint32_t playlistBeingPlayed);
+  void StopPump();
+  /*! \} */
+
+  /*!
+   * \brief Whether the disc itself says its menu is visible
+   *
+   * A second opinion, independent of the overlays MenuOnScreen() watches. Not used to decide
+   * where input goes -- the disc says yes for menus it has built but not drawn -- but worth
+   * logging beside the other answer, because the two disagreeing is exactly the state that
+   * strands a viewer with no way back to the OSD.
+   */
+  bool DiscSaysMenuVisible() const { return m_discSaysMenu; }
+
+  /*!
    * \brief Give up on a disc that is not going to produce anything
    *
    * A disc whose menu failed to start returns nothing but idle events for as long as it is
@@ -205,6 +235,32 @@ private:
    */
   void NotePlaylist();
 
+  //! \brief The pump's thread, see StartPump
+  void Pump();
+
+  /*!
+   * \brief Move the film to where the disc's menu just skipped to
+   *
+   * Only when the disc is talking about the playlist actually on screen. A chapter of
+   * something else is the disc going somewhere the graph will have to be rebuilt for, and
+   * seeking the film to it would land in the wrong programme.
+   */
+  void SeekPlaybackToChapter(int chapter);
+
+  /*! \name Where a stream the disc named by pid sits among the programme's streams, from one
+   *  \{ */
+  int WhereTheDiscsAudioStreamSits(int pid) const;
+  int WhereTheDiscsSubtitleSits(int pid) const;
+  /*! \} */
+
+  /*!
+   * \brief Complain when the disc has been showing a menu it cannot possibly act on
+   *
+   * The failure this whole pump exists to prevent, said out loud rather than left for the
+   * viewer to discover by finding that no key does anything.
+   */
+  void WatchForAStuckMenu();
+
   //! \brief Let the disc out of a hold so bytes keep flowing, see Read()
   bool ReleaseHold();
 
@@ -230,12 +286,40 @@ private:
   int64_t m_produced{0};
   std::atomic<bool> m_finished{false};
 
+  /*!
+   * Held around anything that makes the disc act on its queued events -- the pump and the
+   * viewer's key presses. Both work through the same event queue and the same scratch event
+   * inside the input stream, so they cannot run at once.
+   *
+   * Never held around a read. A read can sit inside libbluray for as long as the disc feels
+   * like giving nothing, and a key press queued behind one waits exactly that long.
+   */
+  mutable CCriticalSection m_discLock;
+
   //! Kept in step by the thread reading the disc, so the interface can ask without taking
   //! the lock that reads are holding
   std::atomic<bool> m_inMenu{false};
-  //! Last playlist noticed, so a change is announced once
-  uint32_t m_playlistSeen{0};
+  //! Last playlist noticed, so a change is announced once. Noticed from the reading thread,
+  //! the pump and the thread carrying a key press, hence atomic.
+  std::atomic<uint32_t> m_playlistSeen{0};
   std::atomic<bool> m_announceChanges{false};
+
+  //! The pump, which runs only while a playlist is being played directly, see StartPump
+  std::thread m_pump;
+  std::atomic<bool> m_pumpStop{true};
+  //! The playlist the player is playing by itself, 0 while the disc's own output is playing.
+  //! What the disc asks for is only worth passing on when it is talking about that one.
+  std::atomic<uint32_t> m_playedDirectly{0};
+
+  //! Last chapter the disc said it was on, so a menu skipping to one is acted on once
+  std::atomic<int> m_chapterSeen{0};
+  //! The disc's own answer to whether its menu is visible, see DiscSaysMenuVisible
+  std::atomic<bool> m_discSaysMenu{false};
+  //! When the menu now on screen went up, and how many overlays had arrived by then, so a
+  //! menu that is drawn but dead can be recognised, see WatchForAStuckMenu
+  std::chrono::steady_clock::time_point m_menuSince{};
+  uint64_t m_menuSinceOverlay{0};
+  bool m_stuckMenuReported{false};
 
   //! A still is the disc holding one picture and sending nothing. Only menus drawn over a
   //! fixed background arrive this way: a menu with moving video behind it is an ordinary

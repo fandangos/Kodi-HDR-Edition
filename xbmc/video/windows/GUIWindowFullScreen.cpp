@@ -84,6 +84,15 @@ bool CGUIWindowFullScreen::OnAction(const CAction &action)
   switch (action.GetID())
   {
   case ACTION_SHOW_OSD:
+#if HAS_DS_PLAYER
+    // A disc may want this key for its own menu. Offered to the player first because the
+    // window manager gets every action well before the player is asked about it, so a player
+    // that has a use for the OSD key never hears the key at all otherwise. Nothing but a
+    // Blu-ray with a menu up its sleeve takes it, and whatever declines it lands on the OSD
+    // exactly as before.
+    if (appPlayer->OnAction(action))
+      return true;
+#endif
     ToggleOSD();
     return true;
 

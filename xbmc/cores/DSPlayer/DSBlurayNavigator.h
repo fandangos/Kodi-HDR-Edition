@@ -138,6 +138,15 @@ public:
   int PlaylistDuration() const;
 
   /*!
+   * \brief Whether the playlist the disc is on carries interactive graphics
+   *
+   * Which is to say: whether it is a menu. An HDMV menu's buttons are decoded out of that
+   * stream as the disc is read, so a playlist taken away and played from its own handle has
+   * no buttons at all -- the picture still shows the menu, and nothing on it can be used.
+   */
+  bool PlaylistHasButtons() const;
+
+  /*!
    * rief Whether the disc currently has menu graphics on screen
    *
    * The honest answer to "is the viewer looking at a menu", and the one to use for deciding
@@ -245,6 +254,27 @@ private:
    */
   void NotePlaylist();
 
+  /*!
+   * \brief Take in what the disc has just drawn, or stopped drawing
+   * \param drawing Whether anything the viewer can see is in the overlay that just arrived
+   *
+   * A menu appearing is believed at once; a menu disappearing has to hold. An animated menu
+   * empties its graphics plane between frames, and Street Fighter II did it seventy-two
+   * times in a minute -- so taking each empty overlay for "the menu has closed" made where
+   * the keyboard goes a coin flip, and wiped the viewer's own input override just as often.
+   * Called with the overlay lock held.
+   */
+  void NoteMenuVisibility(bool drawing);
+
+  /*!
+   * \brief Let a menu that has stayed empty long enough finally count as gone
+   *
+   * The disappearing half of the rule above needs time to pass, and time passes between
+   * overlays as well as during them: a disc that empties its menu and then draws nothing at
+   * all would otherwise be thought to still have one up for ever.
+   */
+  void SettleMenuVisibility();
+
   //! \brief The pump's thread, see StartPump
   void Pump();
 
@@ -346,7 +376,11 @@ private:
   bool m_overlayPending{false};
   //! Whether the last thing the disc asked to be drawn was a menu rather than nothing, see
   //! MenuOnScreen. Read from the GUI thread, written from the disc's, hence atomic.
+  //! Debounced: see NoteMenuVisibility.
   std::atomic<bool> m_menuOnScreen{false};
+  //! When the disc last drew nothing while a menu was still believed to be up, or the epoch
+  //! when it is drawing something. Guarded by m_overlayLock.
+  std::chrono::steady_clock::time_point m_nothingVisibleSince{};
   uint64_t m_overlayCount{0};
 
   static CDSBlurayNavigator* m_instance;

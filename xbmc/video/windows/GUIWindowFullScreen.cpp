@@ -96,6 +96,28 @@ bool CGUIWindowFullScreen::OnAction(const CAction &action)
     ToggleOSD();
     return true;
 
+#if HAS_DS_PLAYER
+  case ACTION_MOVE_LEFT:
+  case ACTION_MOVE_RIGHT:
+  case ACTION_MOVE_UP:
+  case ACTION_MOVE_DOWN:
+  case ACTION_SELECT_ITEM:
+  case ACTION_PREVIOUS_MENU:
+  case ACTION_NAV_BACK:
+    // The same trap as ACTION_SHOW_OSD above, and for the same reason: the window manager is
+    // handed every action long before the player is asked about it, and this window's base
+    // class reads a movement as control navigation and swallows it. While a disc has a menu
+    // on screen those keys belong to the disc -- they are how its menu is used at all. The
+    // keymap already routes them here through the VideoMenu context; what was missing was
+    // anyone offering them to the player before the window consumed them.
+    //
+    // Only while a menu is up. During ordinary playback these are seeks and chapter skips
+    // and must keep working exactly as they did.
+    if (appPlayer->IsInMenu() && appPlayer->OnAction(action))
+      return true;
+    break;
+#endif
+
   case ACTION_TRIGGER_OSD:
     TriggerOSD();
     return true;

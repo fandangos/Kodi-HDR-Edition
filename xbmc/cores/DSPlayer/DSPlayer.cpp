@@ -1462,6 +1462,12 @@ bool CDSPlayer::OnAction(const CAction &action)
     // Everything else only belongs to the disc while a menu is up, otherwise the arrow keys
     // would stop seeking during normal playback. IsInMenu() rather than the navigator's own
     // answer, because the disc keeps its menu up underneath a film played from a playlist.
+    //
+    // Traced, because "the disc does not answer its menu" has now been three different faults
+    // and telling them apart starts with whether the action arrived here at all
+    CLog::Log(LOGDEBUG, "{} - action {} reached the player; a menu is {} up", __FUNCTION__,
+              action.GetID(), IsInMenu() ? "" : "not");
+
     if (IsInMenu())
     {
       switch (action.GetID())

@@ -129,6 +129,14 @@ public:
   bool IsInMainMenu() const { return m_isInMainMenu; }
 
   /*!
+   * \brief Whether the playlist being played carries an interactive graphics stream
+   *
+   * The buttons of an HDMV menu live in that stream and are decoded as the disc is read, so
+   * a playlist carrying one only works as a menu while the disc itself is being read.
+   */
+  bool HasInteractiveGraphics() const;
+
+  /*!
    * \brief Act on everything the disc has queued, without reading any of it
    *
    * A disc's state machine only moves when somebody attends to it, and every other caller

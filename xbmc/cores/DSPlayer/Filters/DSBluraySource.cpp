@@ -138,6 +138,17 @@ constexpr std::chrono::seconds TOO_SHORT_TO_PLAY_ALONE{60};
 //! the film over. Well above anything a disc uses to move between titles, well below anything
 //! anyone would sit and watch. See HandBackToTheDisc.
 constexpr std::chrono::seconds LONGEST_WORTH_REPLAYING{600};
+
+//! Longest a playlist carrying interactive graphics may run and still be taken for a menu.
+//!
+//! A menu playlist has to be played through the disc's own navigation, because an HDMV
+//! menu's buttons are decoded out of that stream as the disc is read: played from its own
+//! handle the picture still shows the menu and not one button exists. Street Fighter II's
+//! main menu is a minute long, loops, and never announces itself as the top menu, so length
+//! is what is left to tell it from a programme -- and no programme anyone wants to seek
+//! through is this short. A feature carries interactive graphics too, for its popup menu,
+//! which is why this is a ceiling and not just a test for the stream.
+constexpr std::chrono::seconds LONGEST_MENU{600};
 } // unnamed namespace
 
 CDSBlurayStream* CDSBlurayStream::m_feeding = nullptr;
@@ -354,11 +365,22 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
         const int seconds = navigator->PlaylistDuration() / 1000;
         const bool tooShort = seconds > 0 && seconds < TOO_SHORT_TO_PLAY_ALONE.count();
 
-        if (handedBack || tooShort)
+        // And a menu must never be taken away from the disc whatever its length says. An
+        // HDMV menu's buttons are decoded out of its interactive graphics stream as the disc
+        // is read, so played from a handle of its own it has none: the picture shows the
+        // menu and nothing on it can be used, which is exactly how Street Fighter II's main
+        // menu arrived -- drawn, and dead. A feature carries interactive graphics too, for
+        // its popup menu, so length is what separates the two.
+        const bool isMenu = navigator->PlaylistHasButtons() && seconds > 0 &&
+                            seconds <= LONGEST_MENU.count();
+
+        if (handedBack || tooShort || isMenu)
         {
           CLog::Log(LOGINFO, "{} - letting the disc play playlist {} itself: it runs {} s, and "
                              "{}", __FUNCTION__, playlist, seconds,
                     handedBack ? "playing it on its own left the disc stranded"
+                    : isMenu   ? "it carries the interactive graphics of a menu, whose buttons "
+                                 "only exist while the disc is being read"
                                : "that is too short to be a programme of its own");
           following = playlist;
         }

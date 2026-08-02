@@ -949,6 +949,20 @@ void CDVDInputStreamBluray::OverlayCallbackARGB(const struct bd_argb_overlay_s *
 #endif
 
 
+bool CDVDInputStreamBluray::HasInteractiveGraphics() const
+{
+  if (!m_titleInfo)
+    return false;
+
+  for (uint32_t clip = 0; clip < m_titleInfo->clip_count; ++clip)
+  {
+    if (m_titleInfo->clips[clip].ig_stream_count > 0)
+      return true;
+  }
+
+  return false;
+}
+
 int CDVDInputStreamBluray::GetTotalTime()
 {
   if(m_titleInfo)
@@ -1106,9 +1120,17 @@ CDVDInputStream::ENextStream CDVDInputStreamBluray::NextStream()
 void CDVDInputStreamBluray::UserInput(bd_vk_key_e vk)
 {
   if(m_bd == nullptr || !m_navmode)
+  {
+    // Silently dropping the viewer's key press here looks exactly like a disc that will not
+    // answer its own menu, and has been mistaken for one
+    CLog::Log(LOGDEBUG, "CDVDInputStreamBluray::UserInput - key {} dropped: {}",
+              static_cast<int>(vk), m_bd == nullptr ? "no disc" : "not navigating");
     return;
+  }
 
   int ret = bd_user_input(m_bd, -1, vk);
+  CLog::Log(LOGDEBUG, "CDVDInputStreamBluray::UserInput - key {} to the disc -> {}",
+            static_cast<int>(vk), ret);
   if (ret < 0)
   {
     CLog::Log(LOGDEBUG, "CDVDInputStreamBluray::UserInput - user input failed");

@@ -40,6 +40,14 @@ constexpr auto PUMP_INTERVAL = std::chrono::milliseconds(50);
 //! enough that a viewer reading a menu is not accused of it.
 constexpr auto STUCK_MENU_AFTER = std::chrono::seconds(30);
 
+//! How long the disc has to draw nothing before its menu counts as having gone away.
+//!
+//! An animated menu empties its graphics plane between frames. Believing each of those
+//! meant the menu flickered in and out tens of times a second, which made where a key press
+//! goes a coin flip and dropped the viewer's own input override just as often. Long enough
+//! to outlast any animation, short enough that the OSD is not held off after a real close.
+constexpr auto MENU_GONE_AFTER = std::chrono::milliseconds(500);
+
 //! Every how many pixels the overlay is sampled when asking whether anything is visible.
 //! The smallest thing a disc has ever drawn to mean "a menu is up" is a button, and a button
 //! is tens of pixels across in both directions, so looking at one pixel in an 8x8 block
@@ -214,6 +222,54 @@ void CDSBlurayNavigator::Close()
   m_overlay.reset();
   m_overlayPending = true;
   m_menuOnScreen = false;
+  m_nothingVisibleSince = {};
+}
+
+void CDSBlurayNavigator::NoteMenuVisibility(bool drawing)
+{
+  // Whether a menu is on screen is whether anything the viewer can see is being drawn. Not
+  // whether an overlay arrived -- Mortal Kombat II holds its graphics plane up for the whole
+  // film and empties the pixels when its popup menu goes away, so by that test its menu was
+  // up from the first frame to the last and the OSD could never be reached again. And not
+  // libbluray's own answer either, which is about the title's menu code being loaded and
+  // stays true just as long.
+  if (drawing)
+  {
+    m_nothingVisibleSince = {};
+
+    if (!m_menuOnScreen)
+    {
+      CLog::Log(LOGDEBUG, "{} - the disc is now drawing a menu", __FUNCTION__);
+      m_menuOnScreen = true;
+
+      // A fresh answer, so any decision the viewer made about the old one has had its day
+      CDSPlayer::ForgetDiscInputOverride();
+    }
+    return;
+  }
+
+  // Nothing visible. That is only the end of a menu if it lasts -- an animated menu empties
+  // its plane between frames and would otherwise close and reopen tens of times a second.
+  if (m_menuOnScreen && m_nothingVisibleSince == std::chrono::steady_clock::time_point{})
+    m_nothingVisibleSince = std::chrono::steady_clock::now();
+
+  SettleMenuVisibility();
+}
+
+void CDSBlurayNavigator::SettleMenuVisibility()
+{
+  std::unique_lock<CCriticalSection> overlayLock(m_overlayLock);
+
+  if (!m_menuOnScreen || m_nothingVisibleSince == std::chrono::steady_clock::time_point{})
+    return;
+
+  if (std::chrono::steady_clock::now() - m_nothingVisibleSince < MENU_GONE_AFTER)
+    return;
+
+  CLog::Log(LOGDEBUG, "{} - the disc has stopped drawing a menu", __FUNCTION__);
+  m_menuOnScreen = false;
+  m_nothingVisibleSince = {};
+  CDSPlayer::ForgetDiscInputOverride();
 }
 
 void CDSBlurayNavigator::ClearMenu()
@@ -226,7 +282,10 @@ void CDSBlurayNavigator::ClearMenu()
   CLog::Log(LOGDEBUG, "{} - taking the disc's menu off the screen", __FUNCTION__);
   m_overlay.reset();
   m_overlayPending = true;
+  // Said on the disc's behalf rather than seen, so it takes effect at once: the grace period
+  // that stops an animated menu flickering has nothing to do with a menu deliberately closed
   m_menuOnScreen = false;
+  m_nothingVisibleSince = {};
   CDSPlayer::ForgetDiscInputOverride();
 }
 
@@ -271,6 +330,10 @@ void CDSBlurayNavigator::Pump()
     // The disc changes programme when its menu is used, which is a thing that happens
     // between events rather than in one of them
     NotePlaylist();
+
+    // A menu the disc emptied and then said nothing more about is gone once enough time has
+    // passed, and time passes here rather than in an overlay
+    SettleMenuVisibility();
 
     WatchForAStuckMenu();
 
@@ -436,6 +499,10 @@ int CDSBlurayNavigator::Read(uint8_t* buffer, int size)
     // once choosing something makes the disc produce data again.
     NotePlaylist();
 
+    // Same reason: a menu that was emptied and then left alone goes away with time, and
+    // while the disc's own output is what plays, this is the thread time passes on
+    SettleMenuVisibility();
+
     if (read > 0)
     {
       // Whatever the disc was holding for is over. Forgetting the terms of that still
@@ -489,6 +556,12 @@ bool CDSBlurayNavigator::InMainMenu() const
 {
   std::shared_ptr<CDVDInputStreamBluray> input = Input();
   return input && input->IsInMainMenu();
+}
+
+bool CDSBlurayNavigator::PlaylistHasButtons() const
+{
+  std::shared_ptr<CDVDInputStreamBluray> input = Input();
+  return input && input->HasInteractiveGraphics();
 }
 
 int CDSBlurayNavigator::PlaylistDuration() const
@@ -645,16 +718,7 @@ int CDSBlurayNavigator::OnDiscNavResult(void* pData, int iMessage)
       // away, so by that test its menu was up from the first frame to the last and the OSD
       // could never be reached again. And not libbluray's own answer either, which is about
       // the title's menu code being loaded and stays true just as long.
-      const bool drawing = AnythingVisible(m_overlay);
-      if (drawing != m_menuOnScreen)
-      {
-        CLog::Log(LOGDEBUG, "{} - the disc {} drawing a menu", __FUNCTION__,
-                  drawing ? "is now" : "has stopped");
-        m_menuOnScreen = drawing;
-
-        // A fresh answer, so any decision the viewer made about the old one has had its day
-        CDSPlayer::ForgetDiscInputOverride();
-      }
+      NoteMenuVisibility(AnythingVisible(m_overlay));
 
       // Logged sparsely: a moving menu highlight produces one of these per frame
       if (m_overlayCount == 1 || (m_overlayCount % 100) == 0)

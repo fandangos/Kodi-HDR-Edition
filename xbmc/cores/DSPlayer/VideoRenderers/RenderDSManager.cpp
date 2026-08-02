@@ -546,6 +546,14 @@ void CRenderDSManager::RenderBlurayMenu()
       {
         if (const auto* picture = dynamic_cast<const CDVDOverlayImage*>(image.get()))
         {
+          // The plane the disc composes against. Every image of one overlay belongs to the
+          // same plane, so the last one seen is as good as the first.
+          if (picture->source_width > 0 && picture->source_height > 0)
+          {
+            m_blurayMenuWidth = picture->source_width;
+            m_blurayMenuHeight = picture->source_height;
+          }
+
           CLog::Log(LOGDEBUG,
                     "{} -   image {}x{} at {},{} against a {}x{} source, {} palette entries, "
                     "{} bytes of pixels",
@@ -591,35 +599,70 @@ void CRenderDSManager::RenderBlurayMenu()
   if (m_currentRenderer == DIRECTSHOW_RENDERER_MADVR)
     g_application.GetComponent<CApplicationPlayer>()->RenderToTexture(RENDER_LAYER_OVER);
 
-  // The rectangle the renderer reports is where madVR puts the picture, in its own output
-  // size. Menus are drawn in Kodi's coordinates, which is the size of the window, and using
-  // madVR's numbers scaled them off the screen. The disc composes its menus against the
-  // video, so the video fills the window here.
-  CRect source, madvrDest, madvrView;
-  m_pRenderer->GetVideoRect(source, madvrDest, madvrView);
+  // Three coordinate spaces meet here and none of them can be assumed to match:
+  //
+  //   - the plane the disc composed its menu against, which is the disc's own idea of its
+  //     video size. Measured 1920x1080 on both reference discs, the UHD one included: a
+  //     4K disc does not imply a 4K menu plane, and libbluray hands BD-J 1920x1080 anyway.
+  //   - madVR's output, which the rectangles below are expressed in,
+  //   - Kodi's interface, which is what this draws into.
+  //
+  // The overlay renderer places an ALIGN_VIDEO overlay at x*(dest/source)+dest.x1, so
+  // handing it the same rectangle for source and dest means a scale of exactly 1: the menu
+  // is blitted at raw composition pixels. Passing the source rect for both was right while
+  // Kodi's interface was itself 1920x1080, which is what it was when this was written; once
+  // the interface became 3840x2160 every disc's menu quietly moved into the top left corner
+  // at half size. On Saint Seiya that put the selection marker a quarter of the way to the
+  // item it was marking, which reads as "the menu is not responding" even though the disc
+  // was tracking every key press perfectly.
+  CRect madvrSource, madvrDest, madvrView;
+  m_pRenderer->GetVideoRect(madvrSource, madvrDest, madvrView);
 
-  // Drawn in the coordinates the disc composed the menu in, which is the same space Kodi
-  // draws its own interface in. Scaling to madVR's output put the buttons off the screen.
-  CRect dest = source;
-  CRect view = source;
+  const float interfaceWidth =
+      static_cast<float>(CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth());
+  const float interfaceHeight =
+      static_cast<float>(CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight());
+
+  // Where the picture sits, moved out of madVR's output size and into the interface's. They
+  // are usually the same size, and when they are not this is the difference that matters.
+  const float toInterfaceX =
+      madvrView.Width() > 0 ? interfaceWidth / madvrView.Width() : 1.0f;
+  const float toInterfaceY =
+      madvrView.Height() > 0 ? interfaceHeight / madvrView.Height() : 1.0f;
+
+  CRect dest(madvrDest.x1 * toInterfaceX, madvrDest.y1 * toInterfaceY,
+             madvrDest.x2 * toInterfaceX, madvrDest.y2 * toInterfaceY);
+  CRect view(0.0f, 0.0f, interfaceWidth, interfaceHeight);
+
+  // A menu that has arrived says what it was composed against; before one has, the video's
+  // own size is the best guess and nothing is being drawn anyway.
+  CRect source(0.0f, 0.0f,
+               m_blurayMenuWidth > 0 ? static_cast<float>(m_blurayMenuWidth)
+                                     : madvrSource.Width(),
+               m_blurayMenuHeight > 0 ? static_cast<float>(m_blurayMenuHeight)
+                                      : madvrSource.Height());
+
+  // A picture madVR has not placed yet leaves nothing to scale into, and drawing the menu
+  // into a rectangle of no size is drawing it nowhere
+  if (dest.Width() <= 0.0f || dest.Height() <= 0.0f || source.Width() <= 0.0f ||
+      source.Height() <= 0.0f)
+    return;
 
   if (trace)
   {
-    // An overlay drawn into a rectangle of no size is drawn nowhere, which looks exactly
-    // like not drawing at all -- hence printing the rectangle rather than trusting it.
-    //
-    // The other two are printed beside it because a menu drawn in one coordinate space and
-    // composited in another is the obvious explanation for an invisible menu, and it is
-    // worth being able to rule out from a log rather than by experiment. Measured
-    // 2026-08-02 on the UHD reference disc: all three are 3840x2160, so they agree.
-    const RESOLUTION_INFO res = CServiceBroker::GetWinSystem()->GetGfxContext().GetResInfo();
+    // Every number that decides where a menu lands, in one line. A menu drawn in one
+    // coordinate space and composited in another is the obvious explanation for a menu that
+    // is invisible or in the wrong place, and it should be answerable from a log rather than
+    // by experiment -- it was not, and that cost an afternoon.
     CLog::Log(LOGDEBUG,
-              "{} - drawing menu frame {} into {}x{} at {},{}; the interface is {}x{} and the "
-              "screen says {}x{}",
-              __FUNCTION__, m_blurayMenuFrames, source.Width(), source.Height(), source.x1,
-              source.y1, CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
-              CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight(), res.iWidth,
-              res.iHeight);
+              "{} - drawing menu frame {}: the disc composed against {}x{}, madVR puts the "
+              "picture at {},{} {}x{} of {}x{}, the interface is {}x{}, so the menu goes to "
+              "{},{} {}x{} scaled by {:.2f}x{:.2f}",
+              __FUNCTION__, m_blurayMenuFrames, source.Width(), source.Height(), madvrDest.x1,
+              madvrDest.y1, madvrDest.Width(), madvrDest.Height(), madvrView.Width(),
+              madvrView.Height(), interfaceWidth, interfaceHeight, dest.x1, dest.y1,
+              dest.Width(), dest.Height(), dest.Width() / source.Width(),
+              dest.Height() / source.Height());
   }
 
   // TEMPORARY: a block of colour where the menu buttons are. If this shows and the menu does

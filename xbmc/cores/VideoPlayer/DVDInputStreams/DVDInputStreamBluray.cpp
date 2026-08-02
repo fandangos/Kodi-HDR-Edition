@@ -207,7 +207,11 @@ bool CDVDInputStreamBluray::Open()
   URIUtils::RemoveSlashAtEnd(root);
 
   bd_set_debug_handler(CBlurayCallback::bluray_logger);
-  bd_set_debug_mask(DBG_CRIT | DBG_BLURAY | DBG_NAV);
+  // DBG_GC traces the graphics controller: which button of which page it renders, and with
+  // which object. It is the only way to see what a disc's menu is actually doing, and it is
+  // what settled where Saint Seiya's selection marker was going. Low volume -- a handful of
+  // lines per menu page -- so it is worth keeping on.
+  bd_set_debug_mask(DBG_CRIT | DBG_BLURAY | DBG_NAV | DBG_GC);
 
   m_bd = bd_init();
 

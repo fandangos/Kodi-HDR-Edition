@@ -160,6 +160,14 @@ protected:
   //! Draws the disc's own menu overlays. Kodi's overlay renderer already knows how to turn
   //! the images libbluray produces into something on screen, for both HDMV and BD-J discs.
   OVERLAY::CRenderer m_blurayMenuRenderer;
+  //! The size of the plane the disc composed its menu against, which is the disc's own video
+  //! size and not necessarily anything else on screen: an HDMV disc places its buttons at
+  //! pixel positions in this space, and they have to be scaled out of it. Taken from the
+  //! overlay itself, because only the disc knows it.
+  //! \{
+  int m_blurayMenuWidth{0};
+  int m_blurayMenuHeight{0};
+  //! \}
   //! Counts drawn menu frames, only so the first few can be traced
   uint64_t m_blurayMenuFrames{0};
   //! Counts calls to Render, so the log shows whether Kodi's render loop is still turning

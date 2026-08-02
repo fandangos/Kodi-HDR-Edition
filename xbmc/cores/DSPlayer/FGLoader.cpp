@@ -572,7 +572,20 @@ HRESULT CFGLoader::LoadFilterRules(const CFileItem& _pFileItem)
 
     if (SUCCEEDED(CFilterCoreFactory::GetSubsFilter(pFileItem, filter, CGraphFilters::Get()->IsUsingDXVADecoder())))
     {
-      if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DSPLAYER_FILTERSMANAGEMENT) == INTERNALFILTERS
+      // XyVSFilter draws subtitles into the picture, so it sits in the video path and hands
+      // the renderer a media type of its own making - one without the colour information the
+      // decoder put on the original. madVR then has nothing to go on and guesses BT.709, so
+      // an HDR film is played as if it were SDR and the display never switches to HDR (it
+      // also costs DXVA decoding). XySubFilter draws through madVR's own subtitle interface
+      // instead and leaves the video untouched, which is exactly why it exists. So only fall
+      // back to XyVSFilter for renderers that cannot take subtitles that way.
+      const bool isMadvr =
+          StringUtils::EqualsNoCase(CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+                                        CSettings::SETTING_DSPLAYER_VIDEORENDERER),
+                                    "madvr");
+
+      if (!isMadvr
+        && CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DSPLAYER_FILTERSMANAGEMENT) == INTERNALFILTERS
         && filter == CGraphFilters::INTERNAL_XYSUBFILTER)
         filter = CGraphFilters::INTERNAL_XYVSFILTER;
 

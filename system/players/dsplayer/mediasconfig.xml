@@ -19,7 +19,11 @@
     <!-- Iso still return a crash on this filter. -->
     <!-- Blu-ray images expose their PGS tracks through the splitter, so unlike the
          dvd rules below this one does need a subtitle filter. -->
-    <rule filetypes="iso">
+    <!-- An unpacked disc is played by selecting BDMV/index.bdmv, which is the file the
+         list offers for a disc folder; MovieObject.bdmv and the 8.3 INDEX.BDM name reach
+         the same disc. All of them are handed to the source as they stand and it works
+         out the disc's root for itself, so the disc behaves exactly as its image does. -->
+    <rule filetypes="iso|bdmv|bdm">
       <!-- Read the disc through libbluray rather than letting the splitter open the
            image itself. libbluray uses the disc's own title list and copes with images
            the splitter cannot open at all. -->

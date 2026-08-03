@@ -197,6 +197,17 @@ public:
   bool DiscSaysMenuVisible() const { return m_discSaysMenu; }
 
   /*!
+   * \brief Whether the disc is holding one picture until the viewer chooses something
+   *
+   * An indefinite still is the disc promising that not one more byte is coming: a menu drawn
+   * over a frozen frame plays no video at all while it waits. Anything that waits on the disc
+   * for bytes has to ask this first, or it waits for as long as the viewer takes -- which,
+   * on the thread the splitter reads with, means the graph is never built and nothing is ever
+   * shown. A timed still is not one of these; it expires on its own and the bytes resume.
+   */
+  bool HoldingIndefiniteStill() const { return m_still && m_stillIsIndefinite; }
+
+  /*!
    * \brief Give up on a disc that is not going to produce anything
    *
    * A disc whose menu failed to start returns nothing but idle events for as long as it is
@@ -365,8 +376,10 @@ private:
   //! fixed background arrive this way: a menu with moving video behind it is an ordinary
   //! playlist that loops, and its data flows like anything else. Discs also use timed
   //! stills to pause between pieces of the opening sequence, and those expire on their own.
-  bool m_still{false};
-  bool m_stillIsIndefinite{false};
+  //! Set on the thread reading the disc and read by whoever is waiting for its bytes, hence
+  //! atomic, see HoldingIndefiniteStill.
+  std::atomic<bool> m_still{false};
+  std::atomic<bool> m_stillIsIndefinite{false};
   std::chrono::steady_clock::time_point m_stillUntil{};
 
   //! Most recent overlay the disc asked to be drawn, waiting to be picked up by the

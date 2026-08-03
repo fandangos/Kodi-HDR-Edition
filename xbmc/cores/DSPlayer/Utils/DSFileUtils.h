@@ -33,6 +33,18 @@ class CDSFile
 public:
   static std::string SmbToUncPath(const std::string& strFileName);
   static bool Exists(const std::string& strFileName, long* errCode = NULL);
+
+  /*!
+   * \brief The path libbluray's bd_open() wants for the disc a file belongs to
+   *
+   * A disc image names the disc itself, but a disc folder is played by picking a file out of
+   * it -- BDMV/index.bdmv from the file list, or a playlist under BDMV/PLAYLIST -- and
+   * bd_open() wants the folder BDMV sits in. Handed the file it opens nothing at all.
+   *
+   * Anything that is not part of a disc folder is returned unchanged, so this is safe to
+   * apply to every path a disc might arrive as.
+   */
+  static std::string BlurayDiscRoot(const std::string& strFileName);
 };
 
 class CDSCharsetConverter

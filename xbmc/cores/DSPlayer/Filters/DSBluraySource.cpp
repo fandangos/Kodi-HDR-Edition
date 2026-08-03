@@ -357,31 +357,14 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
 
       if (playlist > 0 && !navigator->InMainMenu())
       {
-        // Not everything a disc leaves its menu for is a programme. It passes through transit
-        // clips on the way, and one of those played on its own is a dead end -- the clip runs
-        // out and the disc, which is no longer being read, stays exactly where it was. Left to
-        // navigation it plays and the disc carries straight on into the title it was leading
-        // to, which the existing rebuild path then picks up.
-        const int seconds = navigator->PlaylistDuration() / 1000;
-        const bool tooShort = seconds > 0 && seconds < TOO_SHORT_TO_PLAY_ALONE.count();
-
-        // And a menu must never be taken away from the disc whatever its length says. An
-        // HDMV menu's buttons are decoded out of its interactive graphics stream as the disc
-        // is read, so played from a handle of its own it has none: the picture shows the
-        // menu and nothing on it can be used, which is exactly how Street Fighter II's main
-        // menu arrived -- drawn, and dead. A feature carries interactive graphics too, for
-        // its popup menu, so length is what separates the two.
-        const bool isMenu = navigator->PlaylistHasButtons() && seconds > 0 &&
-                            seconds <= LONGEST_MENU.count();
-
-        if (handedBack || tooShort || isMenu)
+        if (handedBack)
         {
-          CLog::Log(LOGINFO, "{} - letting the disc play playlist {} itself: it runs {} s, and "
-                             "{}", __FUNCTION__, playlist, seconds,
-                    handedBack ? "playing it on its own left the disc stranded"
-                    : isMenu   ? "it carries the interactive graphics of a menu, whose buttons "
-                                 "only exist while the disc is being read"
-                               : "that is too short to be a programme of its own");
+          CLog::Log(LOGINFO, "{} - letting the disc play playlist {} itself: playing it on its "
+                             "own left the disc stranded", __FUNCTION__, playlist);
+          following = playlist;
+        }
+        else if (!WorthPlayingAlone(*navigator, playlist))
+        {
           following = playlist;
         }
         else
@@ -398,11 +381,77 @@ HRESULT CDSBlurayStream::Open(const std::string& path)
     }
 
     if (OpenNavigation(path, following))
+    {
+      // Settling reads the disc, and a disc only moves while it is read: told to carry on
+      // through a five second transit clip, it runs off the end of that clip and into the
+      // feature before the graph has even been built. What it has ended on is then a different
+      // programme from the one this open decided about, and a feature left in navigation
+      // output has no length, cannot be seeked, and eventually reads past the window the
+      // splitter may still go back to. So decide once more, now that the disc has stopped
+      // moving.
+      //
+      // Only when this open was already following the disc somewhere. On a first open the disc
+      // is meant to present itself, and what it settles on is its menu -- which belongs to
+      // navigation whatever its length says.
+      CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+      const uint32_t settled = m_playlist;
+
+      if (following != 0 && settled != following && settled > 0 && navigator &&
+          !navigator->InMainMenu() && WorthPlayingAlone(*navigator, settled))
+      {
+        CLog::Log(LOGINFO, "{} - while settling, the disc went on from playlist {} to {}, which "
+                           "is a programme of its own: playing that directly instead",
+                  __FUNCTION__, following, settled);
+
+        // Stops this stream's producer and lets go of the navigation session, which stays
+        // alive and keeps the disc's state -- OpenPlaylist reads the playlist from a handle
+        // of its own and leaves the session holding whatever menu the disc came from.
+        Close();
+
+        if (SUCCEEDED(OpenPlaylist(path, settled)))
+          return S_OK;
+
+        CLog::Log(LOGWARNING, "{} - playlist {} could not be played on its own after all, going "
+                              "back to the disc's own navigation", __FUNCTION__, settled);
+        return OpenNavigation(path, settled) ? S_OK : OpenTitle(path);
+      }
+
       return S_OK;
+    }
   }
 
   return OpenTitle(path);
 #endif
+}
+
+bool CDSBlurayStream::WorthPlayingAlone(CDSBlurayNavigator& navigator, uint32_t playlist)
+{
+  // Not everything a disc leaves its menu for is a programme. It passes through transit clips
+  // on the way, and one of those played on its own is a dead end -- the clip runs out and the
+  // disc, which is no longer being read, stays exactly where it was. Left to navigation it
+  // plays and the disc carries straight on into the title it was leading to, which the
+  // existing rebuild path then picks up.
+  const int seconds = navigator.PlaylistDuration() / 1000;
+  const bool tooShort = seconds > 0 && seconds < TOO_SHORT_TO_PLAY_ALONE.count();
+
+  // And a menu must never be taken away from the disc whatever its length says. An HDMV menu's
+  // buttons are decoded out of its interactive graphics stream as the disc is read, so played
+  // from a handle of its own it has none: the picture shows the menu and nothing on it can be
+  // used, which is exactly how Street Fighter II's main menu arrived -- drawn, and dead. A
+  // feature carries interactive graphics too, for its popup menu, so length is what separates
+  // the two.
+  const bool isMenu = navigator.PlaylistHasButtons() && seconds > 0 &&
+                      seconds <= LONGEST_MENU.count();
+
+  if (!tooShort && !isMenu)
+    return true;
+
+  CLog::Log(LOGINFO, "{} - letting the disc play playlist {} itself: it runs {} s, and {}",
+            __FUNCTION__, playlist, seconds,
+            isMenu ? "it carries the interactive graphics of a menu, whose buttons only exist "
+                     "while the disc is being read"
+                   : "that is too short to be a programme of its own");
+  return false;
 }
 
 bool CDSBlurayStream::OpenNavigation(const std::string& path, uint32_t following)
@@ -581,9 +630,11 @@ HRESULT CDSBlurayStream::OpenTitle(const std::string& kodiPath)
   return E_FAIL;
 #else
   // Reading a title directly means libbluray opens the file itself, and it can only do that
-  // with a path Windows understands
+  // with a path Windows understands. An unpacked disc arrives as the index.bdmv that was
+  // selected from the file list, and bd_open() wants the folder the disc's BDMV sits in.
   std::string path = CDSFile::SmbToUncPath(kodiPath);
   StringUtils::Replace(path, "/", "\\");
+  path = CDSFile::BlurayDiscRoot(path);
 
   m_bd = bd_open(path.c_str(), nullptr);
   if (!m_bd)
@@ -644,9 +695,11 @@ HRESULT CDSBlurayStream::OpenPlaylist(const std::string& kodiPath, uint32_t play
 #if !defined(HAVE_LIBBLURAY)
   return E_FAIL;
 #else
-  // libbluray opens the file itself here, so it needs a path Windows understands
+  // libbluray opens the file itself here, so it needs a path Windows understands, and for an
+  // unpacked disc the folder its BDMV sits in rather than the index.bdmv that was selected
   std::string path = CDSFile::SmbToUncPath(kodiPath);
   StringUtils::Replace(path, "/", "\\");
+  path = CDSFile::BlurayDiscRoot(path);
 
   m_bd = bd_open(path.c_str(), nullptr);
   if (!m_bd)
@@ -906,6 +959,26 @@ HRESULT CDSBlurayStream::ReadNavigation(PBYTE pbBuffer, DWORD dwBytesToRead, LPD
     std::unique_lock<std::mutex> ring(m_ringMutex);
     while (m_produced < wanted && !m_exhausted && !m_producerStop)
     {
+      // Waiting with no deadline is right for a disc that is merely between one thing and the
+      // next, and wrong for one holding a fixed picture until the viewer chooses: that is the
+      // disc saying no more bytes are coming, and a menu drawn over a frozen frame is a very
+      // ordinary thing for a disc to open with. Waiting there means the splitter never
+      // finishes scanning, so the graph is never built and the viewer is shown nothing at all
+      // -- there is not even a menu to press a button on. Answer with what the disc has
+      // played, which for as long as the still lasts is genuinely the whole stream.
+      //
+      // Asked before waiting rather than after, because this thread is the graph's own and
+      // every read spent waiting on a still that has already been declared is a second of the
+      // interface held up for nothing.
+      if (m_navigator->HoldingIndefiniteStill())
+      {
+        CLog::Log(LOGDEBUG,
+                  "{} - the disc is holding a still at {} and will play nothing more until the "
+                  "viewer chooses, so {} bytes is all there is", __FUNCTION__, m_position,
+                  static_cast<LONGLONG>(m_produced));
+        break;
+      }
+
       if (!m_ringGrew.wait_for(ring, NAVIGATION_READ_TIMEOUT,
                                [&] { return m_produced >= wanted || m_exhausted || m_producerStop; }))
         CLog::Log(LOGDEBUG, "{} - still waiting for the disc at {}", __FUNCTION__, m_position);
@@ -1042,7 +1115,13 @@ LONGLONG CDSBlurayStream::Size(LONGLONG* pSizeAvailable)
     // been played only grows when the splitter reads, and a splitter told there is nothing
     // more to read stops reading. Reads wait for the disc instead.
     const LONGLONG played = m_produced;
-    const LONGLONG length = m_exhausted ? played : played + NAVIGATION_LOOKAHEAD;
+
+    // A disc holding a fixed picture until the viewer chooses is not going to play any more
+    // of it, so claiming there is more to come sends the splitter hunting near an end that
+    // does not exist -- and every one of those reads then has to be refused. For as long as
+    // the still lasts, what has played really is the whole stream.
+    const bool nothingMoreComing = m_exhausted || m_navigator->HoldingIndefiniteStill();
+    const LONGLONG length = nothingMoreComing ? played : played + NAVIGATION_LOOKAHEAD;
 
     if (m_traced < TRACED_READS)
       CLog::Log(LOGDEBUG, "{} - reporting length {}, played {}", __FUNCTION__, length, m_produced);

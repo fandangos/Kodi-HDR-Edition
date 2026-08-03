@@ -20,6 +20,7 @@
 #include "DSUtil/DSUtil.h"
 #include "utils/charsetconverter.h"
 #include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
 
 #if HAS_DS_PLAYER
 
@@ -80,6 +81,37 @@ std::string CDSFile::SmbToUncPath(const std::string& strFileName)
   StringUtils::Replace(strWinFileName, '/', '\\');
 
   return strWinFileName;
+}
+
+std::string CDSFile::BlurayDiscRoot(const std::string& strFileName)
+{
+  std::string root = strFileName;
+  URIUtils::RemoveSlashAtEnd(root);
+
+  // The disc's own root may already be what was handed over, either as the folder BDMV sits
+  // in or as BDMV itself
+  if (!StringUtils::EqualsNoCase(URIUtils::GetFileName(root), "BDMV"))
+  {
+    // Otherwise a file inside the disc structure was chosen. index.bdmv is what the file list
+    // offers, and a chosen playlist sits one level deeper again.
+    root = URIUtils::GetDirectory(root);
+    URIUtils::RemoveSlashAtEnd(root);
+
+    if (StringUtils::EqualsNoCase(URIUtils::GetFileName(root), "PLAYLIST"))
+    {
+      root = URIUtils::GetDirectory(root);
+      URIUtils::RemoveSlashAtEnd(root);
+    }
+
+    // Not part of a disc folder at all: a disc image, or a plain media file
+    if (!StringUtils::EqualsNoCase(URIUtils::GetFileName(root), "BDMV"))
+      return strFileName;
+  }
+
+  root = URIUtils::GetDirectory(root);
+  URIUtils::RemoveSlashAtEnd(root);
+
+  return root.empty() ? strFileName : root;
 }
 
 bool CDSFile::Exists(const std::string& strFileName, long* errCode)

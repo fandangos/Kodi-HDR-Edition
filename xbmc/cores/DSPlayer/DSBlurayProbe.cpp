@@ -8,6 +8,7 @@
 
 #include "DSBlurayProbe.h"
 
+#include "cores/DSPlayer/Utils/DSFileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -66,7 +67,11 @@ void CDSBlurayProbe::Probe(const std::string& path)
   if (!isImage && !isDiscFolder)
     return;
 
-  CLog::Log(LOGINFO, "{} - probing \"{}\"", __FUNCTION__, path.c_str());
+  // An unpacked disc is named by the index.bdmv that was selected from the file list, and
+  // bd_open() wants the folder the disc's BDMV sits in
+  const std::string root = CDSFile::BlurayDiscRoot(path);
+
+  CLog::Log(LOGINFO, "{} - probing \"{}\"", __FUNCTION__, root.c_str());
 
   // The handler and mask are process wide and stay in effect for playback afterwards, so
   // keep them to errors plus the BD-J startup trace. Anything more (DBG_NAV, DBG_STREAM)
@@ -74,7 +79,7 @@ void CDSBlurayProbe::Probe(const std::string& path)
   bd_set_debug_handler(BlurayLogCallback);
   bd_set_debug_mask(DBG_CRIT | DBG_BDJ);
 
-  BLURAY* bd = bd_open(path.c_str(), nullptr);
+  BLURAY* bd = bd_open(root.c_str(), nullptr);
   if (!bd)
   {
     CLog::Log(LOGWARNING, "{} - libbluray could not open the disc. It is either not a "

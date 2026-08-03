@@ -172,6 +172,17 @@ private:
    */
   HRESULT OpenTitle(const std::string& path);
 
+  /*!
+   * \brief Whether the playlist the disc is on is a programme worth taking away from it
+   * \param navigator The running disc, which must be on the playlist being asked about
+   * \param playlist  Only for the log line
+   *
+   * Says no, with the reason, for the two things that have to stay in the disc's own hands: a
+   * transit clip, which played alone strands the disc where it stood, and a menu, whose
+   * buttons only exist while the disc is being read.
+   */
+  static bool WorthPlayingAlone(CDSBlurayNavigator& navigator, uint32_t playlist);
+
   HRESULT ReadNavigation(PBYTE pbBuffer, DWORD dwBytesToRead, LPDWORD pdwBytesRead);
   HRESULT ReadTitle(PBYTE pbBuffer, DWORD dwBytesToRead, LPDWORD pdwBytesRead);
 

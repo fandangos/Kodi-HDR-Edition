@@ -26,7 +26,9 @@
 
 #include "DSGraph.h"
 #include "DSBlurayNavigator.h"
+#include "DSDvdNavigator.h"
 #include "Filters/DSBluraySource.h"
+#include "Filters/DSDvdSource.h"
 #include "DSPlayer.h"
 #include "Filters/RendererSettings.h"
 #include "PixelShaderList.h"
@@ -494,6 +496,13 @@ HRESULT CDSGraph::HandleGraphEvent()
         CDSBlurayStream::FollowTheDisc();
         break;
       }
+      // The same for a DVD, minus the handback: there is no second handle to strand the disc
+      // on, because everything a DVD plays comes out of the one navigation session.
+      if (CDSDvdNavigator::Get() && !CDSDvdNavigator::Get()->Finished())
+      {
+        CDSDvdStream::FollowTheDisc();
+        break;
+      }
       m_State.eof = true;
       CServiceBroker::GetAppMessenger()->PostMsg(TMSG_MEDIA_STOP);
       break;
@@ -671,7 +680,7 @@ void CDSGraph::Stop(bool rewind)
 
   // A navigated disc cannot be rewound: it is wherever its navigation put it, and asking
   // the splitter to go back to the start stalls on a stream that only moves forward
-  if (rewind && m_pMediaSeeking && !CDSBlurayNavigator::Get())
+  if (rewind && m_pMediaSeeking && !IDSDiscNavigator::Playing())
     m_pMediaSeeking->SetPositions(&pos, AM_SEEKING_AbsolutePositioning, NULL, AM_SEEKING_NoPositioning);
 
   if (!m_pGraphBuilder)
@@ -959,7 +968,9 @@ std::string CDSGraph::GetAudioInfo()
   if (!CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_DSPLAYER_SHOWSPLITTERDETAIL) ||
       CGraphFilters::Get()->UsingMediaPortalTsReader())
   {
-    audioInfo = StringUtils::Format("Audio: ({}, %d Hz, %d Channels) | Renderer: {}",
+    // The same printf-in-an-fmt-call mistake as the track labels had: with only two
+    // placeholders for four arguments the renderer's name was replaced by the sample rate
+    audioInfo = StringUtils::Format("Audio: ({}, {} Hz, {} Channels) | Renderer: {}",
       c->GetAudioCodecDisplayName(g_application.GetComponent<CApplicationPlayer>()->GetAudioStream()).c_str(),
       c->GetSampleRate(g_application.GetComponent<CApplicationPlayer>()->GetAudioStream()),
       c->GetChannels(g_application.GetComponent<CApplicationPlayer>()->GetAudioStream()),

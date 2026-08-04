@@ -24,6 +24,7 @@
 #include "FilterCoreFactory.h"
 #include "DSPlayer.h"
 #include "filters/DSBluraySource.h"
+#include "filters/DSDvdSource.h"
 #include "filters/XBMCFileSource.h"
 #include "utils/URIUtils.h"
 #include "guilib/GUIComponent.h"
@@ -31,7 +32,8 @@
 InternalFilters internalFilters[] =
 {
   { "internal_archivesource", "Internal archive source", &InternalFilterConstructor < CXBMCASyncReader > },
-  { "internal_bluraysource", "Internal Blu-ray source", &InternalFilterConstructor < CDSBlurayReader > }
+  { "internal_bluraysource", "Internal Blu-ray source", &InternalFilterConstructor < CDSBlurayReader > },
+  { "internal_dvdsource", "Internal DVD source", &InternalFilterConstructor < CDSDvdReader > }
 };
 
 HRESULT CFilterCoreFactory::LoadMediasConfiguration(TiXmlElement* pConfig, int iPriority)

@@ -460,7 +460,18 @@ HRESULT CFGManager::ConnectFilter(IBaseFilter* pBF, IPin* pPinIn)
       && S_OK == IsPinDirection(pPin, PINDIR_OUTPUT)
       && S_OK != IsPinConnected(pPin))
     {
-      if (SUCCEEDED(Render(pPin)))
+      const HRESULT rendered = Render(pPin);
+
+      // Which of a splitter's streams reached a renderer, and which did not. Building the
+      // graph "succeeds" as long as any one pin connects, so a file whose audio plays while
+      // its video never reaches madVR looks identical to a working one from here up: the
+      // graph runs, the position advances, and the picture is simply never configured.
+      std::string pinName;
+      g_charsetConverter.wToUTF8(GetPinName(pPin), pinName);
+      CLog::Log(LOGDEBUG, "{} - rendering \"{}\" -> {:#x}", __FUNCTION__, pinName.c_str(),
+                static_cast<uint32_t>(rendered));
+
+      if (SUCCEEDED(rendered))
         hr = S_OK;
     }
   }

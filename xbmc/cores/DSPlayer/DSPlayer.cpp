@@ -26,7 +26,9 @@
 
 #include "DSPlayer.h"
 #include "DSBlurayNavigator.h"
+#include "DSDvdNavigator.h"
 #include "Filters/DSBluraySource.h"
+#include "Filters/DSDvdSource.h"
 #include "DSUtil/DSUtil.h" // unload loaded filters
 #include "SComCli.h"
 #include "Filters/RendererSettings.h"
@@ -435,6 +437,7 @@ bool CDSPlayer::CloseFile(bool reopen)
   // in reads that block until the disc gives more. Cut them loose first, whatever the
   // close is for, or the stop waits on a read that is waiting on a menu.
   CDSBlurayStream::StopFeedingTheGraph();
+  CDSDvdStream::StopFeedingTheGraph();
 
   // A disc is kept open across graph rebuilds, so this is where it is really finished with,
   // unless the close is only there to make way for the programme the disc moved on to. The
@@ -448,11 +451,12 @@ bool CDSPlayer::CloseFile(bool reopen)
     // move - which the graph management thread would answer by opening the disc all over
     // again, so pressing stop started the film instead of ending it. Stop asking the disc
     // what it wants before it is touched, and drop anything it asked for on the way in.
-    if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+    if (IDSDiscNavigator* navigator = IDSDiscNavigator::Playing())
       navigator->SuspendProgrammeChanges();
     TakeDiscProgrammeChanged();
 
     CDSBlurayNavigator::EndSession();
+    CDSDvdNavigator::EndSession();
   }
 
   // zoom
@@ -607,7 +611,11 @@ void CDSPlayer::GetAudioStreamInfo(int index, AudioStreamInfo& info) const
   if (!CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_DSPLAYER_SHOWSPLITTERDETAIL) ||
       CGraphFilters::Get()->UsingMediaPortalTsReader())
   { 
-    label = StringUtils::Format("{} - ({}, %d Hz, {} Channels)", strStreamName.c_str(), codecname.c_str(), info.samplerate, info.channels);
+    // "%d" is not a placeholder to fmt, so the sample rate silently filled the Channels slot
+    // and the channel count was dropped: every DVD track listed as "(AC3, %d Hz, 48000
+    // Channels)". The same mistake as the extrafilter%i one, in a string the viewer reads.
+    label = StringUtils::Format("{} - ({}, {} Hz, {} Channels)", strStreamName.c_str(),
+                                codecname.c_str(), info.samplerate, info.channels);
     info.name = label;
   }
   else
@@ -874,6 +882,7 @@ void CDSPlayer::Process()
   // seconds, and the splitter spends them reading the disc: held any longer it reaches the end
   // of the hold, is told the stream is short, and takes that for the end of the film.
   CDSBlurayStream::NoteGraphBuilt();
+  CDSDvdStream::NoteGraphBuilt();
 
   m_hReadyEvent.Set();
 
@@ -902,7 +911,7 @@ void CDSPlayer::Process()
       ShowEditionDlg(true);
 
     // Seek
-    if (CDSBlurayNavigator::Get())
+    if (IDSDiscNavigator::Playing())
     {
       // A disc running its own navigation plays what it decides to play, from wherever it
       // has got to. There is no position to seek to, and asking for one stalls the graph
@@ -940,6 +949,7 @@ void CDSPlayer::Process()
     // Already done above for a disc that got this far, and here for anything that reached
     // playback another way
     CDSBlurayStream::NoteGraphRunning();
+    CDSDvdStream::NoteGraphRunning();
 
     if (CGraphFilters::Get()->IsDVD())
       CStreamsManager::Get()->LoadDVDStreams();
@@ -1008,9 +1018,9 @@ void CDSPlayer::RebuildGraphForDisc()
   // menu was running.
   m_keepDiscOpen = true;
 
-  // The disc may pass through another playlist or two before it settles on what it is really
+  // The disc may pass through another programme or two before it settles on what it is really
   // going to play. Those are not separate requests to open it again.
-  if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+  if (IDSDiscNavigator* navigator = IDSDiscNavigator::Playing())
     navigator->SuspendProgrammeChanges();
 
   // Close the whole thing from this thread, not just stop it. Taking the graph down
@@ -1019,6 +1029,7 @@ void CDSPlayer::RebuildGraphForDisc()
   // taking it down, or it waits for a reply only it could give. Leaving the close to the
   // application's ordinary open path put it exactly there.
   CDSBlurayStream::StopFeedingTheGraph();
+  CDSDvdStream::StopFeedingTheGraph();
   CloseFile();
   CLog::Log(LOGINFO, "{} - closed, asking for the new programme", __FUNCTION__);
 
@@ -1371,7 +1382,7 @@ void CDSPlayer::SeekPercentage(float iPercent)
 
 bool CDSPlayer::HasMenu() const
 {
-  return CDSBlurayNavigator::Get() != nullptr || g_dsGraph->IsDvd();
+  return IDSDiscNavigator::Playing() != nullptr || g_dsGraph->IsDvd();
 }
 
 void CDSPlayer::ToggleDiscInput()
@@ -1379,7 +1390,7 @@ void CDSPlayer::ToggleDiscInput()
   const bool toTheDisc = !IsInMenu();
   m_discInputForced = toTheDisc ? 1 : 0;
 
-  CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+  IDSDiscNavigator* navigator = IDSDiscNavigator::Playing();
   CLog::Log(LOGINFO,
             "{} - the viewer has sent the keyboard to {}. What we could see was {}, and the "
             "disc said its menu was {}.",
@@ -1405,7 +1416,7 @@ bool CDSPlayer::IsInMenu() const
   if (forced >= 0)
     return forced != 0;
 
-  CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+  IDSDiscNavigator* navigator = IDSDiscNavigator::Playing();
   if (navigator)
   {
     // Whether a menu is up is whether the disc is drawing one, not whether its menu code is
@@ -1423,12 +1434,12 @@ MenuType CDSPlayer::GetSupportedMenuType() const
 {
   // A navigated disc presents its own menus. Saying so is what makes the application route
   // navigation keys to the player instead of treating them as seeks.
-  return CDSBlurayNavigator::Get() ? MenuType::NATIVE : MenuType::NONE;
+  return IDSDiscNavigator::Playing() ? MenuType::NATIVE : MenuType::NONE;
 }
 
 bool CDSPlayer::OnAction(const CAction &action)
 {
-  if (CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get())
+  if (IDSDiscNavigator* navigator = IDSDiscNavigator::Playing())
   {
     // Answered before anything looks at IsInMenu(), because being unable to reach this while
     // the player believes a menu is up would defeat the whole point of it

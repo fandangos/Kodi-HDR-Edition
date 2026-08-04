@@ -39,10 +39,12 @@
 #include "GraphFilters.h"
 
 #include "DSBlurayNavigator.h"
+#include "DSDvdNavigator.h"
 #include "DSGraph.h"
 #include "StreamsManager.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlay.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlayImage.h"
+#include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlaySpu.h"
 #include "guilib/GUITexture.h"
 
 #include "utils/CPUInfo.h"
@@ -521,20 +523,39 @@ void CRenderDSManager::RenderBlurayMenu()
     return;
 
   CDSBlurayNavigator* navigator = CDSBlurayNavigator::Get();
+  CDSDvdNavigator* dvd = CDSDvdNavigator::Get();
 
   // Why nothing is being drawn is otherwise invisible: there may be no disc being
   // navigated, or one with nothing to show
   if ((m_renderCalls % 200) == 1)
     CLog::Log(LOGDEBUG, "{} - navigator {}, overlay held {}", __FUNCTION__,
-              navigator ? "present" : "MISSING", m_blurayMenuRenderer.HasOverlay(0) ? "yes" : "no");
+              (navigator || dvd) ? "present" : "MISSING",
+              m_blurayMenuRenderer.HasOverlay(0) ? "yes" : "no");
 
-  if (!navigator)
+  if (!navigator && !dvd)
     return;
+
+  // A DVD's menu is decoded out of the stream rather than pushed at us on its own plane, but
+  // by the time it reaches here it is an overlay like any other and is drawn the same way.
+  // What differs is the plane it was composed against: a Blu-ray names it in every overlay,
+  // while a DVD's is simply its own picture, 720 across.
+  if (dvd)
+  {
+    int width = 0;
+    int height = 0;
+    dvd->MenuPlaneSize(width, height);
+    if (width > 0 && height > 0)
+    {
+      m_blurayMenuWidth = width;
+      m_blurayMenuHeight = height;
+    }
+  }
 
   // The disc replaces its overlay outright rather than amending it, so a new one always
   // supersedes what came before. An empty overlay is how the disc says to clear the menu.
   std::shared_ptr<CDVDOverlayGroup> overlay;
-  if (navigator->TakeOverlay(overlay))
+  const bool arrived = navigator ? navigator->TakeOverlay(overlay) : dvd->TakeOverlay(overlay);
+  if (arrived)
   {
     const size_t images = overlay ? overlay->m_overlays.size() : 0;
     CLog::Log(LOGDEBUG, "{} - took an overlay of {} image(s)", __FUNCTION__, images);
@@ -561,9 +582,19 @@ void CRenderDSManager::RenderBlurayMenu()
                     picture->source_width, picture->source_height, picture->palette.size(),
                     picture->pixels.size());
         }
+        else if (const auto* spu = dynamic_cast<const CDVDOverlaySpu*>(image.get()))
+        {
+          // A DVD menu, which arrives as subpicture rather than as a picture with a palette.
+          // The overlay renderer knows how to draw one, highlight colours and all; the plane
+          // it belongs to is the disc's own video and was taken from the navigator above.
+          CLog::Log(LOGDEBUG, "{} -   a subpicture menu {}x{} at {},{}, highlight {},{} to {},{}",
+                    __FUNCTION__, spu->width, spu->height, spu->x, spu->y, spu->crop_i_x_start,
+                    spu->crop_i_y_start, spu->crop_i_x_end, spu->crop_i_y_end);
+        }
         else
         {
-          CLog::Log(LOGDEBUG, "{} -   an overlay that is not an image", __FUNCTION__);
+          CLog::Log(LOGDEBUG, "{} -   an overlay that is neither a picture nor a subpicture",
+                    __FUNCTION__);
         }
       }
     }

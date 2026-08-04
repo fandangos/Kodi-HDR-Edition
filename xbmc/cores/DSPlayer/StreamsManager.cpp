@@ -690,16 +690,34 @@ void CStreamsManager::LoadStreams()
   }
 
   SubtitleManager->Initialize();
+
   if (!SubtitleManager->Ready())
   {
-    // No subtitle renderer is available, either because no subtitle filter was added to
-    // the graph or because the internal subtitle manager could not be created (it is not
-    // implemented for the madVR renderer). Nothing could be drawn, so the streams
-    // collected above are dropped instead of offering tracks that would never show up.
-    CLog::Log(LOGWARNING, "{} No subtitle renderer available, subtitles are disabled for this file. "
-                          "Add a subtitle filter such as XySubFilter to the matching rule in "
-                          "mediasconfig.xml to enable subtitle support", __FUNCTION__);
-    SubtitleManager->Unload();
+    if (!m_bHasSubsFilter)
+    {
+      // Nothing in the graph can draw a subtitle: no subtitle filter, and the internal
+      // manager could not be created either. The streams collected above are dropped rather
+      // than offering tracks that would never show up.
+      CLog::Log(LOGWARNING,
+                "{} No subtitle renderer available, subtitles are disabled for this file. Add a "
+                "subtitle filter such as XySubFilter to the matching rule in mediasconfig.xml "
+                "to enable subtitle support", __FUNCTION__);
+      SubtitleManager->Unload();
+      return;
+    }
+
+    // A subtitle filter is in the graph, and the internal manager stands down deliberately
+    // when one is -- "disabled libsubs xyfilter loaded" is it saying so. It is not
+    // implemented for madVR anyway; XySubFilter draws through madVR's own subtitle interface
+    // instead, which is the whole reason it is there.
+    //
+    // Treating that as "no subtitle renderer" threw away every track the splitter had just
+    // found, on Blu-ray and DVD alike: a disc whose subtitles LAV listed one line earlier
+    // offered none at all. Only the external-subtitle handling below needs the internal
+    // manager, and with a filter present that is done by SubInterface(ADD_EXTERNAL_SUB).
+    CLog::Log(LOGDEBUG, "{} Subtitles are drawn by the subtitle filter rather than internally; "
+                        "{} track(s) from the splitter stand", __FUNCTION__,
+              m_subfilterStreams.size());
     return;
   }
 

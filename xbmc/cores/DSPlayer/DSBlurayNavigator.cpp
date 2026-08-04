@@ -185,6 +185,7 @@ bool CDSBlurayNavigator::Open(const std::string& path)
   m_produced = 0;
   m_overlayCount = 0;
   m_instance = this;
+  NowPlaying(this);
 
   CLog::Log(LOGINFO, "{} - navigating \"{}\"", __FUNCTION__, path);
   return true;
@@ -197,6 +198,8 @@ void CDSBlurayNavigator::Close()
 
   if (m_instance == this)
     m_instance = nullptr;
+  if (Playing() == this)
+    NowPlaying(nullptr);
 
   std::shared_ptr<CDVDInputStreamBluray> input;
   {

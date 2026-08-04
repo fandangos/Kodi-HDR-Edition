@@ -3,6 +3,7 @@ set(SOURCES AllocatorCommon.cpp
             asyncrdr.cpp
             BaseSharedRender.cpp
             DSBluraySource.cpp
+            DSDvdSource.cpp
             LavSettings.cpp
             madVRAllocatorPresenter.cpp
             MadvrSettings.cpp
@@ -18,6 +19,7 @@ set(HEADERS AllocatorCommon.h
             asyncrdr.h
             BaseSharedRender.h
             DSBluraySource.h
+            DSDvdSource.h
             IDirectVobSub.h
             IMpaDecFilter.h
             IMPCVideoDecFilter.h

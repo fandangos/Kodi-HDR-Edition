@@ -111,6 +111,16 @@ public:
   bool GetState(std::string &xmlstate) override;
   bool SetState(const std::string &xmlstate) override;
 
+  /*!
+   * \brief The title the disc is playing, as libdvdnav last reported it
+   *
+   * Kept in step from DVDNAV_CELL_CHANGE, so asking costs nothing and is safe while a read is
+   * in progress. DSPlayer hands one continuous byte stream to a DirectShow splitter, which
+   * parses it once and cannot follow the disc from a menu into a title, so it needs to know
+   * when the programme has changed underneath it.
+   */
+  int GetTitle() const { return m_iTitle; }
+
   int GetChapter() override { return m_iPart; } // the current part in the current title
   int GetChapterCount() override { return m_iPartCount; } // the number of parts in the current title
   void GetChapterName(std::string& name, int idx=-1) override {};

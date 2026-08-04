@@ -23,7 +23,13 @@
          list offers for a disc folder; MovieObject.bdmv and the 8.3 INDEX.BDM name reach
          the same disc. All of them are handed to the source as they stand and it works
          out the disc's root for itself, so the disc behaves exactly as its image does. -->
-    <rule filetypes="iso|bdmv|bdm">
+    <!-- "iso" says only that this is a disc image, not which kind of disc is inside, and a
+         DVD image handed to the Blu-ray source dies at "error opening file BDMV\index.bdmv"
+         with nothing on screen. disctype makes the two rules choose by what the image
+         actually holds: it is answered by looking for BDMV/index.bdmv and then for
+         VIDEO_TS/VIDEO_TS.IFO, which is the same test Kodi's own player uses. A disc folder
+         is recognised from its path, so index.bdmv still reaches the Blu-ray rule. -->
+    <rule filetypes="iso|bdmv|bdm" disctype="bluray">
       <!-- Read the disc through libbluray rather than letting the splitter open the
            image itself. libbluray uses the disc's own title list and copes with images
            the splitter cannot open at all. -->
@@ -33,12 +39,36 @@
       <audio filter="lavaudiodec" />
       <subs filter="xysubfilter_internal" />
     </rule>
-    <!-- If you want to play a dvd select the file /dvdfolder/VIDEO_TS/VIDEO_TS.ifo -->
-    <rule filetypes="ifo">
-      <source filter="dvdnavigator" />
-      <splitter filter="dvdnavigator" />
+    <!-- A DVD image, read through libdvdnav the same way: the disc's own navigation runs the
+         menus and decides what plays, and Kodi's virtual file system reaches an image on a
+         network share that no DirectShow filter could open. -->
+    <rule filetypes="iso|img|udf" disctype="dvd">
+      <source filter="internal_dvdsource" />
+      <splitter filter="lavf_splitter" />
       <video filter="lavvideodec" />
-      <audio filter="mpaaudiodec" />
+      <audio filter="lavaudiodec" />
+      <!-- The splitter finds the disc's vobsub tracks and offers them, and without a renderer
+           they are listed and then refused with "No subtitle renderer available". The disc's
+           menu buttons are a different matter and are drawn by CDSDvdNavigator, which is the
+           only thing that can know which button is selected. -->
+      <subs filter="xysubfilter_internal" />
+    </rule>
+    <!-- An unpacked DVD is played by selecting /dvdfolder/VIDEO_TS/VIDEO_TS.ifo, which is the
+         file the list offers for a disc folder. It takes the same libdvdnav path an image
+         does, so a disc folder behaves exactly as its image would -- the same tidy-up the
+         Blu-ray side got for BDMV folders in the section before this one.
+
+         This rule used to point at Microsoft's DVD Navigator, which is still registered on
+         Windows and still works, but can only ever open a real directory: an image would have
+         to be mounted to a drive letter first. Nothing routes to it now. It also asked for
+         mpaaudiodec, which needs MpaDecFilter.ax, which this build does not ship -- so every
+         DVD died at "Failed to create filter mpaaudiodec" before a graph existed. -->
+    <rule filetypes="ifo">
+      <source filter="internal_dvdsource" />
+      <splitter filter="lavf_splitter" />
+      <video filter="lavvideodec" />
+      <audio filter="lavaudiodec" />
+      <subs filter="xysubfilter_internal" />
     </rule>
     <!-- END DVD RULES -->
     <rule filetypes="avi|divx">

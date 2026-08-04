@@ -26,6 +26,7 @@
 
 #if HAS_DS_PLAYER
 
+#include "IDSDiscNavigator.h"
 #include "cores/VideoPlayer/IVideoPlayer.h"
 #include "threads/CriticalSection.h"
 
@@ -45,7 +46,7 @@ class CDVDOverlayGroup;
  * bytes from it on the graph's streaming thread, while menu input arrives from the GUI
  * thread, so every entry point takes the same lock: libbluray is not thread safe.
  */
-class CDSBlurayNavigator : public IVideoPlayer
+class CDSBlurayNavigator : public IVideoPlayer, public IDSDiscNavigator
 {
 public:
   CDSBlurayNavigator();
@@ -88,7 +89,7 @@ public:
    * change, and reporting them while an open is already under way asks for the disc to be
    * opened again on top of itself.
    */
-  void SuspendProgrammeChanges() { m_announceChanges = false; }
+  void SuspendProgrammeChanges() override { m_announceChanges = false; }
 
   /*!
    * \brief Open a disc and start it at its first play title
@@ -114,7 +115,7 @@ public:
   int Read(uint8_t* buffer, int size);
 
   //! \brief Whether the disc has played everything it intends to
-  bool Finished() const;
+  bool Finished() const override;
 
   /*!
    * \brief The playlist being played, which changes as the disc moves around
@@ -155,7 +156,7 @@ public:
    * libbluray's own answer is about the title's menu code being loaded, which stays true
    * for the whole of a BD-J film and so is no use for this.
    */
-  bool MenuOnScreen() const { return m_menuOnScreen; }
+  bool MenuOnScreen() const override { return m_menuOnScreen; }
 
   /*!
    * rief Take the menu off the screen
@@ -194,7 +195,7 @@ public:
    * logging beside the other answer, because the two disagreeing is exactly the state that
    * strands a viewer with no way back to the OSD.
    */
-  bool DiscSaysMenuVisible() const { return m_discSaysMenu; }
+  bool DiscSaysMenuVisible() const override { return m_discSaysMenu; }
 
   /*!
    * \brief Whether the disc is holding one picture until the viewer chooses something
@@ -224,13 +225,13 @@ public:
    *  handling does not need to know which disc format is playing.
    *  \{
    */
-  bool ShowMenu();
-  void OnBack();
-  void OnUp();
-  void OnDown();
-  void OnLeft();
-  void OnRight();
-  void OnSelect();
+  bool ShowMenu() override;
+  void OnBack() override;
+  void OnUp() override;
+  void OnDown() override;
+  void OnLeft() override;
+  void OnRight() override;
+  void OnSelect() override;
   /*!
    * \brief Whether a menu is on screen
    *

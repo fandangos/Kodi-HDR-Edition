@@ -75,6 +75,12 @@ public:
       return false;
     }
 
+    // "iso" says only that it is a disc image, not which kind of disc is in it, and the two
+    // want entirely different graphs. A rule may therefore also ask what the image holds.
+    if (m_discType != CDSFile::DiscType::None &&
+        CDSFile::DiscTypeOf(pFileItem.GetDynPath()) != m_discType)
+      return false;
+
     CStreamDetails streamDetails;
     if (m_bStreamDetails)
     {
@@ -178,6 +184,7 @@ public:
     APPENDIFTEXT(rule, m_name, "name: {} ")
     APPENDIFTEXT(rule, m_fileName, "filename: {} ")
     APPENDIFTEXT(rule, m_fileTypes, "filetype: {} ");
+    APPENDIFTEXT(rule, m_discTypeName, "disc: {} ");
     APPENDIFTEXT(rule, m_Protocols, "protocols: {} ");
     APPENDIFTEXT(rule, m_videoCodec, "video codec: {} ");
     APPENDIFTEXT(rule, m_audioCodec, "audio codec: {} ");
@@ -195,6 +202,10 @@ private:
   std::string m_videoCodec;
   std::string m_audioCodec;
   std::string m_priority;
+  //! What the rule requires the disc to be, or None when it does not care
+  CDSFile::DiscType m_discType{CDSFile::DiscType::None};
+  //! Only so the rule can describe itself in the log
+  std::string m_discTypeName;
   CFilterSelectionRule * m_pSource;
   CFilterSelectionRule * m_pSplitter;
   CFilterSelectionRule * m_pVideo;
@@ -235,6 +246,16 @@ private:
     m_videoCodec = CDSXMLUtils::GetString(pRule, "videocodec");
     m_audioCodec = CDSXMLUtils::GetString(pRule, "audiocodec");
     m_bStreamDetails = m_videoCodec.length() > 0 || m_audioCodec.length() > 0;
+
+    m_discTypeName = CDSXMLUtils::GetString(pRule, "disctype");
+    if (StringUtils::EqualsNoCase(m_discTypeName, "bluray"))
+      m_discType = CDSFile::DiscType::Bluray;
+    else if (StringUtils::EqualsNoCase(m_discTypeName, "dvd"))
+      m_discType = CDSFile::DiscType::Dvd;
+    else if (!m_discTypeName.empty())
+      CLog::Log(LOGERROR, "{}: rule \"{}\" asks for disctype \"{}\", which is neither "
+                          "\"bluray\" nor \"dvd\". The rule will match any disc.",
+                __FUNCTION__, m_name.c_str(), m_discTypeName.c_str());
 
     if (!CDSXMLUtils::GetString(pRule, "priority", &m_priority))
       m_priority = StringUtils::Format("{}", iPriority);

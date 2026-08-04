@@ -31,6 +31,35 @@
 class CDSFile
 {
 public:
+  /*!
+   * \brief What kind of disc a path holds
+   *
+   * A rule in mediasconfig.xml is chosen by extension, and "iso" says nothing about which
+   * kind of disc is inside. A DVD image handed to the Blu-ray source dies at "error opening
+   * file BDMV\\index.bdmv" with nothing on screen, so the two have to be told apart by
+   * looking rather than by name.
+   */
+  enum class DiscType
+  {
+    None, //!< Not a disc: an ordinary media file, or an image of something else
+    Bluray,
+    Dvd
+  };
+
+  /*!
+   * \brief Which kind of disc is at this path, by looking inside it
+   * \param strFileName A disc image, a file within a disc folder, or anything else
+   *
+   * Answers by the same test Kodi's own CDVDFactoryInputStream uses: an image holding
+   * BDMV/index.bdmv is a Blu-ray, one holding VIDEO_TS/VIDEO_TS.IFO is a DVD. Disc folders
+   * are recognised from the path alone, since the names are right there in it.
+   *
+   * The answer is cached for the path last asked about. Rule matching asks once per
+   * candidate rule, and each miss otherwise costs opening the image again -- over a network
+   * share, for a file that has not changed between two questions a millisecond apart.
+   */
+  static DiscType DiscTypeOf(const std::string& strFileName);
+
   static std::string SmbToUncPath(const std::string& strFileName);
   static bool Exists(const std::string& strFileName, long* errCode = NULL);
 

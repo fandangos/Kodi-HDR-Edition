@@ -1,6 +1,8 @@
 set(SOURCES ChaptersManager.cpp
             DSBlurayNavigator.cpp
             DSBlurayProbe.cpp
+            DSDvdNavigator.cpp
+            IDSDiscNavigator.cpp
             DSFilterVersion.cpp
             DSGraph.cpp
             DSInputStreamPVRManager.cpp
@@ -23,6 +25,8 @@ set(SOURCES ChaptersManager.cpp
 set(HEADERS ChaptersManager.h
             DSBlurayNavigator.h
             DSBlurayProbe.h
+            DSDvdNavigator.h
+            IDSDiscNavigator.h
             DSFilterVersion.h
             DSGraph.h
             DSInputStreamPVRManager.h

@@ -27,6 +27,7 @@
 #include "FGLoader.h"
 #include "DSBlurayProbe.h"
 #include "Filters/DSBluraySource.h"
+#include "Filters/DSDvdSource.h"
 #include "DSPlayer.h"
 #include "Filters/RendererSettings.h"
 #include "PixelShaderList.h"
@@ -155,8 +156,13 @@ HRESULT CFGLoader::InsertSourceFilter(CFileItem& pFileItem, const std::string& f
   return hr;
   }*/
   /* DVD NAVIGATOR */
-  
-  if (KODI::VIDEO::IsDVDFile(pFileItem))
+
+  // Only when the rule really chose Microsoft's DVD Navigator. This branch demands
+  // IDvdControl2 of whatever filter it is handed and gives up with E_NOINTERFACE when it is
+  // not there -- so with the rule pointed at our own libdvdnav source instead, every
+  // VIDEO_TS.IFO failed at "Failed to insert the source filter" before the filter was ever
+  // asked to load anything. IsDVDFile() is true of any .ifo, which is not the same question.
+  if (KODI::VIDEO::IsDVDFile(pFileItem) && filterName != INTERNAL_DVD_SOURCE)
   {
     std::string path = pFileItem.GetPath();
     if (StringUtils::EqualsNoCase(StringUtils::Left(path, 6), "smb://"))
@@ -251,10 +257,12 @@ HRESULT CFGLoader::InsertSourceFilter(CFileItem& pFileItem, const std::string& f
   // logged even when the source filter cannot load the file
   CDSBlurayProbe::Probe(pWinFilePath);
 
-  // Our Blu-ray source reads the disc through Kodi rather than opening the file itself, so
-  // it wants the path Kodi uses. Everything else is a DirectShow filter that can only open
-  // a Windows path.
-  const bool wantsKodiPath = (filterName == INTERNAL_BLURAY_SOURCE);
+  // Our own disc sources read through Kodi rather than opening the file themselves, so they
+  // want the path Kodi uses -- which for the DVD source is also what decides whether the
+  // image is read through the virtual file system instead of being opened as a device.
+  // Everything else is a DirectShow filter that can only open a Windows path.
+  const bool wantsKodiPath =
+      (filterName == INTERNAL_BLURAY_SOURCE) || (filterName == INTERNAL_DVD_SOURCE);
 
   std::wstring strFileW;
   g_charsetConverter.utf8ToW(wantsKodiPath ? pFileItem.GetDynPath() : pWinFilePath, strFileW,

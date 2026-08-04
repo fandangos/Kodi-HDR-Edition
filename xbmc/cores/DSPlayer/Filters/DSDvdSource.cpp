@@ -80,6 +80,10 @@ constexpr std::chrono::milliseconds MENU_SETTLE{700};
 //! this trace rather than reasoned about.
 constexpr std::chrono::milliseconds SETTLE_TRACE{500};
 
+//! How many cell cuts to name in the log before merely counting them. A looping menu read
+//! at many times playing speed starts a new cell every few milliseconds.
+constexpr uint32_t CELL_CUTS_TRACED = 6;
+
 //! Most that is kept while waiting for the disc to settle. Only there to stop a disc that
 //! reads faster than it plays from running away with a whole title.
 constexpr LONGLONG SETTLE_CAP = 4 * 1024 * 1024;
@@ -165,6 +169,19 @@ void CDSDvdStream::LetTheDiscRunOn()
   stream->m_runOnUntil = until.time_since_epoch().count();
 }
 
+void CDSDvdStream::HoldForTheRebuild()
+{
+  CDSDvdStream* stream = m_feeding;
+  if (!stream || stream->m_heldForRebuild)
+    return;
+
+  CLog::Log(LOGINFO,
+            "{} - the disc has moved on, so this stream takes no more of it: what comes next "
+            "belongs to the graph that will play it", __FUNCTION__);
+  stream->m_heldForRebuild = true;
+  stream->m_ringGrew.notify_all();
+}
+
 void CDSDvdStream::NoteGraphBuilt()
 {
   CDSDvdStream* stream = m_feeding;
@@ -174,6 +191,11 @@ void CDSDvdStream::NoteGraphBuilt()
   CLog::Log(LOGINFO, "{} - the graph is built, the disc may run on from its opening bytes",
             __FUNCTION__);
   stream->m_holdingOpeningBytes = false;
+
+  // A held frame is played out properly from here on; until now they were skipped to get the
+  // disc to something worth showing, see CDSDvdNavigator::OpeningUp
+  if (stream->m_navigator)
+    stream->m_navigator->OpeningUp(false);
 
   // And only now is a change of programme worth reporting. Until this point the splitter was
   // scanning, and scanning reads the disc, and reading it moves it on -- so every title it
@@ -284,6 +306,10 @@ bool CDSDvdStream::OpenNavigation(const std::string& path)
   m_produced = 0;
   m_exhausted = false;
   m_navigator = std::move(navigator);
+  m_navigator->OpeningUp(true);
+  // The disc outlives the graph, so a still latched by the programme the viewer has just left
+  // would have the very first read of this one refuse to read
+  m_navigator->ReadyForANewProgramme();
 
   // The splitter inspects the opening bytes before it will connect, so the disc has to have
   // started playing something before the graph is built.
@@ -313,11 +339,12 @@ bool CDSDvdStream::OpenNavigation(const std::string& path)
   // Pull cuts the stream at the exact block the disc changes programme on while this is set,
   // so what is collected always belongs to one programme
   m_settling = true;
-  m_collecting = m_navigator->Cell();
+  m_collecting = m_navigator->Programme();
+  m_collectingCell = m_navigator->Cell();
   m_haveVideo = false;
 
   int title = m_navigator->Title();
-  uint32_t collecting = m_collecting;
+  int64_t collecting = m_collecting;
   const auto waitingSince = std::chrono::steady_clock::now();
   auto settledAt = waitingSince;
   auto tracedAt = waitingSince;
@@ -361,7 +388,7 @@ bool CDSDvdStream::OpenNavigation(const std::string& path)
       tracedAt = now;
       CLog::Log(LOGDEBUG, "{} - settling: title {}, {} a menu, {} still, {} video, {} bytes",
                 __FUNCTION__, title, m_navigator->MenuOnScreen() ? "in" : "not in",
-                m_navigator->HoldingIndefiniteStill() ? "holding a" : "no",
+                m_navigator->WaitingForTheViewer() ? "holding a" : "no",
                 m_haveVideo ? "with" : "no", static_cast<LONGLONG>(m_produced));
     }
 
@@ -373,7 +400,7 @@ bool CDSDvdStream::OpenNavigation(const std::string& path)
     {
       // A disc holding a still is showing a menu and waiting for the viewer. Nothing more is
       // coming until they choose, so there is nothing left to settle.
-      if (m_navigator->HoldingIndefiniteStill() && m_produced > 0)
+      if (m_navigator->WaitingForTheViewer() && m_produced > 0)
       {
         CLog::Log(LOGDEBUG, "{} - the disc is holding a still on title {}, which is its menu",
                   __FUNCTION__, title);
@@ -420,10 +447,14 @@ bool CDSDvdStream::OpenNavigation(const std::string& path)
   }
 
   // Settling may have landed just after the collected bytes were thrown away, so top up
-  // enough for the splitter to parse. Nothing is discarded here, and a menu with nothing more
-  // to give simply runs out the clock with what it already handed over.
+  // enough for the splitter to parse.
+  //
+  // A menu holding a still for the viewer has nothing more to give, so waiting the full
+  // PRIME_TIME for a megabyte it does not have is four seconds of nothing -- and that is
+  // every move between menus on a disc whose menus are still pictures. Take what there is.
   const auto topUpUntil = std::chrono::steady_clock::now() + PRIME_TIME;
   while (m_produced < PRIME_BYTES && !m_exhausted &&
+         !m_navigator->WaitingForTheViewer() &&
          std::chrono::steady_clock::now() < topUpUntil)
   {
     if (Pull() == 0)
@@ -434,8 +465,8 @@ bool CDSDvdStream::OpenNavigation(const std::string& path)
   // the front of it
   m_settling = false;
 
-  CLog::Log(LOGDEBUG, "{} - title {} gave {} bytes to open with", __FUNCTION__, title,
-            static_cast<LONGLONG>(m_produced));
+  CLog::Log(LOGDEBUG, "{} - title {} gave {} bytes to open with, after cutting {} cell(s)",
+            __FUNCTION__, title, static_cast<LONGLONG>(m_produced), m_cellsCut);
 
   started = true;
   watchdog.join();
@@ -504,7 +535,9 @@ void CDSDvdStream::Append(const uint8_t* bytes, size_t length)
 
 DWORD CDSDvdStream::Pull()
 {
-  if (m_exhausted || !m_navigator)
+  // Everything from here belongs to the programme the rebuild is being done for, and this
+  // stream will never play it, see HoldForTheRebuild
+  if (m_exhausted || m_heldForRebuild || !m_navigator)
     return 0;
 
   uint8_t block[DVD_BLOCK_SIZE];
@@ -539,17 +572,41 @@ DWORD CDSDvdStream::Pull()
     // madVR was never configured because no video ever reached it.
     if (m_settling)
     {
+      // Two grains, because they answer two different questions.
+      //
+      // A *program chain* changing means the disc really has moved to another menu or title,
+      // and what was collected belongs to the one it left.
+      //
+      // A *cell* changing is the only frame-aligned place a stream may begin, and a DVD menu
+      // keeps its one I-frame at the head of a cell -- start anywhere else and LAV Splitter
+      // finds no video at all. So while nothing with a picture in it has been collected yet,
+      // every cell is a fresh chance to start cleanly.
+      //
+      // Once there is a picture, cells stop mattering: a looping menu re-enters its own cells
+      // about twelve hundred times a second when read flat out, and cutting at each of those
+      // meant the settle could never accumulate anything at all -- 4854 cuts to hand over
+      // 131 kB.
+      const int64_t programme = m_navigator->Programme();
       const uint32_t cell = m_navigator->Cell();
-      if (cell != m_collecting)
+      const bool movedOn = (programme != m_collecting);
+      const bool lookingForAPicture = (!m_haveVideo && cell != m_collectingCell);
+
+      if (movedOn || lookingForAPicture)
       {
-        CLog::Log(LOGDEBUG,
-                  "{} - the disc moved to another cell (title {}) after {} bytes{}", __FUNCTION__,
-                  m_navigator->Title(), static_cast<LONGLONG>(m_produced),
-                  m_haveVideo ? "" : ", which carried no video");
-        m_collecting = cell;
+        if (m_cellsCut < CELL_CUTS_TRACED)
+        {
+          CLog::Log(LOGDEBUG, "{} - starting again at title {} chain {} after {} bytes{}",
+                    __FUNCTION__, static_cast<int>(programme >> 32),
+                    static_cast<uint32_t>(programme), static_cast<LONGLONG>(m_produced),
+                    m_haveVideo ? "" : ", which carried no video");
+        }
+        m_cellsCut++;
         Discard();
         added = 0;
       }
+
+      m_collecting = programme;
+      m_collectingCell = cell;
     }
 
     if (HasSequenceHeader(block, static_cast<size_t>(read)))
@@ -614,6 +671,14 @@ void CDSDvdStream::Produce()
 
     if (Pull() > 0)
       m_ringGrew.notify_all();
+    else
+    {
+      // Nothing came back: a menu waiting for the viewer, or this stream held because the disc
+      // has moved on and the bytes now belong to the graph being built for it. Neither ends by
+      // being asked again immediately, and a held stream answers instantly, so without this
+      // the wait between the disc moving and the graph closing is spent spinning on a core.
+      KODI::TIME::Sleep(5ms);
+    }
   }
 
   // Whatever is waiting for bytes should stop waiting
@@ -725,7 +790,7 @@ HRESULT CDSDvdStream::Read(PBYTE pbBuffer, DWORD dwBytesToRead, BOOL bAlign, LPD
         // Asked before waiting rather than after, because this is the graph's own streaming
         // thread and a second spent waiting on a still already declared is a second of the
         // interface held up for nothing.
-        if (m_navigator->HoldingIndefiniteStill())
+        if (m_navigator->WaitingForTheViewer())
         {
           CLog::Log(LOGDEBUG,
                     "{} - the disc is holding a still at {} and will play nothing more until the "
@@ -796,8 +861,17 @@ LONGLONG CDSDvdStream::Size(LONGLONG* pSizeAvailable)
   //
   // Except while the disc holds a fixed picture: claiming more then sends the splitter hunting
   // near an end that does not exist, and every one of those reads has to be refused.
-  const bool nothingMoreComing =
-      m_exhausted || (m_navigator && m_navigator->HoldingIndefiniteStill());
+  //
+  // While the splitter is still scanning, *any* still counts, not only one the disc is
+  // holding for the viewer. This disc shows two ten-second stills on its way into its menu,
+  // and waiting them out before the graph could be built left the screen empty for twenty
+  // seconds. Ending the stream early is safe here and only here: nothing has been played yet,
+  // so the splitter simply finishes parsing and reads on when the still expires. Once it is
+  // demuxing there is no taking that back -- a short read is end of file -- which is why this
+  // narrows again the moment the graph is built.
+  const bool anyStill = m_navigator && (m_holdingOpeningBytes ? m_navigator->HoldingStill()
+                                                              : m_navigator->WaitingForTheViewer());
+  const bool nothingMoreComing = m_exhausted || anyStill;
   const LONGLONG length = nothingMoreComing ? played : played + NAVIGATION_LOOKAHEAD;
 
   if (m_traced < TRACED_READS)

@@ -72,6 +72,17 @@ public:
   */
   bool OnMenu() override;
 
+  /*!
+   * \brief Open the disc's top menu, the one belonging to the whole disc
+   * \return true if the menu is successfully opened, false otherwise
+   *
+   * OnMenu asks libdvdnav for the *escape* menu, which from a title is the root menu of the
+   * title set being played and from a menu is a resume. A disc whose title set carries no menu
+   * of its own refuses that, and its only menu is the one in the VMG -- which is what Open()
+   * already falls back to for "skip introduction before DVD menu".
+   */
+  bool OnTitleMenu();
+
   void OnBack() override;
   void OnNext() override;
   void OnPrevious() override;
@@ -120,6 +131,20 @@ public:
    * when the programme has changed underneath it.
    */
   int GetTitle() const { return m_iTitle; }
+
+  /*!
+   * \brief The program chain the disc is playing
+   *
+   * What identifies a *menu page*. Everything a disc shows in its menu domain is title 0, so
+   * the title number cannot tell one menu from the next -- but each menu page is a program
+   * chain of its own, and a menu that merely loops stays in the one it is in. DSPlayer hands
+   * a DirectShow splitter one continuous byte stream, which it parses once, so it has to know
+   * when the programme underneath it has really changed.
+   *
+   * Asked of libdvdnav rather than cached, because it is wanted on a key press as well as on
+   * a read and nothing announces it.
+   */
+  int GetProgramChain();
 
   int GetChapter() override { return m_iPart; } // the current part in the current title
   int GetChapterCount() override { return m_iPartCount; } // the number of parts in the current title

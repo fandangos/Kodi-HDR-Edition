@@ -40,6 +40,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 class CDVDInputStreamNavigator;
 class CDVDOverlayGroup;
@@ -91,6 +92,33 @@ public:
   //! \brief Stop reporting changes while the player is opening the disc again
   void SuspendProgrammeChanges() override { m_announceChanges = false; }
 
+  /*!
+   * \brief Whether the disc is still being got as far as something worth showing
+   *
+   * While it is, a still with nothing to press is skipped rather than waited out. A disc's
+   * way in is often a run of held frames -- this one shows two ten-second stills before its
+   * menu -- and sitting through them means twenty seconds of nothing at all, because the
+   * splitter cannot open a stream on the hundred kilobytes they amount to and so the graph
+   * is not built and no picture is shown. Nothing is lost by skipping: there is nothing on
+   * those frames to choose, and the disc goes straight on to the menu it was heading for.
+   *
+   * Cleared once the graph exists, after which a timed still is played out properly.
+   */
+  void OpeningUp(bool opening) { m_openingUp = opening; }
+
+  /*!
+   * \brief Forget what the previous programme was holding for, and take over its first bytes
+   *
+   * The disc outlives the graph, so a stream opened for a new programme inherits whatever the
+   * last one was waiting on. A still latched from the menu the viewer has just left would have
+   * the very first read refuse to read, on the grounds that the disc is waiting for a choice
+   * that has already been made.
+   *
+   * This is also where the bytes kept back from the graph that was playing the old programme
+   * are handed on, see Carry().
+   */
+  void ReadyForANewProgramme();
+
   bool Open(const std::string& path);
   void Close();
   bool IsOpen() const { return m_input != nullptr; }
@@ -120,6 +148,20 @@ public:
    */
   int Title() const;
   int Chapter() const;
+
+  /*!
+   * \brief What the splitter is parsing, as one comparable value
+   *
+   * A DVD's programme is its title *and* its program chain, not the title alone: everything a
+   * disc shows in its menu domain is title 0, so by title alone one menu page looks exactly
+   * like the next. That is why moving between menus left the previous menu's video on screen
+   * with only the buttons changing -- no rebuild was ever asked for, and the splitter went on
+   * demuxing the programme it had already parsed.
+   *
+   * Cells are the wrong grain in the other direction: a feature changes cell at every chapter
+   * and a looping menu changes cell every time round, and neither is a new programme.
+   */
+  int64_t Programme() const;
   /*! \} */
 
   /*!
@@ -161,14 +203,32 @@ public:
   bool DiscSaysMenuVisible() const override { return m_inMenu; }
 
   /*!
-   * \brief Whether the disc is holding one picture until the viewer chooses something
+   * \brief Whether the disc is holding one picture until the viewer does something
    *
-   * An indefinite still is the disc promising that not one more byte is coming. Anything
-   * waiting on the disc for bytes has to ask this first, or it waits for as long as the
-   * viewer takes -- which, on the thread the splitter reads with, means the graph is never
-   * built and nothing is ever shown. A timed still expires on its own.
+   * The disc promising that not one more byte is coming. Anything waiting on the disc for
+   * bytes has to ask this first, or it waits for as long as the viewer takes -- which, on the
+   * thread the splitter reads with, means the graph is never built and nothing is shown.
+   *
+   * True for a still with no time limit, and for **any** still the disc is holding with
+   * buttons on screen: such a still is waiting for the viewer whatever number the disc
+   * attached to it, and a timed one allowed to expire simply serves the same menu again for
+   * ever.
+   *
+   * Buttons rather than "a menu is up", and the difference matters. A disc is in its menu
+   * domain from well before the menu itself: this one shows two ten-second stills on the way
+   * in, and treating those as waiting for the viewer froze it on a picture with nothing to
+   * press -- `button 1 -> 1, of 0 on this menu`. Something has to be choosable before waiting
+   * for a choice makes sense.
    */
-  bool HoldingIndefiniteStill() const { return m_still && m_stillIsIndefinite; }
+  bool WaitingForTheViewer() const { return m_still && (m_stillIsIndefinite || m_hasButtons); }
+
+  /*!
+   * \brief Whether the disc is holding a picture at all, for any reason and any length
+   *
+   * The weaker question, and the right one only while the splitter is still scanning: no
+   * more bytes are coming *just now*, whether or not they will come again by themselves.
+   */
+  bool HoldingStill() const { return m_still; }
 
   //! \brief Give up on a disc that is not going to produce anything
   void Abort();
@@ -257,7 +317,33 @@ private:
   void MoveSelection(const char* what, void (CDVDInputStreamNavigator::*move)());
 
   //! \brief Notice when the disc has moved to a different programme
-  void NoteTitle();
+  void NoteProgramme();
+
+  /*!
+   * \brief Keep a block back from the graph that is about to be taken down
+   *
+   * A disc cannot be rewound, so every block taken off it between the viewer choosing
+   * something and the new graph opening its stream is a block the new programme will never
+   * see again. The stream that is playing is told to stop the instant the change is noticed,
+   * but that instant falls inside a read: the very call that reported the change goes on to
+   * return the first block of the new programme, and a batch of blocks was already being
+   * filled around it. Handed to the outgoing stream, those bytes are thrown away with it.
+   *
+   * That is not a theoretical loss. Pressing the menu key while an episode was playing cost
+   * the menu's opening 128 kB, which is where its one I-frame lives -- the rebuild opened on
+   * the seven blocks that were left, LAV Splitter found no video in them and refused to
+   * connect at all, and the screen stayed black with no graph and no way back to the menu.
+   */
+  void Carry(const uint8_t* block, int length);
+
+  /*!
+   * \brief Hand back a block kept for this programme, if there is one
+   * \return Bytes written to the buffer, 0 when nothing is waiting
+   */
+  int TakeCarried(uint8_t* buffer, int size);
+
+  //! \brief Whether enough has been kept back that the disc should not be read any further
+  bool CarriedEnough() const;
 
   //! \brief Let the disc out of a hold so bytes keep flowing, see Read()
   bool ReleaseHold();
@@ -282,11 +368,27 @@ private:
   //! Kept in step by the thread reading the disc, so the interface can ask without waiting
   //! on a read
   std::atomic<bool> m_inMenu{false};
+  //! Whether the NAV packet the disc is on carries any buttons, kept in step alongside
+  //! m_inMenu. "In a menu" starts well before there is anything to press, see
+  //! WaitingForTheViewer.
+  std::atomic<bool> m_hasButtons{false};
+  //! Whether the disc is still being got to something worth showing, see OpeningUp
+  std::atomic<bool> m_openingUp{true};
 
-  //! Last title noticed, so a change is announced once. Noticed from the reading thread and
-  //! from the thread carrying a key press, hence atomic.
-  std::atomic<int> m_titleSeen{-1};
+  //! Last programme noticed, so a change is announced once. Noticed from the reading thread
+  //! and from the thread carrying a key press, hence atomic.
+  std::atomic<int64_t> m_programmeSeen{-1};
   std::atomic<bool> m_announceChanges{false};
+
+  //! Set from the moment a change of programme is noticed until the graph being built for it
+  //! opens its stream. While it is set the disc's bytes belong to nobody yet, so they are put
+  //! aside rather than given to the stream that is being taken down, see Carry().
+  std::atomic<bool> m_handingOver{false};
+
+  //! The bytes put aside, and how much of them has been handed on
+  mutable CCriticalSection m_carryLock;
+  std::vector<uint8_t> m_carried;
+  size_t m_carriedTaken{0};
 
   //! Counts DVDNAV_CELL_CHANGE, see Cell(). Written from the reading thread and read by the
   //! source filter deciding where a stream may begin, hence atomic.

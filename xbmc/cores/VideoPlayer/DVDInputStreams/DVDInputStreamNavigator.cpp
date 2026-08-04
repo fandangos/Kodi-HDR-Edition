@@ -835,6 +835,16 @@ bool CDVDInputStreamNavigator::OnMenu()
   return m_dll.dvdnav_menu_call(m_dvdnav, _DVD_MENU_Escape) == DVDNAV_STATUS_OK;
 }
 
+bool CDVDInputStreamNavigator::OnTitleMenu()
+{
+  if (!m_dvdnav)
+  {
+    return false;
+  }
+
+  return m_dll.dvdnav_menu_call(m_dvdnav, _DVD_MENU_Title) == DVDNAV_STATUS_OK;
+}
+
 void CDVDInputStreamNavigator::OnBack()
 {
   if (m_dvdnav) m_dll.dvdnav_go_up(m_dvdnav);
@@ -1208,6 +1218,20 @@ bool CDVDInputStreamNavigator::GetCurrentButtonInfo(CDVDOverlaySpu& pOverlayPict
   }
 
   return true;
+}
+
+int CDVDInputStreamNavigator::GetProgramChain()
+{
+  if (!m_dvdnav)
+    return 0;
+
+  int32_t title = 0;
+  int32_t pgcn = 0;
+  int32_t pgn = 0;
+  if (m_dll.dvdnav_current_title_program(m_dvdnav, &title, &pgcn, &pgn) != DVDNAV_STATUS_OK)
+    return 0;
+
+  return pgcn;
 }
 
 int CDVDInputStreamNavigator::GetTotalTime()

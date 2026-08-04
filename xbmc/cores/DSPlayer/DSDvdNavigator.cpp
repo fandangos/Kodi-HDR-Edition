@@ -22,6 +22,8 @@
 #include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
 
+#include <algorithm>
+
 namespace
 {
 //! How long to wait each time the disc has nothing to give before asking it again
@@ -43,6 +45,12 @@ constexpr size_t PACK_HEADER_SIZE = 14;
 constexpr uint8_t PRIVATE_STREAM_1 = 0xbd;
 constexpr uint8_t SUBPICTURE_BASE = 0x20;
 constexpr uint8_t SUBPICTURE_TOP = 0x3f;
+
+//! Most that is kept back for the graph being built, see Carry(). One batch of the source
+//! filter's pulls, which is as much as can be in flight when the disc changes programme.
+//! Once this much is held the disc is not read at all, and a disc that is not read does not
+//! move -- so nothing beyond it can be lost either.
+constexpr size_t MAX_CARRIED = 64 * DVD_PACK_SIZE;
 } // unnamed namespace
 
 CDSDvdNavigator* CDSDvdNavigator::m_instance = nullptr;
@@ -109,7 +117,13 @@ bool CDSDvdNavigator::Open(const std::string& path)
   }
   m_produced = 0;
   m_finished = false;
-  m_titleSeen = -1;
+  m_programmeSeen = -1;
+  m_handingOver = false;
+  {
+    std::unique_lock<CCriticalSection> carry(m_carryLock);
+    m_carried.clear();
+    m_carriedTaken = 0;
+  }
   m_instance = this;
   NowPlaying(this);
 
@@ -146,6 +160,13 @@ void CDSDvdNavigator::Close()
   m_inMenu = false;
   m_still = false;
   m_stillIsIndefinite = false;
+  m_handingOver = false;
+  {
+    std::unique_lock<CCriticalSection> carry(m_carryLock);
+    m_carried.clear();
+    m_carried.shrink_to_fit();
+    m_carriedTaken = 0;
+  }
 
   // Leave an empty overlay behind so the renderer clears whatever menu was on screen
   ClearMenu();
@@ -163,6 +184,17 @@ std::shared_ptr<CDVDInputStreamNavigator> CDSDvdNavigator::Input() const
 
 int CDSDvdNavigator::Read(uint8_t* buffer, int size)
 {
+  // This programme's opening bytes, taken off the disc by the graph that was playing the last
+  // one before it could be stopped
+  if (const int carried = TakeCarried(buffer, size))
+    return carried;
+
+  // Nothing more is taken off the disc while enough is being held for a graph that does not
+  // exist yet. A disc only moves as it is read, so stopping here is what keeps the rest of
+  // the new programme waiting for the stream that will play it.
+  if (m_handingOver && CarriedEnough())
+    return 0;
+
   std::shared_ptr<CDVDInputStreamNavigator> input = Input();
   if (!input)
     return -1;
@@ -174,6 +206,7 @@ int CDSDvdNavigator::Read(uint8_t* buffer, int size)
     const int read = input->Read(buffer, size);
     const bool wasInMenu = m_inMenu;
     m_inMenu = input->IsInMenu();
+    m_hasButtons = input->GetTotalButtons() > 0;
 
     // The menu's buttons are inside these very bytes, so they are picked out on the way past
     if (read > 0)
@@ -188,7 +221,7 @@ int CDSDvdNavigator::Read(uint8_t* buffer, int size)
     // A disc changes programme when the viewer chooses something, and that happens on the
     // thread carrying the key press rather than in any event seen here -- so the change is
     // watched for on every read as well as in the callbacks.
-    NoteTitle();
+    NoteProgramme();
 
     if (read > 0)
     {
@@ -199,6 +232,17 @@ int CDSDvdNavigator::Read(uint8_t* buffer, int size)
       m_stillIsIndefinite = false;
       m_stillUntil = {};
       m_produced += read;
+
+      // The disc changed programme while this read was in flight -- very often inside this
+      // very call, since the event that reports the change and the first block after it come
+      // back together. These bytes are the new programme's, and the stream asking for them is
+      // the old one's, on its way out.
+      if (m_handingOver)
+      {
+        Carry(buffer, read);
+        return 0;
+      }
+
       return read;
     }
 
@@ -242,20 +286,41 @@ bool CDSDvdNavigator::ReleaseHold()
       return true;
 
     case CDVDInputStream::NEXTSTREAM_RETRY:
-      // A still. Skipping it would walk straight past whatever it is holding the picture
-      // for, a menu included, so the only still ended early is one the disc gave a time
-      // limit to.
-      if (!m_stillIsIndefinite && m_still &&
-          std::chrono::steady_clock::now() >= m_stillUntil)
+      // Not a still at all, just a hold with nothing behind it: let the disc on
+      if (!m_still)
+        return true;
+
+      // A still held with buttons on screen is the menu waiting for the viewer -- whatever
+      // time limit the disc put on it. Letting a timed one expire makes the disc serve the
+      // very same menu again, and again: on the Simpsons disc that produced 15 GB out of a
+      // 5.7 GB image in half a minute, every byte of it the same still frame, and the menu
+      // took twenty seconds to appear because the graph could never finish being built on a
+      // stream that would not stop growing. The picture holds instead, and a key press moves
+      // it on.
+      if (m_hasButtons)
+        return false;
+
+      // Nothing to press, and the disc has not yet got anywhere worth showing: skip the held
+      // frame rather than sitting through it. Two ten-second stills on the way into this
+      // disc's menu meant twenty seconds of blank screen, because the splitter cannot open a
+      // stream on the hundred kilobytes they come to, so no graph and no picture. Nothing on
+      // those frames can be chosen and the disc goes straight on to the menu it was heading
+      // for. Kodi's own player offers this as "skip introduction before DVD menu".
+      if (m_openingUp)
+      {
+        CLog::Log(LOGDEBUG, "{} - skipping a held frame on the way in", __FUNCTION__);
+        EndStill();
+        return true;
+      }
+
+      // With nothing to press, a timed still is just a pause and expires on its own.
+      // Skipping an indefinite one would walk straight past whatever it holds for.
+      if (!m_stillIsIndefinite && std::chrono::steady_clock::now() >= m_stillUntil)
       {
         CLog::Log(LOGDEBUG, "{} - timed still expired", __FUNCTION__);
         EndStill();
         return true;
       }
-
-      // Not a still at all, just a hold with nothing behind it: let the disc on
-      if (!m_still)
-        return true;
 
       return false;
 
@@ -264,6 +329,72 @@ bool CDSDvdNavigator::ReleaseHold()
       m_finished = true;
       return false;
   }
+}
+
+void CDSDvdNavigator::ReadyForANewProgramme()
+{
+  if (m_still)
+  {
+    CLog::Log(LOGDEBUG, "{} - forgetting the still the last programme was holding", __FUNCTION__);
+    m_still = false;
+    m_stillIsIndefinite = false;
+    m_stillUntil = {};
+  }
+
+  // The graph this programme is for is now the one reading, so what was kept back is its own
+  m_handingOver = false;
+
+  std::unique_lock<CCriticalSection> carry(m_carryLock);
+  if (!m_carried.empty())
+  {
+    CLog::Log(LOGDEBUG, "{} - {} bytes were kept back for this programme and are handed on now",
+              __FUNCTION__, m_carried.size() - m_carriedTaken);
+  }
+}
+
+void CDSDvdNavigator::Carry(const uint8_t* block, int length)
+{
+  std::unique_lock<CCriticalSection> carry(m_carryLock);
+
+  if (m_carried.size() + length > MAX_CARRIED)
+    return;
+
+  m_carried.insert(m_carried.end(), block, block + length);
+
+  // Rare and worth seeing when it happens: it means the change of programme was noticed from
+  // inside a read, and these are the bytes that used to go missing
+  CLog::Log(LOGDEBUG, "{} - {} bytes of the new programme kept back for the graph being built",
+            __FUNCTION__, m_carried.size());
+}
+
+int CDSDvdNavigator::TakeCarried(uint8_t* buffer, int size)
+{
+  std::unique_lock<CCriticalSection> carry(m_carryLock);
+
+  const size_t waiting = m_carried.size() - m_carriedTaken;
+  if (waiting == 0)
+    return 0;
+
+  // Whole blocks only, in the order the disc gave them up: this is the head of the stream the
+  // splitter is about to parse
+  const size_t handed = std::min(waiting, static_cast<size_t>(size));
+  std::copy_n(m_carried.begin() + m_carriedTaken, handed, buffer);
+  m_carriedTaken += handed;
+
+  if (m_carriedTaken == m_carried.size())
+  {
+    m_carried.clear();
+    m_carried.shrink_to_fit();
+    m_carriedTaken = 0;
+  }
+
+  return static_cast<int>(handed);
+}
+
+bool CDSDvdNavigator::CarriedEnough() const
+{
+  std::unique_lock<CCriticalSection> carry(m_carryLock);
+  return m_carried.size() >= MAX_CARRIED;
 }
 
 void CDSDvdNavigator::CollectSubpicture(const uint8_t* block, size_t length)
@@ -336,11 +467,25 @@ void CDSDvdNavigator::CollectSubpicture(const uint8_t* block, size_t length)
 
               if (picture)
               {
+                // A disc holding a menu sends the same subpicture over and over -- 260 times
+                // in a few seconds on this one. Each is a fresh decode of an identical
+                // picture, and republishing every one had the renderer rebuilding a texture
+                // for a menu that had not changed. Only a picture that differs anywhere the
+                // viewer could see is worth drawing again.
+                const bool same = m_menu && m_menu->x == picture->x && m_menu->y == picture->y &&
+                                  m_menu->width == picture->width &&
+                                  m_menu->height == picture->height &&
+                                  m_menu->pTFData == picture->pTFData &&
+                                  m_menu->pBFData == picture->pBFData;
+
                 m_menu = std::move(picture);
-                // A new picture means the highlight has to go on again: the colours belong
-                // to the button, and the button belongs to the disc, not to the picture
-                m_buttonDrawn = -1;
-                PublishMenu();
+                if (!same)
+                {
+                  // A new picture means the highlight has to go on again: the colours belong
+                  // to the button, and the button belongs to the disc, not to the picture
+                  m_buttonDrawn = -1;
+                  PublishMenu();
+                }
               }
             }
           }
@@ -473,22 +618,33 @@ void CDSDvdNavigator::Abort()
   }
 }
 
+int64_t CDSDvdNavigator::Programme() const
+{
+  std::shared_ptr<CDVDInputStreamNavigator> input = Input();
+  if (!input)
+    return 0;
+
+  // Title in the high half, program chain in the low half, so one comparison covers both
+  return (static_cast<int64_t>(input->GetTitle()) << 32) |
+         static_cast<uint32_t>(input->GetProgramChain());
+}
+
 void CDSDvdNavigator::AnnounceProgrammeChanges()
 {
-  m_titleSeen = Title();
+  m_programmeSeen = Programme();
   m_announceChanges = true;
 }
 
-void CDSDvdNavigator::NoteTitle()
+void CDSDvdNavigator::NoteProgramme()
 {
-  const int title = Title();
-  if (title == m_titleSeen)
+  const int64_t programme = Programme();
+  if (programme == m_programmeSeen)
     return;
 
   // Exchanged rather than assigned: the reading thread and whichever thread is carrying a key
   // press both come through here, and only one of them should announce a move
-  const int previous = m_titleSeen.exchange(title);
-  if (previous == title)
+  const int64_t previous = m_programmeSeen.exchange(programme);
+  if (previous == programme)
     return;
 
   // Nothing to announce while the disc is still finding its way in and no graph has been
@@ -496,7 +652,27 @@ void CDSDvdNavigator::NoteTitle()
   if (previous < 0 || !m_announceChanges)
     return;
 
-  CLog::Log(LOGINFO, "{} - the disc moved from title {} to {}", __FUNCTION__, previous, title);
+  CLog::Log(LOGINFO, "{} - the disc moved from title {} chain {} to title {} chain {}",
+            __FUNCTION__, static_cast<int>(previous >> 32), static_cast<uint32_t>(previous),
+            static_cast<int>(programme >> 32), static_cast<uint32_t>(programme));
+
+  // Before anything else, and on this very thread: stop the stream that is playing from taking
+  // any more of the disc. A disc cannot be rewound, and the next programme may be a still menu
+  // whose entire content is a handful of blocks that arrive once -- swallowed by a graph that
+  // is about to be thrown away, they are gone, and the rebuild finds a disc with nothing left
+  // to give. That failed outright and left no graph at all.
+  //
+  // Telling it to stop is not quite enough on its own, because the change is noticed from
+  // inside a read and that read still has a block in its hand and a batch half filled. From
+  // here those blocks are put aside for the graph that will play them, see Carry(). Anything
+  // already carried belongs to a programme the disc has now left.
+  {
+    std::unique_lock<CCriticalSection> carry(m_carryLock);
+    m_carried.clear();
+    m_carriedTaken = 0;
+  }
+  m_handingOver = true;
+  CDSDvdStream::HoldForTheRebuild();
 
   // A splitter parses its stream once, so it cannot follow the disc across this
   CDSPlayer::NoteDiscProgrammeChanged();
@@ -510,14 +686,56 @@ bool CDSDvdNavigator::ShowMenu()
 
   // The still is left alone, for the same reason as in OnSelect: asking for the menu is a
   // jump command, and letting the still go first only moves the machine on before it arrives
-  std::unique_lock<CCriticalSection> lock(m_discLock);
-  const bool shown = input->OnMenu();
+  const char* which = "the menu of the title set it is playing";
+  bool shown = false;
+  {
+    std::unique_lock<CCriticalSection> lock(m_discLock);
 
-  m_still = false;
-  m_stillIsIndefinite = false;
-  CDSDvdStream::LetTheDiscRunOn();
-  CLog::Log(LOGDEBUG, "{} - asking the disc for its menu: {}", __FUNCTION__,
-            shown ? "accepted" : "refused");
+    // The same ladder CDVDInputStreamBluray::OnMenu walks -- popup, then root menu, then an
+    // explicit menu call -- and for the same reason: what the viewer means by the menu key is
+    // whatever the disc will give them, and only when it will give nothing at all does the key
+    // belong to Kodi's own OSD instead.
+    //
+    // OnMenu is libdvdnav's *escape* menu, which is the closest thing a DVD has to a Blu-ray
+    // popup: from a title it goes to the root menu of the title set being played, and from a
+    // menu it resumes the title. That second half is why the player only asks for this while
+    // no menu is up -- once one is, the key is Kodi's, and asking again would take the viewer
+    // straight back out of the menu they had just opened.
+    shown = input->OnMenu();
+
+    // A disc whose title set carries no menu of its own refuses that outright -- libdvdnav
+    // checks for the menu table before it moves anything, so a refusal is trustworthy -- and
+    // what such a disc does have is a top menu in the VMG. Tried second rather than first,
+    // which is the opposite order to Open()'s "skip introduction before DVD menu": that is
+    // reaching for the disc's front door before anything has played, where this is the viewer
+    // asking to step out of what they are watching, and the menu it came from is the nearer
+    // answer.
+    if (!shown)
+    {
+      shown = input->OnTitleMenu();
+      which = "its top menu";
+    }
+  }
+
+  // Only if it moved. A refusal leaves the disc exactly where it was, still holding whatever
+  // it was holding, and forgetting that would have the next read decline to wait for a viewer
+  // who does still have something to choose.
+  if (shown)
+  {
+    m_still = false;
+    m_stillIsIndefinite = false;
+    CDSDvdStream::LetTheDiscRunOn();
+  }
+
+  CLog::Log(LOGDEBUG, "{} - asking the disc for {}: {}", __FUNCTION__, which,
+            shown ? "accepted" : "refused, so the key is left for Kodi's OSD");
+
+  // Asking for the menu moves the disc off whatever was playing, exactly as choosing a button
+  // does, so it is looked at here for the same reason OnSelect does: the sooner the change is
+  // noticed the less of the menu the outgoing graph reads. Unlike a button, a menu jump is not
+  // always acted on before this returns -- the reading thread usually sees it first -- so this
+  // is a second chance rather than the only one.
+  NoteProgramme();
   return shown;
 }
 
@@ -528,6 +746,8 @@ void CDSDvdNavigator::OnBack()
     std::unique_lock<CCriticalSection> lock(m_discLock);
     input->OnBack();
   }
+
+  NoteProgramme();
 }
 
 void CDSDvdNavigator::MoveSelection(const char* what, void (CDVDInputStreamNavigator::*move)())
@@ -616,13 +836,13 @@ void CDSDvdNavigator::OnSelect()
             buttons, title, wasStill ? ", which was holding a still" : "");
 
   // Choosing is what makes the disc change programme, and it happens on this thread
-  NoteTitle();
+  NoteProgramme();
 }
 
 int CDSDvdNavigator::OnDiscNavResult(void* pData, int iMessage)
 {
   // Any event may be the one that follows a change of programme
-  NoteTitle();
+  NoteProgramme();
 
   // Called from inside CDVDInputStreamNavigator::ProcessBlock, on the thread that is reading
   // the disc. What is returned here decides what that read does next, so unlike the Blu-ray
@@ -659,13 +879,13 @@ int CDSDvdNavigator::OnDiscNavResult(void* pData, int iMessage)
 
     case DVDNAV_VTS_CHANGE:
       // A different video title set: genuinely a different programme, possibly at a different
-      // resolution and aspect. NoteTitle above reports it and the graph is rebuilt; here the
+      // resolution and aspect. NoteProgramme above reports it and the graph is rebuilt; here the
       // hold is simply released so the disc keeps moving meanwhile.
       CLog::Log(LOGDEBUG, "{} - the disc moved to another video title set", __FUNCTION__);
       return NAVRESULT_NOP;
 
     case DVDNAV_CELL_CHANGE:
-      // Title and chapter numbers have moved, which NoteTitle has already looked at. The
+      // Title and chapter numbers have moved, which NoteProgramme has already looked at. The
       // count is what the source filter cuts a presented stream on, see Cell().
       ++m_cellsSeen;
       return NAVRESULT_NOP;

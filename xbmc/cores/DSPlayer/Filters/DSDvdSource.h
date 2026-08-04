@@ -100,6 +100,29 @@ public:
   static void LetTheDiscRunOn();
 
   /*!
+   * \brief Stop taking bytes off the disc, because the graph is about to be rebuilt
+   *
+   * A disc cannot be rewound, so whatever this stream reads is gone for good -- and the graph
+   * that would have played it is about to be thrown away. On a DVD whose next menu is a still
+   * picture that is fatal: the whole programme is a handful of blocks that arrive once, the
+   * doomed graph swallows them, and the stream opened for the rebuild finds the disc already
+   * holding a still with nothing left to give. It settled for eight seconds, produced nothing,
+   * and failed -- which left no graph at all and a frozen picture.
+   *
+   * Called the instant a change of programme is noticed, which for a button press is the same
+   * instant it was activated.
+   *
+   * \note This bounds the loss but does not remove it, and cannot: the change is usually
+   * noticed from *inside* a read, which still has a block in its hand and a batch of up to
+   * sixty-four half filled around it. Pressing the menu key during an episode cost the menu's
+   * opening 128 kB that way -- its only I-frame -- and the rebuild opened on the seven blocks
+   * left over, which LAV Splitter would not connect to at all. What actually makes the handover
+   * lossless is CDSDvdNavigator::Carry, which puts those blocks aside for the graph being
+   * built instead of handing them to this one.
+   */
+  static void HoldForTheRebuild();
+
+  /*!
    * \brief The graph is built, so the disc may be read on past its opening bytes
    *
    * A splitter reads forward through the stream while it works out what is in it, then goes
@@ -179,6 +202,10 @@ private:
   std::atomic<long long> m_runOnUntil{0};
   //! Whether the disc is still being held near its opening bytes, see NoteGraphBuilt
   std::atomic<bool> m_holdingOpeningBytes{true};
+  //! Set when the graph is about to be rebuilt, after which this stream takes nothing more off
+  //! the disc so the new programme's bytes are left for the stream that will play them, see
+  //! HoldForTheRebuild
+  std::atomic<bool> m_heldForRebuild{false};
   //! The stream currently feeding the graph, so it can be stopped before teardown
   static CDSDvdStream* m_feeding;
 
@@ -211,9 +238,11 @@ private:
    * finds an audio stream and no video at all.
    */
   bool m_settling{false};
-  //! The cell Pull is currently gathering, while settling. A count rather than an identity,
-  //! see CDSDvdNavigator::Cell.
-  uint32_t m_collecting{0};
+  //! The programme Pull is currently gathering, while settling -- title and program chain,
+  //! see CDSDvdNavigator::Programme
+  int64_t m_collecting{0};
+  //! And the cell within it, which is where a stream may begin, see Pull
+  uint32_t m_collectingCell{0};
   /*!
    * Whether a picture has turned up in what has been collected since the last discard.
    *
@@ -222,6 +251,8 @@ private:
    * handed over a moment too late plays perfectly and shows nothing at all.
    */
   bool m_haveVideo{false};
+  //! How many times the settle has cut the stream, so the log can stop naming them
+  uint32_t m_cellsCut{0};
   //! Counts the opening reads, which are traced so the exchange that decides whether the
   //! splitter will play the stream can be read back afterwards
   uint32_t m_traced{0};

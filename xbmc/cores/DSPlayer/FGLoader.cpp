@@ -610,7 +610,7 @@ HRESULT CFGLoader::LoadFilterRules(const CFileItem& _pFileItem)
     START_PERFORMANCE_COUNTER
       CStreamsManager::Create();
     CStreamsManager::Get()->InitManager();
-    CStreamsManager::Get()->LoadStreams();
+    CStreamsManager::Get()->LoadStreams(pFileItem.GetPath());
     END_PERFORMANCE_COUNTER("Loading streams informations");
 
     if (!hasStreamDetails) {

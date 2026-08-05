@@ -139,7 +139,7 @@ HRESULT CFGManager2::RenderFileXbmc(const CFileItem& pFileItem)
   START_PERFORMANCE_COUNTER
     CStreamsManager::Create();
   CStreamsManager::Get()->InitManager();
-  CStreamsManager::Get()->LoadStreams();
+  CStreamsManager::Get()->LoadStreams(FileItem.GetPath());
   END_PERFORMANCE_COUNTER("Loading streams informations");
 
   if (!hasStreamDetails) {

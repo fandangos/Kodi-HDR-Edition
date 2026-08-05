@@ -206,18 +206,34 @@ CDSPlayer::~CDSPlayer()
 // language each is, which one it wants -- where the splitter only knows what it happened to
 // find in the bytes it scanned, which for a feature is very often nothing whatever. See
 // CDSDvdNavigator's subtitle section.
+//
+// A subtitle *file* sitting beside the disc is neither the disc's nor the splitter's, and it
+// is drawn by neither of them: XySubFilter renders it through madVR's own subtitle interface.
+// So on a DVD the one list a viewer sees is made here, the disc's own tracks first and the
+// files found beside it after, and choosing between them means moving the drawing from one
+// pipeline to the other -- see SetSubtitle.
 int CDSPlayer::GetSubtitleCount() const
 {
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
-    return dvd->SubtitleCount();
+    return dvd->SubtitleCount() + DiscSubtitleFileCount();
 
   return (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSubtitleCount() : 0;
+}
+
+int CDSPlayer::DiscSubtitleFileCount() const
+{
+  return CStreamsManager::Get() ? CStreamsManager::Get()->GetExternalSubtitleCount() : 0;
 }
 
 int CDSPlayer::GetSubtitle()
 {
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+  {
+    if (m_discSubtitleFile >= 0)
+      return dvd->SubtitleCount() + m_discSubtitleFile;
+
     return dvd->CurrentSubtitle();
+  }
 
   return (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSubtitle() : 0;
 }
@@ -228,7 +244,36 @@ void CDSPlayer::SetSubtitle(int iStream)
 
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
   {
-    dvd->ChooseSubtitle(iStream);
+    const int discTracks = dvd->SubtitleCount();
+
+    // Asked before anything moves, because which of the two is answering it changes below.
+    // Choosing a track is not the same act as turning subtitles on, and switching between a
+    // disc's own track and a file beside it must not quietly do the second.
+    const bool on = GetSubtitleVisible();
+
+    if (iStream >= discTracks && CStreamsManager::Get())
+    {
+      const int nth = iStream - discTracks;
+      const int track = CStreamsManager::Get()->ExternalSubtitle(nth);
+      if (track < 0)
+        return;
+
+      CLog::Log(LOGINFO, "{} - subtitle {} is a file beside the disc rather than one of its own",
+                __FUNCTION__, iStream);
+
+      m_discSubtitleFile = nth;
+      CStreamsManager::Get()->SetSubtitle(track);
+    }
+    else
+    {
+      m_discSubtitleFile = -1;
+      dvd->ChooseSubtitle(iStream);
+    }
+
+    // Moves the drawing to whichever pipeline now owns it and quiets the other. Leaving the
+    // disc drawing would put two subtitles on screen at once, and leaving put_HideSubtitles
+    // set would have a file loaded, selected and never seen.
+    SetSubtitleVisible(on);
     return;
   }
 
@@ -238,8 +283,14 @@ void CDSPlayer::SetSubtitle(int iStream)
 
 bool CDSPlayer::GetSubtitleVisible() const
 {
-  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
-    return dvd->SubtitlesVisible();
+  // On a disc this is the player's own answer rather than a question put to whichever half is
+  // drawing. Asking the drawing half cannot work: the moment a file is chosen the disc is
+  // told to stop and the filter to start, so "are subtitles on" asked of either one answers
+  // about that half's job and not about what the viewer asked for. Reading it back that way
+  // lost the setting on the way from a file to one of the disc's own tracks -- the disc was
+  // told which track to draw and never told to draw it, and the subtitles simply stopped.
+  if (CDSDvdNavigator::Get())
+    return m_discSubtitlesOn;
 
   return (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSubtitleVisible() : true;
 }
@@ -248,13 +299,19 @@ void CDSPlayer::SetSubtitleVisible(bool bVisible)
 {
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
   {
-    dvd->ShowSubtitles(bVisible);
+    // Whichever of the two is drawing follows the viewer, and the other is kept quiet. A DVD's
+    // subpicture is inside the very stream the splitter is handed, so on the graphs where it
+    // does find a pin -- menus, mostly -- XySubFilter would draw the same picture again
+    // underneath ours.
+    const bool file = m_discSubtitleFile >= 0;
 
-    // The subtitle filter is kept quiet either way. A DVD's subpicture is inside the very
-    // stream the splitter is handed, so on the graphs where it does find a pin -- menus,
-    // mostly -- XySubFilter would draw the same picture again underneath ours.
+    m_discSubtitlesOn = bVisible;
+    dvd->ShowSubtitles(bVisible && !file);
+
     if (CStreamsManager::Get())
-      CStreamsManager::Get()->SetSubtitleVisible(false);
+      CStreamsManager::Get()->ShowSubtitleFilter(bVisible && file);
+
+    CMediaSettings::GetInstance().GetCurrentVideoSettings().m_SubtitleOn = bVisible;
   }
   else if (CStreamsManager::Get())
   {
@@ -264,10 +321,60 @@ void CDSPlayer::SetSubtitleVisible(bool bVisible)
   m_processInfo->GetVideoSettingsLocked().SetSubtitleVisible(bVisible);
 }
 
-void CDSPlayer::AddSubtitle(const std::string& strSubPath) 
+void CDSPlayer::AddSubtitle(const std::string& strSubPath)
 {
-  if (CStreamsManager::Get())
-    CStreamsManager::Get()->SetSubtitle(CStreamsManager::Get()->AddSubtitle(strSubPath));
+  if (!CStreamsManager::Get())
+    return;
+
+  const int track = CStreamsManager::Get()->AddSubtitle(strSubPath);
+  if (track < 0)
+    return;
+
+  // On a disc the viewer picked from, the same file has a second number: the list they are
+  // looking at is the disc's own tracks followed by the files, so going through SetSubtitle
+  // with that number is what moves the drawing to the filter as well as selecting the track.
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+  {
+    const int nth = CStreamsManager::Get()->SubtitleIsExternal(track);
+    if (nth >= 0)
+      SetSubtitle(dvd->SubtitleCount() + nth);
+    return;
+  }
+
+  CStreamsManager::Get()->SetSubtitle(track);
+}
+
+void CDSPlayer::LogTheSubtitleList()
+{
+  // The one list the viewer is about to see, written down once. On a disc it is made of two
+  // quite different things -- the disc's own tracks and the files found beside it -- and
+  // which entry is which cannot be seen from anywhere else: the OSD shows only names, and
+  // JSON-RPC cannot be asked about the video player at all in this build.
+  const int count = GetSubtitleCount();
+
+  // Subtitle files come last on either path -- after a disc's own tracks on a DVD, after the
+  // splitter's on everything else -- so a count is enough to say which entries they are
+  const int files = DiscSubtitleFileCount();
+
+  std::string list;
+  for (int i = 0; i < count; i++)
+  {
+    SubtitleStreamInfo info;
+    GetSubtitleStreamInfo(i, info);
+
+    if (!list.empty())
+      list += " | ";
+
+    // Both, because a disc's own tracks carry only a language -- the GUI builds "English
+    // (1/2)" out of that itself -- while a file carries a name and nothing else would say
+    // which of several it is.
+    list += StringUtils::Format("{}:{}{}{}", i, info.language.empty() ? "??" : info.language,
+                                info.name.empty() ? "" : " " + info.name,
+                                (count - i) <= files ? " <file>" : "");
+  }
+
+  CLog::Log(LOGINFO, "{} - the viewer is offered {} subtitle track(s), {} of them file(s): {}",
+            __FUNCTION__, count, files, list.empty() ? "none" : list);
 }
 
 bool CDSPlayer::WaitForFileClose()
@@ -660,7 +767,19 @@ void CDSPlayer::GetSubtitleStreamInfo(int index, SubtitleStreamInfo& info) const
 {
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
   {
-    dvd->SubtitleInfo(index, info);
+    const int discTracks = dvd->SubtitleCount();
+    if (index < discTracks)
+    {
+      dvd->SubtitleInfo(index, info);
+      return;
+    }
+
+    if (CStreamsManager::Get())
+    {
+      const int track = CStreamsManager::Get()->ExternalSubtitle(index - discTracks);
+      if (track >= 0)
+        CStreamsManager::Get()->GetSubtitleInfo(track, info);
+    }
     return;
   }
 
@@ -727,7 +846,12 @@ void CDSPlayer::SetAudioStream(int iStream)
 float CDSPlayer::GetSubTitleDelay()
 {
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
-    return dvd->SubtitleDelay();
+  {
+    // A file beside the disc is drawn by the filter and delayed by it, exactly as it would be
+    // beside an ordinary video
+    if (m_discSubtitleFile < 0)
+      return dvd->SubtitleDelay();
+  }
 
   float fValue = 0.0f;
 
@@ -744,9 +868,12 @@ void CDSPlayer::SetSubTitleDelay(float fValue)
   if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
   {
     // A DVD's subtitles are put on screen from here rather than by any filter, so the delay
-    // has to be applied where they are timed
+    // has to be applied where they are timed. Both are set either way: the viewer's trim
+    // should not be forgotten by switching between one of the disc's tracks and a file.
     dvd->DelaySubtitles(fValue);
-    return;
+
+    if (m_discSubtitleFile < 0)
+      return;
   }
 
   if (CStreamsManager::Get())
@@ -951,7 +1078,15 @@ void CDSPlayer::Process()
     // Select Subtitle Stream, Delay, On/Off
     
     CLog::Log(LOGDEBUG, "{} - choosing the subtitle stream", __FUNCTION__);
-    if (CStreamsManager::Get()) CStreamsManager::Get()->SelectBestSubtitle(m_currentFileItem.GetPath());
+
+    // Not on a disc that navigates itself. What it is playing now has its own idea of which
+    // subtitles belong to it, which is applied a few lines below, and it is the better one:
+    // a menu entry reading "with English subtitles" has already said so in the disc's own
+    // registers. Choosing from here would also be choosing with the wrong numbers -- the
+    // list a viewer sees on a DVD is the disc's tracks followed by the files found beside it,
+    // and the streams manager knows only the second half of that.
+    if (CStreamsManager::Get() && !CDSDvdNavigator::Get())
+      CStreamsManager::Get()->SelectBestSubtitle(m_currentFileItem.GetPath());
     CLog::Log(LOGDEBUG, "{} - subtitle stream chosen", __FUNCTION__);
     SetSubTitleDelay(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleDelay);
 
@@ -968,6 +1103,8 @@ void CDSPlayer::Process()
     }
     else
       SetSubtitleVisible(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleOn);
+
+    LogTheSubtitleList();
 
     CMediaSettings::GetInstance().GetAtStartVideoSettings() = CMediaSettings::GetInstance().GetDefaultVideoSettings();
 

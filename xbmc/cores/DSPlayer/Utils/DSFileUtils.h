@@ -28,6 +28,9 @@
 
 #include "utils/XBMCTinyXML.h"
 
+#include <string>
+#include <vector>
+
 class CDSFile
 {
 public:
@@ -62,6 +65,52 @@ public:
 
   static std::string SmbToUncPath(const std::string& strFileName);
   static bool Exists(const std::string& strFileName, long* errCode = NULL);
+
+  /*!
+   * \brief The two folders an unpacked disc's own files sit in
+   * \param strFileName A file inside a disc folder, or the BDMV/VIDEO_TS folder itself
+   * \param root Receives the folder BDMV or VIDEO_TS sits in
+   * \param structure Receives the BDMV or VIDEO_TS folder itself
+   * \return false when the path is not part of a disc folder at all, leaving both untouched
+   *
+   * Both are wanted because "beside the disc" has two readings and a viewer may have meant
+   * either: beside the folder the disc was unpacked into, or beside the index file that was
+   * actually chosen to play it. Answering only one of them would be a guess.
+   */
+  static bool DiscFolderRoot(const std::string& strFileName,
+                             std::string& root,
+                             std::string& structure);
+
+  /*!
+   * \brief Subtitle files that belong to what is about to be played, disc or not
+   *
+   * Kodi's own CUtil::ScanForExternalSubtitles is the whole answer for an ordinary file and
+   * for a disc image, both of which sit beside their subtitles under one name --
+   * "Film.srt", "Film.en.srt", "Film.pt.srt" next to "Film.iso".
+   *
+   * An unpacked disc is the awkward case, and it is why this exists. A disc folder is played
+   * by choosing a file buried inside it -- BDMV/index.bdmv, VIDEO_TS/VIDEO_TS.IFO -- so that
+   * scan goes looking for files called "index.srt" or "VIDEO_TS.srt", which nobody names one.
+   * The right directory is the disc's own folder, and since a disc folder holds exactly one
+   * disc, every subtitle file in it belongs to that disc whatever it is called. That is the
+   * whole difference from a folder of media files, where a name has to match to mean anything.
+   */
+  static void ScanForSubtitles(const std::string& strFileName,
+                               std::vector<std::string>& subtitles);
+
+  /*!
+   * \brief The name a subtitle file beside this one would be named after
+   *
+   * "Film.en.srt" is English because "Film" is what the video is called and "en" is what is
+   * left. For an unpacked disc the file being played is called index.bdmv or VIDEO_TS.IFO
+   * and nothing is named after that, so what is left of "Film.en.srt" is the whole of it and
+   * the language is lost. The disc's own folder carries the name a viewer would use, so it
+   * is what the parse is given, and a plain "Film.srt" beside a disc folder comes out with
+   * nothing left over -- which is the unlabelled subtitle that must still be offered.
+   *
+   * Anything that is not a disc folder is returned unchanged.
+   */
+  static std::string SubtitleNameBase(const std::string& strFileName);
 
   /*!
    * \brief The path libbluray's bd_open() wants for the disc a file belongs to

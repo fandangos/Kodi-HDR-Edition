@@ -20,15 +20,22 @@
 #include "DSUtil/DSUtil.h"
 #include "FileItem.h"
 #include "FileItemList.h"
+#include "ServiceBroker.h"
+#include "URL.h"
+#include "Util.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
+#include "settings/SettingsComponent.h"
 #include "threads/CriticalSection.h"
+#include "utils/FileExtensionProvider.h"
 #include "utils/charsetconverter.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
+#include <algorithm>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #if HAS_DS_PLAYER
@@ -218,6 +225,100 @@ bool PathContainsFolder(const std::string& path, const std::string& folder)
   }
   return false;
 }
+
+//! \brief Whether a path names the folder a disc's own files live in
+bool IsDiscStructureFolder(const std::string& path)
+{
+  const std::string name = URIUtils::GetFileName(path);
+  return StringUtils::EqualsNoCase(name, "BDMV") || StringUtils::EqualsNoCase(name, "VIDEO_TS");
+}
+
+/*!
+ * \brief Whether a file is part of a disc rather than something sitting beside one
+ *
+ * ".ifo" is in Kodi's list of subtitle extensions because a VobSub carries one -- and it is
+ * also the extension of every table on a DVD. So the scan for subtitles beside
+ * "VIDEO_TS/VIDEO_TS.IFO" comes back holding VIDEO_TS.IFO itself, the disc's own index
+ * offered to the viewer as a subtitle track.
+ *
+ * That is worse than untidy. The subtitle filter holds one set of files at a time, chosen by
+ * a shared name, so the last name handed to it wins: hand it VIDEO_TS.IFO and every real
+ * subtitle beside the disc is dropped. An unpacked disc with two .srt files next to it
+ * offered neither.
+ *
+ * Nothing is lost by refusing them. A VobSub is loaded from its .idx, which is listed
+ * separately and is not touched here.
+ */
+bool IsTheDiscsOwnFile(const std::string& path)
+{
+  std::string extension = URIUtils::GetExtension(path);
+  StringUtils::ToLower(extension);
+
+  return extension == ".ifo" || extension == ".bup" || extension == ".vob" ||
+         extension == ".bdmv" || extension == ".clpi" || extension == ".mpls" ||
+         extension == ".m2ts";
+}
+
+/*!
+ * \brief Add every subtitle file in a folder, whatever it is called
+ *
+ * The common subtitle sub-folders are looked in as well, since Kodi's own scan would have
+ * done so and a viewer who put their files in Subs/ meant the same thing either way.
+ * Archives are left alone: opening one is only worth it when a name says the subtitles
+ * inside are the ones wanted.
+ */
+void CollectEverySubtitleIn(const std::string& folder, std::vector<std::string>& subtitles)
+{
+  // Every subtitle extension Kodi knows, less two that are only subtitles when a name says so
+  // -- and nothing here is matched by name. ".ifo" is a DVD's own tables, see
+  // IsTheDiscsOwnFile; ".txt" is more often a note left beside a disc than a subtitle.
+  std::string extensions = CServiceBroker::GetFileExtensionProvider().GetSubtitleExtensions();
+  for (const char* ambiguous : {"|.txt|", "|.ifo|"})
+    StringUtils::Replace(extensions, ambiguous, "|");
+
+  const std::vector<std::string> subFolders = {"subs",   "subtitles", "vobsubs",
+                                               "sub",    "vobsub",    "subtitle"};
+
+  constexpr int flags = XFILE::DIR_FLAG_NO_FILE_DIRS | XFILE::DIR_FLAG_NO_FILE_INFO;
+
+  CFileItemList items;
+  XFILE::CDirectory::GetDirectory(folder, items, extensions, flags);
+
+  CFileItemList inSubFolders;
+  for (const auto& item : items)
+  {
+    if (!item->m_bIsFolder)
+      continue;
+
+    for (const auto& subFolder : subFolders)
+    {
+      if (!StringUtils::EqualsNoCase(item->GetLabel(), subFolder))
+        continue;
+
+      CFileItemList more;
+      XFILE::CDirectory::GetDirectory(item->GetPath(), more, extensions, flags);
+      inSubFolders.Append(more);
+    }
+  }
+  items.Append(inSubFolders);
+
+  for (const auto& item : items)
+  {
+    if (item->m_bIsFolder)
+      continue;
+
+    const std::string& path = item->GetPath();
+    if (URIUtils::IsRAR(path) || URIUtils::IsZIP(path))
+      continue;
+
+    if (std::find(subtitles.begin(), subtitles.end(), path) != subtitles.end())
+      continue;
+
+    subtitles.push_back(path);
+    CLog::Log(LOGINFO, "{} - found a subtitle file beside the disc: {}", __FUNCTION__,
+              CURL::GetRedacted(path));
+  }
+}
 } // unnamed namespace
 
 CDSFile::DiscType CDSFile::DiscTypeOf(const std::string& strFileName)
@@ -290,6 +391,101 @@ std::string CDSFile::SmbToUncPath(const std::string& strFileName)
   StringUtils::Replace(strWinFileName, '/', '\\');
 
   return strWinFileName;
+}
+
+bool CDSFile::DiscFolderRoot(const std::string& strFileName,
+                             std::string& root,
+                             std::string& structure)
+{
+  std::string dir = strFileName;
+  URIUtils::RemoveSlashAtEnd(dir);
+
+  if (!IsDiscStructureFolder(dir))
+  {
+    // A file inside the disc rather than the structure folder itself. VIDEO_TS.IFO and
+    // index.bdmv are what the file list offers for a disc folder; a chosen Blu-ray playlist
+    // or stream sits one level deeper again.
+    const bool index = CFileItem(strFileName, false).IsOpticalMediaFile();
+
+    dir = URIUtils::GetDirectory(dir);
+    URIUtils::RemoveSlashAtEnd(dir);
+
+    const std::string here = URIUtils::GetFileName(dir);
+    if (StringUtils::EqualsNoCase(here, "PLAYLIST") || StringUtils::EqualsNoCase(here, "STREAM"))
+    {
+      dir = URIUtils::GetDirectory(dir);
+      URIUtils::RemoveSlashAtEnd(dir);
+    }
+
+    if (!IsDiscStructureFolder(dir))
+    {
+      // Not part of a disc folder at all: a disc image, or a plain media file
+      if (!index)
+        return false;
+
+      // A disc unpacked flat, with no VIDEO_TS or BDMV folder of its own -- which is how the
+      // discs here are actually kept. The folder holding the index *is* the disc, and there
+      // is nothing above it worth looking in: a flat disc's parent is as likely to hold the
+      // next disc of the set as anything belonging to this one.
+      if (dir.empty())
+        return false;
+
+      structure = dir;
+      root = dir;
+      return true;
+    }
+  }
+
+  std::string above = URIUtils::GetDirectory(dir);
+  URIUtils::RemoveSlashAtEnd(above);
+  if (above.empty())
+    return false;
+
+  structure = dir;
+  root = above;
+  return true;
+}
+
+std::string CDSFile::SubtitleNameBase(const std::string& strFileName)
+{
+  std::string root;
+  std::string structure;
+  if (!DiscFolderRoot(strFileName, root, structure))
+    return strFileName;
+
+  return root;
+}
+
+void CDSFile::ScanForSubtitles(const std::string& strFileName,
+                              std::vector<std::string>& subtitles)
+{
+  // What Kodi does for anything else, and the whole answer for a disc image
+  CUtil::ScanForExternalSubtitles(strFileName, subtitles);
+
+  std::string root;
+  std::string structure;
+  if (DiscFolderRoot(strFileName, root, structure))
+  {
+    // Both readings of "beside the disc", since either may be what the viewer meant. Nothing
+    // is matched by name here: a disc folder holds one disc, so a subtitle file sitting in it
+    // has nothing else it could belong to.
+    const size_t before = subtitles.size();
+    CollectEverySubtitleIn(root, subtitles);
+    if (!StringUtils::EqualsNoCase(structure, root))
+      CollectEverySubtitleIn(structure, subtitles);
+
+    CLog::Log(LOGDEBUG, "{} - an unpacked disc: {} subtitle file(s) beside it", __FUNCTION__,
+              subtitles.size() - before);
+  }
+
+  // Applied to everything and not only to what was swept up above, because the scan that
+  // matches by name is the one that picks up VIDEO_TS.IFO: it is named after the file being
+  // played, so it looks exactly like a subtitle belonging to it
+  const auto discsOwn = std::remove_if(subtitles.begin(), subtitles.end(), IsTheDiscsOwnFile);
+  for (auto it = discsOwn; it != subtitles.end(); ++it)
+    CLog::Log(LOGDEBUG, "{} - \"{}\" is part of the disc, not a subtitle beside it",
+              __FUNCTION__, CURL::GetRedacted(*it));
+  subtitles.erase(discsOwn, subtitles.end());
 }
 
 std::string CDSFile::BlurayDiscRoot(const std::string& strFileName)

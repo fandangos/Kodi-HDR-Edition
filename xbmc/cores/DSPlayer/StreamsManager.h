@@ -216,6 +216,25 @@ public:
   void GetSubtitleInfo(int iStream, SubtitleStreamInfo& strStreamName);
   bool GetSubtitleVisible();
   void SetSubtitleVisible(bool bVisible);
+
+  /*!
+   * \brief Stop or resume the subtitle filter drawing, without touching the viewer's setting
+   *
+   * A DVD needs the two separated. Its own subtitles are drawn by CDSDvdNavigator and the
+   * filter is held quiet throughout so that the graphs where LAV does find a subpicture pin
+   * -- menus, mostly -- do not draw the same picture again underneath. Choosing a subtitle
+   * *file* on such a disc has to lift that, and choosing one of the disc's own has to put it
+   * back, and neither of those is the viewer turning subtitles off.
+   */
+  void ShowSubtitleFilter(bool bVisible);
+
+  //! \brief How many of the tracks offered are subtitle files rather than the splitter's
+  int GetExternalSubtitleCount();
+  //! \brief Where the nth subtitle file sits in the list of tracks, -1 if there is no such
+  int ExternalSubtitle(int nth);
+  //! \brief Which subtitle file a track is, counting files only, -1 when it is not one
+  int SubtitleIsExternal(int iStream);
+
   bool SetSubtitle(const std::string &sTrackName);
   void SetSubtitle(int iStream);
   void SelectBestSubtitle(const std::string &fileName = "");
@@ -258,8 +277,16 @@ public:
   /// @return An instance to the IAMStreamSelect interface if the splitter expose it, NULL otherwise
   IAMStreamSelect *GetStreamSelector() { return m_pIAMStreamSelect; }
 
-  /// Initialize streams from the current media file
-  void LoadStreams();
+  /*!
+   * \brief Initialize streams from the media file a graph has just been built for
+   * \param file What is being opened
+   *
+   * The file is passed in rather than asked of the application, which does not know yet:
+   * g_application.CurrentFile() is still empty while the graph is being built, so the scan
+   * for subtitle files beside it found nothing and said nothing about it either -- CUtil's
+   * scan gives up on a path that is not a video before it logs a word.
+   */
+  void LoadStreams(const std::string& file = "");
 
   /// @return Current video width
   int GetPictureWidth();
@@ -302,6 +329,18 @@ protected:
 
   void SubInterface(SelectSubType action);
   void DisconnectCurrentSubtitlePins();
+
+  /*!
+   * \brief Find the subtitle files beside what is playing and offer them alongside its tracks
+   *
+   * Only for the graphs a subtitle filter is in, which is all of them: the internal subtitle
+   * manager stands down whenever one is loaded, and it was the only thing that ever went
+   * looking for a file.
+   */
+  void LoadExternalSubtitles();
+
+  //! What LoadStreams was told is playing, since the application cannot yet say
+  std::string m_currentFile;
 
   std::vector<CDSStreamDetailAudio *> m_audioStreams;
   std::vector<CDSStreamDetailSubfilter *> m_subfilterStreams;

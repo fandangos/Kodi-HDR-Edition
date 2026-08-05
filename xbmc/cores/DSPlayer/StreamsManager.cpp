@@ -49,11 +49,14 @@
 #include "ServiceBroker.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "Util.h"
 #include "application/Application.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/StereoscopicsManager.h"
+
+#include <algorithm>
 
 #pragma comment(lib , "libsubs.lib")
 
@@ -638,10 +641,12 @@ void CStreamsManager::LoadStreamsInternal()
   EndEnumPins
 }
 
-void CStreamsManager::LoadStreams()
+void CStreamsManager::LoadStreams(const std::string& file)
 {
   if (!m_init)
     return;
+
+  m_currentFile = file.empty() ? g_application.CurrentFile() : file;
 
   std::string splitterName;
   g_charsetConverter.wToUTF8(GetFilterName(m_pSplitter), splitterName);
@@ -675,7 +680,20 @@ void CStreamsManager::LoadStreams()
         m_bIsXYVSFilter = true;
 
       m_subfilterStreams_int = m_subfilterStreams;
-      m_pIDirectVobSub->put_LoadSettings(1, true, false, true);
+
+      // The filter is asked to stop hunting for subtitle files of its own accord, and
+      // LoadExternalSubtitles below hands it every file instead. It hunts by looking beside
+      // whatever the graph's source filter says it is playing, which for a disc folder is
+      // BDMV/index.bdmv or VIDEO_TS/VIDEO_TS.IFO -- so it goes looking for "index.srt", and
+      // no disc has one. Doing the finding here reaches the disc's own folder, uses Kodi's
+      // own scan rather than a second one beside it, and leaves the order of what was loaded
+      // known, which is what lets each track be named after the file it came from.
+      //
+      // It has already hunted once by this point, at its own loading, and that is harmless:
+      // handing it a file it already holds is not a second copy, which was measured rather
+      // than assumed -- three files beside a video, already found and handed over again, and
+      // the filter went on offering three.
+      m_pIDirectVobSub->put_LoadSettings(1, false, false, true);
       m_InitialSubsDelay = GetSubTitleDelay();
 
       Com::SComQIPtr<IDSPlayerCustom> pDPlayerCustom;
@@ -718,6 +736,13 @@ void CStreamsManager::LoadStreams()
     CLog::Log(LOGDEBUG, "{} Subtitles are drawn by the subtitle filter rather than internally; "
                         "{} track(s) from the splitter stand", __FUNCTION__,
               m_subfilterStreams.size());
+
+    // Subtitle files sitting beside what is being played. This used to be reached only
+    // through the internal manager below, which is never ready with a subtitle filter
+    // loaded -- so with XySubFilter in the graph, which is every graph, nothing here ever
+    // looked for one. A disc felt that hardest: its own tracks are offered and a file next
+    // to it was not, though it is the same list either way.
+    LoadExternalSubtitles();
     return;
   }
 
@@ -725,7 +750,7 @@ void CStreamsManager::LoadStreams()
      We load external subtitle file */
 
   std::vector<std::string> subtitles;
-  CUtil::ScanForExternalSubtitles(g_application.CurrentFile(), subtitles);
+  CDSFile::ScanForSubtitles(m_currentFile, subtitles);
 
   for (std::vector<std::string>::const_iterator it = subtitles.begin(); it != subtitles.end(); ++it)
   {
@@ -735,6 +760,93 @@ void CStreamsManager::LoadStreams()
   SubtitleManager->SelectBestSubtitle();
 
   SubtitleManager->SetSubtitleVisible(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_SubtitleOn);
+}
+
+void CStreamsManager::LoadExternalSubtitles()
+{
+  if (!m_bIsXYVSFilter)
+    return;
+
+  std::vector<std::string> subtitles;
+  CDSFile::ScanForSubtitles(m_currentFile, subtitles);
+
+  if (subtitles.empty())
+    return;
+
+  // Longest name first, so the shortest is handed over last. put_FileName does not add one
+  // subtitle: it loads every subtitle whose file name begins the same way, and it *replaces*
+  // what the filter was holding rather than adding to it -- handing over "Film.en.srt" and
+  // then "Film.pt.srt" leaves the filter offering one track, not two. The shortest name is
+  // the one whose base covers the most, so going last it picks the others up with it:
+  // "Film.srt" last brings "Film.en.srt" and "Film.pt.srt" back with it.
+  std::sort(subtitles.begin(), subtitles.end(),
+            [](const std::string& a, const std::string& b) { return a.size() > b.size(); });
+
+  const int before = GetSubtitleCount();
+  for (const auto& subtitle : subtitles)
+    AddSubtitle(subtitle);
+
+  // Which is a best effort and not a guarantee: subtitle files beside a disc need not share
+  // a name at all, and any the filter dropped are said so here rather than quietly missing.
+  if (GetExternalSubtitleCount() != static_cast<int>(subtitles.size()))
+    CLog::Log(LOGWARNING,
+              "{} - the subtitle filter lists {} file(s) where {} were handed to it; it loads "
+              "by shared name, so files named differently from each other cannot all be held",
+              __FUNCTION__, GetExternalSubtitleCount(), subtitles.size());
+
+  // Worth stating plainly, because the two numbers answering each other is the whole check:
+  // how many files were found against how many tracks the filter went on to offer.
+  CLog::Log(LOGINFO,
+            "{} - handed {} subtitle file(s) to the subtitle filter, which now offers {} "
+            "track(s) where it offered {}",
+            __FUNCTION__, subtitles.size(), GetSubtitleCount(), before);
+}
+
+int CStreamsManager::GetExternalSubtitleCount()
+{
+  if (!m_bHasSubsFilter)
+    return 0;
+
+  int found = 0;
+  for (const auto& subtitle : m_subfilterStreams)
+  {
+    if (subtitle->m_subType == EXTERNAL)
+      found++;
+  }
+  return found;
+}
+
+int CStreamsManager::ExternalSubtitle(int nth)
+{
+  if (!m_bHasSubsFilter || nth < 0)
+    return -1;
+
+  int found = 0;
+  int index = 0;
+  for (const auto& subtitle : m_subfilterStreams)
+  {
+    if (subtitle->m_subType == EXTERNAL && found++ == nth)
+      return index;
+    index++;
+  }
+  return -1;
+}
+
+int CStreamsManager::SubtitleIsExternal(int iStream)
+{
+  if (!m_bHasSubsFilter || iStream < 0 || iStream >= static_cast<int>(m_subfilterStreams.size()))
+    return -1;
+
+  if (m_subfilterStreams[iStream]->m_subType != EXTERNAL)
+    return -1;
+
+  int found = 0;
+  for (int i = 0; i < iStream; i++)
+  {
+    if (m_subfilterStreams[i]->m_subType == EXTERNAL)
+      found++;
+  }
+  return found;
 }
 
 int CStreamsManager::GetSubtitle()
@@ -817,6 +929,11 @@ void CStreamsManager::SetSubtitleVisible(bool bVisible)
   }
 
   CMediaSettings::GetInstance().GetCurrentVideoSettings().m_SubtitleOn = bVisible;
+  ShowSubtitleFilter(bVisible);
+}
+
+void CStreamsManager::ShowSubtitleFilter(bool bVisible)
+{
   m_bSubfilterVisible = bVisible;
 
   if (!m_bIsXYVSFilter)
@@ -975,6 +1092,17 @@ int CStreamsManager::AddSubtitle(const std::string& subFilePath)
 
   m_pIDirectVobSub->put_FileName(const_cast<wchar_t*>(subFileW.c_str()));
 
+  // The list is built again from the filter's own answer rather than appended to, so the
+  // entries made for the externals it listed last time are this function's to free: nothing
+  // else holds them, and m_subfilterStreams_int owns only the splitter's own tracks.
+  for (auto& subtitle : m_subfilterStreams)
+  {
+    if (subtitle->m_subType == EXTERNAL &&
+        std::find(m_subfilterStreams_int.begin(), m_subfilterStreams_int.end(), subtitle) ==
+            m_subfilterStreams_int.end())
+      delete subtitle;
+  }
+
   m_subfilterStreams = m_subfilterStreams_int;
 
   SubInterface(ADD_EXTERNAL_SUB);
@@ -1061,7 +1189,10 @@ void CStreamsManager::SetSubtitle(int iStream)
       m_subfilterStreams[enableIndex]->connected = true;
     }
   }
-  CLog::Log(LOGDEBUG, "{} Successfully selected subfilter stream number %i", __FUNCTION__, enableIndex);
+  // "%i" is not a placeholder to fmt, so this line said "number %i" for years and never once
+  // said which stream. The same mistake as the extrafilter%i and the audio channel count.
+  CLog::Log(LOGDEBUG, "{} Successfully selected subfilter stream number {}", __FUNCTION__,
+            enableIndex);
   SetSubtitleVisible(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_SubtitleOn);
 }
 
@@ -1087,6 +1218,29 @@ void CStreamsManager::SubInterface(SelectSubType action)
         {
           std::unique_ptr<CDSStreamDetailSubfilter> s(new CDSStreamDetailSubfilter(EXTERNAL));
 
+          // The filter names an external track after whatever is left of its file name once
+          // the *video's* name is taken off the front -- "en" for "Film.en.srt" beside
+          // "Film.mkv" -- which is a language when the two sit side by side under one name
+          // and is not one otherwise. Beside an unpacked disc it is never one: what is
+          // playing is called index.bdmv or VIDEO_TS.IFO, nothing is named after that, so
+          // nothing is taken off and the whole of "Charlie Brown.pt" is left. And for a file
+          // with no suffix at all there is nothing left over, where the filter falls back to
+          // repeating the video's own name.
+          //
+          // So the name is put through the same parser Kodi uses for every other external
+          // subtitle, against the disc's own folder rather than the index file inside it.
+          // "en" stays English, "Charlie Brown.pt" becomes Portuguese, and a file with
+          // nothing to say about itself becomes Unknown rather than the film's title.
+          //
+          // Deliberately not matched up with the files that were handed over, which would be
+          // the obvious thing and is wrong: put_FileName does not add one subtitle, it loads
+          // every subtitle sharing that file's base name, and the filter lists the result in
+          // its own order. There is no nth file to line up with the nth track.
+          const std::string filterName = fileName;
+          const ExternalStreamInfo external = CUtil::GetExternalStreamDetailsFromFilename(
+              CDSFile::SubtitleNameBase(m_currentFile), fileName + ".srt");
+          fileName = external.language;
+
           langName = ISOToLanguage(fileName);
           if (!langName.empty() && !fileName.empty())
             s->displayname = StringUtils::Format("{} ({})", langName.c_str(), fileName.c_str());
@@ -1100,7 +1254,9 @@ void CStreamsManager::SubInterface(SelectSubType action)
           s->isolang = fileName;
           s->IAMStreamSelect_Index = i;
           m_subfilterStreams.push_back(s.release());
-          CLog::Log(LOGINFO, "{} Successfully loaded external subtitle name  \"{}\" ", __FUNCTION__, fileName.c_str());
+          CLog::Log(LOGINFO, "{} - subtitle file track {}, which the filter calls \"{}\", is \"{}\"",
+                    __FUNCTION__, i, filterName.c_str(),
+                    m_subfilterStreams.back()->displayname.c_str());
         }
       }
       if (action == SELECT_INTERNAL_SUB)

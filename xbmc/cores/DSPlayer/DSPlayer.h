@@ -402,6 +402,28 @@ private:
   //! disc is not finished with in between
   static bool m_keepDiscOpen;
 
+  /*!
+   * Which subtitle *file* the viewer chose on a disc that is navigating itself, counting
+   * files only, or -1 for one of the disc's own tracks. The two are drawn by quite different
+   * things -- the disc's by CDSDvdNavigator, a file by XySubFilter through madVR -- so the
+   * one thing the list cannot do is forget which kind is showing.
+   *
+   * Not static and deliberately so: a disc moving to another programme takes the player down
+   * and builds a new one, and the subtitle filter's list is built fresh with it, so a choice
+   * made against the old list means nothing against the new one.
+   */
+  int m_discSubtitleFile{-1};
+
+  //! Whether the viewer wants subtitles at all on a disc that is navigating itself, which is
+  //! one question where "which of the two is drawing" is another. See GetSubtitleVisible.
+  bool m_discSubtitlesOn{false};
+
+  //! \brief How many subtitle files were found beside the disc that is playing
+  int DiscSubtitleFileCount() const;
+
+  //! \brief Write down the whole subtitle list the viewer is about to be offered
+  void LogTheSubtitleList();
+
 
   bool ShowPVRChannelInfo();
 

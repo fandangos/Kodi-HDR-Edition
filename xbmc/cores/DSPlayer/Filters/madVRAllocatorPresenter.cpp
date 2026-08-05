@@ -28,6 +28,7 @@
 #include "settings/AdvancedSettings.h"
 #include "cores/DSPlayer/Filters/MadvrSettings.h"
 #include "PixelShaderList.h"
+#include "DSDvdNavigator.h"
 #include "DSPlayer.h"
 #include "utils/log.h"
 #include "utils/SystemInfo.h"
@@ -345,6 +346,13 @@ STDMETHODIMP CmadVRAllocatorPresenter::ClearBackground(LPCSTR name, REFERENCE_TI
 {
   CAutoLock cAutoLock(this);
 
+  // A DVD's subtitles have to go on screen with the frame they belong to, and this callback is
+  // the only place the frame being drawn says when it is. The graph's own position cannot
+  // answer it: LAV Splitter clamps that to a duration a navigated disc does not have, and it
+  // sits at the end for the whole of a film -- 12.045s of 12.045s, measured, while the renderer
+  // was two minutes in.
+  CDSDvdNavigator::NoteFrameTime(frameStart);
+
   if (m_pMadvrShared != nullptr)
     return m_pMadvrShared->Render(RENDER_LAYER_UNDER);
   else
@@ -456,6 +464,7 @@ HRESULT CmadVRAllocatorPresenter::Render( REFERENCE_TIME rtStart, REFERENCE_TIME
   if (!g_bExternalSubtitleTime) {
     SetTime(rtStart);
   }
+
   if (atpf > 0 && m_pSubPicQueue) {
     m_fps = 10000000.0 / atpf;
     m_pSubPicQueue->SetFPS(m_fps);

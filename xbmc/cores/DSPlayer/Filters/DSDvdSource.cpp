@@ -216,6 +216,16 @@ void CDSDvdStream::NoteGraphRunning()
   stream->m_holdingOpeningBytes = false;
 }
 
+LONGLONG CDSDvdStream::Produced()
+{
+  return m_feeding ? m_feeding->m_produced.load() : -1;
+}
+
+LONGLONG CDSDvdStream::SplitterPosition()
+{
+  return m_feeding ? m_feeding->m_position : -1;
+}
+
 CDSDvdStream::~CDSDvdStream()
 {
   Close();
@@ -508,6 +518,12 @@ HRESULT CDSDvdStream::SetPointer(LONGLONG llPos)
 
 void CDSDvdStream::Append(const uint8_t* bytes, size_t length)
 {
+  // The first block of what the splitter will be given, which is where it will number the
+  // stream from. Said here rather than anywhere earlier because everything the disc passes on
+  // the way in is read and thrown away, and only this knows where the throwing away stopped.
+  if (m_produced == 0 && m_navigator)
+    m_navigator->NoteStreamOrigin();
+
   std::lock_guard<std::mutex> ring(m_ringMutex);
 
   // Append to the history window, oldest bytes falling out of the far end

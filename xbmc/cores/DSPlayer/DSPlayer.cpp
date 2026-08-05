@@ -201,32 +201,66 @@ CDSPlayer::~CDSPlayer()
   CLog::Log(LOGINFO, "{} DSPlayer is now closed", __FUNCTION__);
 }
 
+// A DVD answers for its own subtitles, and the splitter's list is not consulted at all while
+// one is playing. The disc's tables are complete from the first frame -- how many streams, what
+// language each is, which one it wants -- where the splitter only knows what it happened to
+// find in the bytes it scanned, which for a feature is very often nothing whatever. See
+// CDSDvdNavigator's subtitle section.
 int CDSPlayer::GetSubtitleCount() const
 {
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+    return dvd->SubtitleCount();
+
   return (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSubtitleCount() : 0;
 }
 
 int CDSPlayer::GetSubtitle()
 {
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+    return dvd->CurrentSubtitle();
+
   return (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSubtitle() : 0;
 }
 
 void CDSPlayer::SetSubtitle(int iStream)
 {
   CLog::Log(LOGINFO, "{} settings subtitle #{}",__FUNCTION__, iStream);
-   if (CStreamsManager::Get()) 
+
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+  {
+    dvd->ChooseSubtitle(iStream);
+    return;
+  }
+
+   if (CStreamsManager::Get())
      CStreamsManager::Get()->SetSubtitle(iStream);
 }
 
 bool CDSPlayer::GetSubtitleVisible() const
 {
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+    return dvd->SubtitlesVisible();
+
   return (CStreamsManager::Get()) ? CStreamsManager::Get()->GetSubtitleVisible() : true;
 }
 
 void CDSPlayer::SetSubtitleVisible(bool bVisible)
 {
-  if (CStreamsManager::Get())
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+  {
+    dvd->ShowSubtitles(bVisible);
+
+    // The subtitle filter is kept quiet either way. A DVD's subpicture is inside the very
+    // stream the splitter is handed, so on the graphs where it does find a pin -- menus,
+    // mostly -- XySubFilter would draw the same picture again underneath ours.
+    if (CStreamsManager::Get())
+      CStreamsManager::Get()->SetSubtitleVisible(false);
+  }
+  else if (CStreamsManager::Get())
+  {
     CStreamsManager::Get()->SetSubtitleVisible(bVisible);
+  }
+
   m_processInfo->GetVideoSettingsLocked().SetSubtitleVisible(bVisible);
 }
 
@@ -624,7 +658,12 @@ void CDSPlayer::GetAudioStreamInfo(int index, AudioStreamInfo& info) const
 
 void CDSPlayer::GetSubtitleStreamInfo(int index, SubtitleStreamInfo& info) const
 {
-  std::string strStreamName;
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+  {
+    dvd->SubtitleInfo(index, info);
+    return;
+  }
+
   if (CStreamsManager::Get())
   {
     CStreamsManager::Get()->GetSubtitleInfo(index, info);
@@ -687,6 +726,9 @@ void CDSPlayer::SetAudioStream(int iStream)
 
 float CDSPlayer::GetSubTitleDelay()
 {
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+    return dvd->SubtitleDelay();
+
   float fValue = 0.0f;
 
   if (CStreamsManager::Get())
@@ -698,6 +740,15 @@ float CDSPlayer::GetSubTitleDelay()
 void CDSPlayer::SetSubTitleDelay(float fValue)
 {
   m_processInfo->GetVideoSettingsLocked().SetAudioDelay(fValue);
+
+  if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+  {
+    // A DVD's subtitles are put on screen from here rather than by any filter, so the delay
+    // has to be applied where they are timed
+    dvd->DelaySubtitles(fValue);
+    return;
+  }
+
   if (CStreamsManager::Get())
     CStreamsManager::Get()->SetSubTitleDelay(fValue);
 }
@@ -903,7 +954,20 @@ void CDSPlayer::Process()
     if (CStreamsManager::Get()) CStreamsManager::Get()->SelectBestSubtitle(m_currentFileItem.GetPath());
     CLog::Log(LOGDEBUG, "{} - subtitle stream chosen", __FUNCTION__);
     SetSubTitleDelay(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleDelay);
-    SetSubtitleVisible(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleOn);
+
+    // A disc has already decided this for the programme it is playing, and its decision is the
+    // more specific one: a disc whose menu offers "with subtitles" turns them on itself, and
+    // starting from Kodi's default would take them straight back off again. The viewer's own
+    // choice from the OSD still overrides it from here on.
+    if (CDSDvdNavigator* dvd = CDSDvdNavigator::Get())
+    {
+      const bool wanted = dvd->DiscWantsSubtitles();
+      CLog::Log(LOGINFO, "{} - the disc asks for subtitles {}", __FUNCTION__,
+                wanted ? "on" : "off");
+      SetSubtitleVisible(wanted);
+    }
+    else
+      SetSubtitleVisible(CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleOn);
 
     CMediaSettings::GetInstance().GetAtStartVideoSettings() = CMediaSettings::GetInstance().GetDefaultVideoSettings();
 

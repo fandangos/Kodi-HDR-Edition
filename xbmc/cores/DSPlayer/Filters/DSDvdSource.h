@@ -136,6 +136,22 @@ public:
   static void NoteGraphRunning();
   /*! \} */
 
+  /*!
+   * \brief Where the disc has been read to, and where the splitter has read to, in bytes
+   *
+   * The gap between them is the readahead, which is the greater part of the delay between a
+   * byte coming off the disc and the picture it belongs to reaching the screen: measured at
+   * four megabytes, which on a DVD playing at six megabits is five and a quarter seconds. That
+   * matters because a subtitle has to be put on screen with its own frame, and nothing else
+   * says how far ahead of that frame the bytes carrying it were read.
+   *
+   * Both -1 when no stream is feeding a graph.
+   * \{
+   */
+  static LONGLONG Produced();
+  static LONGLONG SplitterPosition();
+  /*! \} */
+
   // CAsyncStream
   HRESULT SetPointer(LONGLONG llPos) override;
   HRESULT Read(PBYTE pbBuffer, DWORD dwBytesToRead, BOOL bAlign, LPDWORD pdwBytesRead) override;

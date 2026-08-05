@@ -38,9 +38,13 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
+
+struct SubtitleStreamInfo;
 
 class CDVDInputStreamNavigator;
 class CDVDOverlayGroup;
@@ -279,6 +283,65 @@ public:
    */
   void MenuPlaneSize(int& width, int& height) const;
 
+  /*! \name The disc's own subtitles
+   *
+   * A DVD's subtitles are not the splitter's to offer, and leaving them to it is why they never
+   * worked. They are subpicture packets inside the very same program stream the splitter is
+   * handed, they appear only when there is something to say -- ninety seconds into the feature
+   * on the disc this was found on -- and the sixteen colours they are drawn from live in the
+   * disc's tables rather than anywhere in the stream. So LAV Splitter scans the opening of a
+   * film, finds no subpicture at all, and builds a graph with no subtitle pin: nothing to list,
+   * nothing to choose and nothing on screen, however long the viewer waits.
+   *
+   * The disc's own tables know all of it -- how many streams there are, what language each is,
+   * which one it wants and whether it wants them shown -- and the menus already prove the
+   * pipeline that draws subpicture over madVR. So the tracks are the disc's, and the pictures
+   * are decoded and put on screen here, exactly as a menu is.
+   * \{
+   */
+  int SubtitleCount() const;
+  void SubtitleInfo(int index, SubtitleStreamInfo& info) const;
+  int CurrentSubtitle() const;
+  void ChooseSubtitle(int index);
+  bool SubtitlesVisible() const { return m_subtitlesOn; }
+  void ShowSubtitles(bool visible);
+
+  //! \brief Whether the disc itself asked for subtitles on what it is playing now
+  bool DiscWantsSubtitles() const;
+
+  //! \brief Kodi's own subtitle delay, in seconds, applied where the subtitles are timed
+  //! \{
+  float SubtitleDelay() const { return m_subtitleDelay.load() / 10000000.0f; }
+  void DelaySubtitles(float seconds) { m_subtitleDelay = static_cast<int64_t>(seconds * 1e7); }
+  //! \}
+  /*! \} */
+
+  /*!
+   * \brief Note that the stream the splitter will be given starts about here
+   *
+   * A subtitle carries the disc's own timestamp, and the splitter numbers the stream it is
+   * given from zero -- so the two only line up once the stream's first timestamp is known.
+   * The source filter is the only thing that knows which block that is: it reads ahead through
+   * whatever the disc passes on the way and throws it away, and where it finally stops throwing
+   * away is where the presented stream begins.
+   *
+   * Called for each block that goes into an empty stream, so a restart moves the origin with it.
+   */
+  void NoteStreamOrigin();
+
+  /*!
+   * \brief The frame the renderer is putting on screen, as the graph timed it
+   *
+   * A subtitle has to appear with the picture it belongs to, and this is the only honest clock
+   * for that. The graph's own position cannot answer it: LAV Splitter clamps that to a duration
+   * a navigated disc does not have, and it sits at the end for the whole of a film -- measured
+   * at 12.045s of 12.045s while the renderer was two minutes in.
+   *
+   * Called from the renderer's thread, so it only records the number. What it means is worked
+   * out on the thread that draws, see AdvanceSubtitles.
+   */
+  static void NoteFrameTime(int64_t frameStart);
+
   // IVideoPlayer
   int OnDiscNavResult(void* pData, int iMessage) override;
   void GetVideoResolution(unsigned int& width, unsigned int& height) override;
@@ -307,6 +370,40 @@ private:
 
   //! \brief Take the menu off the screen
   void ClearMenu();
+
+  /*!
+   * \brief Decode one subpicture packet of the feature and queue what it turns into
+   *
+   * The same decoder a menu goes through, but the answer is treated quite differently. A menu
+   * is one picture that stands until the disc replaces it; a subtitle is a picture with a
+   * moment to appear and a moment to go, and putting one on screen as though it were a menu is
+   * what left a film's subtitles stuck over the picture the first time this was tried.
+   */
+  void CollectSubtitle(const uint8_t* packet, size_t length, double pts);
+
+  /*!
+   * \brief Put on screen whatever subtitle belongs to the frame being drawn, and take off
+   *        whatever has had its time
+   *
+   * Called from the thread that draws rather than from the one that decodes, because it is the
+   * drawing that has to be in time.
+   */
+  void AdvanceSubtitles(int64_t frameStart);
+
+  //! \brief Throw away subtitles decoded for something that is no longer being played
+  void ClearSubtitles();
+
+  /*!
+   * \brief A moment on the disc's clock, as the renderer will number it
+   * \return The renderer's own units, or -1 while there is not yet enough to say
+   */
+  int64_t Where(double discTime) const;
+
+  //! \brief Note that the stream has reached this timestamp at this many bytes
+  void MarkStream(double videoPts);
+
+  //! \brief How far into the stream the splitter has read, on the disc's clock, -1 if unknown
+  double WhatTheSplitterIsReading() const;
 
   /*!
    * \brief Move the selection and say what the disc made of it
@@ -401,6 +498,68 @@ private:
   std::shared_ptr<CDVDOverlaySpu> m_menu;
   //! The button the highlight was last drawn for, so an unchanged menu is not redrawn
   int m_buttonDrawn{-1};
+
+  //! The programme the disc's subtitle tables were last reported for, and how many packets of
+  //! each subpicture stream have gone past. Only ever touched from the thread reading the disc.
+  int64_t m_surveyed{-1};
+  std::map<int, uint64_t> m_subpictureSeen;
+
+  /*!
+   * Decodes the feature's subtitles. A decoder of its own rather than the menu's: the two are
+   * the same stream but never the same picture, and half of one packet followed by half of the
+   * other decodes to nothing at all. Only ever touched from the thread reading the disc.
+   */
+  CDVDDemuxSPU m_subs;
+
+  //! Whether subtitles are being shown, and which stream. The stream is an index into the
+  //! disc's own table; -1 leaves the choice to the disc, which is where it starts.
+  std::atomic<bool> m_subtitlesOn{false};
+  std::atomic<int> m_subtitleWanted{-1};
+
+  //! Where the stream handed to the splitter begins on the disc's clock, in DVD_TIME_BASE
+  //! units, and the first timestamp of the block just read. Reading thread only. The smallest
+  //! is kept while the answer settles, see NoteStreamOrigin.
+  double m_origin{-1.0};
+  double m_originSmallest{-1.0};
+  bool m_originWanted{true};
+  uint32_t m_originBlocks{0};
+  double m_blockPts{-1.0};
+  //! The newest video timestamp read off the disc, which is where the stream being handed to
+  //! the splitter has got to
+  double m_lastVideoPts{-1.0};
+
+  //! Where the stream had got to at a given byte of it, so the splitter's read pointer can be
+  //! turned back into a moment. Reading thread only, except for the lookup, which only ever
+  //! reads and can be a mark out of date without mattering.
+  struct SMark
+  {
+    long long at;
+    double pts;
+  };
+  std::deque<SMark> m_marks;
+
+  //! Kodi's own subtitle delay, in the renderer's units
+  std::atomic<int64_t> m_subtitleDelay{0};
+  //! The timestamp that went with the bytes put aside for the next graph, see Carry()
+  double m_carriedPts{-1.0};
+
+  //! A subtitle decoded, and when the renderer should have it on and off screen. Both in the
+  //! graph's own units, so the drawing thread has nothing to work out.
+  struct SPending
+  {
+    int64_t from;
+    int64_t until;
+    std::shared_ptr<CDVDOverlaySpu> picture;
+  };
+
+  //! Filled by the thread reading the disc, emptied by the thread drawing
+  mutable CCriticalSection m_subtitleLock;
+  std::deque<SPending> m_pending;
+  std::shared_ptr<CDVDOverlaySpu> m_showing;
+  int64_t m_showingUntil{0};
+  uint64_t m_subtitlesShown{0};
+  uint64_t m_subtitlesDecoded{0};
+  uint64_t m_subtitlesMissed{0};
 
   //! Most recent menu the disc asked to be drawn, waiting to be picked up by the renderer
   mutable CCriticalSection m_overlayLock;

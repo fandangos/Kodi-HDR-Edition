@@ -100,15 +100,12 @@ bool CPlayerController::OnAction(const CAction &action)
       case ACTION_PREV_SUBTITLE:
       case ACTION_CYCLE_SUBTITLE:
       {
-#if HAS_DS_PLAYER
-		  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_DSPLAYER_VIDEOSUBSEX))
-		  {
-#if TODO
-			  CGUIDialogAudioSubtitleSettings::ShowSubsSelector();
-#endif
-			  return true;
-		  }
-#endif
+        // DSPlayer's "expanded selector" used to open a dialog of its own here. That dialog
+        // went when CGUIDialogAudioSubtitleSettings was split in two and the call was left
+        // behind a #if TODO -- so with the setting on, which is its default, the key opened
+        // nothing and swallowed the action, and there was no way at all to change subtitle
+        // track while a file played. Cycling is what the key is for until there is a selector
+        // to open again.
         if (appPlayer->GetSubtitleCount() == 0)
           return true;
 

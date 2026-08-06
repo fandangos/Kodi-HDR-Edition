@@ -823,7 +823,7 @@ HRESULT CFGLoader::InsertFilter(const std::string& filterName, SFilterInfos& f)
   return hr;
 }
 
-void CFGLoader::SettingOptionsDSVideoRendererFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current, void* data)
+void CFGLoader::SettingOptionsDSVideoRendererFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current)
 {
   CLog::Log(LOGINFO, "{}", __FUNCTION__);
 
@@ -849,7 +849,7 @@ void CFGLoader::SettingOptionsDSVideoRendererFiller(const std::shared_ptr<const 
 
 }
 
-void CFGLoader::SettingOptionsDSAudioRendererFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current, void* data)
+void CFGLoader::SettingOptionsDSAudioRendererFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current)
 {
 
   list.push_back(StringSettingOption("Internal Audio Renderer (Sanear)", CGraphFilters::INTERNAL_SANEAR));
@@ -869,7 +869,7 @@ void CFGLoader::SettingOptionsDSAudioRendererFiller(const std::shared_ptr<const 
 
 }
 
-void CFGLoader::SettingOptionsSanearDevicesFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current, void* data)
+void CFGLoader::SettingOptionsSanearDevicesFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current)
 {
   //ADD every device here
   

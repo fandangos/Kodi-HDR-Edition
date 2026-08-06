@@ -1,4 +1,21 @@
 /*
+ * Consumer-side copy of libdvdnav's public headers, with the enumerators the
+ * Windows SDK also declares (strmif.h, IDvdControl2's DVD_MENU_ID and DVD_DOMAIN)
+ * prefixed with an underscore. DSPlayer includes the DirectShow headers and these in
+ * the same translation units and they cannot both use the unprefixed names.
+ *
+ * The rename is deliberately NOT applied to libdvdnav itself: enumerators are a
+ * compile-time matter and the library's ABI is plain integers, so the library builds
+ * unpatched with its own names while Kodi consumes these.
+ *
+ * These are reached because DllDvdNav.h includes them in QUOTES, which resolves
+ * relative to the including file before any -I path. Change those to angle brackets
+ * and the depends copy silently wins and the build breaks in strmif.h.
+ *
+ * Regenerate from project/BuildDependencies/x64/include/dvdnav after a libdvdnav bump.
+ */
+
+/*
  * Copyright (C) 2000, 2001 Björn Englund, Håkan Hjort
  *
  * This file is part of libdvdnav, a DVD navigation library. It is a modified
@@ -23,7 +40,8 @@
  * Various useful structs and enums for DVDs.
  */
 
-#pragma once
+#ifndef LIBDVDNAV_DVD_TYPES_H
+#define LIBDVDNAV_DVD_TYPES_H
 
 #include <stdint.h>
 
@@ -32,8 +50,8 @@
  * (see dvdnav_menu_call())
  */
 typedef enum {
-  /* When used in VTS domain, DVD_MENU_Escape behaves like DVD_MENU_Root,
-   * but from within a menu domain, DVD_MENU_Escape resumes playback. */
+  /* When used in VTS domain, _DVD_MENU_Escape behaves like _DVD_MENU_Root,
+   * but from within a menu domain, _DVD_MENU_Escape resumes playback. */
   _DVD_MENU_Escape     = 0,
   _DVD_MENU_Title      = 2,
   _DVD_MENU_Root       = 3,
@@ -47,19 +65,17 @@ typedef enum {
  * Stream Types
  * (see dvdnav_get_number_of_streams())
  */
-typedef enum
-{
+typedef enum {
   DVD_SUBTITLE_STREAM = 0,
-  DVD_AUDIO_STREAM = 1
+  DVD_AUDIO_STREAM    = 1
 } dvdnav_stream_type_t;
 
 /* Domain */
-typedef enum
-{
-  _DVD_DOMAIN_FirstPlay = 1, /* First Play Domain */
-  DVD_DOMAIN_VTSTitle = 2, /* Video Title Set Domain */
-  DVD_DOMAIN_VMGM = 4, /* Video Manager Domain */
-  DVD_DOMAIN_VTSMenu = 8 /* Video Title Set Menu Domain */
+typedef enum {
+  _DVD_DOMAIN_FirstPlay = 1,  /* First Play Domain */
+  DVD_DOMAIN_VTSTitle  = 2,  /* Video Title Set Domain */
+  DVD_DOMAIN_VMGM      = 4,  /* Video Manager Domain */
+  DVD_DOMAIN_VTSMenu   = 8   /* Video Title Set Menu Domain */
 } DVDDomain_t;
 
 /*
@@ -67,7 +83,7 @@ typedef enum
  * (see dvdnav_get_highlight_area())
  */
 typedef struct {
-  uint32_t palette; /* The CLUT entries for the highlight palette
+  uint32_t palette;     /* The CLUT entries for the highlight palette
                            (4-bits per entry -> 4 entries) */
   uint16_t sx,sy,ex,ey; /* The start/end x,y positions */
   uint32_t pts;         /* Highlight PTS to match with SPU */
@@ -77,16 +93,15 @@ typedef struct {
 } dvdnav_highlight_area_t;
 
 /* The audio format */
-typedef enum
-{
-  DVD_AUDIO_FORMAT_AC3 = 0,
-  DVD_AUDIO_FORMAT_UNKNOWN_1 = 1,
-  DVD_AUDIO_FORMAT_MPEG = 2,
-  DVD_AUDIO_FORMAT_MPEG2_EXT = 3,
-  DVD_AUDIO_FORMAT_LPCM = 4,
-  DVD_AUDIO_FORMAT_UNKNOWN_5 = 5,
-  DVD_AUDIO_FORMAT_DTS = 6,
-  DVD_AUDIO_FORMAT_SDDS = 7
+typedef enum {
+  DVD_AUDIO_FORMAT_AC3        = 0,
+  DVD_AUDIO_FORMAT_UNKNOWN_1  = 1,
+  DVD_AUDIO_FORMAT_MPEG       = 2,
+  DVD_AUDIO_FORMAT_MPEG2_EXT  = 3,
+  DVD_AUDIO_FORMAT_LPCM       = 4,
+  DVD_AUDIO_FORMAT_UNKNOWN_5  = 5,
+  DVD_AUDIO_FORMAT_DTS        = 6,
+  DVD_AUDIO_FORMAT_SDDS       = 7
 } DVDAudioFormat_t;
 
 /* the following types are currently unused */
@@ -280,3 +295,5 @@ typedef struct {
 typedef int DVDVideoCompression_t;
 
 #endif
+
+#endif /* LIBDVDNAV_DVD_TYPES_H */

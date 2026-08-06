@@ -435,15 +435,6 @@ void CMediaSettings::OnSettingAction(const std::shared_ptr<const CSetting>& sett
   }
 }
 
-void CMediaSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
-{
-  if (!setting)
-    return;
-
-  if (setting->GetId() == CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS)
-    CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "OnRefresh");
-}
-
 int CMediaSettings::GetWatchedMode(const std::string &content) const
 {
   std::unique_lock lock(m_critical);

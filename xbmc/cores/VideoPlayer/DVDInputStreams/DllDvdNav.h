@@ -10,8 +10,12 @@
 
 #include <stdint.h>
 
-#include <dvdnav/dvdnav.h>
-#include <dvdnav/dvd_types.h>
+// QUOTES, not angle brackets: these resolve relative to this file first, reaching the
+// vendored copy in dvdnav/ whose enumerators are prefixed so they do not collide with the
+// ones the Windows SDK declares in strmif.h. Angle brackets find the depends-built headers
+// instead and every DSPlayer translation unit then fails to compile.
+#include "dvdnav/dvdnav.h"
+#include "dvdnav/dvd_types.h"
 
 #include "DynamicDll.h"
 

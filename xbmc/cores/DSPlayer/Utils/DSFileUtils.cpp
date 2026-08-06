@@ -287,7 +287,7 @@ void CollectEverySubtitleIn(const std::string& folder, std::vector<std::string>&
   CFileItemList inSubFolders;
   for (const auto& item : items)
   {
-    if (!item->m_bIsFolder)
+    if (!item->IsFolder())
       continue;
 
     for (const auto& subFolder : subFolders)
@@ -304,7 +304,7 @@ void CollectEverySubtitleIn(const std::string& folder, std::vector<std::string>&
 
   for (const auto& item : items)
   {
-    if (item->m_bIsFolder)
+    if (item->IsFolder())
       continue;
 
     const std::string& path = item->GetPath();

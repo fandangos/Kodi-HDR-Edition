@@ -354,7 +354,7 @@ void CGUIDialogDSFilters::ShowDSFiltersList()
     CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_DIALOG_DSFILTERS);
 }
 
-void CGUIDialogDSFilters::TypeOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current, void* data)
+void CGUIDialogDSFilters::TypeOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current)
 {
   list.emplace_back("", "[null]");
   list.emplace_back("Source Filter (source)", "source");

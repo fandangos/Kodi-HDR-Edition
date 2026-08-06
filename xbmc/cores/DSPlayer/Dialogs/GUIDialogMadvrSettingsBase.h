@@ -42,8 +42,7 @@ protected:
   static void SetSection(int iSectionId, int label = -1 ) { m_iSectionId = iSectionId; m_label = label; }
   static void MadvrSettingsOptionsString(const std::shared_ptr<const CSetting>& setting,
     StringSettingOptions& list,
-    std::string& current,
-    void* data);
+    std::string& current);
   static int m_iSectionId;
   static int m_label;
 

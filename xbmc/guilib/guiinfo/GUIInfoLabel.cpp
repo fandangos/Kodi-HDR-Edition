@@ -194,7 +194,7 @@ bool CGUIInfoLabel::IsConstant() const
 #if HAS_DS_PLAYER
 std::string replaceLabel(const std::string &strInput, const std::string &strFind, const std::string &strReplace)
 {
-  std::string strLabel = g_localizeStrings.Get(atoi(strInput.c_str()));
+  std::string strLabel = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(atoi(strInput.c_str()));
   StringUtils::ToLower(strLabel);
   if (strLabel.find(strFind) != std::string::npos)
     return strReplace;
@@ -203,7 +203,6 @@ std::string replaceLabel(const std::string &strInput, const std::string &strFind
 }
 #endif
 
-bool CGUIInfoLabel::ReplaceSpecialKeywordReferences(const std::string &strInput, const std::string &strKeyword, const StringReplacerFunc &func, std::string &strOutput)
 bool CGUIInfoLabel::ReplaceSpecialKeywordReferences(const std::string& strInput,
                                                     const std::string& strKeyword,
                                                     const StringReplacerFunc& func,

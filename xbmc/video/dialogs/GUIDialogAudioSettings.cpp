@@ -518,7 +518,7 @@ void CGUIDialogAudioSettings::ShowAudioSelector()
 
   if (count <= 0)
   {
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(460), g_localizeStrings.Get(55059), 2000, false, 300);
+    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(460), CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(55059), 2000, false, 300);
     return;
   }
 

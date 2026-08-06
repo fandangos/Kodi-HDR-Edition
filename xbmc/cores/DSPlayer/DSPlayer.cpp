@@ -34,7 +34,7 @@
 #include "Filters/RendererSettings.h"
 
 #include "windowing/windows/winsystemwin32.h" //Important needed to get the right hwnd
-#include "xbmc/GUIInfoManager.h"
+#include "GUIInfoManager.h"
 #include "utils/SystemInfo.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"

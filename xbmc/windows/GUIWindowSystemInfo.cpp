@@ -337,7 +337,7 @@ void CGUIWindowSystemInfo::LoadPrivacyPolicy()
 #if HAS_DS_PLAYER
 void CGUIWindowSystemInfo::SetControlLabel(int id, const char *format, int label, const std::string &info)
 {
-  std::string tmpStr = StringUtils::Format(format, g_localizeStrings.Get(label).c_str(),
+  std::string tmpStr = StringUtils::Format(format, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(label).c_str(),
     info.c_str());
   SET_CONTROL_LABEL(id, tmpStr);
 }

@@ -494,11 +494,10 @@ void CGUIDialogMadvrSettingsBase::SaveMadvrSettings()
   }
 }
 
-//void CGUIDialogMadvrSettingsBase::MadvrSettingsOptionsString(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data)
+//void CGUIDialogMadvrSettingsBase::MadvrSettingsOptionsString(const CSetting *setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current)
 void CGUIDialogMadvrSettingsBase::MadvrSettingsOptionsString(const std::shared_ptr<const CSetting>& setting,
   StringSettingOptions& list,
-  std::string& current,
-  void* data)
+  std::string& current)
 {
   CMadvrSettings &madvrSettings = CMediaSettings::GetInstance().GetCurrentMadvrSettings();
 

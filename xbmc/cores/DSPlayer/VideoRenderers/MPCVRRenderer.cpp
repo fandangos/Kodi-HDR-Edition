@@ -466,7 +466,7 @@ float CMPCVRRenderer::GetAspectRatio() const
   return 0.0f;
 }
 
-void CMPCVRRenderer::SettingOptionsRenderMethodsFiller(const std::shared_ptr<const CSetting>& setting, std::vector<IntegerSettingOption>& list, int& current, void* data)
+void CMPCVRRenderer::SettingOptionsRenderMethodsFiller(const std::shared_ptr<const CSetting>& setting, std::vector<IntegerSettingOption>& list, int& current)
 {
   CLog::Log(LOGDEBUG, "{}", __FUNCTION__);
 }

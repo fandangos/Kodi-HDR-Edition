@@ -52,7 +52,10 @@ bool CEdition::IsSet() const
   return (!editionName.empty() && editionNumber >= 0);
 }
 
-CDSPlayerDatabase::CDSPlayerDatabase(void)
+// Upstream deleted CDatabase's default constructor; every database now names its type, which
+// is the label the upgrade reporting uses. This one is the player's own, so it is not in
+// Kodi's DatabaseTypes.h.
+CDSPlayerDatabase::CDSPlayerDatabase(void) : CDatabase("dsplayer")
 {
 }
 

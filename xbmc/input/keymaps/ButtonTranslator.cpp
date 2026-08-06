@@ -8,6 +8,8 @@
 
 #include "ButtonTranslator.h"
 
+#include "settings/SettingsComponent.h"
+
 #include "AppTranslator.h"
 #include "FileItem.h"
 #include "FileItemList.h"

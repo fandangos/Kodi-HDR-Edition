@@ -88,18 +88,16 @@ public:
   void LoadDsXML(xmlType type, TiXmlElement* &pNode, bool forceCreate = false);
   void SaveDsXML(xmlType type);
   void GetPath(xmlType type, std::string &xmlFile, std::string &xmlNode, std::string &xmlRoot);
-  static void AllFiltersConfigOptionFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current, void* data);
+  static void AllFiltersConfigOptionFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current);
   static void ShadersOptionFiller(const std::shared_ptr<const CSetting>& setting,
     StringSettingOptions& list,
-    std::string& current,
-    void* data);
+    std::string& current);
   static void ShadersScaleOptionFiller(const std::shared_ptr<const CSetting>& setting,
     StringSettingOptions& list,
-    std::string& current,
-    void* data);
-  static void DSFilterOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current, void* data);
-  static void BoolOptionFiller(std::shared_ptr<const CSetting>& setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data);
-  static void PriorityOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current, void* data);
+    std::string& current);
+  static void DSFilterOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current);
+  static void BoolOptionFiller(std::shared_ptr<const CSetting>& setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current);
+  static void PriorityOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current);
   static bool compare_by_word(const StringSettingOption& lhs, const StringSettingOption& rhs);
   void GetFilterList(xmlType type, std::vector<StringSettingOption> &list);
   TiXmlElement* KeepSelectedNode(TiXmlElement* pNode, const std::string &subNodeName);

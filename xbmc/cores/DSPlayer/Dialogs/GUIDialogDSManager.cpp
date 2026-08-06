@@ -256,7 +256,7 @@ const bool Contains(std::vector<T>& Vec, const T& Element)
   return false;
 }
 
-void CGUIDialogDSManager::AllFiltersConfigOptionFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current, void* data)
+void CGUIDialogDSManager::AllFiltersConfigOptionFiller(const std::shared_ptr<const CSetting>& setting, std::vector<StringSettingOption>& list, std::string& current)
 {
   std::vector<StringSettingOption> listUserdata;
   std::vector<StringSettingOption> listHome;
@@ -288,8 +288,7 @@ void CGUIDialogDSManager::AllFiltersConfigOptionFiller(const std::shared_ptr<con
 
 void CGUIDialogDSManager::ShadersOptionFiller(const std::shared_ptr<const CSetting>& setting,
   StringSettingOptions& list,
-  std::string& current,
-  void* data)
+  std::string& current)
 {
   list.emplace_back("", "[null]");
 
@@ -319,14 +318,13 @@ void CGUIDialogDSManager::ShadersOptionFiller(const std::shared_ptr<const CSetti
 
 void CGUIDialogDSManager::ShadersScaleOptionFiller(const std::shared_ptr<const CSetting>& setting,
   StringSettingOptions& list,
-  std::string& current,
-  void* data)
+  std::string& current)
 {
   list.emplace_back("Pre-resize", "preresize");
   list.emplace_back("Post-resize", "postresize");
 }
 
-void CGUIDialogDSManager::DSFilterOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current, void* data)
+void CGUIDialogDSManager::DSFilterOptionFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current)
 {
   CDSFilterEnumerator p_dfilter;
   std::vector<DSFiltersInfo> filterList;
@@ -338,7 +336,7 @@ void CGUIDialogDSManager::DSFilterOptionFiller(const std::shared_ptr<const CSett
     list.emplace_back(it.lpstrName, it.lpstrGuid);
 }
 
-void CGUIDialogDSManager::BoolOptionFiller(std::shared_ptr<const CSetting>& setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current, void *data)
+void CGUIDialogDSManager::BoolOptionFiller(std::shared_ptr<const CSetting>& setting, std::vector< std::pair<std::string, std::string> > &list, std::string &current)
 {
   list.emplace_back("[null]", "[null]");
   list.emplace_back("true", "true");
@@ -347,8 +345,7 @@ void CGUIDialogDSManager::BoolOptionFiller(std::shared_ptr<const CSetting>& sett
 
 void CGUIDialogDSManager::PriorityOptionFiller(const std::shared_ptr<const CSetting>& setting,
   StringSettingOptions& list,
-  std::string& current,
-  void* data)
+  std::string& current)
 {
   list.emplace_back("", "[null]");
 

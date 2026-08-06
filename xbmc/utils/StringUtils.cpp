@@ -498,55 +498,6 @@ static int isspace_c(char c)
 }
 
 std::string& StringUtils::TrimLeft(std::string& str) noexcept
-
-// -- Wide-string helpers kept from the DSPlayer fork. DirectShow works in UTF-16,
-// -- so these have callers that the string_view overloads above cannot serve.
-int StringUtils::CompareNoCase(const std::wstring& str1, const std::wstring& str2, size_t n /* = 0 */)
-{
-  return CompareNoCase(str1.c_str(), str2.c_str(), n);
-}
-
-int StringUtils::CompareNoCase(const wchar_t* s1, const wchar_t* s2, size_t n /* = 0 */)
-{
-  wchar_t c2; // we need only one char outside the loop
-  size_t index = 0;
-  do
-  {
-    const wchar_t c1 = *s1++; // const local variable should help compiler to optimize
-    c2 = *s2++;
-    index++;
-    if (c1 != c2 && ::tolower(c1) != ::tolower(c2)) // This includes the possibility that one of the characters is the null-terminator, which implies a string mismatch.
-      return ::tolower(c1) - ::tolower(c2);
-  } while (c2 != '\0' &&
-    index != n); // At this point, we know c1 == c2, so there's no need to test them both.
-  return 0;
-}
-
-std::wstring StringUtils::WLeft(const std::wstring& str, size_t count)
-{
-  count = std::max((size_t)0, std::min(count, str.size()));
-  return str.substr(0, count);
-}
-
-std::wstring& StringUtils::Trim(std::wstring& str)
-{
-  TrimLeft(str);
-  return TrimRight(str);
-}
-
-std::wstring& StringUtils::TrimLeft(std::wstring& str)
-{
-  str.erase(str.begin(),
-    std::find_if(str.begin(), str.end(), [](char s) { return isspace_c(s) == 0; }));
-  return str;
-}
-
-std::wstring& StringUtils::TrimRight(std::wstring& str)
-{
-  str.erase(std::find_if(str.rbegin(), str.rend(), [](char s) { return isspace_c(s) == 0; }).base(),
-    str.end());
-  return str;
-}
 {
   str.erase(str.begin(), std::ranges::find_if(str, [](char s) { return isspace_c(s) == 0; }));
   return str;
@@ -1957,3 +1908,53 @@ std::string StringUtils::CreateFromCString(const char* cstr)
 }
 
 } // namespace KODI::UTILS
+
+
+// -- Wide-string helpers kept from the DSPlayer fork. DirectShow works in UTF-16,
+// -- so these have callers that the string_view overloads above cannot serve.
+int StringUtils::CompareNoCase(const std::wstring& str1, const std::wstring& str2, size_t n /* = 0 */)
+{
+  return CompareNoCase(str1.c_str(), str2.c_str(), n);
+}
+
+int StringUtils::CompareNoCase(const wchar_t* s1, const wchar_t* s2, size_t n /* = 0 */)
+{
+  wchar_t c2; // we need only one char outside the loop
+  size_t index = 0;
+  do
+  {
+    const wchar_t c1 = *s1++; // const local variable should help compiler to optimize
+    c2 = *s2++;
+    index++;
+    if (c1 != c2 && ::tolower(c1) != ::tolower(c2)) // This includes the possibility that one of the characters is the null-terminator, which implies a string mismatch.
+      return ::tolower(c1) - ::tolower(c2);
+  } while (c2 != '\0' &&
+    index != n); // At this point, we know c1 == c2, so there's no need to test them both.
+  return 0;
+}
+
+std::wstring StringUtils::WLeft(const std::wstring& str, size_t count)
+{
+  count = std::max((size_t)0, std::min(count, str.size()));
+  return str.substr(0, count);
+}
+
+std::wstring& StringUtils::Trim(std::wstring& str)
+{
+  TrimLeft(str);
+  return TrimRight(str);
+}
+
+std::wstring& StringUtils::TrimLeft(std::wstring& str)
+{
+  str.erase(str.begin(),
+    std::find_if(str.begin(), str.end(), [](char s) { return isspace_c(s) == 0; }));
+  return str;
+}
+
+std::wstring& StringUtils::TrimRight(std::wstring& str)
+{
+  str.erase(std::find_if(str.rbegin(), str.rend(), [](char s) { return isspace_c(s) == 0; }).base(),
+    str.end());
+  return str;
+}

@@ -427,7 +427,7 @@ void CGUIDialogLAVVideo::OnSettingAction(const std::shared_ptr<const CSetting>& 
   }
 }
 
-void CGUIDialogLAVVideo::HWAccellIndexFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current, void* data)
+void CGUIDialogLAVVideo::HWAccellIndexFiller(const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list, std::string& current)
 {
   CLavSettings &lavSettings = CMediaSettings::GetInstance().GetCurrentLavSettings();
   TranslatableStringSettingOptions itt;
@@ -439,7 +439,7 @@ void CGUIDialogLAVVideo::HWAccellIndexFiller(const std::shared_ptr<const CSettin
   
 }
 
-void CGUIDialogLAVVideo::CodecsFiller(const std::shared_ptr<const CSetting>& setting, IntegerSettingOptions& list,  int& current,  void* data)
+void CGUIDialogLAVVideo::CodecsFiller(const std::shared_ptr<const CSetting>& setting, IntegerSettingOptions& list,  int& current)
 {
   list.emplace_back("h264", HWCodec_H264);
   list.emplace_back("VC1", HWCodec_VC1);
@@ -449,7 +449,7 @@ void CGUIDialogLAVVideo::CodecsFiller(const std::shared_ptr<const CSetting>& set
   list.emplace_back("VP9", HWCodec_VP9);
 }
 
-void CGUIDialogLAVVideo::ResolutionsFiller(const std::shared_ptr<const CSetting>& setting, IntegerSettingOptions& list, int& current,  void* data)
+void CGUIDialogLAVVideo::ResolutionsFiller(const std::shared_ptr<const CSetting>& setting, IntegerSettingOptions& list, int& current)
 {
   list.emplace_back("SD", LAVHWResFlag_SD);
   list.emplace_back("HD", LAVHWResFlag_HD);

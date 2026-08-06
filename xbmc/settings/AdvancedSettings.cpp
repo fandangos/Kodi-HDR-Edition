@@ -771,9 +771,10 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
           refreshOverride.fpsmax = fpsmax;
         }
 #if HAS_DS_PLAYER
+        // upstream renamed this local from "override" to "refreshOverride"
         std::string ignore;
         if (XMLUtils::GetString(pRefreshOverride, "ignore", ignore))
-          override.ignore = ignore;
+          refreshOverride.ignore = ignore;
 #endif
 
         float refresh;

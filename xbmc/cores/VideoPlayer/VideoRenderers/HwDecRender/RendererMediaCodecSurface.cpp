@@ -64,17 +64,15 @@ bool CRendererMediaCodecSurface::Configure(const VideoPicture &picture, float fp
   CalculateFrameAspectRatio(picture.iDisplayWidth, picture.iDisplayHeight);
   SetViewMode(m_videoSettings.m_ViewMode);
 
-  // Configure GUI/OSD for HDR PQ when display is in HDR PQ mode
-  if (picture.color_transfer == AVCOL_TRC_SMPTE2084)
-  {
-    if (CServiceBroker::GetWinSystem()->IsHDRDisplay())
-      CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(true);
-  }
-  else if (picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)
-  {
-    if (CServiceBroker::GetWinSystem()->GetDisplayHDRCapabilities().SupportsDolbyVision())
-      CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(true);
-  }
+  // NOTE: The per-shader PQ path (GraphicContext::SetTransferPQ -> KODI_TRANSFER_PQ,
+  // "rgb *= m_sdrPeak") only produces correct output when the GUI EGL surface is
+  // itself created as EGL_GL_COLORSPACE_BT2020_PQ (CWinSystemAndroidGLESContext::SetHDR).
+  // On the MediaCodec surface path the video is a separate Android surface and SetHDR
+  // is never called, so the GUI surface stays sRGB. Enabling SetTransferPQ here therefore
+  // scales the GUI/overlay with no matching surface encoding, which leaves BD-J menu
+  // overlays desaturated over HDR video (e.g. Blu-ray disc menus). Leave the GUI in sRGB
+  // and let SurfaceFlinger composite/tonemap it onto the HDR output.
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(false);
 
   return true;
 }

@@ -1,0 +1,28 @@
+<!-- Blu-ray / DVD disc-menu control for minimal Android TV remotes (e.g. NVIDIA Shield).
+
+     Interactive disc menus consume the D-pad and OK for their own navigation, which on a
+     minimal remote leaves no way to reach Kodi's own OSD or to stop the disc. These bindings
+     map the always-present transport keys instead:
+
+       Play/Pause -> Kodi video OSD (pause, stop, and audio/subtitle/chapter selection)
+       Back       -> stop the disc (also the default, listed here for clarity)
+       long OK    -> toggle the disc's own menu (ShowVideoMenu)
+
+     The D-pad and short OK are deliberately left untouched so disc-menu navigation is
+     unaffected. Play/Pause is remapped to the OSD because that is the one screen from which
+     everything else (including pause) is reachable on a remote with few buttons. -->
+<keymap>
+  <FullscreenVideo>
+    <keyboard>
+      <play_pause>OSD</play_pause>
+      <play>OSD</play>
+      <pause>OSD</pause>
+      <menu>OSD</menu>
+      <info>OSD</info>
+      <title>OSD</title>
+      <return mod="longpress">PlayerControl(ShowVideoMenu)</return>
+      <browser_back mod="longpress">Stop</browser_back>
+      <backspace mod="longpress">Stop</backspace>
+    </keyboard>
+  </FullscreenVideo>
+</keymap>

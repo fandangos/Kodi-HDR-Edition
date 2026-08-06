@@ -1,0 +1,19 @@
+Fix BD-J JVM search path on aarch64 (Android).
+
+libbluray's meson.build hardcodes java_arch='arm' for the aarch64 cpu family, so
+the compiled libjvm.so search paths become lib/arm/server, jre/lib/arm/server, ...
+A standard OpenJDK aarch64 JRE image (including the Android j2re-image we bundle)
+lays libjvm.so out under lib/aarch64/server, so libbluray never finds the VM and
+BD-J titles fail to start. Map aarch64 to the correct 'aarch64' JAVA_ARCH.
+
+--- a/meson.build
++++ b/meson.build
+@@ -83,7 +83,7 @@
+ if host_machine.cpu_family() == 'x86_64'
+     java_arch = 'amd64'
+ elif host_machine.cpu_family() == 'aarch64'
+-    java_arch = 'arm'
++    java_arch = 'aarch64'
+ elif host_machine.cpu_family() == 'x86'
+     java_arch = 'i386'
+ else

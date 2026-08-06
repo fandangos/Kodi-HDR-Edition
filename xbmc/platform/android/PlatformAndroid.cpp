@@ -38,6 +38,24 @@ bool CPlatformAndroid::InitStageOne()
 
   setenv("OS", "Linux", true); // for python scripts that check the OS
 
+  // Blu-ray BD-J: point libbluray at the OpenJDK JRE and BD-J jars bundled in the APK.
+  // The JRE ships in the APK assets as assets/j2re-image and Splash extracts the whole
+  // asset tree to special://xbmc (internal, persistent app storage, re-staged on every
+  // app update) before we run here. libbluray reads these with getenv() when a BD-J disc
+  // is opened, so they must be set in C: Kodi's Android CPython is built without
+  // putenv/setenv, so os.environ from a Python addon never reaches the process env.
+  const std::string jreHome = CSpecialProtocol::TranslatePath("special://xbmc/j2re-image/");
+  setenv("JAVA_HOME", jreHome.c_str(), 1);
+  setenv("JDK_HOME", jreHome.c_str(), 1);
+  setenv("LIBBLURAY_CP", jreHome.c_str(), 1); // BD-J jars (libbluray-*-j2se-<ver>.jar) live here
+  // -Xint (interpreter only) is REQUIRED on Android: HotSpot's JIT relies on catching
+  // SIGSEGV for implicit null checks / safepoint polling, but Android's ART installs its
+  // own signal chain (libsigchain) and does not hand those SIGSEGVs back to the JVM - it
+  // aborts the whole process ("exiting due to SIG_DFL handler for signal 11") when a BD-J
+  // Xlet exercises JIT-compiled code (e.g. a disc's chapter-select menu). The interpreter
+  // uses explicit null checks (proper NullPointerExceptions), avoiding the SEGV traps.
+  setenv("_JAVA_OPTIONS", ("-Xint -Djava.io.tmpdir=" + jreHome).c_str(), 1);
+
   CWinSystemAndroidGLESContext::Register();
 
   CAndroidPowerSyscall::Register();

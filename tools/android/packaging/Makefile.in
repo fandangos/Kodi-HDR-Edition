@@ -10,6 +10,11 @@ EXCLUDED_ADDONS =
 CMAKE_SOURCE_DIR = $(shell cd $(CURDIR)/../../..; pwd)
 APP_PACKAGE_DIR = $(subst .,/,@APP_PACKAGE@)
 
+# Blu-ray BD-J: OpenJDK JRE image (libjvm.so + libbluray BD-J jars) bundled into the
+# APK assets. Override with `make JRE_IMAGE_DIR=/path/to/j2re-image`. If the tree is
+# absent the APK still builds, just without BD-J menu support.
+JRE_IMAGE_DIR ?= $(CMAKE_SOURCE_DIR)/tools/android/packaging/jre/j2re-image
+
 ifeq ($(KODI_ANDROID_STORE_FILE),)
 export KODI_ANDROID_STORE_FILE:=$(HOME)/.android/debug.keystore
 endif
@@ -50,6 +55,16 @@ shared:
 
 sharedapk: shared | xbmc/assets
 	cp -rfp assets/* ./xbmc/assets
+	# Bundle the BD-J JRE straight into xbmc/assets, AFTER `shared` has stripped *.so
+	# from ./assets - otherwise libjvm.so would be deleted. Splash extracts this to
+	# special://xbmc/j2re-image at runtime (see PlatformAndroid.cpp).
+	@if [ -d "$(JRE_IMAGE_DIR)" ]; then \
+	  echo "Bundling BD-J JRE from $(JRE_IMAGE_DIR)"; \
+	  rm -rf ./xbmc/assets/j2re-image; \
+	  cp -rfp "$(JRE_IMAGE_DIR)" ./xbmc/assets/j2re-image; \
+	else \
+	  echo "WARNING: BD-J JRE not found at $(JRE_IMAGE_DIR) - APK will lack BD-J menu support"; \
+	fi
 
 python: | xbmc/assets
 	mkdir -p xbmc/assets/python@PYTHON_VERSION@/lib/

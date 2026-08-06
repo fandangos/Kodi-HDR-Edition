@@ -539,7 +539,21 @@ bool CDSPlayer::OpenFile(const CFileItem& file, const CPlayerOptions &options)
   }
 
   //this fix path with plugin:// in it because they are not always internet stream
-  if (fileItem.GetDynPath().length() > 0)
+  //
+  // ...except for a Blu-ray. Kodi now resolves a disc to its main playlist before a player
+  // ever sees it and leaves that in the dynamic path, so taking it here would hand this
+  // player bluray://<disc>/BDMV/PLAYLIST/00800.mpls -- the feature, opened directly, with no
+  // disc behind it and therefore no menus at all, which is the one thing this player exists
+  // to do. Keep the disc itself; the navigator asks the disc what to play.
+  if (URIUtils::IsBlurayPath(fileItem.GetDynPath()))
+  {
+    // Point the dynamic path back at the disc as well, not just the path: the graph loader
+    // hands the source filter GetDynPath() when the filter wants a Kodi path, so leaving the
+    // resolved playlist there sends it to the source anyway and the disc is opened as
+    // "bluray://.../PLAYLIST/00800.mpls", which libbluray cannot open and which has no menus.
+    fileItem.SetDynPath(fileItem.GetPath());
+  }
+  else if (fileItem.GetDynPath().length() > 0)
     fileItem.SetPath(fileItem.GetDynPath());
 
   if (URIUtils::IsInternetStream(fileItem.GetDynPath()))

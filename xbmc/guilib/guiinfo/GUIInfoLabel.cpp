@@ -238,8 +238,6 @@ bool CGUIInfoLabel::ReplaceSpecialKeywordReferences(const std::string& strInput,
 #else
       strOutput += func(strInput.substr(valuePos, endPos - valuePos));  // resolve and append value part
 #endif
-      strOutput +=
-          func(strInput.substr(valuePos, endPos - valuePos)); // resolve and append value part
       index = endPos + 1;
     }
     else

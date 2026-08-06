@@ -373,6 +373,19 @@ public:
   void ApplyWhatTheDiscAsked();
 
   /*!
+   * \brief Keep a subtitle file off the screen while the disc's menu is what is on it
+   *
+   * A subtitle file beside a disc is timed against the film, so during a menu it is neither
+   * right nor readable -- it lands over the buttons saying whatever the film says at that
+   * moment. A popup menu is the other way round: the film is still playing under it and
+   * taking its subtitles away for as long as the menu is up would lose lines of dialogue.
+   *
+   * Held rather than turned off. The viewer's own choice is untouched, so when the menu goes
+   * the subtitles come back exactly as they were, and the OSD never disagrees with the screen.
+   */
+  void HoldSubtitlesWhileAMenuIsUp();
+
+  /*!
    * \brief Send the keyboard to whichever of the disc and Kodi is not getting it now
    *
    * Where input goes is normally decided by whether the disc has a menu drawn, which is the
@@ -417,6 +430,16 @@ private:
   //! Whether the viewer wants subtitles at all on a disc that is navigating itself, which is
   //! one question where "which of the two is drawing" is another. See GetSubtitleVisible.
   bool m_discSubtitlesOn{false};
+
+  /*! Whether the subtitle filter is currently being held quiet because a menu is on screen,
+   *  what it was doing before the hold, and which graph's filter the hold was applied to.
+   *  The last of those matters because a disc moving from its menu to a title builds a new
+   *  graph with a new filter: a hold taken out against the menu's filter must not be
+   *  "released" against the film's, which was never held. See HoldSubtitlesWhileAMenuIsUp.
+   */
+  bool m_subtitlesHeldForMenu{false};
+  bool m_subtitleFilterWasDrawing{false};
+  const void* m_subtitlesHeldOn{nullptr};
 
   //! \brief How many subtitle files were found beside the disc that is playing
   int DiscSubtitleFileCount() const;

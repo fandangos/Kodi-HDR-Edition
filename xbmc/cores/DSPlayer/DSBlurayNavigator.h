@@ -159,6 +159,21 @@ public:
   bool MenuOnScreen() const override { return m_menuOnScreen; }
 
   /*!
+   * rief Whether the menu on screen is the thing being watched
+   *
+   * A Blu-ray draws its top menu, its start menu and its popup menu through the very same
+   * overlay pipeline, so nothing in the picture says which is which -- and libbluray's own
+   * BLURAY_TITLE_TOP_MENU is no help, because a disc's start menu is usually a title of its
+   * own like any other (Mortal Kombat II's is title 2, playlist 140).
+   *
+   * What does tell them apart is *when* the menu arrived. A menu that is up as its programme
+   * begins came with that programme and is the whole of it. A menu that appears after a
+   * programme has been running is drawn over something the viewer was already watching. A
+   * still is decisive on its own: a disc holding one picture is not playing a film under it.
+   */
+  bool MenuHoldsTheScreen() const override { return m_menuOnScreen && m_menuHoldsTheScreen; }
+
+  /*!
    * rief Take the menu off the screen
    *
    * The disc clears its own menus by sending an empty overlay, but it only does that while
@@ -392,6 +407,12 @@ private:
   //! MenuOnScreen. Read from the GUI thread, written from the disc's, hence atomic.
   //! Debounced: see NoteMenuVisibility.
   std::atomic<bool> m_menuOnScreen{false};
+  //! Whether the menu now on screen came up with its programme rather than over one already
+  //! playing, see MenuHoldsTheScreen. Decided once, when the menu appears.
+  std::atomic<bool> m_menuHoldsTheScreen{false};
+  //! When the disc last moved to another playlist, as a steady_clock millisecond count. Any
+  //! of three threads may notice the move, and the answer is read from a fourth.
+  std::atomic<int64_t> m_playlistStartedAt{0};
   //! When the disc last drew nothing while a menu was still believed to be up, or the epoch
   //! when it is drawing something. Guarded by m_overlayLock.
   std::chrono::steady_clock::time_point m_nothingVisibleSince{};

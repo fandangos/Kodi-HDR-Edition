@@ -46,6 +46,17 @@ public:
   virtual bool MenuOnScreen() const = 0;
 
   /*!
+   * \brief Whether the menu on screen is the thing being watched
+   *
+   * A narrower question than MenuOnScreen, and a different one: a top menu, a start menu or a
+   * language menu *is* what the viewer is looking at, while a popup menu is drawn over a film
+   * that goes on playing underneath. Nothing belonging to the film -- a subtitle file beside
+   * the disc above all -- has any business on screen during the first, and no reason to be
+   * taken away during the second.
+   */
+  virtual bool MenuHoldsTheScreen() const = 0;
+
+  /*!
    * \brief Whether the disc itself says its menu is visible
    *
    * A second opinion, worth logging beside the first: the two disagreeing is exactly the

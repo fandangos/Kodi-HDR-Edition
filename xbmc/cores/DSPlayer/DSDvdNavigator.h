@@ -207,6 +207,15 @@ public:
   bool DiscSaysMenuVisible() const override { return m_inMenu; }
 
   /*!
+   * \brief Whether the menu on screen is the thing being watched
+   *
+   * On a DVD it always is. There is no popup: the nearest thing a DVD has is `dvdnav_menu_call`,
+   * which *leaves* the title for the menu domain rather than drawing over it (see §-11), so a
+   * menu being up means the feature is not playing.
+   */
+  bool MenuHoldsTheScreen() const override { return m_inMenu; }
+
+  /*!
    * \brief Whether the disc is holding one picture until the viewer does something
    *
    * The disc promising that not one more byte is coming. Anything waiting on the disc for

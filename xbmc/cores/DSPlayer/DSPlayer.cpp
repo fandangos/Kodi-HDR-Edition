@@ -1205,6 +1205,89 @@ void CDSPlayer::ApplyWhatTheDiscAsked()
   }
 }
 
+void CDSPlayer::HoldSubtitlesWhileAMenuIsUp()
+{
+  CStreamsManager* streams = CStreamsManager::Get();
+  if (!streams)
+  {
+    // The graph has gone. Nothing to release against, and the next one starts its own filter
+    // from the viewer's setting.
+    m_subtitlesHeldForMenu = false;
+    m_subtitlesHeldOn = nullptr;
+    return;
+  }
+
+  IDSDiscNavigator* navigator = IDSDiscNavigator::Playing();
+
+  // Only a subtitle *file* is held. A disc's own subtitle track during a menu is the disc's
+  // business -- it turns them on and off itself through its registers, and a menu that wants
+  // a subtitle drawn on it has asked for exactly that. What has no business there is a file
+  // sitting next to the disc, which knows nothing about menus and is timed against the film.
+  const bool aFileIsShowing = CDSDvdNavigator::Get()
+                                  ? m_discSubtitleFile >= 0
+                                  : streams->SubtitleIsExternal(streams->GetSubtitle()) >= 0;
+
+  const bool hold = navigator && navigator->MenuHoldsTheScreen() && aFileIsShowing;
+
+  // A hold belongs to the filter it was taken out against. When the disc moves from its menu
+  // to a title the whole graph is built again, so a hold from before it is stale: forget it
+  // rather than releasing it, which would show subtitles the viewer had turned off.
+  if (m_subtitlesHeldForMenu && m_subtitlesHeldOn != streams)
+  {
+    m_subtitlesHeldForMenu = false;
+    m_subtitlesHeldOn = nullptr;
+  }
+
+  if (hold)
+  {
+    if (!m_subtitlesHeldForMenu)
+    {
+      // Asked before anything moves, and remembered rather than read back later: the question
+      // "is the filter drawing" is exactly what the hold is about to change the answer to.
+      m_subtitleFilterWasDrawing =
+          CDSDvdNavigator::Get() ? (m_discSubtitlesOn && m_discSubtitleFile >= 0)
+                                 : streams->GetSubtitleVisible();
+
+      if (m_subtitleFilterWasDrawing)
+        CLog::Log(LOGINFO, "{} - the disc's menu is on screen, holding the subtitle file back",
+                  __FUNCTION__);
+    }
+    else if (streams->GetSubtitleVisible())
+    {
+      // Something put the filter back to work while the menu was up -- the viewer turning
+      // subtitles on, or a graph choosing its tracks. Their choice stands for when the menu
+      // goes; it just does not draw now.
+      m_subtitleFilterWasDrawing = true;
+    }
+
+    if (streams->GetSubtitleVisible())
+      streams->ShowSubtitleFilter(false);
+
+    m_subtitlesHeldForMenu = true;
+    m_subtitlesHeldOn = streams;
+    return;
+  }
+
+  if (!m_subtitlesHeldForMenu)
+    return;
+
+  m_subtitlesHeldForMenu = false;
+  m_subtitlesHeldOn = nullptr;
+
+  // The hold may be over because the viewer chose one of the disc's own tracks rather than
+  // because the menu went. Whoever changed the selection has already set the filter for it --
+  // on a DVD, to quiet, so the disc and the filter do not draw the same subtitle twice.
+  // Putting back what was remembered here would undo that.
+  if (!aFileIsShowing)
+    return;
+
+  if (m_subtitleFilterWasDrawing)
+    CLog::Log(LOGINFO, "{} - the disc's menu has gone, the subtitle file may draw again",
+              __FUNCTION__);
+
+  streams->ShowSubtitleFilter(m_subtitleFilterWasDrawing);
+}
+
 void CDSPlayer::RebuildGraphForDisc()
 {
   CLog::Log(LOGINFO, "{} - the disc has moved to another programme, opening it again",
@@ -2639,6 +2722,9 @@ void CGraphManagementThread::Process()
       // Smaller things a disc's menu can ask for, which the graph survives: a chapter, a
       // language, subtitles on or off
       m_pPlayer->ApplyWhatTheDiscAsked();
+
+      // A subtitle file belongs to the film, not to the menu drawn over it
+      m_pPlayer->HoldSubtitlesWhileAMenuIsUp();
     }
 
     // This loop had no pause of its own and span flat out whenever the player was not in

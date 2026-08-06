@@ -48,6 +48,16 @@ constexpr auto STUCK_MENU_AFTER = std::chrono::seconds(30);
 //! to outlast any animation, short enough that the OSD is not held off after a real close.
 constexpr auto MENU_GONE_AFTER = std::chrono::milliseconds(500);
 
+//! How long after a programme starts a menu still counts as having come up *with* it, see
+//! MenuHoldsTheScreen.
+//!
+//! A menu playlist draws its buttons as soon as it has a picture to put them on -- 26 ms
+//! after the playlist changed on the disc measured here -- while a popup menu is the viewer
+//! reaching for the remote in the middle of something. Anything in between is a disc playing
+//! an animation before its menu settles, which is still a menu and not a film, so this is
+//! generous rather than tight.
+constexpr auto MENU_CAME_WITH_ITS_PROGRAMME = std::chrono::seconds(20);
+
 //! Every how many pixels the overlay is sampled when asking whether anything is visible.
 //! The smallest thing a disc has ever drawn to mean "a menu is up" is a button, and a button
 //! is tens of pixels across in both directions, so looking at one pixel in an 8x8 block
@@ -242,7 +252,23 @@ void CDSBlurayNavigator::NoteMenuVisibility(bool drawing)
 
     if (!m_menuOnScreen)
     {
-      CLog::Log(LOGDEBUG, "{} - the disc is now drawing a menu", __FUNCTION__);
+      // Decided here, while it is still knowable, and not asked again for as long as this
+      // menu lasts: once a popup has been up for a while it looks exactly like a menu that
+      // came with its programme.
+      const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now().time_since_epoch())
+                              .count();
+      const int64_t started = m_playlistStartedAt;
+      const bool withItsProgramme =
+          started == 0 ||
+          now - started < std::chrono::duration_cast<std::chrono::milliseconds>(
+                              MENU_CAME_WITH_ITS_PROGRAMME)
+                              .count();
+      m_menuHoldsTheScreen = withItsProgramme || m_still;
+
+      CLog::Log(LOGDEBUG, "{} - the disc is now drawing a menu, {}", __FUNCTION__,
+                m_menuHoldsTheScreen ? "which is what the viewer is looking at"
+                                     : "over a programme already playing");
       m_menuOnScreen = true;
 
       // A fresh answer, so any decision the viewer made about the old one has had its day
@@ -679,6 +705,13 @@ void CDSBlurayNavigator::NotePlaylist()
   const uint32_t previous = m_playlistSeen.exchange(playlist);
   if (previous == playlist)
     return;
+
+  // Noted even for the first playlist of all, which is never announced: a menu is told from a
+  // popup by how long its programme has been running, and the disc's first menu is the one
+  // most likely to be up before anything else has happened. See MenuHoldsTheScreen.
+  m_playlistStartedAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count();
 
   // Nothing to announce while the disc is still finding its way in and no graph has been
   // built on any of it yet

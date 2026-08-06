@@ -20,6 +20,7 @@
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
+#include "threads/CriticalSection.h"
 
 namespace
 {
@@ -430,15 +431,19 @@ void CDSBlurayNavigator::SeekPlaybackToChapter(int chapter)
     return;
   }
 
-  // Seconds from the start of the playlist, which is also where the stream being played
-  // begins, because it is that same playlist opened on its own
-  const int64_t seconds = input->GetChapterPos(chapter);
-  if (seconds < 0)
+  // Milliseconds from the start of the playlist, which is also where the stream being played
+  // begins, because it is that same playlist opened on its own.
+  //
+  // NOTE: upstream changed this from int64_t seconds to std::chrono::milliseconds. Taking
+  // .count() into the old `seconds` variable compiles perfectly and then multiplies by a
+  // thousand below, which sends every menu-driven chapter jump a thousand times too far.
+  const std::chrono::milliseconds pos = input->GetChapterPos(chapter);
+  if (pos < std::chrono::milliseconds::zero())
     return;
 
-  CLog::Log(LOGINFO, "{} - the disc's menu skipped to chapter {}, {} s in", __FUNCTION__, chapter,
-            seconds);
-  CDSPlayer::NoteDiscWantsSeek(seconds * 1000);
+  CLog::Log(LOGINFO, "{} - the disc's menu skipped to chapter {}, {:.1f} s in", __FUNCTION__,
+            chapter, pos.count() / 1000.0);
+  CDSPlayer::NoteDiscWantsSeek(pos.count());
 }
 
 int CDSBlurayNavigator::WhereTheDiscsAudioStreamSits(int pid) const

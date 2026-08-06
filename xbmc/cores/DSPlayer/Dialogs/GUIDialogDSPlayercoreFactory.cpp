@@ -26,7 +26,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -50,6 +50,7 @@
 #include "application/ApplicationPlayer.h"
 
 #include "guilib/GUIComponent.h"
+#include "resources/ResourcesComponent.h"
 
 #define SETTING_RULE_SAVE                   "dsplayercore.save"
 #define SETTING_RULE_ADD                    "dsplayercore.add"
@@ -339,7 +340,7 @@ void CGUIDialogDSPlayercoreFactory::ShowDSPlayercoreFactory()
     count++;
   }
 
-  pDlg->Add(g_localizeStrings.Get(66002).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(66002).c_str());
   pDlg->Open();
 
   selected = pDlg->GetSelectedItem();

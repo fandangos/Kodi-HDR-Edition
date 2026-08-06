@@ -109,7 +109,6 @@ public:
   CRenderInfo GetRenderInfo() override { return CRenderInfo(); }
   void Update() override { }
   void RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha) override;
-  bool RenderCapture(int index, CRenderCapture* capture) override { return false; }
   bool ConfigChanged(const VideoPicture& picture) override { return false; }
 
   bool Configure(unsigned int width, unsigned int height, unsigned int d_width, unsigned int d_height, float fps);
@@ -140,7 +139,6 @@ public:
   // Gets debug info from render buffer
   DEBUG_INFO_VIDEO GetDebugInfo(int idx) { return {}; }
 
-  CRenderCapture* GetRenderCapture() { return nullptr; }
 
   void CopyToBackBuffer();
   void DrawSubtitles();

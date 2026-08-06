@@ -25,6 +25,7 @@
 #include "windowing/WinSystem.h"
 
 #include <algorithm>
+#include "threads/CriticalSection.h"
 
 namespace
 {

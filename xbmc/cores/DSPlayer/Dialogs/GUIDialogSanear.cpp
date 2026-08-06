@@ -26,7 +26,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -55,6 +55,8 @@
 #include "addons/Skin.h"
 #include "GraphFilters.h"
 #include "FGLoader.h"
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
 
 #define SANEAR_PROPERTYPAGE      "sanear.propertypage"
 #define SANEAR_DEVICES           "sanear.devices"
@@ -94,7 +96,7 @@ void CGUIDialogSanear::InitializeSettings()
 {
   CGUIDialogSettingsManualBase::InitializeSettings();
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  bool usePopup = CServiceBroker::GetGUI()->GetSkinInfo()->HasSkinFile("DialogSlider.xml");
 
   std::shared_ptr<CSettingCategory> category = AddCategory("dsplayerlavaudio", -1);
   if (category == NULL)

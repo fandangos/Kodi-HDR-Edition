@@ -36,6 +36,7 @@
 #include "DSGraph.h"
 #include "utils/log.h"
 #include "utils/CharsetConverter.h"
+#include "threads/CriticalSection.h"
 
 /// \brief Contains informations about a chapter
 struct SChapterInfos

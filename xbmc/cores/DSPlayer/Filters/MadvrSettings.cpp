@@ -36,7 +36,10 @@
 #include "Application/Application.h"
 #include "utils/DSFileUtils.h"
 #include "settings/SettingsComponent.h"
-#include <guilib/LocalizeStrings.h>
+#include <resources/LocalizeStrings.h>
+#include "ServiceBroker.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -304,11 +307,11 @@ void CMadvrSettings::AddSetting(TiXmlNode *pNode, int iSectionId, int iGroupId)
 
       if (value.isInteger())
       {
-        setting.optionsInt.emplace_back(IntegerSettingOption(g_localizeStrings.Get(iLabel), value.asInteger()));
+        setting.optionsInt.emplace_back(IntegerSettingOption(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(iLabel), value.asInteger()));
       }
       else
       {
-        setting.optionsString.emplace_back(StringSettingOption(g_localizeStrings.Get(iLabel), value.asString()));
+        setting.optionsString.emplace_back(StringSettingOption(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(iLabel), value.asString()));
       }
 
       // add options list

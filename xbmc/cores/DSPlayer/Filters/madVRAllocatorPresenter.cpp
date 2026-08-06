@@ -611,16 +611,16 @@ STDMETHODIMP_(void) CmadVRAllocatorPresenter::SetPosition(RECT w, RECT v)
     w.bottom = CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight();
   }
 
-  RENDER_STEREO_MODE stereoMode = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
+  RenderStereoMode stereoMode = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
   switch (stereoMode)
   {
-  case RENDER_STEREO_MODE_SPLIT_VERTICAL:
+  case RenderStereoMode::SPLIT_VERTICAL:
   {
     w.right *= 2;
     v.right *= 2;
     break;
   }
-  case RENDER_STEREO_MODE_SPLIT_HORIZONTAL:
+  case RenderStereoMode::SPLIT_HORIZONTAL:
   {
     w.bottom *= 2;
     v.bottom *= 2;

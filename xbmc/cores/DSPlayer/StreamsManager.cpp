@@ -41,7 +41,7 @@
 #include "Utils/URIUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/DSFileUtils.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "LangInfo.h"
 #include "DSPlayerDatabase.h"
 #include "guilib/StereoscopicsManager.h"
@@ -57,6 +57,7 @@
 #include "guilib/StereoscopicsManager.h"
 
 #include <algorithm>
+#include "resources/ResourcesComponent.h"
 
 #pragma comment(lib , "libsubs.lib")
 
@@ -1249,7 +1250,7 @@ void CStreamsManager::SubInterface(SelectSubType action)
           else
             s->displayname = "Unknown";
 
-          s->displayname += " " + g_localizeStrings.Get(21602);
+          s->displayname += " " + CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21602);
 
           s->isolang = fileName;
           s->IAMStreamSelect_Index = i;

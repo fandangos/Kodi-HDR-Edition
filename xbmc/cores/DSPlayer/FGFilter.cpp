@@ -44,6 +44,7 @@
 #include "cores/DSPlayer/DSPlayer.h"
 #include "Utils/DSFileUtils.h"
 #include "settings/SettingsComponent.h"
+#include "ServiceBroker.h"
 
 #pragma comment(lib, "Dmoguids.lib")
 //

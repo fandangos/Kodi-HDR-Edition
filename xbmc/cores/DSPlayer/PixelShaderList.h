@@ -27,6 +27,7 @@
 #include "ExternalPixelShader.h"
 #include "PixelShaderCompiler.h"
 #include "threads/SingleLock.h"
+#include "threads/CriticalSection.h"
 
 typedef std::vector<CExternalPixelShader *> PixelShaderVector;
 

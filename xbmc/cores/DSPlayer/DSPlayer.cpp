@@ -50,7 +50,7 @@
 #include "windowing/windows/WinSystemWin32DX.h"
 #include "dialogs/GUIDialogOK.h"
 #include "PixelShaderList.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "dialogs/GUIDialogSelect.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "video/windows/GUIWindowVideoBase.h"
@@ -85,6 +85,8 @@
 #include "video/VideoFileItemClassify.h"
 #include "processthreadsapi.h"
 #include "utils/URIUtils.h"
+#include "threads/CriticalSection.h"
+#include "resources/ResourcesComponent.h"
 
 using namespace PVR;
 using namespace std::chrono_literals;
@@ -497,7 +499,7 @@ bool CDSPlayer::OpenFile(const CFileItem& file, const CPlayerOptions &options)
   {
     CLog::Log(LOGDEBUG, "{} - madVR it's not installed on the system pls download it before to use it with DSPlayer", __FUNCTION__);
 
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, g_localizeStrings.Get(90023), g_localizeStrings.Get(90024), 6000L, false);
+    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(90023), CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(90024), 6000L, false);
     return false;
   }
 
@@ -2296,7 +2298,7 @@ void CDSPlayer::UpdateProcessInfo(int index)
   //AUDIO
 
   //add visible track number
-  info = StringUtils::Format("{} {}", CStreamsManager::Get() ? CStreamsManager::Get()->GetChannels(index) : 0, g_localizeStrings.Get(14301).c_str());
+  info = StringUtils::Format("{} {}", CStreamsManager::Get() ? CStreamsManager::Get()->GetChannels(index) : 0, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(14301).c_str());
   if (GetAudioStreamCount() > 1)
     info = StringUtils::Format("({}/{}) {} ", index + 1, GetAudioStreamCount(), info.c_str());
   m_processInfo->SetAudioChannels(info);
@@ -2665,7 +2667,7 @@ void CDSPlayer::ShowEditionDlg(bool playStart)
 
     if (count > 1 && count != editionOptions.size())
     {
-      dialog->Add(g_localizeStrings.Get(55027));
+      dialog->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(55027));
     }
 
     dialog->SetSelected(selected);

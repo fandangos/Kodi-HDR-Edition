@@ -26,7 +26,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -52,6 +52,7 @@
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
 #include "guilib/GUIComponent.h"
+#include "resources/ResourcesComponent.h"
 
 #define SETTING_RULE_SAVE                     "rule.save"
 #define SETTING_RULE_ADD                      "rule.add"
@@ -606,7 +607,7 @@ void CGUIDialogDSRules::ShowDSRulesList()
     count++;
   }
 
-  pDlg->Add(g_localizeStrings.Get(60014).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(60014).c_str());
   pDlg->Open();
 
   selected = pDlg->GetSelectedItem();

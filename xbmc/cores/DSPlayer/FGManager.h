@@ -40,6 +40,7 @@
 #include "FGLoader.h"
 
 #include <list>
+#include "threads/CriticalSection.h"
 
 typedef std::list<CFGFilter*> FilterList;
 typedef std::list<CFGFilter*>::iterator FilterListIter;

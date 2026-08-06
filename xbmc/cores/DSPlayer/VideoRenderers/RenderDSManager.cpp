@@ -57,6 +57,7 @@
 #include "application/ApplicationPlayer.h"
 #include <chrono>
 #include <cmath>
+#include "threads/CriticalSection.h"
 
 using namespace KODI::MESSAGING;
 using namespace std::chrono_literals;
@@ -530,7 +531,7 @@ void CRenderDSManager::RenderBlurayMenu()
   if ((m_renderCalls % 200) == 1)
     CLog::Log(LOGDEBUG, "{} - navigator {}, overlay held {}", __FUNCTION__,
               (navigator || dvd) ? "present" : "MISSING",
-              m_blurayMenuRenderer.HasOverlay(0) ? "yes" : "no");
+              m_blurayMenuRenderer.HasVisibleOverlay(0) ? "yes" : "no");
 
   if (!navigator && !dvd)
     return;
@@ -613,7 +614,7 @@ void CRenderDSManager::RenderBlurayMenu()
     }
   }
 
-  if (!m_blurayMenuRenderer.HasOverlay(0))
+  if (!m_blurayMenuRenderer.HasVisibleOverlay(0))
     return;
 
   // Render() releases the graphics lock for its whole length, so that madVR can get on

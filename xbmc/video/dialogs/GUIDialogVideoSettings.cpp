@@ -37,7 +37,7 @@
 #include "dialogs/GUIDialogSelect.h"
 #include "DSUtil/DSUtil.h"
 #include "utils/CharsetConverter.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "Application/Application.h"
 #include "DSPlayerDatabase.h"
 #include "cores/DSPlayer/Dialogs/GUIDialogMadvrSettings.h"

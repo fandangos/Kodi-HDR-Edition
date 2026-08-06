@@ -29,7 +29,6 @@
 
 #include "threads/CriticalSection.h"
 #include "guilib/D3DResource.h"
-#include "../VideoPlayer/VideoRenderers/RenderCapture.h"
 #include "cores/VideoSettings.h"
 #include "../VideoPlayer/VideoRenderers/Videoshaders/ShaderFormats.h"
 #include "../VideoPlayer/VideoRenderers/BaseRenderer.h"
@@ -39,7 +38,6 @@
 #define AUTOSOURCE -1
 
 class CBaseTexture;
-class CRenderCapture;
 
 class CWinDsRenderer : public CBaseRenderer
 {
@@ -50,7 +48,6 @@ public:
   static CBaseRenderer* Create(CVideoBuffer* buffer);
   static bool Register();
 
-  bool RenderCapture(CRenderCapture* capture);
 
   virtual void         Update();
   virtual void         SetupScreenshot();
@@ -60,7 +57,6 @@ public:
   bool Configure(const VideoPicture& picture, float fps, unsigned int orientation) override;
   void AddVideoPicture(const VideoPicture& picture, int index) override;
   void RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha) override;
-  bool RenderCapture(int index, CRenderCapture* capture) override;
   bool Supports(ESCALINGMETHOD method) const override;
   bool Supports(ERENDERFEATURE feature) const override;
   bool ConfigChanged(const VideoPicture& picture) override;

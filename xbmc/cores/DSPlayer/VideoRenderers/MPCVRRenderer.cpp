@@ -440,10 +440,10 @@ CRect CMPCVRRenderer::GetScreenRect() const
 
   switch (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode())
   {
-  case RENDER_STEREO_MODE_SPLIT_HORIZONTAL:
+  case RenderStereoMode::SPLIT_HORIZONTAL:
     screenRect.y2 *= 2;
     break;
-  case RENDER_STEREO_MODE_SPLIT_VERTICAL:
+  case RenderStereoMode::SPLIT_VERTICAL:
     screenRect.x2 *= 2;
     break;
   default:

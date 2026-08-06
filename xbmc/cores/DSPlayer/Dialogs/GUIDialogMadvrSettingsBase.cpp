@@ -30,7 +30,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -50,6 +50,7 @@
 #include "addons/Skin.h"
 #include "DSPlayerDatabase.h"
 #include "guilib/GUIComponent.h"
+#include "resources/ResourcesComponent.h"
 
 #define SETTING_VIDEO_SAVE                "dsvideo.save"
 #define SETTING_VIDEO_LOAD                "dsvideo.load"
@@ -100,7 +101,7 @@ void CGUIDialogMadvrSettingsBase::InitializeSettings()
   //m_bMadvr = g_application.m_pPlayer->UsingDS(DIRECTSHOW_RENDERER_MADVR) && (CSettings::GetInstance().GetInt(CSettings::SETTING_DSPLAYER_MANAGEMADVRWITHKODI) > KODIGUI_NEVER);
   m_iSectionIdInternal = m_iSectionId;
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  bool usePopup = CServiceBroker::GetGUI()->GetSkinInfo()->HasSkinFile("DialogSlider.xml");
 
   m_category = AddCategory("videosettings", -1);
   if (m_category == NULL)
@@ -252,15 +253,15 @@ void CGUIDialogMadvrSettingsBase::LoadMadvrSettings()
 
   CMadvrSettings &madvrSettings = CMediaSettings::GetInstance().GetCurrentMadvrSettings();
 
-  pDlg->Add(g_localizeStrings.Get(70616).c_str());
-  pDlg->Add(g_localizeStrings.Get(70617).c_str());
-  pDlg->Add(g_localizeStrings.Get(70618).c_str());
-  pDlg->Add(g_localizeStrings.Get(70612).c_str());
-  pDlg->Add(g_localizeStrings.Get(70613).c_str());
-  pDlg->Add(g_localizeStrings.Get(70614).c_str());
-  pDlg->Add(g_localizeStrings.Get(70615).c_str());
-  pDlg->Add(g_localizeStrings.Get(70619).c_str());
-  pDlg->Add(g_localizeStrings.Get(70620).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70616).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70617).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70618).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70612).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70613).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70614).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70615).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70619).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70620).c_str());
 
   pDlg->SetHeading(70611);
   pDlg->Open();
@@ -273,50 +274,50 @@ void CGUIDialogMadvrSettingsBase::LoadMadvrSettings()
   std::string strSelected = pDlg->GetSelectedFileItem()->GetLabel();
 
   //SD
-  if (strSelected == g_localizeStrings.Get(70612))
+  if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70612))
   {
     selected = MADVR_RES_SD;
   }
   //720
-  else if (strSelected == g_localizeStrings.Get(70613))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70613))
   {
     selected = MADVR_RES_720;
   }
   //1080
-  else if (strSelected == g_localizeStrings.Get(70614))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70614))
   {
     selected = MADVR_RES_1080;
   }
   //2160
-  else if (strSelected == g_localizeStrings.Get(70615))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70615))
   {
     selected = MADVR_RES_2160;
   }
   //USER1
-  else if (strSelected == g_localizeStrings.Get(70616))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70616))
   {
     selected = MADVR_RES_USER;
     userId = 1;
   }
   //USER2
-  else if (strSelected == g_localizeStrings.Get(70617))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70617))
   {
     selected = MADVR_RES_USER;
     userId = 2;
   }
   //USER3
-  else if (strSelected == g_localizeStrings.Get(70618))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70618))
   {
     selected = MADVR_RES_USER;
     userId = 3;
   }
   //DEFAULT
-  else if (strSelected == g_localizeStrings.Get(70619))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70619))
   {
     selected = MADVR_RES_DEFAULT;
   }
   //RESTORE ATSTART SETTINGS
-  else if (strSelected == g_localizeStrings.Get(70620))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70620))
   {
     selected = MADVR_RES_ATSTART;
   }
@@ -363,17 +364,17 @@ void CGUIDialogMadvrSettingsBase::SaveMadvrSettings()
   CMadvrSettings &madvrSettings = CMediaSettings::GetInstance().GetCurrentMadvrSettings();
 
   if (!madvrSettings.m_TvShowName.empty())
-    pDlg->Add(StringUtils::Format(g_localizeStrings.Get(70605).c_str(), madvrSettings.m_TvShowName.c_str()));
+    pDlg->Add(StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70605).c_str(), madvrSettings.m_TvShowName.c_str()));
 
-  pDlg->Add(g_localizeStrings.Get(70601).c_str());
-  pDlg->Add(g_localizeStrings.Get(70602).c_str());
-  pDlg->Add(g_localizeStrings.Get(70603).c_str());
-  pDlg->Add(g_localizeStrings.Get(70604).c_str());
-  pDlg->Add(g_localizeStrings.Get(70606).c_str());
-  pDlg->Add(g_localizeStrings.Get(70608).c_str());
-  pDlg->Add(g_localizeStrings.Get(70609).c_str());
-  pDlg->Add(g_localizeStrings.Get(70610).c_str());
-  pDlg->Add(g_localizeStrings.Get(70607).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70601).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70602).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70603).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70604).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70606).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70608).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70609).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70610).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70607).c_str());
 
   pDlg->SetHeading(70600);
   pDlg->Open();
@@ -387,63 +388,63 @@ void CGUIDialogMadvrSettingsBase::SaveMadvrSettings()
   std::string strSelected = pDlg->GetSelectedFileItem()->GetLabel();
 
   //TVSHOW
-  if (strSelected == StringUtils::Format(g_localizeStrings.Get(70605).c_str(), madvrSettings.m_TvShowName.c_str()))
+  if (strSelected == StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70605).c_str(), madvrSettings.m_TvShowName.c_str()))
   {
     selected = MADVR_RES_TVSHOW;
     label = 70605;
   }
   //SD
-  else if (strSelected == g_localizeStrings.Get(70601))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70601))
   {
     selected = MADVR_RES_SD;
     label = 70601;
   }
   //720
-  else if (strSelected == g_localizeStrings.Get(70602))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70602))
   {
     selected = MADVR_RES_720;
     label = 70602;
   }
   //1080
-  else if (strSelected == g_localizeStrings.Get(70603))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70603))
   {
     selected = MADVR_RES_1080;
     label = 70603;
   }
   //2160
-  else if (strSelected == g_localizeStrings.Get(70604))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70604))
   {
     selected = MADVR_RES_2160;
     label = 70604;
   }
   //ALL
-  else if (strSelected == g_localizeStrings.Get(70606))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70606))
   {
     selected = MADVR_RES_ALL;
     label = 70606;
   }
   //RESET TO DEFAULT
-  else if (strSelected == g_localizeStrings.Get(70607))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70607))
   {
     selected = MADVR_RES_DEFAULT;
     label = 70607;
   }
   //USER1
-  else if (strSelected == g_localizeStrings.Get(70608))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70608))
   {
     selected = MADVR_RES_USER;
     label = 70608;
     userId = 1;
   }
   //USER2
-  else if (strSelected == g_localizeStrings.Get(70609))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70609))
   {
     selected = MADVR_RES_USER;
     label = 70609;
     userId = 2;
   }
   //USER3
-  else if (strSelected == g_localizeStrings.Get(70610))
+  else if (strSelected == CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(70610))
   {
     selected = MADVR_RES_USER;
     label = 70610;
@@ -452,7 +453,7 @@ void CGUIDialogMadvrSettingsBase::SaveMadvrSettings()
 
   if (selected > -1)
   {
-    if (CGUIDialogYesNo::ShowAndGetInput(StringUtils::Format(g_localizeStrings.Get(label).c_str(), madvrSettings.m_TvShowName.c_str()), 750, 0, 12377))
+    if (CGUIDialogYesNo::ShowAndGetInput(StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(label).c_str(), madvrSettings.m_TvShowName.c_str()), 750, 0, 12377))
     {
       CDSPlayerDatabase dspdb;
       if (!dspdb.Open())

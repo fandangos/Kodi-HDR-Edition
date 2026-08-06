@@ -26,7 +26,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -46,6 +46,7 @@
 #include "utils/DSFileUtils.h"
 #include "ServiceBroker.h"
 #include "guilib/GUIComponent.h"
+#include "resources/ResourcesComponent.h"
 
 #define SETTING_FILTER_SAVE                   "dsfilters.save"
 #define SETTING_FILTER_ADD                    "dsfilters.add"
@@ -272,7 +273,7 @@ void CGUIDialogDSFilters::ActionInternal(const std::string &settingId)
     {
       if (it->m_value == "" || it->m_value == "[null]")
       {
-        CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, g_localizeStrings.Get(65001), g_localizeStrings.Get(65012), 2000, false, 300);
+        CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(65001), CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(65012), 2000, false, 300);
         return;
       }
 
@@ -342,7 +343,7 @@ void CGUIDialogDSFilters::ShowDSFiltersList()
     pFilter = pFilter->NextSiblingElement("filter");
   }
 
-  pDlg->Add(g_localizeStrings.Get(65002).c_str());
+  pDlg->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(65002).c_str());
 
   pDlg->Open();
   selected = pDlg->GetSelectedItem();

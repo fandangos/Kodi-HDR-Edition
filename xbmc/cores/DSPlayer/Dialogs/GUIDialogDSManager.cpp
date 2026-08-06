@@ -30,6 +30,7 @@
 #include "utils/DSFileUtils.h"
 #include <iterator>
 #include "utils/StringUtils.h"
+#include "ServiceBroker.h"
 using namespace std;
 
 DSConfigList::DSConfigList(ConfigType type) :

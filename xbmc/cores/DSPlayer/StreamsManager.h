@@ -50,6 +50,7 @@
 
 
 #include <cassert>
+#include "threads/CriticalSection.h"
 
 #define XYVSFILTER_SUB_EXTERNAL 6590018
 #define XYVSFILTER_SUB_INTERNAL 6590016

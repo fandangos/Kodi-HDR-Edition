@@ -49,6 +49,7 @@
 #include "application/Application.h"
 #include "Videorenderers/RenderDSManager.h"
 #include "cores/VideoPlayer/Process/ProcessInfo.h"
+#include "threads/CriticalSection.h"
 
 #if !defined(NPT_POINTER_TO_LONG)
 #define NPT_POINTER_TO_LONG(_p) ((long)(_p))

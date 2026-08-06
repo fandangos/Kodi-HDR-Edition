@@ -82,11 +82,4 @@ public:
 #if HAS_DS_PLAYER
   CEdition edition;
 #endif
-
-  enum EType
-  {
-    STANDARD = 0,
-    RESUME = 1,
-    EPISODE = 2
-  } type;
 };

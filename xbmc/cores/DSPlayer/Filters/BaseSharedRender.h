@@ -28,6 +28,7 @@
 #include "D3d11.h"
 #include "guilib/d3dresource.h"
 #include <wrl/client.h>
+#include "threads/CriticalSection.h"
 enum SHAREDRENDER_STATE
 {
   RENDERFRAME_LOCK,

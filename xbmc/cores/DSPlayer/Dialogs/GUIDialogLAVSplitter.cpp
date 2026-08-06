@@ -26,7 +26,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -52,6 +52,8 @@
 #include "GraphFilters.h"
 #include "utils/CharsetConverter.h"
 #include <application/ApplicationPlayer.h>
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
 
 #define LAVSPLITTER_PROPERTYPAGE      "lavsplitter.propertypage"
 #define LAVSPLITTER_TRAYICON          "lavsplitter.trayicon"
@@ -100,7 +102,7 @@ void CGUIDialogLAVSplitter::InitializeSettings()
 #if 1
   CGUIDialogSettingsManualBase::InitializeSettings();
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  bool usePopup = CServiceBroker::GetGUI()->GetSkinInfo()->HasSkinFile("DialogSlider.xml");
 
   std::shared_ptr<CSettingCategory> category = AddCategory("dsplayerlavsplitter", -1);
   if (category == NULL)

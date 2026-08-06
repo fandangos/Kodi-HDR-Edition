@@ -34,6 +34,7 @@ using namespace std::chrono_literals;
 #include <algorithm>
 #include <atomic>
 #include <thread>
+#include "threads/CriticalSection.h"
 
 namespace
 {

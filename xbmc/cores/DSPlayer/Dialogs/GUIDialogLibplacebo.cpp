@@ -22,7 +22,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
@@ -52,6 +52,7 @@
 #include "guilib/GUIComponent.h"
 #include "Filters/MPCVideoRenderer/Include/libplacebo/options.h"
 #include "VideoRenderers/MPCVRRenderer.h"
+#include "ServiceBroker.h"
 
 #define SETTING_LIBPLACEBO_DEBAND_ITERATIONS       "video.libplacebo.beband.iterations"
 #define SETTING_LIBPLACEBO_DEBAND_THRESHOLD        "video.libplacebo.beband.threshold"
@@ -199,7 +200,7 @@ void CGUIDialogLibplacebo::InitializeSettings()
 {
   CGUIDialogSettingsManualBase::InitializeSettings();
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  bool usePopup = CServiceBroker::GetGUI()->GetSkinInfo()->HasSkinFile("DialogSlider.xml");
 
   std::shared_ptr<CSettingCategory> category = AddCategory("libplacebosettings", 55201);
   if (category == NULL)

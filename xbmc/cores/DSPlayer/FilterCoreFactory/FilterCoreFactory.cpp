@@ -28,6 +28,7 @@
 #include "filters/XBMCFileSource.h"
 #include "utils/URIUtils.h"
 #include "guilib/GUIComponent.h"
+#include "ServiceBroker.h"
 
 InternalFilters internalFilters[] =
 {

@@ -59,6 +59,7 @@
 #include "DSPlayer.h"
 #include "FilterCoreFactory/FilterCoreFactory.h"
 #include "guilib/GUIComponent.h"
+#include "ServiceBroker.h"
 
 using namespace std;
 

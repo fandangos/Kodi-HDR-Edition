@@ -34,6 +34,7 @@
 #include "settings/AdvancedSettings.h"
 #include "utils/StringUtils.h"
 #include "pvr/recordings/PVRRecordingsPath.h"
+#include "ServiceBroker.h"
 
 #if TODO
 CDSInputStreamPVRManager* g_pPVRStream = NULL;

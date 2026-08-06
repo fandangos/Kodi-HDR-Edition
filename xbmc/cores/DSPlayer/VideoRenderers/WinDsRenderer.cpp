@@ -42,6 +42,8 @@
 #include "windowing/windows/WinSystemWin32DX.h"
 #include "rendering/dx/rendercontext.h"
 #include "cores/videoplayer/videorenderers/RenderFactory.h"
+#include "ServiceBroker.h"
+#include "threads/CriticalSection.h"
 
 CWinDsRenderer::CWinDsRenderer(): 
   m_bConfigured(false)
@@ -102,10 +104,6 @@ void CWinDsRenderer::RenderUpdate(int index, int index2, bool clear, unsigned in
   Render(flags);
 }
 
-bool CWinDsRenderer::RenderCapture(int index, CRenderCapture* capture)
-{
-  return false;
-}
 
 bool CWinDsRenderer::ConfigChanged(const VideoPicture& picture)
 {
@@ -151,42 +149,6 @@ void CWinDsRenderer::Update()
   ManageRenderArea();
 }
 
-bool CWinDsRenderer::RenderCapture(CRenderCapture* capture)
-{
-  if (!m_bConfigured)
-    return false;
-
-  bool succeeded = false;
-
-  ID3D11DeviceContext* pContext = DX::DeviceResources::Get()->GetD3DContext();
-
-  CRect saveSize = m_destRect;
-  saveRotatedCoords();//backup current m_rotatedDestCoords
-
-  m_destRect.SetRect(0, 0, (float)capture->GetWidth(), (float)capture->GetHeight());
-  syncDestRectToRotatedPoints();//syncs the changed destRect to m_rotatedDestCoords
-
-  ID3D11DepthStencilView* oldDepthView;
-  ID3D11RenderTargetView* oldSurface;
-  pContext->OMGetRenderTargets(1, &oldSurface, &oldDepthView);
-
-  capture->BeginRender();
-  if (capture->GetState() != CAPTURESTATE_FAILED)
-  {
-    Render(0);
-    capture->EndRender();
-    succeeded = true;
-  }
-
-  pContext->OMSetRenderTargets(1, &oldSurface, oldDepthView);
-  oldSurface->Release();
-  SAFE_RELEASE(oldDepthView); // it can be nullptr
-
-  m_destRect = saveSize;
-  restoreRotatedCoords();//restores the previous state of the rotated dest coords
-
-  return succeeded;
-}
 
 void CWinDsRenderer::RenderUpdate(bool clear, unsigned int flags, unsigned int alpha)
 {

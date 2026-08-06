@@ -31,6 +31,7 @@
 #include "FgFilter.h"
 #include "FileItem.h"
 #include "SComCli.h"
+#include "threads/CriticalSection.h"
 
 enum ESettingsType
 {

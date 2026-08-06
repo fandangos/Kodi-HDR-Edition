@@ -36,6 +36,7 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "MPCVideoRenderer/atlredef.h"
+#include "threads/CriticalSection.h"
 
 const DWORD D3DFVF_VID_FRAME_VERTEX = 0x004 | 0x100;
 

@@ -26,7 +26,7 @@
 #include "URL.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "utils/LangCodeExpander.h"
 #include "utils/log.h"
@@ -52,6 +52,8 @@
 #include "GraphFilters.h"
 #include "libavutil/channel_layout.h"
 #include "application/ApplicationPlayer.h"
+#include "ServiceBroker.h"
+#include "guilib/GUIComponent.h"
 
 #define LAVAUDIO_PROPERTYPAGE      "lavaudio.propertypage"
 #define LAVAUDIO_TRAYICON          "lavaudio.trayicon"
@@ -116,7 +118,7 @@ void CGUIDialogLAVAudio::InitializeSettings()
 {
   CGUIDialogSettingsManualBase::InitializeSettings();
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  bool usePopup = CServiceBroker::GetGUI()->GetSkinInfo()->HasSkinFile("DialogSlider.xml");
   
   std::shared_ptr<CSettingCategory> category = AddCategory("dsplayerlavaudio", -1);
   if (category == NULL)

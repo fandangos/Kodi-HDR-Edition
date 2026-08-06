@@ -35,6 +35,7 @@
 #include "settings/AdvancedSettings.h"
 #include <DSUtil/Geometry.h>
 #include <StreamsManager.h>
+#include "ServiceBroker.h"
 
 
 CMadvrSharedRender::CMadvrSharedRender()

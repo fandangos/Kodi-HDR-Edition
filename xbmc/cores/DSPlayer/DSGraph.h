@@ -44,6 +44,7 @@
 #include "cores/VideoPlayer/Process/ProcessInfo.h"
 
 #include "DSMessage.h"
+#include "threads/CriticalSection.h"
 
 using namespace XFILE;
 

@@ -60,7 +60,7 @@
 #include "utils/timeutils.h"
 #include "utils/ipinhook.h"
 #include "DSInputStreamPVRManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
 #include "cores/DataCacheCore.h"
 #include "ServiceBroker.h"
 #include "settings/Settings.h"

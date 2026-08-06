@@ -137,8 +137,6 @@ private:
   CLavSettings m_currentLavSettings;
 #endif
 
-  typedef std::map<std::string, WatchedMode> WatchedModes;
-  WatchedModes m_watchedModes;
   using WatchedModes = std::map<std::string, WatchedMode, std::less<>>;
   WatchedModes m_watchedModes{{"files", WatchedModeAll},
                               {"movies", WatchedModeAll},

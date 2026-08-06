@@ -20,9 +20,10 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
 #include "profiles/dialogs/GUIDialogLockSettings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
 #include "settings/windows/GUIControlSettings.h"
@@ -60,7 +61,7 @@ bool CGUIDialogProfileSettings::ShowForProfile(unsigned int iProfile, bool first
     return false;
 
   dialog->m_needsSaving = false;
-  dialog->m_isDefault = iProfile == 0;
+  dialog->m_isDefault = (iProfile == MASTER_PROFILE_ID);
   dialog->m_showDetails = !firstLogin;
 
   const CProfile *profile = profileManager->GetProfile(iProfile);
@@ -82,23 +83,29 @@ bool CGUIDialogProfileSettings::ShowForProfile(unsigned int iProfile, bool first
 
     // prompt for a name
     std::string profileName;
-    if (!CGUIKeyboardFactory::ShowAndGetInput(profileName, CVariant{g_localizeStrings.Get(20093)}, false) || profileName.empty())
+    if (!CGUIKeyboardFactory::ShowAndGetInput(
+            profileName,
+            CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20093)},
+            false) ||
+        profileName.empty())
       return false;
     dialog->m_name = profileName;
 
-    // create a default path
-    std::string defaultDir = URIUtils::AddFileToFolder("profiles", CUtil::MakeLegalFileName(dialog->m_name));
-    URIUtils::AddSlashAtEnd(defaultDir);
-    XFILE::CDirectory::Create(URIUtils::AddFileToFolder("special://masterprofile/", defaultDir));
+    std::string profileDir;
+    // ask user if they want to select a custom profile directory
+    if (CGUIDialogYesNo::ShowAndGetInput(CVariant{20058}, CVariant{20477}))
+      GetProfilePath(profileDir, false); // can't be the master user
 
-    // prompt for the user to change it if they want
-    std::string userDir = defaultDir;
-    if (GetProfilePath(userDir, false)) // can't be the master user
+    if (profileDir.empty()) // use default directory
     {
-      if (!URIUtils::PathHasParent(userDir, defaultDir)) // user chose a different folder
-        XFILE::CDirectory::Remove(URIUtils::AddFileToFolder("special://masterprofile/", defaultDir));
+      // create a default path
+      profileDir = URIUtils::AddFileToFolder("profiles", CUtil::MakeLegalFileName(dialog->m_name));
+      URIUtils::AddSlashAtEnd(profileDir);
+
+      XFILE::CDirectory::Create(URIUtils::AddFileToFolder("special://masterprofile/", profileDir));
     }
-    dialog->m_directory = userDir;
+
+    dialog->m_directory = profileDir;
     dialog->m_needsSaving = true;
   }
   else
@@ -125,7 +132,7 @@ bool CGUIDialogProfileSettings::ShowForProfile(unsigned int iProfile, bool first
         return false;
 
       /*std::string strLabel;
-      strLabel.Format(g_localizeStrings.Get(20047),dialog->m_strName);
+      strLabel.Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20047),dialog->m_strName);
       if (!CGUIDialogYesNo::ShowAndGetInput(20058, strLabel, dialog->m_strDirectory, ""))
       {
         CDirectory::Remove(URIUtils::AddFileToFolder(profileManager.GetUserDataFolder(), dialog->m_strDirectory));
@@ -234,17 +241,19 @@ void CGUIDialogProfileSettings::OnSettingAction(const std::shared_ptr<const CSet
     {
       CFileItemPtr item(new CFileItem("thumb://Current", false));
       item->SetArt("thumb", m_thumb);
-      item->SetLabel(g_localizeStrings.Get(20016));
+      item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20016));
       items.Add(item);
     }
 
     CFileItemPtr item(new CFileItem("thumb://None", false));
     item->SetArt("thumb", "DefaultUser.png");
-    item->SetLabel(g_localizeStrings.Get(20018));
+    item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20018));
     items.Add(item);
 
     std::string thumb;
-    if (CGUIDialogFileBrowser::ShowAndGetImage(items, shares, g_localizeStrings.Get(1030), thumb) &&
+    if (CGUIDialogFileBrowser::ShowAndGetImage(
+            items, shares, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1030),
+            thumb) &&
         !StringUtils::EqualsNoCase(thumb, "thumb://Current"))
     {
       m_needsSaving = true;
@@ -366,7 +375,7 @@ bool CGUIDialogProfileSettings::GetProfilePath(std::string &directory, bool isDe
 {
   std::vector<CMediaSource> shares;
   CMediaSource share;
-  share.strName = g_localizeStrings.Get(13200);
+  share.strName = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13200);
   share.strPath = "special://masterprofile/profiles/";
   shares.push_back(share);
 
@@ -376,7 +385,9 @@ bool CGUIDialogProfileSettings::GetProfilePath(std::string &directory, bool isDe
   else
     strDirectory = URIUtils::AddFileToFolder("special://masterprofile/", directory);
 
-  if (!CGUIDialogFileBrowser::ShowAndGetDirectory(shares, g_localizeStrings.Get(657), strDirectory, true))
+  if (!CGUIDialogFileBrowser::ShowAndGetDirectory(
+          shares, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(657),
+          strDirectory, true))
     return false;
 
   directory = strDirectory;

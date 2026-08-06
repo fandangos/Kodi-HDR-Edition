@@ -1,0 +1,42 @@
+/*
+ *  Copyright (C) 2019-2025 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#pragma once
+
+#include "cores/RetroPlayer/shaders/IShaderTexture.h"
+
+#include "system_gl.h"
+
+namespace KODI::SHADER
+{
+
+/*!
+ * \brief Shader texture that wraps an external texture object
+ *
+ * NOTE: The lifetime of the external texture object must outlast this class.
+ */
+class CShaderTextureGLESRef : public IShaderTexture
+{
+public:
+  CShaderTextureGLESRef(uint32_t textureWidth, uint32_t textureHeight, GLuint texture = 0);
+  ~CShaderTextureGLESRef() override = default;
+
+  // Implementation of IShaderTexture
+  float GetWidth() const override;
+  float GetHeight() const override;
+
+  // OpenGLES interface
+  void BindToUnit(unsigned int unit);
+  GLuint GetTextureID() const { return m_texture; }
+
+private:
+  const uint32_t m_textureWidth;
+  const uint32_t m_textureHeight;
+  GLuint m_texture{0};
+};
+} // namespace KODI::SHADER

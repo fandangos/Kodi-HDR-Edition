@@ -14,6 +14,7 @@
 #include "LibInputTouch.h"
 #include "ServiceBroker.h"
 #include "interfaces/AnnouncementManager.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <algorithm>
@@ -64,7 +65,11 @@ static void LogHandler(libinput  __attribute__((unused)) *libinput, libinput_log
     char buf[512];
     int n = vsnprintf(buf, sizeof(buf), format, args);
     if (n > 0)
-      CLog::Log(LOGDEBUG, "libinput: {}", buf);
+    {
+      std::string message(buf);
+      StringUtils::TrimRight(message);
+      CLog::Log(LOGDEBUG, "libinput: {}", message);
+    }
   }
 }
 
@@ -280,7 +285,7 @@ void CLibInputHandler::DeviceRemoved(libinput_device *dev)
   {
     CLog::Log(LOGDEBUG, "CLibInputHandler::{} - touch type device removed: {} ({})", __FUNCTION__,
               name, sysname);
-    auto device = std::find(m_devices.begin(), m_devices.end(), libinput_device_unref(dev));
+    auto device = std::ranges::find(m_devices, libinput_device_unref(dev));
     m_devices.erase(device);
   }
 
@@ -288,7 +293,7 @@ void CLibInputHandler::DeviceRemoved(libinput_device *dev)
   {
     CLog::Log(LOGDEBUG, "CLibInputHandler::{} - pointer type device removed: {} ({})", __FUNCTION__,
               name, sysname);
-    auto device = std::find(m_devices.begin(), m_devices.end(), libinput_device_unref(dev));
+    auto device = std::ranges::find(m_devices, libinput_device_unref(dev));
     m_devices.erase(device);
   }
 
@@ -296,7 +301,7 @@ void CLibInputHandler::DeviceRemoved(libinput_device *dev)
   {
     CLog::Log(LOGDEBUG, "CLibInputHandler::{} - keyboard type device removed: {} ({})",
               __FUNCTION__, name, sysname);
-    auto device = std::find(m_devices.begin(), m_devices.end(), libinput_device_unref(dev));
+    auto device = std::ranges::find(m_devices, libinput_device_unref(dev));
     m_devices.erase(device);
   }
 }

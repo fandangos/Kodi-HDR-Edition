@@ -14,7 +14,10 @@
 #include "filesystem/IFileTypes.h"
 #include "utils/BitstreamStats.h"
 #include "utils/Geometry.h"
+#include "video/VideoInfoTag.h"
 
+#include <chrono>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -46,6 +49,8 @@ namespace XFILE
 
 struct DemuxPacket;
 class CDemuxStream;
+class CStreamDetails;
+struct SPlayerState;
 
 class CDVDInputStream
 {
@@ -84,10 +89,10 @@ public:
   {
   public:
     virtual ~IChapter() = default;
-    virtual int  GetChapter() = 0;
-    virtual int  GetChapterCount() = 0;
-    virtual void GetChapterName(std::string& name, int ch=-1) = 0;
-    virtual int64_t GetChapterPos(int ch=-1) = 0;
+    virtual int GetChapter() = 0;
+    virtual int GetChapterCount() = 0;
+    virtual void GetChapterName(std::string& name, int ch = -1) = 0;
+    virtual std::chrono::milliseconds GetChapterPos(int ch = -1) = 0;
     virtual bool SeekChapter(int ch) = 0;
   };
 
@@ -204,6 +209,74 @@ public:
   virtual IChapter* GetIChapter() { return nullptr; }
 
   const CVariant& GetProperty(const std::string& key) { return m_item.GetProperty(key); }
+
+  enum class UpdateState : uint8_t
+  {
+    NONE,
+    FINISHED,
+    NOT_PLAYED
+  };
+
+  /*!
+  \brief Saves the current state of the current stream (including stream details)
+  \param details streamdetails of the current playing stream
+  */
+  virtual void SaveCurrentState(const CStreamDetails& details) {}
+
+  /*!
+  \brief Updates the given fileitem with the state and streamdetails of what is decided to be the main (ie. main movie) title
+  \param item fileitem to update
+  \param time current playback time
+  \param closed sets closed to indicate if the stream was closed (=true) (ie. playback stopped before end) or finished (=false)
+  \returns an UpdateState flag indicating if no main title was played (=NOT_PLAYED), the main title was played completely (=FINISHED) 
+  \        or no update needs to be made to the VideoPlayer state (=NONE)
+  */
+  virtual UpdateState UpdateItemFromSavedStates(CFileItem& item, double time, bool& closed)
+  {
+    return UpdateState::NONE;
+  }
+
+  struct PlaylistInformation
+  {
+    int playlist{-1};
+    bool inMenu{false};
+    std::chrono::milliseconds duration{std::chrono::milliseconds::zero()};
+    std::chrono::milliseconds watchedTime{std::chrono::milliseconds::zero()};
+    std::chrono::milliseconds position{std::chrono::milliseconds::zero()};
+    CStreamDetails details;
+  };
+
+  /*!
+  \brief Function shared with DVDInputStreamBluray (for Blurays) and DVDInputStreamNavigator (for DVDs) to save playlist/title details
+  \param playedPlaylists vector of played playlists/titles to update
+  \param startTime a time point indicating when playback started (used to calculate the actual time a playlist/title was played for)
+  \param currentPlaylistInformation information about the current playlist/title being played
+  */
+  static void SavePlaylistDetails(std::vector<PlaylistInformation>& playedPlaylists,
+                                  std::chrono::steady_clock::time_point startTime,
+                                  const PlaylistInformation& currentPlaylistInformation);
+
+  /*!
+  \brief Function shared with DVDInputStreamBluray (for Blurays) and DVDInputStreamNavigator (for DVDs) to updates the given fileitem with 
+  \      the state and streamdetails of what is decided to be the main (ie. main movie) title
+  \param type playback type (DVD or Bluray)
+  \param playedPlaylists vector of played playlists/titles
+  \param item fileitem to update
+  \param time current playback time
+  \param closed sets closed to indicate if the stream was closed (=true) (ie. playback stopped before end) or finished (=false)
+  \returns an UpdateState flag indicating if no main title was played (=NOT_PLAYED), the main title was played completely (=FINISHED) 
+  \        or no update needs to be made (=NONE)
+  */
+  static UpdateState UpdateItemFromPlaylistDetails(
+      DVDStreamType type,
+      std::vector<PlaylistInformation>& playedPlaylists,
+      CFileItem& item,
+      double time,
+      bool& closed);
+
+  virtual void UpdateStack(CFileItem& item) {}
+
+  static void UpdateStackItem(CFileItem& item, std::chrono::milliseconds length);
 
 protected:
   DVDStreamType m_streamType;

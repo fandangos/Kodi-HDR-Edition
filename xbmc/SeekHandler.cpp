@@ -16,10 +16,11 @@
 #include "cores/DataCacheCore.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "music/MusicFileItemClassify.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -30,19 +31,15 @@
 #include "utils/Variant.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
+#include <algorithm>
 #include <cmath>
 #include <mutex>
+#include <numeric>
 #include <stdlib.h>
 
 using namespace KODI;
-
-CSeekHandler::~CSeekHandler()
-{
-  m_seekDelays.clear();
-  m_forwardSeekSteps.clear();
-  m_backwardSeekSteps.clear();
-}
 
 void CSeekHandler::Configure()
 {
@@ -51,38 +48,33 @@ void CSeekHandler::Configure()
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
 
   m_seekDelays.clear();
-  m_seekDelays.insert(
-      std::make_pair(SeekType::VIDEO, settings->GetInt(CSettings::SETTING_VIDEOPLAYER_SEEKDELAY)));
-  m_seekDelays.insert(
-      std::make_pair(SeekType::MUSIC, settings->GetInt(CSettings::SETTING_MUSICPLAYER_SEEKDELAY)));
-
+  m_seekDelays.emplace(SeekType::VIDEO, settings->GetInt(CSettings::SETTING_VIDEOPLAYER_SEEKDELAY));
+  m_seekDelays.emplace(SeekType::MUSIC, settings->GetInt(CSettings::SETTING_MUSICPLAYER_SEEKDELAY));
   m_forwardSeekSteps.clear();
   m_backwardSeekSteps.clear();
 
   std::map<SeekType, std::string> seekTypeSettingMap;
-  seekTypeSettingMap.insert(
-      std::make_pair(SeekType::VIDEO, CSettings::SETTING_VIDEOPLAYER_SEEKSTEPS));
-  seekTypeSettingMap.insert(
-      std::make_pair(SeekType::MUSIC, CSettings::SETTING_MUSICPLAYER_SEEKSTEPS));
+  seekTypeSettingMap.try_emplace(SeekType::VIDEO, CSettings::SETTING_VIDEOPLAYER_SEEKSTEPS);
+  seekTypeSettingMap.try_emplace(SeekType::MUSIC, CSettings::SETTING_MUSICPLAYER_SEEKSTEPS);
 
-  for (std::map<SeekType, std::string>::iterator it = seekTypeSettingMap.begin(); it!=seekTypeSettingMap.end(); ++it)
-  {
-    std::vector<int> forwardSeekSteps;
-    std::vector<int> backwardSeekSteps;
+  std::ranges::for_each(seekTypeSettingMap,
+                        [&settings, &forwardSteps = m_forwardSeekSteps,
+                         &backwardSteps = m_backwardSeekSteps](const auto& seekDef)
+                        {
+                          auto& forward = forwardSteps[seekDef.first];
+                          auto& backward = backwardSteps[seekDef.first];
 
-    std::vector<CVariant> seekSteps = settings->GetList(it->second);
-    for (std::vector<CVariant>::iterator it = seekSteps.begin(); it != seekSteps.end(); ++it)
-    {
-      int stepSeconds = static_cast<int>((*it).asInteger());
-      if (stepSeconds < 0)
-        backwardSeekSteps.insert(backwardSeekSteps.begin(), stepSeconds);
-      else
-        forwardSeekSteps.push_back(stepSeconds);
-    }
-
-    m_forwardSeekSteps.insert(std::make_pair(it->first, forwardSeekSteps));
-    m_backwardSeekSteps.insert(std::make_pair(it->first, backwardSeekSteps));
-  }
+                          std::ranges::for_each(settings->GetList(seekDef.second),
+                                                [&backward, &forward](const auto& seekStep)
+                                                {
+                                                  const auto stepSeconds{
+                                                      static_cast<int>(seekStep.asInteger())};
+                                                  if (stepSeconds < 0)
+                                                    backward.insert(backward.begin(), stepSeconds);
+                                                  else
+                                                    forward.push_back(stepSeconds);
+                                                });
+                        });
 }
 
 void CSeekHandler::Reset()
@@ -99,29 +91,30 @@ int CSeekHandler::GetSeekStepSize(SeekType type, int step)
   if (step == 0)
     return 0;
 
-  std::vector<int> seekSteps(step > 0 ? m_forwardSeekSteps.at(type) : m_backwardSeekSteps.at(type));
+  const std::vector<int>& seekSteps(step > 0 ? m_forwardSeekSteps.at(type)
+                                             : m_backwardSeekSteps.at(type));
 
   if (seekSteps.empty())
   {
-    CLog::Log(LOGERROR, "SeekHandler - {} - No {} {} seek steps configured.", __FUNCTION__,
-              (type == SeekType::VIDEO ? "video" : "music"), (step > 0 ? "forward" : "backward"));
+    CLog::LogF(LOGERROR, "No {} {} seek steps configured.",
+               (type == SeekType::VIDEO ? "video" : "music"), (step > 0 ? "forward" : "backward"));
     return 0;
   }
 
   int seconds = 0;
 
   // when exceeding the selected amount of steps repeat/sum up the last step size
-  if (static_cast<size_t>(abs(step)) <= seekSteps.size())
-    seconds = seekSteps.at(abs(step) - 1);
+  if (static_cast<size_t>(std::abs(step)) <= seekSteps.size())
+    seconds = seekSteps.at(std::abs(step) - 1);
   else
-    seconds = seekSteps.back() * (abs(step) - seekSteps.size() + 1);
+    seconds = static_cast<int>(seekSteps.back() * (std::abs(step) - seekSteps.size() + 1));
 
   return seconds;
 }
 
 void CSeekHandler::Seek(bool forward, float amount, float duration /* = 0 */, bool analogSeek /* = false */, SeekType type /* = SEEK_TYPE_VIDEO */)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   // not yet seeking
   if (!m_requireSeek)
@@ -152,7 +145,7 @@ void CSeekHandler::Seek(bool forward, float amount, float duration /* = 0 */, bo
     if (totalTime < 0)
       totalTime = 0;
 
-    double seekSize = static_cast<double>(amount * amount * speed) * totalTime / 100.0;
+    const double seekSize = static_cast<double>(amount * amount * speed) * totalTime / 100.0;
     if (forward)
       SetSeekSize(m_seekSize + seekSize);
     else
@@ -161,7 +154,7 @@ void CSeekHandler::Seek(bool forward, float amount, float duration /* = 0 */, bo
   else
   {
     m_seekStep += forward ? 1 : -1;
-    int seekSeconds = GetSeekStepSize(type, m_seekStep);
+    const int seekSeconds = GetSeekStepSize(type, m_seekStep);
     if (seekSeconds != 0)
     {
       SetSeekSize(seekSeconds);
@@ -182,7 +175,7 @@ void CSeekHandler::SeekSeconds(int seconds)
   if (seconds == 0)
     return;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   SetSeekSize(seconds);
 
   // perform relative seek
@@ -202,9 +195,9 @@ void CSeekHandler::SetSeekSize(double seekSize)
 {
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
-  int64_t playTime = appPlayer->GetTime();
-  double minSeekSize = (appPlayer->GetMinTime() - playTime) / 1000.0;
-  double maxSeekSize = (appPlayer->GetMaxTime() - playTime) / 1000.0;
+  const int64_t playTime = appPlayer->GetTime();
+  const double minSeekSize{static_cast<double>(appPlayer->GetMinTime() - playTime) / 1000.0};
+  const double maxSeekSize{static_cast<double>(appPlayer->GetMaxTime() - playTime) / 1000.0};
 
   m_seekSize = seekSize > 0
     ? std::min(seekSize, maxSeekSize)
@@ -220,7 +213,7 @@ void CSeekHandler::FrameMove()
 {
   if (m_timer.GetElapsedMilliseconds() >= m_seekDelay && m_requireSeek)
   {
-    std::unique_lock<CCriticalSection> lock(m_critSection);
+    std::unique_lock lock(m_critSection);
 
     // perform relative seek
     auto& components = CServiceBroker::GetAppComponents();
@@ -246,16 +239,17 @@ void CSeekHandler::FrameMove()
 
 void CSeekHandler::SettingOptionsSeekStepsFiller(const SettingConstPtr& setting,
                                                  std::vector<IntegerSettingOption>& list,
-                                                 int& current,
-                                                 void* data)
+                                                 int& current)
 {
   std::string label;
   for (int seconds : CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_seekSteps)
   {
     if (seconds > 60)
-      label = StringUtils::Format(g_localizeStrings.Get(14044), seconds / 60);
+      label = StringUtils::Format(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(14044), seconds / 60);
     else
-      label = StringUtils::Format(g_localizeStrings.Get(14045), seconds);
+      label = StringUtils::Format(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(14045), seconds);
 
     list.insert(list.begin(), IntegerSettingOption("-" + label, seconds * -1));
     list.emplace_back(label, seconds);
@@ -264,7 +258,7 @@ void CSeekHandler::SettingOptionsSeekStepsFiller(const SettingConstPtr& setting,
 
 void CSeekHandler::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
-  if (setting == NULL)
+  if (setting == nullptr)
     return;
 
   if (setting->GetId() == CSettings::SETTING_VIDEOPLAYER_SEEKDELAY ||
@@ -281,7 +275,7 @@ bool CSeekHandler::OnAction(const CAction &action)
   if (!appPlayer->IsPlaying() || !appPlayer->CanSeek())
     return false;
 
-  SeekType type =
+  const SeekType type =
       MUSIC::IsAudio(g_application.CurrentFileItem()) ? SeekType::MUSIC : SeekType::VIDEO;
 
   if (SeekTimeCode(action))
@@ -373,7 +367,7 @@ bool CSeekHandler::SeekTimeCode(const CAction &action)
     case ACTION_PLAYER_PLAY:
     case ACTION_PAUSE:
     {
-      std::unique_lock<CCriticalSection> lock(m_critSection);
+      std::unique_lock lock(m_critSection);
 
       g_application.SeekTime(GetTimeCodeSeconds());
       Reset();
@@ -414,12 +408,14 @@ void CSeekHandler::ChangeTimeCode(int remote)
     m_timerTimeCode.StartZero();
 
     if (m_timeCodePosition < 6)
-      m_timeCodeStamp[m_timeCodePosition++] = remote - REMOTE_0;
+    {
+      m_timeCodeStamp[m_timeCodePosition] = remote - REMOTE_0;
+      m_timeCodePosition++;
+    }
     else
     {
       // rotate around
-      for (int i = 0; i < 5; i++)
-        m_timeCodeStamp[i] = m_timeCodeStamp[i + 1];
+      std::shift_left(m_timeCodeStamp.begin(), m_timeCodeStamp.end(), 1);
       m_timeCodeStamp[5] = remote - REMOTE_0;
     }
    }
@@ -430,14 +426,16 @@ int CSeekHandler::GetTimeCodeSeconds() const
   if (m_timeCodePosition > 0)
   {
     // Convert the timestamp into an integer
-    int tot = 0;
-    for (int i = 0; i < m_timeCodePosition; i++)
-      tot = tot * 10 + m_timeCodeStamp[i];
+    int tot =
+        std::accumulate(m_timeCodeStamp.begin(), m_timeCodeStamp.begin() + m_timeCodePosition, 0,
+                        [](const int acc, const int timeCode) { return acc * 10 + timeCode; });
 
     // Interpret result as HHMMSS
-    int s = tot % 100; tot /= 100;
-    int m = tot % 100; tot /= 100;
-    int h = tot % 100;
+    const int s{tot % 100};
+    tot /= 100;
+    const int m{tot % 100};
+    tot /= 100;
+    const int h{tot % 100};
 
     return h * 3600 + m * 60 + s;
   }

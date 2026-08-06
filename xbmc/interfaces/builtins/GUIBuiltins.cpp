@@ -11,19 +11,21 @@
 #include "ServiceBroker.h"
 #include "Util.h"
 #include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "application/ApplicationPowerHandling.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogNumeric.h"
 #include "filesystem/Directory.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/StereoscopicsManager.h"
 #include "input/WindowTranslator.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "input/actions/ActionTranslator.h"
 #include "messaging/ApplicationMessenger.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/AlarmClock.h"
@@ -71,7 +73,7 @@ static int ActivateWindow(const std::vector<std::string>& params2)
   std::vector<std::string> params(params2);
   // get the parameters
   std::string strWindow;
-  if (params.size())
+  if (!params.empty())
   {
     strWindow = params[0];
     params.erase(params.begin());
@@ -188,9 +190,9 @@ static int AlarmClock(const std::vector<std::string>& params)
   { // check if shutdown is specified in particular, and get the time for it
     std::string strHeading;
     if (StringUtils::EqualsNoCase(params[0], "shutdowntimer"))
-      strHeading = g_localizeStrings.Get(20145);
+      strHeading = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20145);
     else
-      strHeading = g_localizeStrings.Get(13209);
+      strHeading = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13209);
     std::string strTime;
     if( CGUIDialogNumeric::ShowAndGetNumber(strTime, strHeading) )
       seconds = static_cast<float>(atoi(strTime.c_str())*60);
@@ -305,40 +307,59 @@ static int RefreshRSS(const std::vector<std::string>& params)
 /*! \brief Take a screenshot.
  *  \param params The parameters.
  *  \details params[0] = URL to save file to. Blank to use default.
- *           params[1] = "sync" to run synchronously (optional).
+ *           Any parameter may be "video" for a video-only screenshot.
  */
 static int Screenshot(const std::vector<std::string>& params)
 {
-  if (!params.empty())
+  std::string strSaveToPath;
+  bool video = false;
+  for (const std::string& param : params)
   {
-    // get the parameters
-    std::string strSaveToPath = params[0];
-    bool sync = false;
-    if (params.size() >= 2)
-      sync = StringUtils::EqualsNoCase(params[1], "sync");
+    if (StringUtils::EqualsNoCase(param, "sync"))
+      CLog::Log(LOGERROR, "TakeScreenshot: the 'sync' parameter was removed; "
+                          "the screenshot is written asynchronously");
+    else if (StringUtils::EqualsNoCase(param, "video"))
+      video = true;
+    else if (strSaveToPath.empty())
+      strSaveToPath = param;
+  }
 
-    if (!strSaveToPath.empty())
+  const auto content = video ? KODI::RENDERING::CAPTURE::CaptureContent::VIDEO
+                             : KODI::RENDERING::CAPTURE::CaptureContent::COMPOSITE;
+
+  if (video)
+  {
+    // a video-only capture has nothing to read when no video is rendering
+    const auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (!appPlayer->IsRenderingVideo())
     {
-      if (XFILE::CDirectory::Exists(strSaveToPath))
-      {
-        std::string file = CUtil::GetNextFilename(
-            URIUtils::AddFileToFolder(strSaveToPath, "screenshot{:05}.png"), 65535);
-
-        if (!file.empty())
-        {
-          CScreenShot::TakeScreenshot(file, sync);
-        }
-        else
-        {
-          CLog::Log(LOGWARNING, "Too many screen shots or invalid folder {}", strSaveToPath);
-        }
-      }
-      else
-        CScreenShot::TakeScreenshot(strSaveToPath, sync);
+      CLog::Log(LOGWARNING, "TakeScreenshot(video) with no video rendering");
+      return 0;
     }
   }
+
+  if (!strSaveToPath.empty())
+  {
+    if (XFILE::CDirectory::Exists(strSaveToPath))
+    {
+      std::string file = CUtil::GetNextFilename(
+          URIUtils::AddFileToFolder(strSaveToPath, "screenshot{:05}.png"), 65535);
+
+      if (!file.empty())
+      {
+        CScreenShot::TakeScreenshot(file, content);
+      }
+      else
+      {
+        CLog::Log(LOGWARNING, "Too many screen shots or invalid folder {}", strSaveToPath);
+      }
+    }
+    else
+      CScreenShot::TakeScreenshot(strSaveToPath, content);
+  }
   else
-    CScreenShot::TakeScreenshot();
+    CScreenShot::TakeScreenshot(content);
 
   return 0;
 }
@@ -569,11 +590,12 @@ static int ToggleDirty(const std::vector<std::string>&)
 ///     @param[in] ident                 Stereo mode identifier.
 ///   }
 ///   \table_row2_l{
-///     <b>`TakeScreenshot(url[\,sync)`</b>
+///     <b>`TakeScreenshot(url[\,video])`</b>
 ///     ,
 ///     Takes a Screenshot
 ///     @param[in] url                   URL to save file to. Blank to use default.
-///     @param[in] sync                  Add "sync" to run synchronously (optional).
+///     @param[in] video                 Add "video" to capture the video frame only\,
+///     without GUI\, OSD or subtitles (optional).
 ///   }
 ///   \table_row2_l{
 ///     <b>`ToggleDirtyRegionVisualization`</b>

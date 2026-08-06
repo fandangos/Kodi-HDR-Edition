@@ -220,9 +220,13 @@ void CVideoPlayerAudio::UpdatePlayerInfo()
   info.passthrough = m_pAudioCodec && m_pAudioCodec->NeedPassthrough();
 
   {
-    std::unique_lock<CCriticalSection> lock(m_info_section);
+    std::unique_lock lock(m_info_section);
     m_info = info;
   }
+
+  m_processInfo.SetAudioLiveBitRate(m_audioStats.GetBitrate());
+  m_processInfo.SetAudioQueueLevel(std::min(99, m_messageQueue.GetLevel()));
+  m_processInfo.SetAudioQueueDataLevel(std::min(99, m_messageQueue.GetLevel(true)));
 }
 
 void CVideoPlayerAudio::Process()
@@ -676,7 +680,7 @@ bool CVideoPlayerAudio::SwitchCodecIfNeeded()
 
 std::string CVideoPlayerAudio::GetPlayerInfo()
 {
-  std::unique_lock<CCriticalSection> lock(m_info_section);
+  std::unique_lock lock(m_info_section);
   return m_info.info;
 }
 
@@ -687,6 +691,6 @@ int CVideoPlayerAudio::GetAudioChannels()
 
 bool CVideoPlayerAudio::IsPassthrough() const
 {
-  std::unique_lock<CCriticalSection> lock(m_info_section);
+  std::unique_lock lock(m_info_section);
   return m_info.passthrough;
 }

@@ -61,6 +61,11 @@ void CRenderContext::SetScissors(const CRect& rect)
   m_rendering->SetScissors(rect);
 }
 
+void CRenderContext::CaptureStateBlock()
+{
+  m_rendering->CaptureStateBlock();
+}
+
 void CRenderContext::ApplyStateBlock()
 {
   m_rendering->ApplyStateBlock();
@@ -213,16 +218,6 @@ CGUIShaderDX* CRenderContext::GetGUIShader()
 bool CRenderContext::UseLimitedColor()
 {
   return m_windowing->UseLimitedColor();
-}
-
-bool CRenderContext::DisplayHardwareScalingEnabled()
-{
-  return m_windowing->DisplayHardwareScalingEnabled();
-}
-
-void CRenderContext::UpdateDisplayHardwareScaling(const RESOLUTION_INFO& resInfo)
-{
-  return m_windowing->UpdateDisplayHardwareScaling(resInfo);
 }
 
 int CRenderContext::GetScreenWidth()

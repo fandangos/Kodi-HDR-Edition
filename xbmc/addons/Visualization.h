@@ -11,9 +11,7 @@
 #include "addons/binary-addons/AddonInstanceHandler.h"
 #include "addons/kodi-dev-kit/include/kodi/addon-instance/Visualization.h"
 
-namespace KODI
-{
-namespace ADDONS
+namespace KODI::ADDONS
 {
 
 class CVisualization : public ADDON::IAddonInstanceHandler
@@ -22,12 +20,15 @@ public:
   CVisualization(const ADDON::AddonInfoPtr& addonInfo, float x, float y, float w, float h);
   ~CVisualization() override;
 
-  bool Start(int channels, int samplesPerSec, int bitsPerSample, const std::string& songName);
-  void Stop();
+  bool Init();
+  void DeInit();
+
+  bool AudioStart(int channels, int samplesPerSec, int bitsPerSample);
+  void AudioStop();
+  int AudioGetSyncDelay();
   void AudioData(const float* audioData, int audioDataLength);
   bool IsDirty();
   void Render();
-  int GetSyncDelay();
   bool NextPreset();
   bool PrevPreset();
   bool LoadPreset(int select);
@@ -36,14 +37,14 @@ public:
   bool RatePreset(bool plus_minus);
   bool UpdateAlbumart(const char* albumart);
   bool UpdateTrack(const KODI_ADDON_VISUALIZATION_TRACK* track);
-  bool HasPresets();
-  bool GetPresetList(std::vector<std::string>& vecpresets);
+  bool HasPresets() const;
+  bool GetPresetList(std::vector<std::string>& vecpresets) const;
   int GetActivePreset();
   std::string GetActivePresetName();
   bool IsLocked();
 
   // Addon callback functions
-  void GetProperties(struct KODI_ADDON_VISUALIZATION_PROPS* props);
+  void GetProperties(struct KODI_ADDON_VISUALIZATION_PROPS* props) const;
   void TransferPreset(const std::string& preset);
   void ClearPresets();
 
@@ -55,5 +56,4 @@ private:
   std::vector<std::string> m_presets; /*!< cached preset list */
 };
 
-} // namespace ADDONS
-} // namespace KODI
+} // namespace KODI::ADDONS

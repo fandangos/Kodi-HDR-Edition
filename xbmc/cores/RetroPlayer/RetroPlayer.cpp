@@ -35,17 +35,19 @@
 #include "games/GameSettings.h"
 #include "games/GameUtils.h"
 #include "games/addons/GameClient.h"
+#include "games/addons/disc/GameClientDiscs.h"
 #include "games/addons/input/GameClientInput.h"
 #include "games/tags/GameInfoTag.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "interfaces/AnnouncementManager.h"
+#include "jobs/JobManager.h"
 #include "messaging/ApplicationMessenger.h"
-#include "utils/JobManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "windowing/WinSystem.h"
@@ -58,7 +60,8 @@ using namespace GAME;
 using namespace RETRO;
 
 CRetroPlayer::CRetroPlayer(IPlayerCallback& callback)
-  : IPlayer(callback), m_gameServices(CServiceBroker::GetGameServices())
+  : IPlayer(callback),
+    m_gameServices(CServiceBroker::GetGameServices())
 {
   ResetPlayback();
   CServiceBroker::GetWinSystem()->RegisterRenderLoop(this);
@@ -103,7 +106,7 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
   m_guiMessenger = std::make_unique<CGUIGameMessenger>(*m_processInfo);
   m_renderManager = std::make_unique<CRPRenderManager>(*m_processInfo);
 
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   if (IsPlaying())
     CloseFile();
@@ -175,8 +178,11 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
           // overwrite the save
           bool dummy;
           if (!CGUIDialogYesNo::ShowAndGetInput(
-                  438, StringUtils::Format(g_localizeStrings.Get(35217), addon->Name()), dummy, 222,
-                  35218, 0))
+                  438,
+                  StringUtils::Format(
+                      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35217),
+                      addon->Name()),
+                  dummy, 222, 35218, 0))
             bSuccess = false;
         }
       }
@@ -193,6 +199,8 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
                                            m_gameServices.GameSettings().GetRAToken());
 
     m_cheevos->EnableRichPresence();
+
+    m_cheevos->ActivateAchievement();
 
     // Initialize gameplay
     CreatePlayback(savestatePath);
@@ -228,7 +236,7 @@ bool CRetroPlayer::CloseFile(bool reopen /* = false */)
 
   m_playbackControl.reset();
 
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   if (m_gameClient && m_gameServices.GameSettings().AutosaveEnabled())
   {
@@ -244,10 +252,15 @@ bool CRetroPlayer::CloseFile(bool reopen /* = false */)
   if (m_input)
     m_input->StopAgentManager();
 
-  m_cheevos.reset();
+  // Stop threads that access the game client, but keep the achievement callback
+  // alive until CloseFile() has stopped the add-on from invoking it.
+  if (m_cheevos)
+    m_cheevos->Stop();
 
   if (m_gameClient)
     m_gameClient->CloseFile();
+
+  m_cheevos.reset();
 
   m_input.reset();
 
@@ -424,7 +437,8 @@ bool CRetroPlayer::OnAction(const CAction& action)
   {
     case ACTION_PLAYER_RESET:
     {
-      if (m_gameClient)
+      std::unique_lock lock(m_mutex);
+      if (m_gameClient && m_playback && m_cheevos)
       {
         float speed = static_cast<float>(m_playback->GetSpeed());
 
@@ -506,6 +520,38 @@ bool CRetroPlayer::HasGameAgent() const
 {
   if (m_gameClient)
     return m_gameClient->Input().HasAgent();
+
+  return false;
+}
+
+bool CRetroPlayer::SupportsDiscControl() const
+{
+  if (m_gameClient)
+    return m_gameClient->Discs().SupportsDiscControl();
+
+  return false;
+}
+
+bool CRetroPlayer::IsDiscEjected() const
+{
+  if (m_gameClient)
+    return m_gameClient->Discs().IsEjected();
+
+  return false;
+}
+
+std::string CRetroPlayer::DiscLabel() const
+{
+  if (m_gameClient)
+    return m_gameClient->Discs().GetDiscLabel();
+
+  return "";
+}
+
+bool CRetroPlayer::IsTrayEmpty() const
+{
+  if (m_gameClient)
+    return m_gameClient->Discs().IsTrayEmpty();
 
   return false;
 }

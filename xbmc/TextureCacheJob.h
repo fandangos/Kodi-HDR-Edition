@@ -8,9 +8,10 @@
 
 #pragma once
 
+#include "jobs/Job.h"
 #include "pictures/PictureScalingAlgorithm.h"
-#include "utils/Job.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,11 +54,13 @@ public:
 class CTextureCacheJob : public CJob
 {
 public:
+  static constexpr const char* JOB_TYPE_CACHE_IMAGE = "cacheimage";
+
   CTextureCacheJob(const std::string &url, const std::string &oldHash = "");
   ~CTextureCacheJob() override;
 
-  const char* GetType() const override { return kJobTypeCacheImage; }
-  bool operator==(const CJob *job) const override;
+  const char* GetType() const override { return JOB_TYPE_CACHE_IMAGE; }
+  bool Equals(const CJob* job) const override;
   bool DoWork() override;
 
   /*! \brief retrieve a hash for the given image
@@ -106,7 +109,7 @@ public:
   explicit CTextureUseCountJob(const std::vector<CTextureDetails> &textures);
 
   const char* GetType() const override { return "usecount"; }
-  bool operator==(const CJob *job) const override;
+  bool Equals(const CJob* job) const override;
   bool DoWork() override;
 
 private:

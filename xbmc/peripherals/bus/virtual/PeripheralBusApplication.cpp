@@ -8,12 +8,23 @@
 
 #include "PeripheralBusApplication.h"
 
+#include "FileItem.h"
+#include "FileItemList.h"
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
+#include "XBDateTime.h"
+#include "games/controllers/Controller.h"
+#include "games/controllers/ControllerIDs.h"
+#include "games/controllers/ControllerLayout.h"
+#include "games/controllers/ControllerManager.h"
+#include "peripherals/Peripherals.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
+#include "utils/Variant.h"
 
+using namespace KODI;
 using namespace PERIPHERALS;
 
 CPeripheralBusApplication::CPeripheralBusApplication(CPeripherals& manager)
@@ -34,7 +45,8 @@ bool CPeripheralBusApplication::PerformDeviceScan(PeripheralScanResults& results
   {
     PeripheralScanResult result(Type());
     result.m_type = PERIPHERAL_KEYBOARD;
-    result.m_strDeviceName = g_localizeStrings.Get(35150); // "Keyboard"
+    result.m_strDeviceName =
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35150); // "Keyboard"
     result.m_strLocation = PeripheralTypeTranslator::TypeToString(PERIPHERAL_KEYBOARD);
     result.m_iVendorId = 0;
     result.m_iProductId = 0;
@@ -57,7 +69,8 @@ bool CPeripheralBusApplication::PerformDeviceScan(PeripheralScanResults& results
   {
     PeripheralScanResult result(Type());
     result.m_type = PERIPHERAL_MOUSE;
-    result.m_strDeviceName = g_localizeStrings.Get(35171); // "Mouse"
+    result.m_strDeviceName =
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35171); // "Mouse"
     result.m_strLocation = PeripheralTypeTranslator::TypeToString(PERIPHERAL_MOUSE);
     result.m_iVendorId = 0;
     result.m_iProductId = 0;
@@ -74,10 +87,50 @@ bool CPeripheralBusApplication::PerformDeviceScan(PeripheralScanResults& results
 
 void CPeripheralBusApplication::GetDirectory(const std::string& strPath, CFileItemList& items) const
 {
-  // Don't list virtual devices in the GUI
+  {
+    PeripheralPtr peripheral =
+        m_manager.GetByPath(MakeLocation(PeripheralType::PERIPHERAL_KEYBOARD));
+    if (peripheral && peripheral->LastActive().IsValid())
+    {
+      GAME::ControllerPtr controller = peripheral->ControllerProfile();
+      if (!controller)
+        controller = CServiceBroker::GetGameControllerManager().GetDefaultKeyboard();
+
+      std::shared_ptr<CFileItem> item = std::make_shared<CFileItem>(peripheral->DeviceName());
+      item->SetPath(peripheral->FileLocation());
+      item->SetProperty("bus", PeripheralTypeTranslator::BusTypeToString(m_type));
+      item->SetProperty("location", peripheral->Location());
+      item->SetProperty("class", PeripheralTypeTranslator::TypeToString(peripheral->Type()));
+      if (controller)
+        item->SetArt("icon", controller->Layout().ImagePath());
+      items.Add(item);
+    }
+  }
+
+  {
+    PeripheralPtr peripheral = m_manager.GetByPath(MakeLocation(PeripheralType::PERIPHERAL_MOUSE));
+    if (peripheral && peripheral->LastActive().IsValid())
+    {
+      GAME::ControllerPtr controller = peripheral->ControllerProfile();
+      if (!controller)
+        controller = CServiceBroker::GetGameControllerManager().GetDefaultMouse();
+
+      std::shared_ptr<CFileItem> item = std::make_shared<CFileItem>(peripheral->DeviceName());
+      item->SetPath(peripheral->FileLocation());
+      item->SetProperty("bus", PeripheralTypeTranslator::BusTypeToString(m_type));
+      item->SetProperty("location", peripheral->Location());
+      item->SetProperty("class", PeripheralTypeTranslator::TypeToString(peripheral->Type()));
+      if (controller)
+        item->SetArt("icon", controller->Layout().ImagePath());
+      items.Add(item);
+    }
+  }
 }
 
-std::string CPeripheralBusApplication::MakeLocation(unsigned int controllerIndex) const
+std::string CPeripheralBusApplication::MakeLocation(PeripheralType peripheralType)
 {
-  return std::to_string(controllerIndex);
+  return StringUtils::Format(
+      "peripherals://{}/{}.dev",
+      PeripheralTypeTranslator::BusTypeToString(PeripheralBusType::PERIPHERAL_BUS_APPLICATION),
+      PeripheralTypeTranslator::TypeToString(peripheralType));
 }

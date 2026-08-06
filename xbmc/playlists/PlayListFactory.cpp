@@ -84,7 +84,7 @@ CPlayList* CPlayListFactory::Create(const CFileItem& item)
       return new CPlayListXSPF();
   }
 
-  std::string path = item.GetDynPath();
+  const std::string& path = item.GetDynPath();
 
   std::string extension = URIUtils::GetExtension(path);
   StringUtils::ToLower(extension);
@@ -147,13 +147,12 @@ bool CPlayListFactory::IsPlaylist(const CFileItem& item)
   || strMimeType == "audio/x-mpegurl")
     return true;
 
-  return IsPlaylist(item.GetDynPath());
+  return IsPlaylist(item.GetDynURL());
 }
 
 bool CPlayListFactory::IsPlaylist(const CURL& url)
 {
-  return URIUtils::HasExtension(url,
-                                ".m3u|.m3u8|.b4s|.pls|.strm|.wpl|.asx|.ram|.url|.pxml|.xspf");
+  return url.HasExtension(".m3u|.m3u8|.b4s|.pls|.strm|.wpl|.asx|.ram|.url|.pxml|.xspf");
 }
 
 bool CPlayListFactory::IsPlaylist(const std::string& filename)

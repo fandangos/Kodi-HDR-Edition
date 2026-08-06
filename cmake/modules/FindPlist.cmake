@@ -8,19 +8,23 @@
 #   ${APP_NAME_LC}::Plist - The Plist library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
+  find_package(PkgConfig ${SEARCH_QUIET})
   if(PKG_CONFIG_FOUND AND NOT (WIN32 OR WINDOWS_STORE))
-    pkg_search_module(PC_PLIST libplist-2.0 libplist QUIET)
+    pkg_search_module(PC_PLIST libplist-2.0 libplist ${SEARCH_QUIET})
   endif()
 
   find_path(PLIST_INCLUDE_DIR plist/plist.h
                               HINTS ${DEPENDS_PATH}/include ${PC_PLIST_INCLUDEDIR}
-                              ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
+                              ${${CORE_SYSTEM_NAME}_SEARCH_CONFIG})
   find_library(PLIST_LIBRARY NAMES plist-2.0 plist libplist-2.0 libplist
                              HINTS ${DEPENDS_PATH}/lib ${PC_PLIST_LIBDIR}
-                             ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
+                             ${${CORE_SYSTEM_NAME}_SEARCH_CONFIG})
 
   set(PLIST_VERSION ${PC_PLIST_VERSION})
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(Plist

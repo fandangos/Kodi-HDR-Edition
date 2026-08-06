@@ -22,6 +22,7 @@ set(HEADERS AEResampleFactory.h
             Encoders/AEEncoderFFmpeg.h
             Engines/ActiveAE/ActiveAE.h
             Engines/ActiveAE/ActiveAEBuffer.h
+            Engines/ActiveAE/ActiveAEDeviceChange.h
             Engines/ActiveAE/ActiveAEFilter.h
             Engines/ActiveAE/ActiveAESink.h
             Engines/ActiveAE/ActiveAESound.h
@@ -151,11 +152,6 @@ endif()
 if(CORE_SYSTEM_NAME STREQUAL android)
   list(APPEND SOURCES Sinks/AESinkAUDIOTRACK.cpp)
   list(APPEND HEADERS Sinks/AESinkAUDIOTRACK.h)
-endif()
-
-if("webos" IN_LIST CORE_PLATFORM_NAME_LC)
-  list(APPEND SOURCES Sinks/AESinkStarfish.cpp)
-  list(APPEND HEADERS Sinks/AESinkStarfish.h)
 endif()
 
 if(CORE_SYSTEM_NAME STREQUAL freebsd)

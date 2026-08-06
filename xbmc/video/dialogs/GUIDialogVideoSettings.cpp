@@ -16,8 +16,9 @@
 #include "dialogs/GUIDialogYesNo.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -41,6 +42,7 @@
 #include "DSPlayerDatabase.h"
 #include "cores/DSPlayer/Dialogs/GUIDialogMadvrSettings.h"
 #endif
+#include "windowing/WinSystem.h"
 
 #include <utility>
 
@@ -469,7 +471,8 @@ void CGUIDialogVideoSettings::InitializeSettings()
     return;
   }
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  const bool usePopup = skin && skin->HasSkinFile("DialogSlider.xml");
 
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
@@ -651,9 +654,9 @@ void CGUIDialogVideoSettings::InitializeSettings()
 
   // stereoscopic settings
   entries.clear();
-  entries.emplace_back(16316, RENDER_STEREO_MODE_OFF);
-  entries.emplace_back(36503, RENDER_STEREO_MODE_SPLIT_HORIZONTAL);
-  entries.emplace_back(36504, RENDER_STEREO_MODE_SPLIT_VERTICAL);
+  entries.emplace_back(16316, static_cast<int>(RenderStereoMode::OFF));
+  entries.emplace_back(36503, static_cast<int>(RenderStereoMode::SPLIT_HORIZONTAL));
+  entries.emplace_back(36504, static_cast<int>(RenderStereoMode::SPLIT_VERTICAL));
   AddSpinner(groupStereoscopic, SETTING_VIDEO_STEREOSCOPICMODE, 36535, SettingLevel::Basic, videoSettings.m_StereoMode, entries);
   AddToggle(groupStereoscopic, SETTING_VIDEO_STEREOSCOPICINVERT, 36536, SettingLevel::Basic, videoSettings.m_StereoInvert);
 
@@ -681,8 +684,7 @@ void CGUIDialogVideoSettings::AddVideoStreams(const std::shared_ptr<CSettingGrou
 void CGUIDialogVideoSettings::VideoStreamsOptionFiller(
     const std::shared_ptr<const CSetting>& setting,
     std::vector<IntegerSettingOption>& list,
-    int& current,
-    void* data)
+    int& current)
 {
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
@@ -728,33 +730,37 @@ void CGUIDialogVideoSettings::VideoStreamsOptionFiller(
 
   if (list.empty())
   {
-    list.emplace_back(g_localizeStrings.Get(231), -1);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(231), -1);
     current = -1;
   }
 }
 
-void CGUIDialogVideoSettings::VideoOrientationFiller(const std::shared_ptr<const CSetting>& setting,
-                                                     std::vector<IntegerSettingOption>& list,
-                                                     int& current,
-                                                     void* data)
+void CGUIDialogVideoSettings::VideoOrientationFiller(
+    const std::shared_ptr<const CSetting>& /*setting*/,
+    std::vector<IntegerSettingOption>& list,
+    int& /*current*/)
 {
-  list.emplace_back(g_localizeStrings.Get(687), 0);
-  list.emplace_back(g_localizeStrings.Get(35229), 90);
-  list.emplace_back(g_localizeStrings.Get(35230), 180);
-  list.emplace_back(g_localizeStrings.Get(35231), 270);
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(687), 0);
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35229), 90);
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35230), 180);
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35231), 270);
 }
 
 std::string CGUIDialogVideoSettings::FormatFlags(StreamFlags flags)
 {
   std::vector<std::string> localizedFlags;
   if (flags & StreamFlags::FLAG_DEFAULT)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39105));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39105));
   if (flags & StreamFlags::FLAG_FORCED)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39106));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39106));
   if (flags & StreamFlags::FLAG_HEARING_IMPAIRED)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39107));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39107));
   if (flags &  StreamFlags::FLAG_VISUAL_IMPAIRED)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39108));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39108));
 
   std::string formated = StringUtils::Join(localizedFlags, ", ");
 

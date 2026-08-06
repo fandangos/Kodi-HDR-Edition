@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -10,9 +10,16 @@
 
 #include "BlurayStateSerializer.h"
 #include "DVDInputStream.h"
+#include "threads/CriticalSection.h"
+#if defined(HAS_UDFREAD)
+#include "filesystem/UDFContext.h"
+#endif
 
+#include <chrono>
 #include <list>
 #include <memory>
+#include <optional>
+#include <string>
 
 extern "C"
 {
@@ -163,8 +170,8 @@ public:
 
   int GetChapter() override;
   int GetChapterCount() override;
-  void GetChapterName(std::string& name, int ch=-1) override {};
-  int64_t GetChapterPos(int ch) override;
+  void GetChapterName(std::string& name, int ch = -1) override;
+  std::chrono::milliseconds GetChapterPos(int ch) override;
   bool SeekChapter(int ch) override;
 
   CDVDInputStream::IDisplayTime* GetIDisplayTime() override { return this; }
@@ -181,10 +188,15 @@ public:
   void OverlayCallbackARGB(const struct bd_argb_overlay_s * const);
 #endif
 
+  BLURAY_TITLE_INFO* GetTitleFromState(const std::string& xmlstate);
   BLURAY_TITLE_INFO* GetTitleLongest();
   BLURAY_TITLE_INFO* GetTitleFile(const std::string& name);
 
   void ProcessEvent();
+
+  void SaveCurrentState(const CStreamDetails& details) override;
+  UpdateState UpdateItemFromSavedStates(CFileItem& item, double time, bool& closed) override;
+  void UpdateStack(CFileItem& item) override;
 
 protected:
   struct SPlane;
@@ -238,9 +250,18 @@ protected:
     std::unique_ptr<CDVDInputStreamFile> m_pstream;
     std::string m_rootPath;
 
+#if defined(HAS_UDFREAD)
+    // Keeps a disc image's UDF volume mounted for as long as the disc is open
+    std::optional<XFILE::CUDFMount> m_udfMount;
+#endif
+
     /*! Bluray state serializer handler */
     CBlurayStateSerializer m_blurayStateSerializer;
 
     /* used during bd_open_stream read block*/
     CCriticalSection m_readBlocksLock;
+
+    std::chrono::steady_clock::time_point m_startWatchTime{};
+    std::vector<PlaylistInformation> m_playedPlaylists;
+    CCriticalSection m_statesLock;
 };

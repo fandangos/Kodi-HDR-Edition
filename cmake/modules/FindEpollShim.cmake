@@ -7,16 +7,20 @@
 #   ${APP_NAME_LC}::EpollShim   - The epoll-shim library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
+  find_package(PkgConfig ${SEARCH_QUIET})
 
   if(PKG_CONFIG_FOUND)
-    pkg_check_modules(PC_EPOLLSHIM epoll-shim QUIET)
+    pkg_check_modules(PC_EPOLLSHIM epoll-shim ${SEARCH_QUIET})
   endif()
 
   find_path(EPOLLSHIM_INCLUDE_DIR NAMES sys/epoll.h
                                   HINTS ${PC_EPOLLSHIM_INCLUDE_DIRS})
   find_library(EPOLLSHIM_LIBRARY NAMES epoll-shim
                                  HINTS ${PC_EPOLLSHIM_LIBDIR})
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(EpollShim

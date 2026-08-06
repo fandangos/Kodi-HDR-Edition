@@ -36,10 +36,29 @@ void CRenderUtils::CalculateStretchMode(STRETCHMODE stretchMode,
         case 90:
         case 270:
         {
+          pixelRatio = 1.0f / (pixelRatio * sourceFrameRatio * sourceFrameRatio);
+          break;
+        }
+        default:
+          // Keep original pixel ratio
+          break;
+      }
+      zoomAmount = 1.0f;
+
+      break;
+    }
+    case STRETCHMODE::Normal1x1:
+    {
+      switch (rotationDegCCW)
+      {
+        case 90:
+        case 270:
+        {
           pixelRatio = 1.0f / (sourceFrameRatio * sourceFrameRatio);
           break;
         }
         default:
+          // Force 1:1 pixel ratio
           pixelRatio = 1.0f;
           break;
       }
@@ -49,8 +68,36 @@ void CRenderUtils::CalculateStretchMode(STRETCHMODE stretchMode,
     }
     case STRETCHMODE::Stretch4x3:
     {
-      // Stretch to 4:3 ratio
-      pixelRatio = (4.0f / 3.0f) / sourceFrameRatio;
+      switch (rotationDegCCW)
+      {
+        case 90:
+        case 270:
+        {
+          pixelRatio = 1.0f / ((4.0f / 3.0f) * sourceFrameRatio);
+          break;
+        }
+        default:
+          pixelRatio = (4.0f / 3.0f) / sourceFrameRatio;
+          break;
+      }
+      zoomAmount = 1.0f;
+
+      break;
+    }
+    case STRETCHMODE::Stretch16x9:
+    {
+      switch (rotationDegCCW)
+      {
+        case 90:
+        case 270:
+        {
+          pixelRatio = 1.0f / ((16.0f / 9.0f) * sourceFrameRatio);
+          break;
+        }
+        default:
+          pixelRatio = (16.0f / 9.0f) / sourceFrameRatio;
+          break;
+      }
       zoomAmount = 1.0f;
 
       break;
@@ -60,6 +107,89 @@ void CRenderUtils::CalculateStretchMode(STRETCHMODE stretchMode,
       // Stretch to the limits of the screen
       pixelRatio = (screenWidth / screenHeight) / sourceFrameRatio;
       zoomAmount = 1.0f;
+
+      break;
+    }
+    case STRETCHMODE::Integer:
+    {
+      switch (rotationDegCCW)
+      {
+        case 90:
+        case 270:
+        {
+          pixelRatio = 1.0f / (pixelRatio * sourceFrameRatio * sourceFrameRatio);
+
+          if (screenWidth / (sourceFrameRatio * pixelRatio) > screenHeight)
+          {
+            const auto zoomFactor = static_cast<int>(screenHeight / sourceWidth);
+            zoomAmount = (zoomFactor * sourceWidth) / screenHeight;
+          }
+          else
+          {
+            const auto zoomFactor = static_cast<int>(screenWidth / (sourceHeight * pixelRatio));
+            zoomAmount = (zoomFactor * sourceHeight * pixelRatio) / screenWidth;
+          }
+
+          break;
+        }
+        default:
+          // Keep original pixel ratio
+
+          if (screenWidth / (sourceFrameRatio * pixelRatio) > screenHeight)
+          {
+            const auto zoomFactor = static_cast<int>(screenHeight / sourceHeight);
+            zoomAmount = (zoomFactor * sourceHeight) / screenHeight;
+          }
+          else
+          {
+            const auto zoomFactor = static_cast<int>(screenWidth / (sourceWidth * pixelRatio));
+            zoomAmount = (zoomFactor * sourceWidth * pixelRatio) / screenWidth;
+          }
+
+          break;
+      }
+
+      break;
+    }
+    case STRETCHMODE::Integer1x1:
+    {
+      switch (rotationDegCCW)
+      {
+        case 90:
+        case 270:
+        {
+          pixelRatio = 1.0f / (sourceFrameRatio * sourceFrameRatio);
+
+          if (screenWidth / (sourceFrameRatio * pixelRatio) > screenHeight)
+          {
+            const auto zoomFactor = static_cast<int>(screenHeight / sourceWidth);
+            zoomAmount = (zoomFactor * sourceWidth) / screenHeight;
+          }
+          else
+          {
+            const auto zoomFactor = static_cast<int>(screenWidth / (sourceHeight * pixelRatio));
+            zoomAmount = (zoomFactor * sourceHeight * pixelRatio) / screenWidth;
+          }
+
+          break;
+        }
+        default:
+          // Force 1:1 pixel ratio
+          pixelRatio = 1.0f;
+
+          if (screenWidth / (sourceFrameRatio * pixelRatio) > screenHeight)
+          {
+            const auto zoomFactor = static_cast<int>(screenHeight / sourceHeight);
+            zoomAmount = (zoomFactor * sourceHeight) / screenHeight;
+          }
+          else
+          {
+            const auto zoomFactor = static_cast<int>(screenWidth / (sourceWidth * pixelRatio));
+            zoomAmount = (zoomFactor * sourceWidth * pixelRatio) / screenWidth;
+          }
+
+          break;
+      }
 
       break;
     }
@@ -74,6 +204,7 @@ void CRenderUtils::CalculateStretchMode(STRETCHMODE stretchMode,
           break;
         }
         default:
+          // Force 1:1 pixel ratio
           pixelRatio = 1.0f;
           break;
       }
@@ -226,10 +357,10 @@ void CRenderUtils::CropSource(CRect& sourceRect,
   }
 }
 
-std::array<CPoint, 4> CRenderUtils::ReorderDrawPoints(const CRect& destRect,
-                                                      unsigned int orientationDegCCW)
+ViewportCoordinates CRenderUtils::ReorderDrawPoints(const CRect& destRect,
+                                                    unsigned int orientationDegCCW)
 {
-  std::array<CPoint, 4> rotatedDestCoords{};
+  ViewportCoordinates rotatedDestCoords{};
 
   switch (orientationDegCCW)
   {

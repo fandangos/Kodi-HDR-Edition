@@ -17,7 +17,6 @@
 
 #include <future>
 #include <memory>
-#include <queue>
 #include <string>
 #include <vector>
 
@@ -59,12 +58,14 @@ public:
   bool InitialiseFeature(const PeripheralFeature feature) override;
   void OnUserNotification() override;
   bool TestFeature(PeripheralFeature feature) override;
+  void ResetDefaultSettings() override;
   void RegisterJoystickDriverHandler(KODI::JOYSTICK::IDriverHandler* handler,
                                      bool bPromiscuous) override;
   void UnregisterJoystickDriverHandler(KODI::JOYSTICK::IDriverHandler* handler) override;
   KODI::JOYSTICK::IDriverReceiver* GetDriverReceiver() override { return this; }
   KODI::KEYMAP::IKeymap* GetKeymap(const std::string& controllerId) override;
   CDateTime LastActive() const override { return m_lastActive; }
+  void SetLastActive(const CDateTime& lastActive) override;
   KODI::GAME::ControllerPtr ControllerProfile() const override;
   void SetControllerProfile(const KODI::GAME::ControllerPtr& controller) override;
 
@@ -118,10 +119,6 @@ protected:
 
   void PowerOff();
 
-  // Helper functions
-  KODI::GAME::ControllerPtr InstallAsync(const std::string& controllerId);
-  static bool InstallSync(const std::string& controllerId);
-
   struct DriverHandler
   {
     KODI::JOYSTICK::IDriverHandler* handler;
@@ -137,8 +134,6 @@ protected:
   unsigned int m_motorCount = 0;
   bool m_supportsPowerOff = false;
   CDateTime m_lastActive;
-  std::queue<std::string> m_controllersToInstall;
-  std::vector<std::future<void>> m_installTasks;
 
   // Input clients
   std::unique_ptr<KODI::KEYMAP::CKeymapHandling> m_appInput;
@@ -150,6 +145,5 @@ protected:
 
   // Synchronization parameters
   CCriticalSection m_handlerMutex;
-  CCriticalSection m_controllerInstallMutex;
 };
 } // namespace PERIPHERALS

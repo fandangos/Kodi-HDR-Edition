@@ -15,8 +15,15 @@ class CPlatformWebOS : public CPlatformLinux
 public:
   bool InitStageOne() override;
   bool InitStageTwo() override;
+  bool InitStageThree() override;
   static CPlatform* CreateInstance();
 
 protected:
   void RegisterPowerManagement() override;
+
+public:
+  bool IsConfigureAddonsAtStartupEnabled() override;
+
+private:
+  std::string GetHomePath();
 };

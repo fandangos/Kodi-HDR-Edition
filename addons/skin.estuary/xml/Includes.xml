@@ -7,6 +7,8 @@
 	<include file="Includes_MediaMenu.xml" />
 	<include file="Includes_Buttons.xml" />
 	<include file="Includes_DialogSelect.xml" />
+	<include file="Includes_InfoViewer.xml" />
+	<include file="Includes_Maps.xml" />
 	<include file="Includes_MusicInfo.xml" />
 	<include file="Includes_PVR.xml" />
 	<include file="Includes_SettingsDialog.xml" />
@@ -20,12 +22,13 @@
 	<include file="View_500_Wall.xml" />
 	<include file="View_501_Banner.xml" />
 	<include file="View_502_FanArt.xml" />
+	<include file="View_504_MediaList.xml" />
 	<include file="Variables.xml" />
 	<include condition="Integer.IsLessOrEqual(System.ScreenHeight,720)" file="Constants_720.xml" />
 	<include condition="Integer.IsGreater(System.ScreenHeight,720)" file="Constants_1080.xml" />
 	<expression name="infodialog_active">Window.IsActive(musicinformation) | Window.IsActive(songinformation) | Window.IsActive(movieinformation) | Window.IsActive(addoninformation) | Window.IsActive(pvrguideinfo) | Window.IsActive(pvrrecordinginfo) | Window.IsActive(pictureinfo) | Window.IsVisible(script-embuary-video.xml) | Window.IsVisible(script-embuary-person.xml) | Window.IsVisible(script-embuary-image.xml)</expression>
 	<expression name="sidebar_visible">ControlGroup(9000).HasFocus | Control.HasFocus(6130) | Control.HasFocus(6131)</expression>
-	<expression name="object_audio_true">[String.Contains(ListItem.AudioCodec,atmos) | String.Contains(ListItem.AudioCodec,dtshd_ma_x)] | [Window.IsActive(fullscreenvideo) + [String.Contains(VideoPlayer.AudioCodec,atmos) | String.Contains(VideoPlayer.AudioCodec,dtshd_ma_x)]] | [Window.IsActive(visualisation) + [String.Contains(MusicPlayer.AudioCodec,atmos) | String.Contains(MusicPlayer.AudioCodec,dtshd_ma_x)]]</expression>
+	<expression name="videoasset_true">Container.Content(videoassets) | Container.Content(videoversions) | Container.Content(videoextras)</expression>
 	<include name="CommonScrollbars">
 		<param name="bottom_offset">list_bottom_offset</param>
 		<definition>
@@ -301,27 +304,6 @@
 			</focusedlayout>
 		</definition>
 	</include>
-	<include name="InfoFlag">
-		<control type="group">
-			<width>114</width>
-			<visible>$PARAM[visible]</visible>
-			<control type="image">
-				<top>-3</top>
-				<left>0</left>
-				<width>33</width>
-				<height>33</height>
-				<texture colordiffuse="white">$PARAM[icon]</texture>
-			</control>
-			<control type="label">
-				<left>40</left>
-				<width>114</width>
-				<height>36</height>
-				<aligny>center</aligny>
-				<font>font_flag</font>
-				<label>$PARAM[label]</label>
-			</control>
-		</control>
-	</include>
 	<include name="MediaFlag">
 		<param name="texture">colors/white.png</param>
 		<param name="flag_visible">true</param>
@@ -355,53 +337,57 @@
 					<width>114</width>
 					<height>36</height>
 					<fadetime>0</fadetime>
-					<aspectratio align="center" aligny="center">keep</aspectratio>
+					<aspectratio align="right" aligny="center">keep</aspectratio>
 					<texture>$INFO[ListItem.Studio,resource://resource.images.studios.white/,.png]</texture>
 					<visible>System.AddonIsEnabled(resource.images.studios.white) + !String.IsEmpty($PARAM[infolabel_prefix]ListItem.Studio)</visible>
 				</control>
-				<control type="group">
-					<width>144</width>
-					<visible>!String.IsEmpty($PARAM[infolabel_prefix]ListItem.Premiered)</visible>
-					<include content="InfoFlag">
-						<param name="icon" value="lists/year.png" />
-						<param name="label" value="$INFO[ListItem.Premiered]" />
-					</include>
+				<control type="image">
+					<visible>!String.IsEmpty(ListItem.Premiered)</visible>
+					<top>-2</top>
+					<width>32</width>
+					<height>32</height>
+					<aspectratio align="right" aligny="center">keep</aspectratio>
+					<texture colordiffuse="white">lists/year.png</texture>
+				</control>
+				<control type="label">
+					<visible>!String.IsEmpty(ListItem.Premiered)</visible>
+					<width>auto</width>
+					<height>33</height>
+					<aligny>center</aligny>
+					<font>font_flag</font>
+					<label>$INFO[ListItem.Premiered]</label>
 				</control>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.Duration)" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.Duration) + !Control.IsVisible(504)" />
 					<param name="flag_label" value="$INFO[ListItem.Duration]" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="ListItem.IsStereoscopic" />
+					<param name="flag_visible" value="ListItem.IsStereoscopic + !Control.IsVisible(504)" />
 					<param name="flag_label" value="3D" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.VideoCodec)" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.VideoCodec) + !Control.IsVisible(504)" />
 					<param name="flag_label" value="$VAR[VideoCodecVar]" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.VideoResolution)" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.VideoResolution) + !Control.IsVisible(504)" />
 					<param name="flag_label" value="$INFO[ListItem.VideoResolution]$VAR[VideoResolutionTypeVar, ]" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.HdrType)" />
-					<param name="flag_label" value="$VAR[VideoHDRTypeVar]" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.HdrType) + !Control.IsVisible(504)" />
+					<param name="flag_label" value="$VAR[VideoHDRType1Var]$VAR[VideoHDRType2Var, &#8226; ]" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.VideoAspect)" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.VideoAspect) + !Control.IsVisible(504)" />
 					<param name="flag_label" value="$INFO[ListItem.VideoAspect,,:1]" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.AudioCodec)" />
-					<param name="flag_label" value="$VAR[AudioCodecVar]" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.AudioCodec) + !Control.IsVisible(504)" />
+					<param name="flag_label" value="$VAR[AudioCodecFlagVar]" />
 				</include>
 				<include content="MediaFlag">
-					<param name="flag_visible" value="$EXP[object_audio_true]" />
-					<param name="flag_label" value="$VAR[ObjectAudioTypeVar]" />
-				</include>
-				<include content="MediaFlag">
-					<param name="flag_visible" value="!String.IsEmpty(ListItem.AudioChannels)" />
-					<param name="flag_label" value="$VAR[AudioChannelsVar]" />
+					<param name="flag_visible" value="!String.IsEmpty(ListItem.AudioChannels) + !Control.IsVisible(504)" />
+					<param name="flag_label" value="$VAR[AudioPropertyFlagVar]" />
 				</include>
 			</control>
 			<control type="grouplist">
@@ -436,19 +422,19 @@
 				</include>
 				<include content="MediaFlag">
 					<param name="flag_visible" value="!String.IsEmpty(VideoPlayer.AudioCodec)" />
-					<param name="flag_label" value="$VAR[AudioCodecVar]" />
-				</include>
-				<include content="MediaFlag">
-					<param name="flag_visible" value="$EXP[object_audio_true]" />
-					<param name="flag_label" value="$VAR[ObjectAudioTypeVar]" />
+					<param name="flag_label" value="$VAR[AudioCodecFlagVar]" />
 				</include>
 				<include content="MediaFlag">
 					<param name="flag_visible" value="!String.IsEmpty(VideoPlayer.AudioChannels)" />
-					<param name="flag_label" value="$VAR[AudioChannelsVar]" />
+					<param name="flag_label" value="$VAR[AudioPropertyFlagVar]" />
+				</include>
+				<include content="MediaFlag">
+					<param name="flag_visible" value="VideoPlayer.SubtitlesEnabled + [!String.IsEmpty(VideoPlayer.SubtitleCodec) | !String.IsEmpty(VideoPlayer.SubtitlesLanguage)]" />
+					<param name="flag_label" value="$VAR[ActiveVideoPlayerSubtitleLanguage]" />
 				</include>
 			</control>
 			<control type="grouplist">
-				<visible>Container.Content(albums) | Window.IsActive(10502)</visible>
+				<visible>!String.IsEqual(ListItem.DbType,musicvideo) + [Container.Content(albums) | Window.IsActive(music)]</visible>
 				<orientation>horizontal</orientation>
 				<right>20</right>
 				<bottom>10</bottom>
@@ -503,10 +489,6 @@
 				<include content="MediaFlag">
 					<param name="flag_visible" value="!String.IsEmpty(MusicPlayer.Codec)" />
 					<param name="flag_label" value="$VAR[AudioCodecVar]" />
-				</include>
-				<include content="MediaFlag">
-					<param name="flag_visible" value="$EXP[object_audio_true]" />
-					<param name="flag_label" value="$VAR[ObjectAudioTypeVar]" />
 				</include>
 				<include content="MediaFlag">
 					<param name="flag_visible" value="!String.IsEmpty(MusicPlayer.Channels)" />
@@ -978,7 +960,7 @@
 		</control>
 	</include>
 	<include name="TopBar">
-		<param name="sublabel">$INFO[Container.SortMethod,$LOCALIZE[31022]: ,  ∙  ]$INFO[Container.CurrentItem,, / ]$INFO[Container.NumItems]</param>
+		<param name="sublabel">$INFO[Container.SortMethod,$LOCALIZE[31022]: ,  •  ]$INFO[Container.CurrentItem,, / ]$INFO[Container.NumItems]</param>
 		<definition>
 			<control type="group">
 				<animation effect="slide" end="0,-112" time="300" tween="sine" easing="inout" condition="$EXP[infodialog_active]">conditional</animation>
@@ -1142,8 +1124,9 @@
 						<height>50</height>
 						<width>auto</width>
 						<aligny>center</aligny>
-						<label>$INFO[Window(Weather).Property(Current.Temperature)]$INFO[System.TemperatureUnits]</label>
-						<visible>Skin.HasSetting(show_weatherinfo) + Weather.IsFetched + ![String.IsEqual(Weather.FanartCode,na)]</visible>
+						<label>$INFO[Weather.Data(Current.Temperature)]</label>
+						<visible>Skin.HasSetting(show_weatherinfo) + Weather.IsFetched</visible>
+						<visible>!Window.IsActive(weather) + [!Window.IsActive(home) | !String.IsEqual(Container(9000).ListItem.Property(id),weather)]</visible>
 					</control>
 					<control type="image">
 						<top>1</top>
@@ -1151,8 +1134,9 @@
 						<height>50</height>
 						<fadetime>300</fadetime>
 						<aspectratio aligny="center" align="left">keep</aspectratio>
-						<texture>$INFO[Weather.FanartCode,weather/small/,.png]</texture>
-						<visible>Skin.HasSetting(show_weatherinfo) + Weather.IsFetched + ![String.IsEqual(Weather.FanartCode,na)]</visible>
+						<texture>$INFO[Weather.Data(Current.FanartCode),weather/small/,.png]</texture>
+						<visible>Skin.HasSetting(show_weatherinfo) + Weather.IsFetched + ![String.IsEqual(Weather.Data(Current.FanartCode),na)]</visible>
+						<visible>!Window.IsActive(weather) + [!Window.IsActive(home) | !String.IsEqual(Container(9000).ListItem.Property(id),weather)]</visible>
 					</control>
 					<control type="image">
 						<top>8</top>
@@ -1209,6 +1193,11 @@
 			<include>BreadcrumbsLabel</include>
 			<visible>![Container.Content() + Window.IsActive(videos)]</visible>
 			<visible>![Window.IsActive(MyPVRChannels.xml) | Window.IsActive(MyPVRTimers.xml) | Window.IsActive(MyPVRRecordings.xml) | Window.IsActive(MyPVRSearch.xml) | Window.IsActive(MyPVRProviders.xml)]</visible>
+		</control>
+		<control type="label">
+			<label>$VAR[BreadcrumbsVideoAssetTypeVar, / ]</label>
+			<include>BreadcrumbsLabel</include>
+			<visible>$EXP[videoasset_true]</visible>
 		</control>
 		<control type="label">
 			<label>$INFO[Container.PluginCategory, / ]</label>
@@ -1696,7 +1685,7 @@
 	</include>
 	<include name="MediaInfoListLayout">
 		<param name="height">125</param>
-		<param name="width">880</param>
+		<param name="width">1000</param>
 		<param name="fontcolor">grey</param>
 		<definition>
 			<itemlayout height="$PARAM[height]" width="$PARAM[width]">
@@ -1725,7 +1714,7 @@
 					<font>font10</font>
 					<aligny>center</aligny>
 					<textcolor>grey</textcolor>
-					<label>$VAR[MediaInfoListLabel2Var]</label>
+					<label>$INFO[ListItem.Duration,$LOCALIZE[180]: ][CR]$VAR[MediaInfoListLabel2Var]</label>
 				</control>
 			</itemlayout>
 			<focusedlayout height="$PARAM[height]" width="$PARAM[width]">
@@ -1761,7 +1750,7 @@
 					<height>65</height>
 					<font>font10</font>
 					<aligny>center</aligny>
-					<label>$VAR[MediaInfoListLabel2Var]</label>
+					<label>$INFO[ListItem.Duration,$LOCALIZE[180]: ][CR]$VAR[MediaInfoListLabel2Var]</label>
 				</control>
 			</focusedlayout>
 		</definition>

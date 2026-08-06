@@ -46,7 +46,7 @@ void CDVDMessageQueue::Init()
 
 void CDVDMessageQueue::Flush(CDVDMsg::Message type)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   m_messages.remove_if([type](const DVDMessageListItem &item){
     return type == CDVDMsg::NONE || item.message->IsType(type);
@@ -66,7 +66,7 @@ void CDVDMessageQueue::Flush(CDVDMsg::Message type)
 
 void CDVDMessageQueue::Abort()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   m_bAbortRequest = true;
 
@@ -76,7 +76,7 @@ void CDVDMessageQueue::Abort()
 
 void CDVDMessageQueue::End()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   Flush(CDVDMsg::NONE);
 
@@ -99,7 +99,7 @@ MsgQueueReturnCode CDVDMessageQueue::Put(const std::shared_ptr<CDVDMsg>& pMsg,
                                          int priority,
                                          bool front)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (!m_bInitialized)
   {
@@ -162,7 +162,7 @@ MsgQueueReturnCode CDVDMessageQueue::Get(std::shared_ptr<CDVDMsg>& pMsg,
                                          std::chrono::milliseconds timeout,
                                          int& priority)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   int ret = 0;
 
@@ -269,7 +269,7 @@ void CDVDMessageQueue::UpdateTimeBack()
 
 unsigned CDVDMessageQueue::GetPacketCount(CDVDMsg::Message type)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (!m_bInitialized)
     return 0;
@@ -292,7 +292,7 @@ unsigned CDVDMessageQueue::GetPacketCount(CDVDMsg::Message type)
 void CDVDMessageQueue::WaitUntilEmpty()
 {
   {
-    std::unique_lock<CCriticalSection> lock(m_section);
+    std::unique_lock lock(m_section);
     m_drain = true;
   }
 
@@ -302,21 +302,21 @@ void CDVDMessageQueue::WaitUntilEmpty()
   msg->Wait(m_bAbortRequest, 0);
 
   {
-    std::unique_lock<CCriticalSection> lock(m_section);
+    std::unique_lock lock(m_section);
     m_drain = false;
   }
 }
 
-int CDVDMessageQueue::GetLevel() const
+int CDVDMessageQueue::GetLevel(bool dataLevel) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (m_iDataSize > m_iMaxDataSize)
     return 100;
   if (m_iDataSize == 0)
     return 0;
 
-  if (IsDataBased())
+  if (IsDataBased() || dataLevel)
   {
     return std::min(100, 100 * m_iDataSize / m_iMaxDataSize);
   }
@@ -335,7 +335,7 @@ int CDVDMessageQueue::GetLevel() const
 
 double CDVDMessageQueue::GetTimeSize() const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (IsDataBased())
     return 0.0;
@@ -345,6 +345,8 @@ double CDVDMessageQueue::GetTimeSize() const
 
 bool CDVDMessageQueue::IsDataBased() const
 {
+  std::unique_lock lock(m_section);
+
   return (m_TimeBack == DVD_NOPTS_VALUE  ||
           m_TimeFront == DVD_NOPTS_VALUE ||
           m_TimeFront <= m_TimeBack);

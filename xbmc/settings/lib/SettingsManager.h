@@ -22,6 +22,7 @@
 
 #include <map>
 #include <set>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -32,6 +33,32 @@ class CSettingUpdate;
 
 class TiXmlElement;
 class TiXmlNode;
+
+enum class SettingOptionsFillerType
+{
+  Unknown = 0,
+  Integer,
+  String
+};
+
+struct SettingOptionsFiller
+{
+  IntegerSettingOptionsFiller intFiller{};
+  StringSettingOptionsFiller stringFiller{};
+  SettingOptionsFillerType type{SettingOptionsFillerType::Unknown};
+
+  SettingOptionsFiller() = default;
+
+  explicit SettingOptionsFiller(const IntegerSettingOptionsFiller& _filler)
+    : intFiller(_filler), type(SettingOptionsFillerType::Integer)
+  {
+  }
+
+  explicit SettingOptionsFiller(const StringSettingOptionsFiller& _filler)
+    : stringFiller(_filler), type(SettingOptionsFillerType::String)
+  {
+  }
+};
 
 /*!
  \ingroup settings
@@ -78,6 +105,9 @@ public:
    \return True if the XML element was successfully deserialized into setting definitions, false otherwise
    */
   bool Initialize(const TiXmlElement *root);
+
+  using LoadedSettings = std::map<std::string, std::shared_ptr<CSetting>, std::less<>>;
+
   /*!
    \brief Loads setting values from the given XML element.
 
@@ -87,7 +117,10 @@ public:
    \param loadedSettings A list to fill with all the successfully loaded settings
    \return True if the setting values were successfully loaded, false otherwise
    */
-  bool Load(const TiXmlElement *root, bool &updated, bool triggerEvents = true, std::map<std::string, std::shared_ptr<CSetting>> *loadedSettings = nullptr);
+  bool Load(const TiXmlElement* root,
+            bool& updated,
+            bool triggerEvents = true,
+            LoadedSettings* loadedSettings = nullptr);
   /*!
    \brief Saves the setting values using the given serializer.
 
@@ -193,7 +226,7 @@ public:
    \param settingsHandler ISettingsHandler implementation
    \param settingList List of settings to trigger the given ISettingCallback implementation
    */
-  void RegisterCallback(ISettingCallback *callback, const std::set<std::string> &settingList);
+  void RegisterCallback(ISettingCallback* callback, const SettingsContainer& settingList);
   /*!
    \brief Unregisters the given ISettingCallback implementation.
 
@@ -247,14 +280,16 @@ public:
    \param identifier Setting options filler identifier
    \param optionsFiller Integer setting options filler implementation
    */
-  void RegisterSettingOptionsFiller(const std::string &identifier, IntegerSettingOptionsFiller optionsFiller);
+  void RegisterSettingOptionsFiller(const std::string& identifier,
+                                    const IntegerSettingOptionsFiller& optionsFiller);
   /*!
    \brief Registers the given string setting options filler under the given identifier.
 
    \param identifier Setting options filler identifier
    \param optionsFiller String setting options filler implementation
    */
-  void RegisterSettingOptionsFiller(const std::string &identifier, StringSettingOptionsFiller optionsFiller);
+  void RegisterSettingOptionsFiller(const std::string& identifier,
+                                    const StringSettingOptionsFiller& optionsFiller);
   /*!
    \brief Unregisters the setting options filler registered under the given identifier.
 
@@ -268,7 +303,7 @@ public:
    \param setting Setting object
    \return Implementation of the setting options filler (either IntegerSettingOptionsFiller or StringSettingOptionsFiller)
    */
-  void* GetSettingOptionsFiller(const std::shared_ptr<const CSetting>& setting);
+  SettingOptionsFiller GetSettingOptionsFiller(const std::shared_ptr<const CSetting>& setting);
 
   /*!
    \brief Checks whether any settings have been initialized.
@@ -441,9 +476,8 @@ public:
 
    \param identifier Identifier of the dynamic condition
    \param condition Implementation of the dynamic condition
-   \param data Opaque data pointer, will be passed back to SettingConditionCheck function
    */
-  void AddDynamicCondition(const std::string &identifier, SettingConditionCheck condition, void *data = nullptr);
+  void AddDynamicCondition(const std::string& identifier, const SettingConditionCheck& condition);
 
   /*!
    \brief Removes the given dynamic condition.
@@ -472,7 +506,7 @@ private:
   void OnSettingsCleared() override;
 
   bool Serialize(TiXmlNode *parent) const;
-  bool Deserialize(const TiXmlNode *node, bool &updated, std::map<std::string, std::shared_ptr<CSetting>> *loadedSettings = nullptr);
+  bool Deserialize(const TiXmlNode* node, bool& updated, LoadedSettings* loadedSettings = nullptr);
 
   bool LoadSetting(const TiXmlNode* node, const std::shared_ptr<CSetting>& setting, bool& updated);
   bool UpdateSetting(const TiXmlNode* node,
@@ -486,24 +520,27 @@ private:
   void ResolveReferenceSettings(const std::shared_ptr<CSettingSection>& section);
   void CleanupIncompleteSettings();
 
-  enum class SettingOptionsFillerType {
-    Unknown = 0,
-    Integer,
-    String
+  using CallbackSet = std::set<ISettingCallback *>;
+
+  struct StringHash
+  {
+    using is_transparent = void; // Enables heterogeneous operations.
+    std::size_t operator()(std::string_view sv) const
+    {
+      std::hash<std::string_view> hasher;
+      return hasher(sv);
+    }
   };
 
-  void RegisterSettingOptionsFiller(const std::string &identifier, void *filler, SettingOptionsFillerType type);
-
-  using CallbackSet = std::set<ISettingCallback *>;
   struct Setting {
     std::shared_ptr<CSetting> setting;
     SettingDependencyMap dependencies;
-    std::set<std::string> children;
+    SettingsContainer children;
     CallbackSet callbacks;
-    std::unordered_set<std::string> references;
+    std::unordered_set<std::string, StringHash, std::equal_to<>> references;
   };
 
-  using SettingMap = std::map<std::string, Setting>;
+  using SettingMap = std::map<std::string, Setting, std::less<>>;
 
   /*!
    * \brief Refresh the visibility and enable status of a given setting
@@ -526,13 +563,13 @@ private:
   bool m_loaded = false;
 
   SettingMap m_settings;
-  using SettingSectionMap = std::map<std::string, std::shared_ptr<CSettingSection>>;
+  using SettingSectionMap = std::map<std::string, std::shared_ptr<CSettingSection>, std::less<>>;
   SettingSectionMap m_sections;
 
-  using SettingCreatorMap = std::map<std::string, ISettingCreator*>;
+  using SettingCreatorMap = std::map<std::string, ISettingCreator*, std::less<>>;
   SettingCreatorMap m_settingCreators;
 
-  using SettingControlCreatorMap = std::map<std::string, ISettingControlCreator*>;
+  using SettingControlCreatorMap = std::map<std::string, ISettingControlCreator*, std::less<>>;
   SettingControlCreatorMap m_settingControlCreators;
 
   using SettingsHandlers = std::vector<ISettingsHandler*>;
@@ -540,11 +577,7 @@ private:
 
   CSettingConditionsManager m_conditions;
 
-  struct SettingOptionsFiller {
-    void *filler;
-    SettingOptionsFillerType type;
-  };
-  using SettingOptionsFillerMap = std::map<std::string, SettingOptionsFiller>;
+  using SettingOptionsFillerMap = std::map<std::string, SettingOptionsFiller, std::less<>>;
   SettingOptionsFillerMap m_optionsFillers;
 
   mutable CSharedSection m_critical;

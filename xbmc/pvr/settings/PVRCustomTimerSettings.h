@@ -9,10 +9,12 @@
 #pragma once
 
 #include "addons/kodi-dev-kit/include/kodi/c-api/addon-instance/pvr/pvr_timers.h" // PVR_TIMER_STATE
-#include "pvr/timers/PVRTimerInfoTag.h"
+#include "pvr/settings/PVRCustomProperty.h"
 
+#include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -31,7 +33,7 @@ class CPVRCustomTimerSettings
 {
 public:
   CPVRCustomTimerSettings(const CPVRTimerType& timerType,
-                          const CPVRTimerInfoTag::CustomPropsMap& customProps,
+                          const CustomPropertiesMap& customProps,
                           const std::map<int, std::shared_ptr<CPVRTimerType>>& typeEntries);
   virtual ~CPVRCustomTimerSettings() = default;
 
@@ -40,11 +42,11 @@ public:
   void AddSettings(IPVRSettingsContainer& settingsContainer,
                    const std::shared_ptr<CSettingGroup>& group);
 
-  bool IsCustomSetting(const std::string& settingId) const;
-  bool IsCustomIntSetting(const std::string& settingId) const;
-  bool IsCustomStringSetting(const std::string& settingId) const;
+  bool IsCustomSetting(std::string_view settingId) const;
+  bool IsCustomIntSetting(std::string_view settingId) const;
+  bool IsCustomStringSetting(std::string_view settingId) const;
 
-  const CPVRTimerInfoTag::CustomPropsMap& GetProperties() const { return m_customProps; }
+  const CustomPropertiesMap& GetProperties() const { return m_customProps; }
 
   bool UpdateIntProperty(const std::shared_ptr<const CSetting>& setting);
   bool UpdateStringProperty(const std::shared_ptr<const CSetting>& setting);
@@ -72,6 +74,6 @@ private:
                 std::shared_ptr<const CPVRTimerSettingDefinition>>>; // setting id, setting def
 
   CustomSettingDefinitionsVector m_customSettingDefs;
-  CPVRTimerInfoTag::CustomPropsMap m_customProps;
+  CustomPropertiesMap m_customProps;
 };
 } // namespace PVR

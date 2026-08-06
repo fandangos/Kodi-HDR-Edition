@@ -17,13 +17,16 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/ActionIDs.h"
 #include "messaging/ApplicationMessenger.h"
+#include "messaging/helpers/DialogHelper.h"
 #include "profiles/Profile.h"
 #include "profiles/ProfileManager.h"
 #include "profiles/dialogs/GUIDialogProfileSettings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/SettingsComponent.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "windows/GUIWindowFileManager.h"
@@ -58,24 +61,43 @@ void CGUIWindowSettingsProfile::OnPopupMenu(int iItem)
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
-  if (iItem == (int)profileManager->GetNumberOfProfiles())
+  if (iItem == static_cast<int>(profileManager->GetNumberOfProfiles()))
     return;
 
   // popup the context menu
   CContextButtons choices;
   choices.Add(1, 20092); // Load profile
-  if (iItem > 0)
+  if (iItem > MASTER_PROFILE_ID)
     choices.Add(2, 117); // Delete
 
   int choice = CGUIDialogContextMenu::ShowAndGetChoice(choices);
   if (choice == 1)
   {
+    // Reload of active profile?
+    if (iItem == static_cast<int>(profileManager->GetCurrentProfileIndex()))
+    {
+      const std::string msg{StringUtils::Format(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13202),
+          profileManager->GetProfile(iItem)->getName())};
+      using namespace KODI::MESSAGING::HELPERS;
+      if (ShowYesNoDialogText(CVariant{13200} /* Profiles */, CVariant{msg} /* Reload profile?*/) !=
+          DialogResponse::CHOICE_YES)
+        return;
+    }
     CServiceBroker::GetAppMessenger()->PostMsg(TMSG_LOADPROFILE, iItem);
     return;
   }
 
   if (choice == 2)
   {
+    const std::string msg{
+        StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13201),
+                            profileManager->GetProfile(iItem)->getName())};
+    using namespace KODI::MESSAGING::HELPERS;
+    if (ShowYesNoDialogText(CVariant{13200} /* Profiles */, CVariant{msg} /* Delete profile?*/) !=
+        DialogResponse::CHOICE_YES)
+      return;
+
     if (profileManager->DeleteProfile(iItem))
       iItem--;
   }
@@ -185,6 +207,7 @@ void CGUIWindowSettingsProfile::LoadList()
   ClearListItems();
 
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
+  const int currentProfileId = profileManager->GetCurrentProfileId();
 
   for (unsigned int i = 0; i < profileManager->GetNumberOfProfiles(); i++)
   {
@@ -195,10 +218,12 @@ void CGUIWindowSettingsProfile::LoadList()
     item->SetOverlayImage(profile->getLockMode() == LockMode::EVERYONE
                               ? CGUIListItem::ICON_OVERLAY_NONE
                               : CGUIListItem::ICON_OVERLAY_LOCKED);
+    item->Select(profile->getId() == currentProfileId);
     m_listItems->Add(item);
   }
   {
-    CFileItemPtr item(new CFileItem(g_localizeStrings.Get(20058)));
+    CFileItemPtr item(
+        new CFileItem(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20058)));
     m_listItems->Add(item);
   }
   CGUIMessage msg(GUI_MSG_LABEL_BIND, GetID(), CONTROL_PROFILES, 0, 0, m_listItems);
@@ -240,15 +265,16 @@ bool CGUIWindowSettingsProfile::GetAutoLoginProfileChoice(int &iProfile)
   int autoLoginProfileId = profileManager->GetAutoLoginProfileId() + 1;
   CFileItemList items;
   CFileItemPtr item(new CFileItem());
-  item->SetLabel(g_localizeStrings.Get(37014)); // Last used profile
+  item->SetLabel(
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(37014)); // Last used profile
   item->SetArt("icon", "DefaultUser.png");
   items.Add(item);
 
   for (unsigned int i = 0; i < profileManager->GetNumberOfProfiles(); i++)
   {
     const CProfile *profile = profileManager->GetProfile(i);
-    const std::string& locked =
-        g_localizeStrings.Get(static_cast<int>(profile->getLockMode()) > 0 ? 20166 : 20165);
+    const std::string& locked = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        static_cast<int>(profile->getLockMode()) > 0 ? 20166 : 20165);
     CFileItemPtr item(new CFileItem(profile->getName()));
     item->SetLabel2(locked); // lock setting
     std::string thumb = profile->getThumb();

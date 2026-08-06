@@ -14,6 +14,18 @@
  */
 
 #include "FileItem.h"
+#include "threads/CriticalSection.h"
+
+#include <map>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+//! item property set by the video library scanner on subfolders whose fast hash matches
+//! the stored hash; Stack() skips the disc structure probes for such folders
+static constexpr const char* PROPERTY_UNCHANGED{"scanner:unchanged"};
 
 /*!
   \brief Represents a list of files
@@ -29,23 +41,48 @@ public:
     ALWAYS
   };
 
+  enum class StackCandidateType : uint8_t
+  {
+    FOLDER_CANDIDATE,
+    FILE_CANDIDATE
+  };
+
+  struct StackCandidate
+  {
+    StackCandidateType type;
+    std::string title;
+    std::string volume;
+    int64_t size;
+    int index; // index in m_items
+
+    auto operator<=>(const StackCandidate&) const = default;
+  };
+
+  struct CountedStackCandidate
+  {
+    StackCandidateType type;
+    std::string title;
+
+    auto operator<=>(const CountedStackCandidate& other) const = default;
+  };
+
   CFileItemList();
   explicit CFileItemList(const std::string& strPath);
   ~CFileItemList() override;
   void Archive(CArchive& ar) override;
-  CFileItemPtr operator[](int iItem);
-  const CFileItemPtr operator[](int iItem) const;
-  CFileItemPtr operator[](const std::string& strPath);
-  const CFileItemPtr operator[](const std::string& strPath) const;
+  CFileItemPtr operator[](int iItem) const;
+  CFileItemPtr operator[](const std::string& strPath) const;
   void Clear();
   void ClearItems();
   void Add(CFileItemPtr item);
   void Add(CFileItem&& item);
   void AddFront(const CFileItemPtr& pItem, int itemPosition);
-  void Remove(CFileItem* pItem);
+  void AddItems(const std::vector<CFileItemPtr>& items);
+  void AddItems(std::vector<CFileItemPtr>&& items);
+  void Remove(const CFileItem* pItem);
   void Remove(int iItem);
   CFileItemPtr Get(int iItem) const;
-  const VECFILEITEMS& GetList() const { return m_items; }
+  const auto& GetList() const { return m_items; }
   CFileItemPtr Get(const std::string& strPath) const;
   int Size() const;
   bool IsEmpty() const;
@@ -76,11 +113,9 @@ public:
   bool GetFastLookup() const { return m_fastLookup; }
 
   /*! \brief stack a CFileItemList
-   By default we stack all items (files and folders) in a CFileItemList
-   \param stackFiles whether to stack all items or just collapse folders (defaults to true)
-   \sa StackFiles,StackFolders
+   We stack all items (files and folders) in a CFileItemList
    */
-  void Stack(bool stackFiles = true);
+  void Stack();
 
   SortOrder GetSortOrder() const { return m_sortDescription.sortOrder; }
   SortBy GetSortMethod() const { return m_sortDescription.sortBy; }
@@ -146,7 +181,7 @@ public:
   void AddSortMethod(const SortDescription& sortDescription,
                      int buttonLabel,
                      const LABEL_MASKS& labelMasks);
-  bool HasSortDetails() const { return m_sortDetails.size() != 0; }
+  bool HasSortDetails() const { return !m_sortDetails.empty(); }
   const std::vector<GUIViewSortDetails>& GetSortDetails() const { return m_sortDetails; }
 
   /*! \brief Specify whether this list should be sorted with folders separate from files
@@ -158,40 +193,56 @@ public:
   void SetSortIgnoreFolders(bool sort) { m_sortIgnoreFolders = sort; }
   bool GetReplaceListing() const { return m_replaceListing; }
   void SetReplaceListing(bool replace);
-  void SetContent(const std::string& content) { m_content = content; }
+  void SetContent(std::string_view content) { m_content = content; }
   const std::string& GetContent() const { return m_content; }
 
   void ClearSortState();
 
-  VECFILEITEMS::iterator begin() { return m_items.begin(); }
-  VECFILEITEMS::iterator end() { return m_items.end(); }
-  VECFILEITEMS::iterator erase(VECFILEITEMS::iterator first, VECFILEITEMS::iterator last);
-  VECFILEITEMS::const_iterator begin() const { return m_items.begin(); }
-  VECFILEITEMS::const_iterator end() const { return m_items.end(); }
-  VECFILEITEMS::const_iterator cbegin() const { return m_items.cbegin(); }
-  VECFILEITEMS::const_iterator cend() const { return m_items.cend(); }
-  std::reverse_iterator<VECFILEITEMS::const_iterator> rbegin() const { return m_items.rbegin(); }
-  std::reverse_iterator<VECFILEITEMS::const_iterator> rend() const { return m_items.rend(); }
+  auto begin() { return m_items.begin(); }
+  auto end() { return m_items.end(); }
+
+  auto begin() const { return m_items.begin(); }
+  auto end() const { return m_items.end(); }
+
+  template<class Pred>
+  friend size_t erase_if(CFileItemList& list, Pred pred)
+  {
+    std::unique_lock lock(list.m_lock);
+    auto& items = list.m_items;
+    auto out = items.begin();
+    size_t count = 0;
+    for (auto it = items.begin(); it != items.end(); ++it)
+    {
+      if (pred(*it))
+        ++count;
+      else if (out != it)
+        *out++ = std::move(*it);
+      else
+        ++out;
+    }
+    items.erase(out, items.end());
+    if (count > 0 && list.m_fastLookup)
+    {
+      list.m_map.clear();
+      list.AddFastLookupItems(items);
+    }
+    return count;
+  }
+
+  auto cbegin() const { return m_items.cbegin(); }
+  auto cend() const { return m_items.cend(); }
+
+  auto rbegin() const { return m_items.rbegin(); }
+  auto rend() const { return m_items.rend(); }
 
 private:
-  void Sort(FILEITEMLISTCOMPARISONFUNC func);
-  void FillSortFields(FILEITEMFILLFUNC func);
   std::string GetDiscFileCache(int windowID) const;
 
-  /*!
-   \brief stack files in a CFileItemList
-   \sa Stack
-   */
-  void StackFiles();
+  void AddFastLookupItem(const CFileItemPtr& item);
+  void AddFastLookupItems(const std::vector<CFileItemPtr>& items);
 
-  /*!
-   \brief stack folders in a CFileItemList
-   \sa Stack
-   */
-  void StackFolders();
-
-  VECFILEITEMS m_items;
-  MAPFILEITEMS m_map;
+  std::vector<std::shared_ptr<CFileItem>> m_items;
+  std::map<std::string, std::shared_ptr<CFileItem>, std::less<>> m_map;
   bool m_ignoreURLOptions = false;
   bool m_fastLookup = false;
   SortDescription m_sortDescription;

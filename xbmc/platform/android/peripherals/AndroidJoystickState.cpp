@@ -258,7 +258,7 @@ void CAndroidJoystickState::Deinitialize(void)
 bool CAndroidJoystickState::InitializeButtonMap(JOYSTICK::IButtonMap& buttonMap) const
 {
   // We only map the default controller
-  if (buttonMap.ControllerID() != DEFAULT_CONTROLLER_ID)
+  if (buttonMap.ControllerID() != GAME::DEFAULT_CONTROLLER_ID)
     return false;
 
   bool success = false;
@@ -285,18 +285,15 @@ bool CAndroidJoystickState::InitializeButtonMap(JOYSTICK::IButtonMap& buttonMap)
   success |= MapAnalogStick(buttonMap, AMOTION_EVENT_AXIS_Z, AMOTION_EVENT_AXIS_RZ,
                             GAME::CDefaultController::FEATURE_RIGHT_STICK);
 
-  if (success)
+  const std::string controllerId = GetAppearance();
+
+  // Handle PS controller triggers
+  if (controllerId == GAME::CONTROLLER_ID_PLAYSTATION)
   {
-    // If the controller has both L2/R2 buttons and LTRIGGER/RTRIGGER axes, it's
-    // probably a PS controller
     size_t indexL2 = 0;
     size_t indexR2 = 0;
-    size_t indexLTrigger = 0;
-    size_t indexRTrigger = 0;
     if (GetAxesIndex({AKEYCODE_BUTTON_L2}, m_buttons, indexL2) &&
-        GetAxesIndex({AKEYCODE_BUTTON_R2}, m_buttons, indexR2) &&
-        GetAxesIndex({AMOTION_EVENT_AXIS_LTRIGGER}, m_axes, indexLTrigger) &&
-        GetAxesIndex({AMOTION_EVENT_AXIS_RTRIGGER}, m_axes, indexRTrigger))
+        GetAxesIndex({AKEYCODE_BUTTON_R2}, m_buttons, indexR2))
     {
       CLog::Log(LOGDEBUG, "Detected dual-input triggers, ignoring digital buttons");
       std::vector<JOYSTICK::CDriverPrimitive> ignoredPrimitives{
@@ -304,16 +301,42 @@ bool CAndroidJoystickState::InitializeButtonMap(JOYSTICK::IButtonMap& buttonMap)
           {JOYSTICK::PRIMITIVE_TYPE::BUTTON, static_cast<unsigned int>(indexR2)},
       };
       buttonMap.SetIgnoredPrimitives(ignoredPrimitives);
-
-      CLog::Log(LOGDEBUG, "Setting appearance to {}", GAME::CONTROLLER_ID_PLAYSTATION);
-      buttonMap.SetAppearance(GAME::CONTROLLER_ID_PLAYSTATION);
+      success = true;
     }
+  }
 
+  if (!controllerId.empty())
+  {
+    CLog::Log(LOGDEBUG, "Setting appearance to {}", controllerId);
+    success |= buttonMap.SetAppearance(controllerId);
+  }
+
+  if (success)
+  {
     // Save the buttonmap
     buttonMap.SaveButtonMap();
   }
 
   return success;
+}
+
+std::string CAndroidJoystickState::GetAppearance() const
+{
+  // If the controller has both L2/R2 buttons and LTRIGGER/RTRIGGER axes, it's
+  // probably a PS controller
+  size_t indexL2 = 0;
+  size_t indexR2 = 0;
+  size_t indexLTrigger = 0;
+  size_t indexRTrigger = 0;
+  if (GetAxesIndex({AKEYCODE_BUTTON_L2}, m_buttons, indexL2) &&
+      GetAxesIndex({AKEYCODE_BUTTON_R2}, m_buttons, indexR2) &&
+      GetAxesIndex({AMOTION_EVENT_AXIS_LTRIGGER}, m_axes, indexLTrigger) &&
+      GetAxesIndex({AMOTION_EVENT_AXIS_RTRIGGER}, m_axes, indexRTrigger))
+  {
+    return GAME::CONTROLLER_ID_PLAYSTATION;
+  }
+
+  return "";
 }
 
 bool CAndroidJoystickState::ProcessEvent(const AInputEvent* event)
@@ -388,7 +411,7 @@ void CAndroidJoystickState::GetEvents(std::vector<kodi::addon::PeripheralEvent>&
 
 void CAndroidJoystickState::GetButtonEvents(std::vector<kodi::addon::PeripheralEvent>& events)
 {
-  std::unique_lock<CCriticalSection> lock(m_eventMutex);
+  std::unique_lock lock(m_eventMutex);
 
   // Only report a single event per button (avoids dropping rapid presses)
   std::vector<kodi::addon::PeripheralEvent> repeatButtons;
@@ -423,7 +446,7 @@ bool CAndroidJoystickState::SetButtonValue(int axisId, JOYSTICK_STATE_BUTTON but
   if (!GetAxesIndex({axisId}, m_buttons, buttonIndex) || buttonIndex >= GetButtonCount())
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_eventMutex);
+  std::unique_lock lock(m_eventMutex);
 
   m_digitalEvents.emplace_back(m_deviceId, buttonIndex, buttonValue);
 

@@ -250,7 +250,7 @@ std::string CJSONRPC::MethodCall(const std::string &inputString, ITransportLayer
   {
     if (inputroot.isArray())
     {
-      if (inputroot.size() <= 0)
+      if (inputroot.empty())
       {
         CLog::Log(LOGERROR, "JSONRPC: Empty batch call");
         BuildResponse(inputroot, InvalidRequest, CVariant(), outputroot);
@@ -387,8 +387,7 @@ void CJSONRPCUtils::NotifyItemUpdated(const std::shared_ptr<CFileItem>& item)
   wm.SendThreadMessage(message);
 }
 
-void CJSONRPCUtils::NotifyItemUpdated(const CVideoInfoTag& info,
-                                      const std::map<std::string, std::string>& artwork)
+void CJSONRPCUtils::NotifyItemUpdated(const CVideoInfoTag& info, const KODI::ART::Artwork& artwork)
 {
   CFileItemPtr msgItem(new CFileItem(info));
   if (!artwork.empty())

@@ -1,6 +1,9 @@
 -include ../../Makefile.include
 include FFMPEG-VERSION
-DEPS = FFMPEG-VERSION Makefile ../../download-files.include
+DEPS = FFMPEG-VERSION Makefile ../../download-files.include \
+                      CMakeLists.txt \
+                      001-ffmpeg-all-libpostproc-plugin.patch \
+                      002-ffmpeg-libavutil-common-h-cpp11-constant-macros.patch
 
 BUILD_TYPE = Release
 ifeq ($(DEBUG_BUILD),yes)
@@ -32,20 +35,22 @@ else
   RETRIEVE_TOOL = curl
   RETRIEVE_TOOL_FLAGS = -LsS --create-dirs --retry 10 --retry-connrefused -o
   ARCHIVE_TOOL_FLAGS = --strip-components=1 -xf
-  BASE_URL := http://mirrors.kodi.tv/build-deps/sources
+  BASE_URL ?= https://mirrors.kodi.tv/build-deps/sources
 endif
 
 include ../../download-files.include
 all: .installed-$(PLATFORM)
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM); mkdir -p $(PLATFORM)
 	rm -rf $(PLATFORM); mkdir -p $(PLATFORM)/build
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 	cd $(PLATFORM); cp ../CMakeLists.txt ./
+	cd $(PLATFORM); cp ../001-ffmpeg-all-libpostproc-plugin.patch ../002-ffmpeg-libavutil-common-h-cpp11-constant-macros.patch ./
 	cd $(PLATFORM)/build; $(CMAKE) $(CMAKE_ARGS) ..
+	touch $@
 
-.build-$(PLATFORM): $(PLATFORM)
+.build-$(PLATFORM): .configured-$(PLATFORM)
 	$(MAKE) -C $(PLATFORM)/build
 	touch $@
 
@@ -55,7 +60,7 @@ $(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 
 clean:
 	$(MAKE) -C $(PLATFORM) clean
-	rm -f .installed-$(PLATFORM)
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean::
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

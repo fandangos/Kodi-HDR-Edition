@@ -18,18 +18,21 @@
 #include "dialogs/GUIDialogFileBrowser.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
+#include "jobs/JobManager.h"
 #include "music/MusicDatabase.h"
 #include "music/MusicFileItemClassify.h"
 #include "music/MusicUtils.h"
 #include "music/tags/MusicInfoTag.h"
 #include "music/windows/GUIWindowMusicBase.h"
 #include "profiles/ProfileManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
+#include "utils/Artwork.h"
 #include "utils/FileUtils.h"
 
 using namespace KODI;
@@ -339,13 +342,13 @@ void CGUIDialogSongInfo::OnGetArt()
     return; // Cancelled
 
   CFileItemList items;
-  CGUIListItem::ArtMap primeArt = m_song->GetArt(); // Song art without fallbacks
+  KODI::ART::Artwork primeArt = m_song->GetArt(); // Song art without fallbacks
   bool bHasArt = m_song->HasArt(type);
   bool bFallback(false);
   if (bHasArt)
   {
     // Check if that type of art is actually a fallback, e.g. album thumb or artist fanart
-    CGUIListItem::ArtMap::const_iterator i = primeArt.find(type);
+    auto i = primeArt.find(type);
     bFallback = (i == primeArt.end());
   }
 
@@ -356,18 +359,19 @@ void CGUIDialogSongInfo::OnGetArt()
     CFileItemPtr item(new CFileItem("thumb://Current", false));
     item->SetArt("thumb", m_song->GetArt(type));
     item->SetArt("icon", "DefaultPicture.png");
-    item->SetLabel(g_localizeStrings.Get(13512));  //! @todo: label fallback art so user knows?
+    item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        13512)); //! @todo: label fallback art so user knows?
     items.Add(item);
   }
   else if (m_song->HasArt("thumb"))
   { // For missing art of that type add the thumb (when it exists and not a fallback)
-    CGUIListItem::ArtMap::const_iterator i = primeArt.find("thumb");
+    auto i = primeArt.find("thumb");
     if (i != primeArt.end())
     {
       CFileItemPtr item(new CFileItem("thumb://Thumb", false));
       item->SetArt("thumb", m_song->GetArt("thumb"));
       item->SetArt("icon", "DefaultAlbumCover.png");
-      item->SetLabel(g_localizeStrings.Get(21371));
+      item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21371));
       items.Add(item);
     }
   }
@@ -385,7 +389,7 @@ void CGUIDialogSongInfo::OnGetArt()
     {
       CFileItemPtr item(new CFileItem("thumb://Local", false));
       item->SetArt("thumb", localThumb);
-      item->SetLabel(g_localizeStrings.Get(20017));
+      item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20017));
       items.Add(item);
     }
   }
@@ -405,7 +409,7 @@ void CGUIDialogSongInfo::OnGetArt()
     // allow the user to delete it by selecting "no art".
     CFileItemPtr item(new CFileItem("thumb://None", false));
     item->SetArt("thumb", "DefaultAlbumCover.png");
-    item->SetLabel(g_localizeStrings.Get(13515));
+    item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13515));
     items.Add(item);
   }
 
@@ -424,8 +428,10 @@ void CGUIDialogSongInfo::OnGetArt()
   else  // Add parent folder of song
     CGUIDialogMusicInfo::AddItemPathToFileBrowserSources(sources, *m_song);
   CServiceBroker::GetMediaManager().GetLocalDrives(sources);
-  if (CGUIDialogFileBrowser::ShowAndGetImage(items, sources, g_localizeStrings.Get(13511), result) &&
-    result != "thumb://Current")
+  if (CGUIDialogFileBrowser::ShowAndGetImage(
+          items, sources, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13511),
+          result) &&
+      result != "thumb://Current")
   {
     // User didn't choose the one they have, or the fallback image.
     // Overwrite with the new art or clear it
@@ -491,7 +497,7 @@ void CGUIDialogSongInfo::OnSetUserrating()
 
 void CGUIDialogSongInfo::ShowFor(CFileItem* pItem)
 {
-  if (pItem->m_bIsFolder)
+  if (pItem->IsFolder())
     return;
   if (!MUSIC::IsMusicDb(*pItem))
     pItem->LoadMusicTag();

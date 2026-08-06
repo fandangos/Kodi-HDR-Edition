@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2025 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -15,8 +15,10 @@
 #include "platform/xbmc.h"
 #include "threads/Thread.h"
 #include "utils/CharsetConverter.h" // Required to initialize converters before usage
+#include "utils/Digest.h"
 
 #include "platform/win32/CharsetConverter.h"
+#include "platform/win32/WIN32Util.h"
 #include "platform/win32/threads/Win32Exception.h"
 
 #include <Objbase.h>
@@ -25,6 +27,10 @@
 #include <mmsystem.h>
 #include <shellapi.h>
 
+using KODI::PLATFORM::WINDOWS::ToW;
+
+namespace
+{
 // Minidump creation function
 LONG WINAPI CreateMiniDump(EXCEPTION_POINTERS* pEp)
 {
@@ -32,8 +38,6 @@ LONG WINAPI CreateMiniDump(EXCEPTION_POINTERS* pEp)
   win32_exception::write_minidump(pEp);
   return pEp->ExceptionRecord->ExceptionCode;
 }
-
-static bool isConsoleAttached{false};
 
 /*!
  * \brief Basic error reporting before the log subsystem is initialized
@@ -44,7 +48,7 @@ static bool isConsoleAttached{false};
  * \param[in] ... optional parameters for the format string.
  */
 template<typename... Args>
-static void LogError(const wchar_t* format, Args&&... args)
+void LogError(const wchar_t* format, Args&&... args)
 {
   const int count = _snwprintf(nullptr, 0, format, args...);
   // terminating null character not included in count
@@ -52,6 +56,8 @@ static void LogError(const wchar_t* format, Args&&... args)
   swprintf(buf.get(), format, args...);
 
   OutputDebugString(buf.get());
+
+  static bool isConsoleAttached{false};
 
   if (!isConsoleAttached && AttachConsole(ATTACH_PARENT_PROCESS))
   {
@@ -62,7 +68,7 @@ static void LogError(const wchar_t* format, Args&&... args)
   wprintf(buf.get());
 }
 
-static std::shared_ptr<CAppParams> ParseCommandLine()
+std::shared_ptr<CAppParams> ParseCommandLine()
 {
   int argc = 0;
   LPWSTR* argvW = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -88,6 +94,67 @@ static std::shared_ptr<CAppParams> ParseCommandLine()
   return appParamParser.GetAppParams();
 }
 
+constexpr wchar_t MUTEXBASENAME[] = L"Kodi Media Center";
+
+/*!
+ * \brief Detect another running instance, using a global mutex.
+ * 
+ * Attempt to create the mutex. If it already exists, that means another instance created it and is
+ * running. This is the legacy pre-v22 exclusion mechanism with a constant mutex name that doesn't
+ * depend on the portable/non-portable or data directory used by the instance.
+ * 
+ * \param[out] handle Windows handle for the mutex. Close the handle on program exit, not earlier.
+ * \return true if the mutex already exists (ie another instance is running)
+ */
+bool CheckAndSetGlobalMutex(HANDLE& handle)
+{
+  handle = CreateMutexW(nullptr, FALSE, MUTEXBASENAME);
+  if (handle != NULL && GetLastError() == ERROR_ALREADY_EXISTS)
+    return true;
+
+  return false;
+}
+
+/*!
+ * \brief Detect another running instance, using a mutex with a name derived from the data directory.
+ * 
+ * Attempt to create the mutex. If it already exists, that means another instance created it and is
+ * running.
+ * 
+ * \param[out] handle Windows handle for the mutex. Close the handle on program exit, not earlier.
+ * \return true if the mutex already exists (ie another instance is running with the same data directory)
+ */
+bool CheckAndSetProfileMutex(UserDirectoriesLocation loc, HANDLE& handle)
+{
+  // Prepare a mutex name using a digest instead of the raw path to respect the mutex name
+  // MAX_PATH max length
+  std::wstring mutexName = MUTEXBASENAME;
+  mutexName.push_back(L' ');
+
+  const std::string path = CWIN32Util::GetProfilePath(loc);
+
+  try
+  {
+    using KODI::UTILITY::CDigest;
+    CDigest digest{CDigest::Type::MD5};
+    digest.Update(path);
+
+    mutexName.append(ToW(digest.Finalize()));
+  }
+  catch (const std::exception& e)
+  {
+    LogError(L"Error creating the digest of the data directory %s, error %s\n", ToW(path).c_str(),
+             ToW(e.what()).c_str());
+  }
+
+  handle = CreateMutexW(nullptr, FALSE, mutexName.c_str());
+  if (handle != NULL && GetLastError() == ERROR_ALREADY_EXISTS)
+    return true;
+
+  return false;
+}
+} // namespace
+
 //-----------------------------------------------------------------------------
 // Name: WinMain()
 // Desc: The application's entry point
@@ -110,10 +177,12 @@ _Use_decl_annotations_ INT WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, INT)
     sprintf_s(ver, "%d.%d Git:%s", CCompileInfo::GetMajor(),
     CCompileInfo::GetMinor(), CCompileInfo::GetSCMID());
 
+  const UserDirectoriesLocation userDirLocation = params->GetUserDirectoriesLocation();
+
   if (win32_exception::ShouldHook())
   {
     win32_exception::set_version(std::string(ver));
-    win32_exception::set_platformDirectories(params->HasPlatformDirectories());
+    win32_exception::set_platformDirectories(CWIN32Util::GetProfilePath(userDirLocation));
     SetUnhandledExceptionFilter(CreateMiniDump);
   }
 
@@ -122,13 +191,33 @@ _Use_decl_annotations_ INT WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, INT)
   int rcWinsock{WSANOTINITIALISED};
   WSADATA wd{};
 
-  // check if Kodi is already running
-  using KODI::PLATFORM::WINDOWS::ToW;
-  std::string appName = CCompileInfo::GetAppName();
-  HANDLE appRunningMutex = CreateMutex(nullptr, FALSE, ToW(appName + " Media Center").c_str());
-  if (appRunningMutex != nullptr && GetLastError() == ERROR_ALREADY_EXISTS)
+  // Detection of running Kodi instances
+  // (avoid conflicts and data corruption caused by two instances using the same data dir)
+  //
+  // * Non-portable mode. Interference with another Kodi on version < 22 may happen
+  // so use the legacy global mutex it supports and abort if it already exists.
+  // There may be an older Kodi already running, or one may be started after us.
+  //! @todo in a few releases: remove that restriction and assume all Kodi installs understand the
+  //! file based protocol.
+  //
+  // * portable mode: most likely safe to allow multiple instances even if some are < v22
+  // because the user has to make special efforts to run two different installs with the same
+  // portable data dir.
+  //
+  // * Regardless of mode, v22 and higher implements a new mutex with a name derived from the data
+  // directory. If the mutex already exists, another Kodi >= 22 instance is already running with
+  // that data directory, abort execution.
+
+  HANDLE appGlobalMutex{NULL};
+  HANDLE appProfileMutex{NULL};
+
+  // Profile-specific mutex then global mutex in non-portable mode for correct interaction with
+  // Kodi < v22
+  if (CheckAndSetProfileMutex(userDirLocation, appProfileMutex) ||
+      (userDirLocation == UserDirectoriesLocation::PLATFORM &&
+       CheckAndSetGlobalMutex(appGlobalMutex)))
   {
-    auto appNameW = ToW(appName);
+    const auto appNameW = ToW(CCompileInfo::GetAppName());
     HWND hwnd = FindWindow(appNameW.c_str(), appNameW.c_str());
     if (hwnd != nullptr)
     {
@@ -180,8 +269,10 @@ cleanup:
     WSACleanup();
   if (hrCOM == S_OK)
     CoUninitialize();
-  if (appRunningMutex)
-    CloseHandle(appRunningMutex);
+  if (appGlobalMutex)
+    CloseHandle(appGlobalMutex);
+  if (appProfileMutex)
+    CloseHandle(appProfileMutex);
 
   return status;
 }

@@ -9,15 +9,11 @@
 #pragma once
 
 #include "guilib/TextureFormats.h"
+#include "guilib/TextureScaling.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
-
-enum class TEXTURE_SCALING
-{
-  LINEAR,
-  NEAREST,
-};
 
 /*!
 \ingroup textures

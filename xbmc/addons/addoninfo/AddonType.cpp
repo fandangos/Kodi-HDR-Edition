@@ -9,19 +9,20 @@
 #include "AddonType.h"
 
 #include "addons/addoninfo/AddonInfo.h"
+#include "utils/Set.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 
-namespace ADDON
+using namespace ADDON;
+
+namespace
 {
-static const std::set<AddonType> dependencyTypes = {
+constexpr CSet dependencyTypes{
     AddonType::SCRAPER_LIBRARY,
     AddonType::SCRIPT_LIBRARY,
     AddonType::SCRIPT_MODULE,
 };
-} /* namespace ADDON */
-
-using namespace ADDON;
+}
 
 std::string CAddonType::LibPath() const
 {
@@ -46,14 +47,14 @@ void CAddonType::SetProvides(const std::string& content)
 
     for (const auto& provide : StringUtils::Split(content, ' '))
     {
-      AddonType content = CAddonInfo::TranslateSubContent(provide);
-      if (content != AddonType::UNKNOWN)
-        m_providedSubContent.insert(content);
+      AddonType subContent = CAddonInfo::TranslateSubContent(provide);
+      if (subContent != AddonType::UNKNOWN)
+        m_providedSubContent.insert(subContent);
     }
   }
 }
 
 bool CAddonType::IsDependencyType(AddonType type)
 {
-  return dependencyTypes.find(type) != dependencyTypes.end();
+  return dependencyTypes.contains(type);
 }

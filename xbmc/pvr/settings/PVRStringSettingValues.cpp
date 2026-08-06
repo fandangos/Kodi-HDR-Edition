@@ -8,15 +8,17 @@
 
 #include "PVRStringSettingValues.h"
 
+#include "ServiceBroker.h"
 #include "addons/kodi-dev-kit/include/kodi/c-api/addon-instance/pvr/pvr_defines.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 
 #include <string>
 
 namespace PVR
 {
-CPVRStringSettingValues::CPVRStringSettingValues(struct PVR_ATTRIBUTE_STRING_VALUE* values,
+CPVRStringSettingValues::CPVRStringSettingValues(const struct PVR_ATTRIBUTE_STRING_VALUE* values,
                                                  unsigned int valuesSize,
                                                  const std::string& defaultValue,
                                                  int defaultDescriptionResourceId /* = 0 */)
@@ -34,8 +36,11 @@ CPVRStringSettingValues::CPVRStringSettingValues(struct PVR_ATTRIBUTE_STRING_VAL
       {
         // No description given by addon. Create one from value.
         if (defaultDescriptionResourceId > 0)
-          description = StringUtils::Format(
-              "{} {}", g_localizeStrings.Get(defaultDescriptionResourceId), value);
+          description =
+              StringUtils::Format("{} {}",
+                                  CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                                      defaultDescriptionResourceId),
+                                  value);
         else
           description = value;
       }

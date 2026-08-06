@@ -14,6 +14,19 @@ ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
   endif
 endif
 
+ifeq ($(OS),wasm)
+  # Emscripten exposes <sys/random.h> with GRND_RANDOM, which makes libgcrypt's
+  # rndgetentropy backend compile a getrandom() reference even though that symbol
+  # is not provided at link time. Keep using getentropy() without the getrandom()
+  # FIPS-only branch by hiding sys/random.h from configure.
+  CONFIGURE_FLAGS+= ac_cv_header_sys_random_h=no
+endif
+
+# Disable random jitter entropy due to failure on multiple platform/arches
+# ./jitterentropy-base.c:58:3: error: "The CPU Jitter random number generator must not be compiled with optimizations. 
+#                                       See documentation. Use the compiler switch -O0 for compiling jitterentropy.c."
+CONFIGURE_FLAGS+= --disable-jent-support
+
 export GPG_ERROR_CONFIG=$(PREFIX)/bin/gpg-error-config
 
 # configuration settings
@@ -24,15 +37,16 @@ LIBDYLIB=$(PLATFORM)/src/.libs/$(BYPRODUCT)
 
 all: .installed-$(PLATFORM)
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 	# do not build the tests or docs
 	sed -ie "s|\$$(doc) tests||" "$(PLATFORM)/Makefile.am"
 	cd $(PLATFORM); $(AUTORECONF) -vif
 	cd $(PLATFORM); $(CONFIGURE)
+	touch $@
 
-$(LIBDYLIB): $(PLATFORM)
+$(LIBDYLIB): .configured-$(PLATFORM)
 	$(MAKE) -C $(PLATFORM)
 
 .installed-$(PLATFORM): $(LIBDYLIB)
@@ -41,7 +55,7 @@ $(LIBDYLIB): $(PLATFORM)
 
 clean:
 	$(MAKE) -C $(PLATFORM) clean
-	rm -f .installed-$(PLATFORM)
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean::
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

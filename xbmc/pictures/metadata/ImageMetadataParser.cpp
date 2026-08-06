@@ -30,11 +30,11 @@ namespace
 {
 std::string GetGPSString(const Exiv2::Value& value)
 {
-  const Exiv2::Rational degress = value.toRational(0);
+  const Exiv2::Rational degrees = value.toRational(0);
   const Exiv2::Rational minutes = value.toRational(1);
   Exiv2::Rational seconds = value.toRational(2);
 
-  const int32_t dd = degress.first;
+  const int32_t dd = degrees.first;
   int32_t mm{0};
   float ss{0.0};
   if (minutes.second > 0)
@@ -57,7 +57,7 @@ std::string GetGPSString(const Exiv2::Value& value)
 
 bool IsOnlySpaces(const std::string& str)
 {
-  return std::all_of(str.begin(), str.end(), [](unsigned char c) { return std::isspace(c); });
+  return std::ranges::all_of(str, [](unsigned char c) { return std::isspace(c); });
 }
 } // namespace
 
@@ -77,18 +77,26 @@ std::unique_ptr<ImageMetadata> CImageMetadataParser::ExtractMetadata(const std::
   }
 
   // read image metadata
-  auto image = Exiv2::ImageFactory::open(outputBuffer.data(), readbytes);
-  image->readMetadata();
+  try
+  {
+    auto image = Exiv2::ImageFactory::open(outputBuffer.data(), readbytes);
+    image->readMetadata();
 
-  CImageMetadataParser parser;
+    CImageMetadataParser parser;
 
-  // extract metadata
-  parser.ExtractCommonMetadata(*image);
+    // extract metadata
+    parser.ExtractCommonMetadata(*image);
 
-  parser.ExtractExif(image->exifData());
-  parser.ExtractIPTC(image->iptcData());
+    parser.ExtractExif(image->exifData());
+    parser.ExtractIPTC(image->iptcData());
 
-  return std::move(parser.m_imageMetadata);
+    return std::move(parser.m_imageMetadata);
+  }
+  catch (const std::exception& e)
+  {
+    CLog::LogF(LOGERROR, "Failed to extract metadata from {}: {}", picFileName, e.what());
+    return nullptr;
+  }
 }
 
 void CImageMetadataParser::ExtractCommonMetadata(Exiv2::Image& image)

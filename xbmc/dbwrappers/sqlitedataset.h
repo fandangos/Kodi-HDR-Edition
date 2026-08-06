@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2004, Leo Seib, Hannover
+ *  Copyright (C) 2004-2026, Leo Seib, Hannover, Team Kodi
  *
  *  Project:SQLiteDataset C++ Dynamic Library
  *  Module: SQLiteDataset class header file
@@ -14,9 +14,9 @@
 
 #include "dataset.h"
 
-#include <stdio.h>
+#include <string>
 
-#include <sqlite3.h>
+struct sqlite3;
 
 namespace dbiplus
 {
@@ -29,9 +29,8 @@ class SqliteDatabase : public Database
 {
 protected:
   /* connect descriptor */
-  sqlite3* conn;
-  bool _in_transaction;
-  int last_err;
+  sqlite3* conn{nullptr};
+  bool _in_transaction{false};
 
 public:
   /* default constructor */
@@ -39,15 +38,13 @@ public:
   /* destructor */
   ~SqliteDatabase() override;
 
-  Dataset* CreateDataset() const override;
+  Dataset* CreateDataset() override;
 
   /* func. returns connection handle with SQLite-server */
   sqlite3* getHandle() { return conn; }
   /* func. returns current status about SQLite-server connection */
   int status() override;
   int setErr(int err_code, const char* qry) override;
-  /* func. returns error message if error occurs */
-  const char* getErrorMsg() override;
   /* sets a new host name */
   void setHostName(const char* newHost) override;
   /* sets a database name */
@@ -70,7 +67,7 @@ public:
   int copy(const char* backup_name) override;
 
   /* \brief drop all extra analytics from database */
-  int drop_analytics(void) override;
+  int drop_analytics() override;
 
   long nextid(const char* seq_name) override;
 
@@ -81,7 +78,7 @@ public:
   void rollback_transaction() override;
 
   /* virtual methods for formatting */
-  std::string vprepare(const char* format, va_list args) override;
+  std::string vprepare(std::string_view format, va_list args) override;
 
   bool in_transaction() override { return _in_transaction; }
 };
@@ -116,8 +113,7 @@ protected:
 
 public:
   /* constructor */
-  SqliteDataset();
-  explicit SqliteDataset(SqliteDatabase* newDb);
+  using Dataset::Dataset;
 
   /* destructor */
   ~SqliteDataset() override;
@@ -136,7 +132,7 @@ or insert() operations default = false) */
   /* as open, but with our query exec Sql */
   bool query(const std::string& query) override;
   /* func. closes a query */
-  void close(void) override;
+  void close() override;
   /* Cancel changes, made in insert or edit states of dataset */
   void cancel() override;
   /* last inserted id */

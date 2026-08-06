@@ -7,15 +7,13 @@
  */
 
 #define AC3_ENCODE_BITRATE 640000
+#define EAC3_ENCODE_BITRATE 768000
 #define DTS_ENCODE_BITRATE 1411200
 
 #include "cores/AudioEngine/Encoders/AEEncoderFFmpeg.h"
 
-#include "ServiceBroker.h"
 #include "cores/AudioEngine/Utils/AEUtil.h"
 #include "cores/FFmpeg.h"
-#include "settings/Settings.h"
-#include "settings/SettingsComponent.h"
 #include "utils/log.h"
 
 extern "C"
@@ -29,15 +27,13 @@ extern "C"
 using FFMPEG_HELP_TOOLS::FFMpegErrorToString;
 using FFMPEG_HELP_TOOLS::FFMpegException;
 
-CAEEncoderFFmpeg::CAEEncoderFFmpeg() : m_CodecCtx(NULL), m_SwrCtx(NULL)
+CAEEncoderFFmpeg::CAEEncoderFFmpeg() : m_CodecCtx(nullptr)
 {
 }
 
 CAEEncoderFFmpeg::~CAEEncoderFFmpeg()
 {
   Reset();
-  swr_free(&m_SwrCtx);
-  av_channel_layout_uninit(&m_CodecCtx->ch_layout);
   avcodec_free_context(&m_CodecCtx);
 }
 
@@ -87,16 +83,27 @@ unsigned int CAEEncoderFFmpeg::BuildChannelLayout(const int64_t ffmap, CAEChanne
   return layout.Count();
 }
 
-bool CAEEncoderFFmpeg::Initialize(AEAudioFormat &format, bool allow_planar_input)
+bool CAEEncoderFFmpeg::Initialize(AEAudioFormat& format, bool allow_planar_input)
 {
   Reset();
 
-  bool ac3 = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_AUDIOOUTPUT_AC3PASSTHROUGH);
-
   const AVCodec* codec = nullptr;
 
-  /* fallback to ac3 if we support it, we might not have DTS support */
-  if (ac3)
+  if (format.m_streamInfo.m_type == CAEStreamInfo::STREAM_TYPE_EAC3)
+  {
+    m_CodecName = "EAC3";
+    m_CodecID = AV_CODEC_ID_EAC3;
+    m_BitRate = EAC3_ENCODE_BITRATE;
+    codec = avcodec_find_encoder(m_CodecID);
+    if (!codec)
+    {
+      CLog::Log(LOGWARNING,
+                "CAEEncoderFFmpeg::Initialize - EAC3 encoder not available, falling back to AC3");
+      format.m_streamInfo.m_type = CAEStreamInfo::STREAM_TYPE_AC3;
+    }
+  }
+
+  if (format.m_streamInfo.m_type == CAEStreamInfo::STREAM_TYPE_AC3)
   {
     m_CodecName = "AC3";
     m_CodecID = AV_CODEC_ID_AC3;
@@ -114,8 +121,29 @@ bool CAEEncoderFFmpeg::Initialize(AEAudioFormat &format, bool allow_planar_input
 
   m_CodecCtx->bit_rate = m_BitRate;
   m_CodecCtx->sample_rate = format.m_sampleRate;
+
+  uint64_t channelLayout = AV_CH_LAYOUT_5POINT1_BACK;
+  if (format.m_channelLayout.IsLayoutValid())
+  {
+    const AVChannelLayout* channelLayouts = nullptr;
+    int numLayouts = 0;
+    avcodec_get_supported_config(m_CodecCtx, codec, AV_CODEC_CONFIG_CHANNEL_LAYOUT, 0,
+                                 reinterpret_cast<const void**>(&channelLayouts), &numLayouts);
+
+    std::vector<CAEChannelInfo> layouts;
+    layouts.reserve(numLayouts);
+    for (int i = 0; i < numLayouts; ++i)
+    {
+      layouts.emplace_back(CAEUtil::GetAEChannelLayout(channelLayouts[i].u.mask));
+    }
+
+    const int best = format.m_channelLayout.BestMatch(layouts);
+    format.m_channelLayout = layouts[best];
+    channelLayout = CAEUtil::GetAVChannelLayout(format.m_channelLayout);
+  }
+
   av_channel_layout_uninit(&m_CodecCtx->ch_layout);
-  av_channel_layout_from_mask(&m_CodecCtx->ch_layout, AV_CH_LAYOUT_5POINT1_BACK);
+  av_channel_layout_from_mask(&m_CodecCtx->ch_layout, channelLayout);
 
   const AVSampleFormat* sampleFmts = nullptr;
   int numFmts = 0;
@@ -194,9 +222,7 @@ bool CAEEncoderFFmpeg::Initialize(AEAudioFormat &format, bool allow_planar_input
     {
       m_CodecCtx->sample_fmt = sampleFmts[0];
       format.m_dataFormat = AE_FMT_FLOAT;
-      m_NeedConversion = true;
-      CLog::Log(LOGINFO,
-                "CAEEncoderFFmpeg::Initialize - Unknown audio format, it will be resampled.");
+      CLog::LogF(LOGWARNING, "Unknown audio format, trying first format ({})", sampleFmts[0]);
     }
     else
     {
@@ -233,20 +259,6 @@ bool CAEEncoderFFmpeg::Initialize(AEAudioFormat &format, bool allow_planar_input
   m_OutputRatio   = (double)m_NeededFrames / m_OutputSize;
   m_SampleRateMul = 1.0 / (double)m_CodecCtx->sample_rate;
 
-  if (m_NeedConversion)
-  {
-    int ret = swr_alloc_set_opts2(&m_SwrCtx, &m_CodecCtx->ch_layout, m_CodecCtx->sample_fmt,
-                                  m_CodecCtx->sample_rate, &m_CodecCtx->ch_layout,
-                                  AV_SAMPLE_FMT_FLT, m_CodecCtx->sample_rate, 0, NULL);
-    if (ret || swr_init(m_SwrCtx) < 0)
-    {
-      CLog::Log(LOGERROR, "CAEEncoderFFmpeg::Initialize - Failed to initialise resampler.");
-      swr_free(&m_SwrCtx);
-      av_channel_layout_uninit(&m_CodecCtx->ch_layout);
-      avcodec_free_context(&m_CodecCtx);
-      return false;
-    }
-  }
   CLog::Log(LOGINFO, "CAEEncoderFFmpeg::Initialize - {} encoder ready", m_CodecName);
   return true;
 }
@@ -312,7 +324,7 @@ int CAEEncoderFFmpeg::Encode(uint8_t *in, int in_size, uint8_t *out, int out_siz
     //! @TODO: This is a workaround for our current design. The caller should be made
     // aware of the potential error values to use the ffmpeg API in a proper way, which means
     // copying with EAGAIN and multiple packet output.
-    // For the current situation there is a relationship implicitely assumed of:
+    // For the current situation there is a relationship implicitly assumed of:
     // 1 frame in - 1 packet out. This holds true in practice but the API does not guarantee it.
     if (err >= 0)
     {
@@ -331,12 +343,12 @@ int CAEEncoderFFmpeg::Encode(uint8_t *in, int in_size, uint8_t *out, int out_siz
     }
     else
     {
-      CLog::LogF(LOGERROR, "Error receiving encoded paket ({})", err);
+      CLog::LogF(LOGERROR, "Error receiving encoded packet ({})", err);
     }
   }
   catch (const FFMpegException& caught)
   {
-    CLog::Log(LOGERROR, "CAEEncoderFFmpeg::{} - {}", __func__, caught.what());
+    CLog::LogF(LOGERROR, "{}", caught.what());
   }
 
   av_channel_layout_uninit(&frame->ch_layout);
@@ -348,15 +360,6 @@ int CAEEncoderFFmpeg::Encode(uint8_t *in, int in_size, uint8_t *out, int out_siz
   av_packet_free(&pkt);
 
   /* return the number of frames used */
-  return size;
-}
-
-int CAEEncoderFFmpeg::GetData(uint8_t **data)
-{
-  int size;
-  *data = m_Buffer;
-  size = m_BufferSize;
-  m_BufferSize = 0;
   return size;
 }
 

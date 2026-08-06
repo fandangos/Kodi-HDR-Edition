@@ -129,7 +129,7 @@ std::string CAddon::Icon() const
   return m_addonInfo->Icon();
 }
 
-ArtMap CAddon::Art() const
+KODI::ART::Artwork CAddon::Art() const
 {
   return m_addonInfo->Art();
 }
@@ -494,7 +494,7 @@ template<class TSetting>
 bool UpdateSettingValue(CAddon& addon,
                         AddonInstanceId instanceId,
                         const std::string& key,
-                        typename TSetting::Value value)
+                        const typename TSetting::Value& value)
 {
   if (key.empty() || !addon.HasSettings(instanceId))
     return false;
@@ -555,13 +555,10 @@ bool CAddon::SettingsFromXML(const CXBMCTinyXML& doc,
     return false;
 
   // if the settings haven't been initialized yet, try it from the given XML
-  if (!SettingsInitialized(id))
+  if (!SettingsInitialized(id) && !GetSettings(id)->Initialize(doc))
   {
-    if (!GetSettings(id)->Initialize(doc))
-    {
-      CLog::Log(LOGERROR, "CAddon[{}]: failed to initialize addon settings", ID());
-      return false;
-    }
+    CLog::Log(LOGERROR, "CAddon[{}]: failed to initialize addon settings", ID());
+    return false;
   }
 
   // reset all setting values to their default value

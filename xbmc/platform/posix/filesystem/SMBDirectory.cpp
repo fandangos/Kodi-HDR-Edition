@@ -23,11 +23,11 @@
 #include "FileItemList.h"
 #include "PasswordManager.h"
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
@@ -36,15 +36,44 @@
 
 #include <mutex>
 
+#include <fmt/format.h>
 #include <libsmbclient.h>
 
-struct CachedDirEntry
-{
-  unsigned int type;
-  std::string name;
-};
-
 using namespace XFILE;
+
+namespace
+{
+
+KODI::TIME::FileTime GetDirEntryTime(const struct stat& st)
+{
+  int64_t timeDate = 0;
+
+  // only stat files that can give proper responses
+  if (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode))
+  {
+    // if modification date is missing, use create date
+    timeDate = (st.st_mtime == 0) ? st.st_ctime : st.st_mtime;
+  }
+
+  KODI::TIME::FileTime fileTime{};
+  KODI::TIME::FileTime localTime{};
+  KODI::TIME::TimeTToFileTime(timeDate, &fileTime);
+  KODI::TIME::FileTimeToLocalFileTime(&fileTime, &localTime);
+
+  return localTime;
+}
+
+bool CanDiscoverServers()
+{
+  if (const auto settingsComponent = CServiceBroker::GetSettingsComponent(); settingsComponent)
+    if (const auto settings = settingsComponent->GetSettings(); settings)
+      // Check WS-Discovery daemon enabled, if not return as smb:// cant be handled further
+      return settings->GetBool(CSettings::SETTING_SERVICES_WSDISCOVERY);
+
+  return false;
+}
+
+} // Unnamed namespace
 
 CSMBDirectory::CSMBDirectory(void)
 {
@@ -56,197 +85,142 @@ CSMBDirectory::~CSMBDirectory(void)
   smb.AddIdleConnection();
 }
 
-bool CSMBDirectory::GetDirectory(const CURL& url, CFileItemList &items)
+bool CSMBDirectory::GetDirectory(const CURL& url, CFileItemList& items)
 {
   // We accept smb://[[[domain;]user[:password@]]server[/share[/path[/file]]]]
 
   /* samba isn't thread safe with old interface, always lock */
-  std::unique_lock<CCriticalSection> lock(smb);
-
+  std::unique_lock lock(smb);
   smb.Init();
-
-  //Separate roots for the authentication and the containing items to allow browsing to work correctly
-  std::string strRoot = url.Get();
-  std::string strAuth;
-
   lock.unlock(); // OpenDir is locked
 
   // if url provided does not having anything except smb protocol
   // Do a WS-Discovery search to find possible smb servers to mimic smbv1 behaviour
+  std::string strRoot = url.Get();
   if (strRoot == "smb://")
   {
-    auto settingsComponent = CServiceBroker::GetSettingsComponent();
-    if (!settingsComponent)
-      return false;
-
-    auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-    if (!settings)
-      return false;
-
-    // Check WS-Discovery daemon enabled, if not return as smb:// cant be handled further
-    if (settings->GetBool(CSettings::SETTING_SERVICES_WSDISCOVERY))
+    if (CanDiscoverServers())
     {
       WSDiscovery::CWSDiscoveryPosix& WSInstance =
           dynamic_cast<WSDiscovery::CWSDiscoveryPosix&>(CServiceBroker::GetWSDiscovery());
       return WSInstance.GetServerList(items);
     }
-    else
-    {
-      return false;
-    }
+
+    return false;
   }
 
+  std::string strAuth;
   int fd = OpenDir(url, strAuth);
   if (fd < 0)
     return false;
 
-  URIUtils::AddSlashAtEnd(strRoot);
-  URIUtils::AddSlashAtEnd(strAuth);
-
-  std::string strFile;
-
-  // need to keep the samba lock for as short as possible.
-  // so we first cache all directory entries and then go over them again asking for stat
-  // "stat" is locked each time. that way the lock is freed between stat requests
-  std::vector<CachedDirEntry> vecEntries;
-  struct smbc_dirent* dirEnt;
-
   lock.lock();
   if (!smb.IsSmbValid())
     return false;
-  while ((dirEnt = smbc_readdir(fd)))
-  {
-    CachedDirEntry aDir;
-    aDir.type = dirEnt->smbc_type;
-    aDir.name = dirEnt->name;
-    vecEntries.push_back(aDir);
-  }
-  smbc_closedir(fd);
-  lock.unlock();
 
-  for (size_t i=0; i<vecEntries.size(); i++)
+  const libsmb_file_info* fi;
+  struct stat st;
+  std::vector<CFileItemPtr> fileItems;
+  while ((fi = smbc_readdirplus2(fd, &st)))
   {
-    CachedDirEntry aDir = vecEntries[i];
-
     // We use UTF-8 internally, as does SMB
-    strFile = aDir.name;
+    std::string name = fi->name;
 
-    if (!strFile.empty() && strFile != "." && strFile != ".."
-      && strFile != "lost+found"
-      && aDir.type != SMBC_PRINTER_SHARE && aDir.type != SMBC_IPC_SHARE)
+    if (name == "." || name == ".." || name == "lost+found")
+      continue;
+
+    URIUtils::AddSlashAtEnd(strRoot);
+    std::string path = strRoot + name;
+
+    int64_t size = 0;
+    const bool isDir = S_ISDIR(st.st_mode);
+    bool hidden = name.starts_with('.');
+
+    // only stat files that can give proper responses
+    if (S_ISREG(st.st_mode) || isDir)
     {
-     int64_t iSize = 0;
-      bool bIsDir = true;
-      int64_t lTimeDate = 0;
-      bool hidden = false;
+      // This is also present in stuct stat using S_IXOTH but given
+      // the potential for confusion, let's be explicit.
+      hidden = hidden || (fi->attrs & SMBC_DOS_MODE_HIDDEN);
 
-      if(StringUtils::EndsWith(strFile, "$") && aDir.type == SMBC_FILE_SHARE )
+      size = st.st_size;
+    }
+
+    if (isDir)
+      URIUtils::AddSlashAtEnd(path);
+
+    const auto& item = fileItems.emplace_back(std::make_shared<CFileItem>(name));
+    item->SetPath(path);
+    item->SetDateTime(GetDirEntryTime(st));
+    item->SetFolder(isDir);
+    if (!isDir)
+      item->SetSize(size);
+    else
+    { // raw values; the DateTime above is local-time converted
+      item->SetProperty(DIR_PROPERTY_STAT_MTIME, static_cast<int64_t>(st.st_mtime));
+      item->SetProperty(DIR_PROPERTY_STAT_CTIME, static_cast<int64_t>(st.st_ctime));
+    }
+    if (hidden)
+      item->SetProperty("file:hidden", true);
+  }
+
+  // No results from smbc_readdirplus2() suggests server or share browsing.
+  // Use smbclient's legacy API for this.
+  if (fileItems.empty())
+  {
+    if (smbc_lseekdir(fd, 0) < 0)
+    {
+      CLog::LogF(LOGERROR, "Unable to seek directory : '{}'\nunix_err:'{:x}' error: '{}'",
+                 CURL::GetRedacted(strAuth), errno, strerror(errno));
+      return false;
+    }
+
+    struct smbc_dirent* dirent;
+    while ((dirent = smbc_readdir(fd)))
+    {
+      if (dirent->smbc_type != SMBC_FILE_SHARE && dirent->smbc_type != SMBC_SERVER)
         continue;
 
-      if (StringUtils::StartsWith(strFile, "."))
-        hidden = true;
+      // Skip hidden and Windows administrative shares (names ending with '$').
+      // These shares (C$, ADMIN$, IPC$, etc.) are not intended for browsing
+      // and are usually inaccessible.  Filtering them here keeps the listing clean.
+      const std::string shareName = dirent->name;
+      if (dirent->smbc_type == SMBC_FILE_SHARE && !shareName.empty() && shareName.back() == '$')
+        continue;
 
-      // only stat files that can give proper responses
-      if ( aDir.type == SMBC_FILE ||
-           aDir.type == SMBC_DIR )
+      std::string path(strRoot);
+
+      // needed for network / workgroup browsing
+      // skip if root if we are given a server
+      if (dirent->smbc_type == SMBC_SERVER)
       {
-        // set this here to if the stat should fail
-        bIsDir = (aDir.type == SMBC_DIR);
-
-        struct stat info = {};
-        if ((m_flags & DIR_FLAG_NO_FILE_INFO)==0 && CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_sambastatfiles)
-        {
-          // make sure we use the authenticated path which contains any default username
-          const std::string strFullName = strAuth + smb.URLEncode(strFile);
-
-          lock.lock();
-          if (!smb.IsSmbValid())
-          {
-            items.ClearItems();
-            return false;
-          }
-
-          if( smbc_stat(strFullName.c_str(), &info) == 0 )
-          {
-
-            char value[20];
-            // We poll for extended attributes which symbolizes bits but split up into a string. Where 0x02 is hidden and 0x12 is hidden directory.
-            // According to the libsmbclient.h it returns 0 on success and -1 on error.
-            // But before Samba 4.17.5 it seems to return the length of the returned value
-            // (which is 4), see https://bugzilla.samba.org/show_bug.cgi?id=14808.
-            // Checking for >= 0 should work both for the old erroneous and the correct behaviour.
-            if (smbc_getxattr(strFullName.c_str(), "system.dos_attr.mode", value, sizeof(value)) >= 0)
-            {
-              long longvalue = strtol(value, NULL, 16);
-              if (longvalue & SMBC_DOS_MODE_HIDDEN)
-                hidden = true;
-            }
-            else
-              CLog::Log(
-                  LOGERROR,
-                  "Getting extended attributes for the share: '{}'\nunix_err:'{:x}' error: '{}'",
-                  CURL::GetRedacted(strFullName), errno, strerror(errno));
-
-            bIsDir = S_ISDIR(info.st_mode);
-            lTimeDate = info.st_mtime;
-            if(lTimeDate == 0) // if modification date is missing, use create date
-              lTimeDate = info.st_ctime;
-            iSize = info.st_size;
-          }
-          else
-            CLog::Log(LOGERROR, "{} - Failed to stat file {}", __FUNCTION__,
-                      CURL::GetRedacted(strFullName));
-
-          lock.unlock();
-        }
+        /* create url with same options, user, pass.. but no filename or host*/
+        CURL rooturl(strRoot);
+        rooturl.SetFileName("");
+        rooturl.SetHostName("");
+        path = smb.URLEncode(rooturl);
       }
+      path = URIUtils::AddFileToFolder(path, dirent->name);
+      URIUtils::AddSlashAtEnd(path);
 
-      KODI::TIME::FileTime fileTime, localTime;
-      KODI::TIME::TimeTToFileTime(lTimeDate, &fileTime);
-      KODI::TIME::FileTimeToLocalFileTime(&fileTime, &localTime);
-
-      if (bIsDir)
-      {
-        CFileItemPtr pItem(new CFileItem(strFile));
-        std::string path(strRoot);
-
-        // needed for network / workgroup browsing
-        // skip if root if we are given a server
-        if (aDir.type == SMBC_SERVER)
-        {
-          /* create url with same options, user, pass.. but no filename or host*/
-          CURL rooturl(strRoot);
-          rooturl.SetFileName("");
-          rooturl.SetHostName("");
-          path = smb.URLEncode(rooturl);
-        }
-        path = URIUtils::AddFileToFolder(path,aDir.name);
-        URIUtils::AddSlashAtEnd(path);
-        pItem->SetPath(path);
-        pItem->m_bIsFolder = true;
-        pItem->m_dateTime=localTime;
-        if (hidden)
-          pItem->SetProperty("file:hidden", true);
-        items.Add(pItem);
-      }
-      else
-      {
-        CFileItemPtr pItem(new CFileItem(strFile));
-        pItem->SetPath(strRoot + aDir.name);
-        pItem->m_bIsFolder = false;
-        pItem->m_dwSize = iSize;
-        pItem->m_dateTime=localTime;
-        if (hidden)
-          pItem->SetProperty("file:hidden", true);
-        items.Add(pItem);
-      }
+      const auto& item = fileItems.emplace_back(std::make_shared<CFileItem>(dirent->name));
+      item->SetPath(path);
+      item->SetFolder(true);
     }
+  }
+  items.AddItems(std::move(fileItems));
+
+  if (smbc_closedir(fd) < 0)
+  {
+    CLog::LogF(LOGERROR, "Unable to close directory : '{}'\nunix_err:'{:x}' error: '{}'",
+               CURL::GetRedacted(strAuth), errno, strerror(errno));
+    return true; // we already got our listing
   }
 
   return true;
 }
 
-int CSMBDirectory::Open(const CURL &url)
+int CSMBDirectory::Open(const CURL& url)
 {
   smb.Init();
   std::string strAuth;
@@ -259,19 +233,29 @@ int CSMBDirectory::Open(const CURL &url)
 int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
 {
   int fd = -1;
+  bool guest = false;
 
   /* make a writeable copy */
   CURL urlIn = CSMB::GetResolvedUrl(url);
 
   CPasswordManager::GetInstance().AuthenticateURL(urlIn);
+
+  // set the username to "guest" when not provided username
+  // which is required for passwordless or everyone access
+  if (urlIn.GetUserName().empty())
+  {
+    urlIn.SetUserName("guest");
+    urlIn.SetPassword(" ");
+    guest = true;
+  }
+
   strAuth = smb.URLEncode(urlIn);
 
   // remove the / or \ at the end. the samba library does not strip them off
   // don't do this for smb:// !!
   std::string s = strAuth;
   int len = s.length();
-  if (len > 1 && s.at(len - 2) != '/' &&
-      (s.at(len - 1) == '/' || s.at(len - 1) == '\\'))
+  if (len > 1 && s.at(len - 2) != '/' && (s.at(len - 1) == '/' || s.at(len - 1) == '\\'))
   {
     s.erase(len - 1, 1);
   }
@@ -279,7 +263,7 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
   CLog::LogFC(LOGDEBUG, LOGSAMBA, "Using authentication url {}", CURL::GetRedacted(s));
 
   {
-    std::unique_lock<CCriticalSection> lock(smb);
+    std::unique_lock lock(smb);
     if (!smb.IsSmbValid())
       return -1;
     fd = smbc_opendir(s.c_str());
@@ -292,12 +276,21 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
     if (errno == EACCES || errno == EPERM || errno == EAGAIN || errno == EINVAL)
     {
       if (m_flags & DIR_FLAG_ALLOW_PROMPT)
+      {
+        if (guest) // clean user/pass if tried guest access and failed
+        {
+          urlIn.SetUserName("");
+          urlIn.SetPassword("");
+        }
         RequireAuthentication(urlIn);
+      }
       break;
     }
 
     if (errno == ENODEV || errno == ENOENT)
-      cError = StringUtils::Format(g_localizeStrings.Get(770), errno);
+      cError = fmt::format(
+          fmt::runtime(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(770)),
+          errno);
     else
       cError = strerror(errno);
 
@@ -309,10 +302,8 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
   if (fd < 0)
   {
     // write error to logfile
-    CLog::Log(
-        LOGERROR,
-        "SMBDirectory->GetDirectory: Unable to open directory : '{}'\nunix_err:'{:x}' error : '{}'",
-        CURL::GetRedacted(strAuth), errno, strerror(errno));
+    CLog::LogF(LOGERROR, "Unable to open directory : '{}'\nunix_err:'{:x}' error : '{}'",
+               CURL::GetRedacted(strAuth), errno, strerror(errno));
   }
 
   return fd;
@@ -320,7 +311,7 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
 
 bool CSMBDirectory::Create(const CURL& url2)
 {
-  std::unique_lock<CCriticalSection> lock(smb);
+  std::unique_lock lock(smb);
   smb.Init();
 
   CURL url = CSMB::GetResolvedUrl(url2);
@@ -329,15 +320,15 @@ bool CSMBDirectory::Create(const CURL& url2)
 
   int result = smbc_mkdir(strFileName.c_str(), 0);
   bool success = (result == 0 || EEXIST == errno);
-  if(!success)
-    CLog::Log(LOGERROR, "{} - Error( {} )", __FUNCTION__, strerror(errno));
+  if (!success)
+    CLog::LogF(LOGERROR, "Error( {} )", strerror(errno));
 
   return success;
 }
 
 bool CSMBDirectory::Remove(const CURL& url2)
 {
-  std::unique_lock<CCriticalSection> lock(smb);
+  std::unique_lock lock(smb);
   smb.Init();
 
   CURL url = CSMB::GetResolvedUrl(url2);
@@ -346,9 +337,9 @@ bool CSMBDirectory::Remove(const CURL& url2)
 
   int result = smbc_rmdir(strFileName.c_str());
 
-  if(result != 0 && errno != ENOENT)
+  if (result != 0 && errno != ENOENT)
   {
-    CLog::Log(LOGERROR, "{} - Error( {} )", __FUNCTION__, strerror(errno));
+    CLog::LogF(LOGERROR, "Error( {} )", strerror(errno));
     return false;
   }
 
@@ -357,7 +348,7 @@ bool CSMBDirectory::Remove(const CURL& url2)
 
 bool CSMBDirectory::Exists(const CURL& url2)
 {
-  std::unique_lock<CCriticalSection> lock(smb);
+  std::unique_lock lock(smb);
   smb.Init();
 
   CURL url = CSMB::GetResolvedUrl(url2);
@@ -370,4 +361,3 @@ bool CSMBDirectory::Exists(const CURL& url2)
 
   return S_ISDIR(info.st_mode);
 }
-

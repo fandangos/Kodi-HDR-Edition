@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -31,13 +31,13 @@ using namespace std::chrono_literals;
 
 std::shared_ptr<const IPlayer> CApplicationPlayer::GetInternal() const
 {
-  std::unique_lock<CCriticalSection> lock(m_playerLock);
+  std::unique_lock lock(m_playerLock);
   return m_pPlayer;
 }
 
 std::shared_ptr<IPlayer> CApplicationPlayer::GetInternal()
 {
-  std::unique_lock<CCriticalSection> lock(m_playerLock);
+  std::unique_lock lock(m_playerLock);
   return m_pPlayer;
 }
 
@@ -55,7 +55,7 @@ void CApplicationPlayer::ClosePlayer()
 void CApplicationPlayer::ResetPlayer()
 {
   // we need to do this directly on the member
-  std::unique_lock<CCriticalSection> lock(m_playerLock);
+  std::unique_lock lock(m_playerLock);
   m_pPlayer.reset();
 }
 
@@ -70,7 +70,7 @@ void CApplicationPlayer::CloseFile(bool reopen)
 
 void CApplicationPlayer::CreatePlayer(const CPlayerCoreFactory &factory, const std::string &player, IPlayerCallback& callback)
 {
-  std::unique_lock<CCriticalSection> lock(m_playerLock);
+  std::unique_lock lock(m_playerLock);
   if (!m_pPlayer)
   {
     CDataCacheCore::GetInstance().Reset();
@@ -151,7 +151,7 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
       CloseFile();
       if (player->m_name != newPlayer)
       {
-        std::unique_lock<CCriticalSection> lock(m_playerLock);
+        std::unique_lock lock(m_playerLock);
         m_pPlayer.reset();
       }
       return true;
@@ -161,7 +161,7 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
   {
     CloseFile();
     {
-      std::unique_lock<CCriticalSection> lock(m_playerLock);
+      std::unique_lock lock(m_playerLock);
       m_pPlayer.reset();
       player.reset();
     }
@@ -238,6 +238,21 @@ int64_t CApplicationPlayer::GetChapterPos(int chapterIdx) const
   return -1;
 }
 
+std::vector<std::chrono::milliseconds> CApplicationPlayer::GetBookmarks() const
+{
+  const std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->GetBookmarks();
+  return {};
+}
+
+void CApplicationPlayer::SetBookmarks(const std::vector<std::chrono::milliseconds>& bookmarks)
+{
+  const std::shared_ptr<IPlayer> player = GetInternal();
+  if (player)
+    player->SetBookmarks(bookmarks);
+}
+
 bool CApplicationPlayer::HasAudio() const
 {
   std::shared_ptr<const IPlayer> player = GetInternal();
@@ -307,6 +322,15 @@ bool CApplicationPlayer::IsPlayingGame() const
 bool CApplicationPlayer::IsPlayingRDS() const
 {
   return (IsPlaying() && HasRDS());
+}
+
+bool CApplicationPlayer::IsLiveStream() const
+{
+  std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->IsLiveStream();
+
+  return false;
 }
 
 void CApplicationPlayer::Pause()
@@ -1287,6 +1311,15 @@ bool CApplicationPlayer::IsRenderingVideoLayer() const
     return false;
 }
 
+bool CApplicationPlayer::HasVisibleOverlay() const
+{
+  const std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->HasVisibleOverlay();
+  else
+    return false;
+}
+
 bool CApplicationPlayer::Supports(EINTERLACEMETHOD method) const
 {
   const std::shared_ptr<const IPlayer> player = GetInternal();
@@ -1319,38 +1352,6 @@ bool CApplicationPlayer::Supports(ERENDERFEATURE feature) const
   const std::shared_ptr<const IPlayer> player = GetInternal();
   if (player)
     return player->Supports(feature);
-  else
-    return false;
-}
-
-unsigned int CApplicationPlayer::RenderCaptureAlloc()
-{
-  std::shared_ptr<IPlayer> player = GetInternal();
-  if (player)
-    return player->RenderCaptureAlloc();
-  else
-    return 0;
-}
-
-void CApplicationPlayer::RenderCapture(unsigned int captureId, unsigned int width, unsigned int height, int flags)
-{
-  std::shared_ptr<IPlayer> player = GetInternal();
-  if (player)
-    player->RenderCapture(captureId, width, height, flags);
-}
-
-void CApplicationPlayer::RenderCaptureRelease(unsigned int captureId)
-{
-  std::shared_ptr<IPlayer> player = GetInternal();
-  if (player)
-    player->RenderCaptureRelease(captureId);
-}
-
-bool CApplicationPlayer::RenderCaptureGetPixels(unsigned int captureId, unsigned int millis, uint8_t *buffer, unsigned int size)
-{
-  std::shared_ptr<IPlayer> player = GetInternal();
-  if (player)
-    return player->RenderCaptureGetPixels(captureId, millis, buffer, size);
   else
     return false;
 }
@@ -1429,6 +1430,42 @@ bool CApplicationPlayer::HasGameAgent() const
   const std::shared_ptr<const IPlayer> player = GetInternal();
   if (player)
     return player->HasGameAgent();
+
+  return false;
+}
+
+bool CApplicationPlayer::SupportsDiscControl() const
+{
+  const std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->SupportsDiscControl();
+
+  return false;
+}
+
+bool CApplicationPlayer::IsDiscEjected() const
+{
+  const std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->IsDiscEjected();
+
+  return false;
+}
+
+std::string CApplicationPlayer::DiscLabel() const
+{
+  const std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->DiscLabel();
+
+  return "";
+}
+
+bool CApplicationPlayer::IsTrayEmpty() const
+{
+  const std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->IsTrayEmpty();
 
   return false;
 }

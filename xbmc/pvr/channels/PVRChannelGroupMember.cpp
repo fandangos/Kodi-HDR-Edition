@@ -63,16 +63,16 @@ void CPVRChannelGroupMember::SetChannel(const std::shared_ptr<CPVRChannel>& chan
 
 void CPVRChannelGroupMember::ToSortable(SortItem& sortable, Field field) const
 {
-  if (field == FieldChannelNumber)
+  if (field == Field::CHANNEL_NUMBER)
   {
-    sortable[FieldChannelNumber] = m_channelNumber.SortableChannelNumber();
+    sortable[Field::CHANNEL_NUMBER] = m_channelNumber.SortableChannelNumber();
   }
-  else if (field == FieldClientChannelOrder)
+  else if (field == Field::CLIENT_CHANNEL_ORDER)
   {
     if (m_iOrder)
-      sortable[FieldClientChannelOrder] = m_iOrder;
+      sortable[Field::CLIENT_CHANNEL_ORDER] = m_iOrder;
     else
-      sortable[FieldClientChannelOrder] = m_clientChannelNumber.SortableChannelNumber();
+      sortable[Field::CLIENT_CHANNEL_ORDER] = m_clientChannelNumber.SortableChannelNumber();
   }
 }
 
@@ -87,11 +87,18 @@ void CPVRChannelGroupMember::SetGroupID(int iGroupID)
 
 void CPVRChannelGroupMember::SetGroupName(const std::string& groupName)
 {
+  if (m_groupName != groupName)
+  {
+    m_groupName = groupName;
+    // Note: do not set m_bNeedsSave here as group name is not stored in database
+  }
+
   const std::shared_ptr<const CPVRClient> client =
       CServiceBroker::GetPVRManager().GetClient(m_iChannelClientID);
   if (client)
     m_path = CPVRChannelsPath(m_bIsRadio, groupName, m_iGroupClientID, client->ID(),
-                              client->InstanceId(), m_iChannelUID);
+                              client->InstanceId(), m_iChannelUID)
+                 .AsString();
   else
     CLog::LogF(LOGERROR, "Unable to obtain instance for client id: {}", m_iChannelClientID);
 }

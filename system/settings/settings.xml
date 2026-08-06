@@ -49,7 +49,7 @@
       <group id="2" label="19177">
         <setting id="videoplayer.adjustrefreshrate" type="integer" label="170" help="36164">
           <level>1</level>
-          <default>0</default> <!-- ADJUST_REFRESHRATE_OFF -->
+          <default>2</default> <!-- ADJUST_REFRESHRATE_ON_STARTSTOP -->
           <constraints>
             <options>
               <option label="351">0</option> <!-- ADJUST_REFRESHRATE_OFF -->
@@ -102,6 +102,14 @@
           </constraints>
           <control type="list" format="string" />
         </setting>
+        <setting id="videoplayer.maxsmoothff" type="integer" label="13558" help="37117">
+          <level>2</level>
+          <default>4</default>
+          <constraints>
+            <options>playerfastforwardspeeds</options>
+          </constraints>
+          <control type="list" format="string" />
+        </setting>
       </group>
       <group id="3" label="14231">
         <setting id="videoplayer.rendermethod" type="integer" label="13415" help="36153">
@@ -125,7 +133,12 @@
           </control>
         </setting>
         <setting id="videoplayer.hqscalerprecision" type="integer" label="13472" help="13473">
-          <requirement>HAS_GL</requirement>
+          <requirement>
+            <or>
+              <condition>HAS_GL</condition>
+              <condition>HAS_GLES</condition>
+            </or>
+          </requirement>
           <level>2</level>
           <default>10</default>
           <constraints>
@@ -241,6 +254,25 @@
             <multiselect>true</multiselect>
             <hidevalue>false</hidevalue>
           </control>
+        </setting>
+        <setting id="videoplayer.dovizerolevel5" type="boolean" label="39209" help="39210">
+          <requirement><!-- Android and webOS use CBitstreamConverter -->
+            <or>
+              <condition>HAS_MEDIACODEC</condition>
+              <condition>HAVE_WEBOS</condition>
+            </or>
+          </requirement>
+          <dependencies>
+            <dependency type="visible">
+              <or>
+                <condition on="property" name="supportsdolbyvision" />
+                <condition>HAVE_WEBOS</condition>
+              </or>
+            </dependency>
+          </dependencies>
+          <level>2</level>
+          <default>false</default>
+          <control type="toggle" />
         </setting>
       </group>
       <group id="4" label="14232">
@@ -443,9 +475,10 @@
           <default>0</default> <!-- default -->
           <constraints>
             <options>
-              <option label="14104">0</option> <!-- show simplified menu -->
-              <option label="25003">1</option> <!-- show disc menu -->
-              <option label="14103">2</option> <!-- play main movie -->
+              <option label="25018">0</option> <!-- automatic menu selection -->
+              <option label="14104">1</option> <!-- show simplified menu -->
+              <option label="25003">2</option> <!-- show disc menu -->
+              <option label="14103">3</option> <!-- play main movie -->
             </options>
           </constraints>
           <control type="list" format="string" />
@@ -565,7 +598,7 @@
       <group id="2" label="287">
         <setting id="locale.subtitlelanguage" type="string" label="286" help="36120">
           <level>0</level>
-          <default>original</default>
+          <default>forced_only</default>
           <constraints>
             <options>subtitlestreamlanguages</options>
           </constraints>
@@ -1752,9 +1785,24 @@
           <default>false</default>
           <control type="toggle" />
         </setting>
-        <setting id="videolibrary.ignorevideoversions" type="boolean" label="40202" help="40203">
+        <setting id="videolibrary.similarvideoaction" type="integer" label="40222" help="40203">
           <level>1</level>
+          <default>0</default>
+          <constraints>
+            <options>
+              <option label="13551">0</option> <!-- off -->
+              <option label="863">1</option> <!-- ask -->
+              <option label="16316">2</option> <!-- auto -->
+            </options>
+          </constraints>
+          <control type="list" format="string" />
+        </setting>
+        <setting id="videolibrary.newversionsaredefault" type="boolean" label="40223" help="40224" parent="videolibrary.similarvideoaction">
+          <level>2</level>
           <default>true</default>
+          <dependencies>
+            <dependency type="visible" setting="videolibrary.similarvideoaction" operator="greaterthan">0</dependency>
+          </dependencies>
           <control type="toggle" />
         </setting>
         <setting id="videolibrary.ignorevideoextras" type="boolean" label="40204" help="40205">
@@ -1904,22 +1952,16 @@
       <group id="1" label="593">
         <setting id="myvideos.selectaction" type="integer" label="22079" help="36177">
           <level>0</level>
-          <default>1</default> <!-- ACTION_PLAY_OR_RESUME -->
+          <default>8</default> <!-- ACTION_PLAY -->
           <constraints>
             <options>
               <option label="22080">0</option> <!-- ACTION_CHOOSE -->
-              <option label="208">1</option> <!-- ACTION_PLAY_OR_RESUME -->
-              <option label="13404">2</option> <!-- ACTION_RESUME -->
+              <option label="208">8</option> <!-- ACTION_PLAY -->
               <option label="22081">3</option> <!-- ACTION_INFO -->
               <option label="13347">7</option> <!-- ACTION_QUEUE -->
             </options>
           </constraints>
           <control type="list" format="string" />
-        </setting>
-        <setting id="myvideos.selectdefaultversion" type="boolean" label="40200" help="40201">
-          <level>0</level>
-          <default>false</default>
-          <control type="toggle" />
         </setting>
         <setting id="myvideos.playaction" type="integer" label="22076" help="36204">
           <level>0</level>
@@ -1928,6 +1970,7 @@
             <options>
               <option label="22077">1</option> <!-- ACTION_PLAY_OR_RESUME -->
               <option label="22078">2</option> <!-- ACTION_RESUME -->
+              <option label="12021">4</option> <!-- ACTION_PLAY_FROM_BEGINNING -->
             </options>
           </constraints>
           <control type="list" format="string" />
@@ -1988,11 +2031,6 @@
           <control type="toggle" />
         </setting>
         <setting id="videolibrary.groupsingleitemsets" type="boolean" label="20470" help="36157">
-          <level>1</level>
-          <default>false</default>
-          <control type="toggle" />
-        </setting>
-        <setting id="videolibrary.showvideoversionsasfolder" type="boolean" label="40206" help="40207">
           <level>1</level>
           <default>false</default>
           <control type="toggle" />
@@ -2185,6 +2223,17 @@
           </dependencies>
           <control type="toggle" />
         </setting>
+	    <setting id="videolibrary.artretrievaltiming" type="integer" label="40225" help="40226">
+		  <level>3</level>
+		  <default>1</default>
+		  <constraints>
+		    <options>
+		      <option label="40227">0</option> <!-- during scrape -->
+			  <option label="40228">1</option> <!-- after scrape -->
+			</options>
+		  </constraints>
+		  <control type="list" format="string" />
+	    </setting>
       </group>
     </category>
     <category id="music" label="14216" help="38108">
@@ -2941,7 +2990,7 @@
         <setting id="pvrpowermanagement.dailywakeuptime" type="string" label="19248" help="36246">
           <level>2</level>
           <default>00:00:00</default>
-          <control type="edit" format="string" />
+          <control type="button" format="action" />
           <dependencies>
             <dependency type="enable" setting="pvrpowermanagement.enabled" operator="is">true</dependency>
           </dependencies>
@@ -3317,14 +3366,9 @@
         </setting>
         <setting id="smb.minprotocol" type="integer" label="36628" help="36629">
           <level>2</level>
-          <default>0</default>
+          <default>21</default>
           <constraints>
-            <options>
-              <option label="36623">0</option>
-              <option label="36624">1</option>
-              <option label="36625">2</option>
-              <option label="36626">3</option>
-            </options>
+            <options>smbversions</options>
           </constraints>
           <control type="list" format="integer" />
         </setting>
@@ -3332,12 +3376,7 @@
           <level>2</level>
           <default>3</default>
           <constraints>
-            <options>
-              <option label="36623">0</option>
-              <option label="36624">1</option>
-              <option label="36625">2</option>
-              <option label="36626">3</option>
-            </options>
+            <options>smbversions</options>
           </constraints>
           <control type="list" format="integer" />
         </setting>
@@ -3366,6 +3405,14 @@
           <constraints>
             <options>filechunksizes</options>
           </constraints>
+          <dependencies>
+            <dependency type="enable">
+              <or>
+                <condition setting="smb.minprotocol" operator="is">21</condition>
+                <condition setting="smb.minprotocol" operator="is">3</condition>
+              </or>
+            </dependency>
+          </dependencies>
           <control type="list" format="string" />
         </setting>
       </group>
@@ -3664,6 +3711,7 @@
           <requirement>
             <or>
               <condition>HAS_GL</condition>
+              <condition>HAS_GLES</condition>
               <condition>HAS_DX</condition>
             </or>
           </requirement>
@@ -3675,20 +3723,28 @@
           <requirement>
             <or>
               <condition>HAS_GL</condition>
+              <condition>HAS_GLES</condition>
               <condition>HAS_DX</condition>
             </or>
           </requirement>
           <level>3</level>
-          <default>8</default>
+          <default>0</default>
           <constraints>
-            <minimum>2</minimum>
-            <step>1</step>
-            <maximum>8</maximum>
+            <options>
+              <option label="16316">0</option>
+              <option label="13477">2</option>
+              <option label="13478">3</option>
+              <option label="13479">4</option>
+              <option label="13480">5</option>
+              <option label="13481">6</option>
+              <option label="13482">7</option>
+              <option label="13483">8</option>
+            </options>
           </constraints>
           <dependencies>
             <dependency type="visible" setting="videoscreen.dither" operator="is">true</dependency>
           </dependencies>
-          <control type="spinner" format="integer" />
+          <control type="spinner" format="string" />
         </setting>
         <setting id="videoscreen.cmsenabled" type="boolean" label="36560" help="36561">
           <requirement>
@@ -3884,6 +3940,7 @@
           <or>
             <condition>HAS_DX</condition>
             <condition>HAS_MEDIACODEC</condition>
+            <condition>HAVE_WEBOS</condition>
           </or>
         </requirement>
         <dependencies>
@@ -4038,6 +4095,11 @@
           </dependencies>
           <control type="toggle" />
         </setting>
+        <setting id="audiooutput.lowlatency" type="boolean" label="295" help="36418">
+          <level>2</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
         <setting id="audiooutput.processquality" type="integer" label="13505" help="36169">
           <requirement>HAS_AE_QUALITY_LEVELS</requirement>
           <level>2</level>
@@ -4175,7 +4237,7 @@
           <control type="list" format="string" />
         </setting>
         <setting id="audiooutput.ac3passthrough" type="boolean" label="364" help="36365">
-          <level>2</level>
+          <level>1</level>
           <default>true</default>
           <dependencies>
             <dependency type="visible" on="property" name="aesettingvisible" setting="audiooutput.config">audiooutput.passthrough</dependency>
@@ -4203,8 +4265,8 @@
           <control type="toggle" />
         </setting>
         <setting id="audiooutput.eac3passthrough" type="boolean" label="448" help="37016">
-          <level>2</level>
-          <default>false</default>
+          <level>1</level>
+          <default>true</default>
           <dependencies>
             <dependency type="visible">
               <and>
@@ -4217,8 +4279,8 @@
           <control type="toggle" />
         </setting>
         <setting id="audiooutput.dtspassthrough" type="boolean" label="254" help="36366">
-          <level>2</level>
-          <default>false</default>
+          <level>1</level>
+          <default>true</default>
           <dependencies>
             <dependency type="visible">
               <and>
@@ -4231,8 +4293,8 @@
           <control type="toggle" />
         </setting>
         <setting id="audiooutput.truehdpassthrough" type="boolean" label="349" help="36369">
-          <level>2</level>
-          <default>false</default>
+          <level>1</level>
+          <default>true</default>
           <dependencies>
             <dependency type="visible">
               <and>
@@ -4245,8 +4307,8 @@
           <control type="toggle" />
         </setting>
         <setting id="audiooutput.dtshdpassthrough" type="boolean" label="347" help="36370">
-          <level>2</level>
-          <default>false</default>
+          <level>1</level>
+          <default>true</default>
           <dependencies>
             <dependency type="visible">
               <and>
@@ -4341,8 +4403,6 @@
           <default>false</default>
           <control type="toggle" />
         </setting>
-      </group>
-      <group id="3" label="13600">
       </group>
     </category>
     <category id="network" label="798" help="36379">
@@ -4446,15 +4506,20 @@
             <formatlabel>14044</formatlabel>
           </control>
         </setting>
+        <setting id="powermanagement.restartplayer" type="boolean" label="1451" help="36416">
+          <level>1</level>
+          <default>true</default>
+          <control type="toggle" />
+        </setting>
         <setting id="powermanagement.shutdowntime" type="integer" label="357" help="36389">
           <level>2</level>
           <default>0</default>
           <constraints>
-            <minimum>0</minimum>
+            <minimum label="351">0</minimum>
             <step>15</step>
             <maximum>1440</maximum>
           </constraints>
-          <control type="slider" format="integer">
+          <control type="spinner" format="string">
             <formatlabel>14044</formatlabel>
           </control>
         </setting>

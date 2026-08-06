@@ -43,15 +43,16 @@ void CRendererVAAPIGL::Register(IVaapiWinSystem* winSystem,
     return;
   }
 
-  CVaapi2Texture::TestInterop(vaDpy, eglDisplay, general, deepColor);
-  CLog::Log(LOGDEBUG, "Vaapi2 EGL interop test results: general {}, deepColor {}",
-            general ? "yes" : "no", deepColor ? "yes" : "no");
-  if (!general)
-  {
-    CVaapi1Texture::TestInterop(vaDpy, eglDisplay, general, deepColor);
-    CLog::Log(LOGDEBUG, "Vaapi1 EGL interop test results: general {}, deepColor {}",
-              general ? "yes" : "no", deepColor ? "yes" : "no");
-  }
+  // Probe importable surface formats via vaExportSurfaceHandle.
+  CCapabilities& caps = CDecoder::GetCaps();
+  CVaapi2Texture::TestInteropFormats(vaDpy, eglDisplay, caps);
+
+  CLog::Log(LOGDEBUG, "VAAPI EGL interop: {}", caps.ToString());
+
+  // Bool out-params are views over caps for the OptionalsReg / WinSystem
+  // boundary that still expresses capability as the general/deepColor pair.
+  general = caps.Supports(AV_PIX_FMT_NV12);
+  deepColor = caps.Supports(AV_PIX_FMT_P010);
 
   vaTerminate(vaDpy);
 
@@ -90,19 +91,9 @@ bool CRendererVAAPIGL::Configure(const VideoPicture& picture, float fps, unsigne
     interop.glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
     interop.eglDisplay = CRendererVAAPIGL::m_pWinSystem->GetEGLDisplay();
 
-    bool useVaapi2 = VAAPI::CVaapi2Texture::TestInteropGeneral(
-        pic->vadsp, CRendererVAAPIGL::m_pWinSystem->GetEGLDisplay());
-
     for (auto &tex : m_vaapiTextures)
     {
-      if (useVaapi2)
-      {
-        tex = std::make_unique<VAAPI::CVaapi2Texture>();
-      }
-      else
-      {
-        tex = std::make_unique<VAAPI::CVaapi1Texture>();
-      }
+      tex = std::make_unique<VAAPI::CVaapi2Texture>();
       tex->Init(interop);
     }
   }

@@ -1,14 +1,15 @@
 include ../../Makefile.include PYTHON3-VERSION ../../download-files.include
 DEPS = ../../Makefile.include Makefile PYTHON3-VERSION ../../download-files.include \
-                                 01-py312-cpython118618-1.patch \
-                                 01-py312-cpython118618-2.patch \
-                                 02-android-cpython114875.patch \
                                  apple.patch \
-                                 darwin_embedded.patch \
-                                 10-android-modules.patch
+                                 process-vm-ready.patch \
+                                 static-compile.patch \
+                                 10-android-modules.patch \
+                                 11-android-ctypes.patch \
+                                 13-wasm-em-config-clang.patch \
+                                 14-wasm-build-wasm-default.patch \
+                                 15-wasm-static-hacl.patch
 
 ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
-  HOSTPLATFORM=_PYTHON_HOST_PLATFORM="darwin"
   ifeq ($(OS), darwin_embedded)
     EXTRA_CONFIGURE=ac_cv_func_wait3=no ac_cv_func_wait4=no ac_cv_func_waitpid=no \
                     ac_cv_func_execv=no ac_cv_func_fexecv=no ac_cv_func_getentropy=no \
@@ -16,7 +17,9 @@ ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
                     ac_cv_func_posix_spawn=no ac_cv_func_posix_spawnp=no \
                     ac_cv_func_forkpty=no ac_cv_lib_util_forkpty=no \
                     ac_cv_func_getgroups=no \
-                    ac_cv_func_system=no
+                    ac_cv_func_system=no \
+                    ac_cv_func_dup3=no \
+                    ac_cv_func_pipe2=no
     export SDKROOT
   endif
   ifeq ($(OS), osx)
@@ -26,28 +29,28 @@ ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
   EXTRA_CONFIGURE+= ac_cv_lib_intl_textdomain=yes
 endif
 
-ifeq ($(OS),android)
-  LIBS=-liconv
-endif
-
 ifeq ($(OS), linux)
   EXTRA_CONFIGURE=ac_cv_pthread=yes
   ifeq ($(TARGET_PLATFORM),webos)
     # Force intl check to succeed
     EXTRA_CONFIGURE+=ac_cv_lib_intl_textdomain=yes
-    # Export iconv as LIBS for link ordering (After -lintl from configure search)
-    LIBS=-liconv
   endif
 endif
 
+ifeq ($(OS),wasm)
+  # Cross-compiling to wasm cannot run AX_C_FLOAT_WORDS_BIGENDIAN's probe.
+  # WebAssembly is little-endian, so preset the cache result. Also disable
+  # forkpty: posixmodule builds the forkpty wrapper under HAVE_FORKPTY, but the
+  # PyOS_*Fork helpers it calls are only built when HAVE_FORK is available.
+  # memfd_create is also misdetected here and fails at link time with emcc.
+  EXTRA_CONFIGURE+= ax_cv_c_float_words_bigendian=no \
+                    ac_cv_func_forkpty=no ac_cv_lib_util_forkpty=no \
+                    ac_cv_func_memfd_create=no
+endif
+
 # Disabled c extension modules for all platforms
-PY_MODULES = py_cv_module_audioop=n/a \
-             py_cv_module_grp=n/a \
-             py_cv_module_ossaudiodev=n/a \
-             py_cv_module_spwd=n/a \
+PY_MODULES = py_cv_module_grp=n/a \
              py_cv_module_syslog=n/a \
-             py_cv_module__crypt=n/a \
-             py_cv_module_nis=n/a \
              py_cv_module__dbm=n/a \
              py_cv_module__gdbm=n/a \
              py_cv_module__uuid=n/a \
@@ -69,7 +72,8 @@ PY_MODULES = py_cv_module_audioop=n/a \
 # are not installed outside of the cpython build tree, and cause failure in kodi linking
 # If we wish to support them in the future, we should create "system libs" for them
 PY_MODULES+= py_cv_module__decimal=n/a \
-             py_cv_module__sha2=n/a
+             py_cv_module__sha2=n/a \
+             py_cv_module__zstd=n/a
 
 
 ifeq ($(OS), darwin_embedded)
@@ -91,43 +95,48 @@ CONFIGURE=./configure --prefix=$(PREFIX) \
                       $(PY_MODULES) \
                       $(EXTRA_CONFIGURE)
 
-export LDFLAGS
-export LIBS
+# Use LIBS as some platforms (webos) require iconv to be late on the linker line
+# appending to LDFLAGS puts the iconv link argument too early, causing link failures
+export LIBS=$(LINK_ICONV)
 
 LIBDYLIB=$(PLATFORM)/libpython$(PYTHON_VERSION).a
 
 all: .installed-$(PLATFORM)
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
-	cd $(PLATFORM); patch -p1 -i ../01-py312-cpython118618-1.patch
-	cd $(PLATFORM); patch -p1 -i ../01-py312-cpython118618-2.patch
 	cd $(PLATFORM); patch -p1 -i ../apple.patch
-ifeq ($(OS),darwin_embedded)
-	cd $(PLATFORM); patch -p1 -i ../darwin_embedded.patch
-endif
+	cd $(PLATFORM); patch -p1 -i ../static-compile.patch
+	cd $(PLATFORM); patch -p1 -i ../process-vm-ready.patch
 
 ifeq ($(OS),android)
-	cd $(PLATFORM); patch -p1 -i ../02-android-cpython114875.patch
 	cd $(PLATFORM); patch -p1 -i ../10-android-modules.patch
+	cd $(PLATFORM); patch -p1 -i ../11-android-ctypes.patch
+endif
+ifeq ($(OS),wasm)
+	cd $(PLATFORM); patch -p1 -i ../13-wasm-em-config-clang.patch
+	cd $(PLATFORM); patch -p1 -i ../14-wasm-build-wasm-default.patch
+	cd $(PLATFORM); patch -p1 -i ../15-wasm-static-hacl.patch
 endif
 	cd $(PLATFORM); $(AUTORECONF)
 	cd $(PLATFORM); $(CONFIGURE)
+	touch $@
 
-$(LIBDYLIB): $(PLATFORM)
-	$(MAKE) -C $(PLATFORM) $(HOSTPLATFORM) libpython$(PYTHON_VERSION).a
+$(LIBDYLIB): .configured-$(PLATFORM)
+	$(MAKE) -C $(PLATFORM) libpython$(PYTHON_VERSION).a
 	touch $@
 
 .installed-$(PLATFORM): $(LIBDYLIB)
 # We specifically use -j1 as some threading issues can occur with install directory creation
 	$(MAKE) -C $(PLATFORM) $(HOSTPLATFORM) install -j1
 	find $(PREFIX)/lib/python$(PYTHON_VERSION) -type f -name "*.pyc" -delete
+	find $(PREFIX)/lib/python$(PYTHON_VERSION) -type d -name "config-$(PYTHON_VERSION)-*" -exec rm -r {} +
 	touch $(LIBDYLIB)
 	touch $@
 
 clean:
-	rm -rf .installed-$(PLATFORM)
+	rm -rf .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean::
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

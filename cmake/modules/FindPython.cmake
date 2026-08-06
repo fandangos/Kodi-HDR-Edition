@@ -46,25 +46,35 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
     unset(PYTHON_VER CACHE)
   endif()
 
-  find_package(Python3 ${VERSION} ${EXACT_VER} COMPONENTS Development)
+  find_package(Python3 ${VERSION} ${EXACT_VER} COMPONENTS Development ${SEARCH_QUIET})
 
   if(Python3_FOUND)
     if(KODI_DEPENDSBUILD)
-      find_library(EXPAT_LIBRARY expat REQUIRED)
+      set(EXPAT_USE_STATIC_LIBS TRUE)
+      find_package(EXPAT REQUIRED ${SEARCH_QUIET})
+
       find_library(FFI_LIBRARY ffi REQUIRED)
       find_library(GMP_LIBRARY gmp REQUIRED)
-      find_library(INTL_LIBRARY intl REQUIRED)
-      find_library(LZMA_LIBRARY lzma REQUIRED)
+
+      find_package(Iconv REQUIRED ${SEARCH_QUIET})
+      find_package(Intl REQUIRED ${SEARCH_QUIET})
+      find_package(LibLZMA REQUIRED ${SEARCH_QUIET})
 
       if(NOT CORE_SYSTEM_NAME STREQUAL android)
-        set(PYTHON_DEP_LIBRARIES pthread dl util)
+        if(CORE_SYSTEM_NAME STREQUAL wasm)
+          # Emscripten does not provide native libdl/libutil.
+          # Keep only pthread for threaded Python builds.
+          set(PYTHON_DEP_LIBRARIES pthread)
+        else()
+          set(PYTHON_DEP_LIBRARIES pthread dl util)
+        endif()
         if(CORE_SYSTEM_NAME STREQUAL linux)
           # python archive built via depends requires librt for _posixshmem library
           list(APPEND PYTHON_DEP_LIBRARIES rt)
         endif()
       endif()
 
-      set(Py_LINK_LIBRARIES ${EXPAT_LIBRARY} ${FFI_LIBRARY} ${GMP_LIBRARY} ${INTL_LIBRARY} ${LZMA_LIBRARY} ${PYTHON_DEP_LIBRARIES})
+      set(Py_LINK_LIBRARIES EXPAT::EXPAT ${FFI_LIBRARY} ${GMP_LIBRARY} LIBRARY::Iconv Intl::Intl LibLZMA::LibLZMA ${PYTHON_DEP_LIBRARIES})
     endif()
 
     # We use this all over the place. Maybe it would be nice to keep it as a TARGET property

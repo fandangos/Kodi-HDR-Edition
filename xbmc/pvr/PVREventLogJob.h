@@ -9,7 +9,7 @@
 #pragma once
 
 #include "events/EventLog.h"
-#include "utils/Job.h"
+#include "jobs/Job.h"
 
 #include <string>
 #include <vector>
@@ -52,7 +52,11 @@ private:
           const std::string& label,
           const std::string& msg,
           const std::string& icon)
-      : m_bNotifyUser(bNotifyUser), m_eLevel(elevel), m_label(label), m_msg(msg), m_icon(icon)
+      : m_bNotifyUser(bNotifyUser),
+        m_eLevel(elevel),
+        m_label(label),
+        m_msg(msg),
+        m_icon(icon)
     {
     }
   };

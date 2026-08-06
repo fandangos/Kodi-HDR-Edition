@@ -66,8 +66,8 @@ constexpr int MAC_LENGTH = 6; // fixed MAC length used in CNetworkInterface
 using namespace winrt::Windows::Networking::Connectivity;
 
 CNetworkInterfaceWin10::CNetworkInterfaceWin10(const PIP_ADAPTER_ADDRESSES address)
+  : m_adapterAddr(address)
 {
-  m_adapterAddr = address;
 }
 
 CNetworkInterfaceWin10::~CNetworkInterfaceWin10(void) = default;
@@ -167,7 +167,7 @@ CNetworkWin10::CNetworkWin10() : CNetworkBase()
   NetworkInformation::NetworkStatusChanged(
       [this](auto&&)
       {
-        std::unique_lock<CCriticalSection> lock(m_critSection);
+        std::unique_lock lock(m_critSection);
         queryInterfaceList();
       });
 }
@@ -190,13 +190,13 @@ void CNetworkWin10::CleanInterfaceList()
 
 std::vector<CNetworkInterface*>& CNetworkWin10::GetInterfaceList(void)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   return m_interfaces;
 }
 
 CNetworkInterface* CNetworkWin10::GetFirstConnectedInterface()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   for (CNetworkInterface* intf : m_interfaces)
   {
     if (intf->IsEnabled() && intf->IsConnected() && !intf->GetCurrentDefaultGateway().empty())

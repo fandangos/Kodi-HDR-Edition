@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="suggestion_channel">Návrhy</string>
+    <string name="continue_button">Pokračovat</string>
+    <string name="error_title">Chyba</string>
+    <string name="info_title">Informace</string>
+    <string name="asking_permissions">Žádost o oprávnění…</string>
+    <string name="clearing_cache">Čištění mezipaměti…</string>
+    <string name="waiting_external">Čeká se na externí úložiště…</string>
+    <string name="external_ok">Externí úložiště je připraveno…</string>
+    <string name="starting">Spouštím %1$s…</string>
+    <string name="first_run">Připravuje se první spuštění. Čekejte prosím…</string>
+    <string name="permission_denied">Oprávnění zamítnuto! Ukončuje se…</string>
+    <string name="no_find_apk">Nelze najít balíček.</string>
+    <string name="no_read_apk">Balíček nelze přečíst.</string>
+    <string name="exit_button">Ukončit</string>
+    <string name="notice_dialog">%1$s potřebuje ke svému fungování přístup k médiím a souborům ve vašem zařízení. Povolte ho prosím v následujícím dialogovém okně, jinak se %1$s ukončí.</string>
+    <string name="record_audio_dialog">%1$s žádá o oprávnění nahrávat zvuk. Používá se pouze pro hlasové vyhledávání. V následujícím dialogovém okně ho povolte nebo zamítněte.</string>
+    <string name="networkperm_dialog">%1$s potřebuje ke svému fungování přístup k vaší síti. Povolte ho prosím v následujícím dialogovém okně, jinak se %1$s ukončí.</string>
 </resources>

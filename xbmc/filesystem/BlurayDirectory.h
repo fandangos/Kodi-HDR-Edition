@@ -8,49 +8,107 @@
 
 #pragma once
 
+#include "DiscDirectoryHelper.h"
 #include "IDirectory.h"
 #include "URL.h"
+#include "bluray/MPLSParser.h"
+#if defined(HAS_UDFREAD)
+#include "filesystem/UDFContext.h"
+#endif
 
-#include <memory>
+#include <map>
+#include <optional>
+#include <string>
+
+#include <libbluray/bluray.h>
 
 class CFileItem;
 class CFileItemList;
 
-typedef struct bluray BLURAY;
-typedef struct bd_title_info BLURAY_TITLE_INFO;
-
 namespace XFILE
 {
+using namespace std::chrono_literals;
 
 class CBlurayDirectory : public IDirectory
 {
 public:
-  CBlurayDirectory() = default;
+  CBlurayDirectory();
   ~CBlurayDirectory() override;
-  bool GetDirectory(const CURL& url, CFileItemList &items) override;
+  CBlurayDirectory(const CBlurayDirectory&) = delete;
+  CBlurayDirectory& operator=(const CBlurayDirectory&) = delete;
+  CBlurayDirectory(CBlurayDirectory&&) noexcept = default;
+  CBlurayDirectory& operator=(CBlurayDirectory&&) noexcept = default;
 
-  bool InitializeBluray(const std::string &root);
+  bool GetDirectory(const CURL& url, CFileItemList& items) override;
+  bool Resolve(CFileItem& item) const override;
+
+  /*!
+   \brief Resolve the underlying path and open the disc with libbluray.
+   Only needed by callers that want the disc's own metadata (see GetBlurayTitle/GetBlurayID).
+   GetDirectory resolves the path but leaves libbluray closed until something needs it.
+   \return true if libbluray could open the disc, ie. this is a bluray
+   */
+  bool InitializeBluray(const std::string& root);
+  static std::string GetBasePath(const CURL& url);
   std::string GetBlurayTitle();
   std::string GetBlurayID();
 
 private:
-  enum class DiscInfo
+  /*!
+   \brief Populate the stream details of a playlist on this disc.
+   Deriving these means parsing the playlist's m2ts, so it is only done once a playlist is known
+   to be wanted rather than for every playlist on the disc during playlist determination. Handed to
+   CDiscDirectoryHelper as a StreamDetailsProvider so that it stays agnostic of the disc type.
+   \param playlist the playlist to describe
+   \param item the item to populate
+   */
+  void SetPlaylistStreamDetails(unsigned int playlist, CFileItem& item);
+
+  enum class DiscInfo : uint8_t
   {
     TITLE,
     ID
   };
 
-  void         Dispose();
-  std::string  GetDiscInfoString(DiscInfo info);
-  void         GetRoot  (CFileItemList &items);
-  void         GetTitles(bool main, CFileItemList &items);
-  std::vector<BLURAY_TITLE_INFO*> GetUserPlaylists();
-  std::shared_ptr<CFileItem> GetTitle(const BLURAY_TITLE_INFO* title, const std::string& label);
-  CURL         GetUnderlyingCURL(const CURL& url);
-  std::string  HexToString(const uint8_t * buf, int count);
-  CURL          m_url;
-  BLURAY*       m_bd = nullptr;
-  bool          m_blurayInitialized = false;
-};
+  /*!
+   \brief Resolve the disc's path through its directory handler, without touching the disc.
+   */
+  void SetRealPath(const std::string& root);
 
-}
+  /*!
+   \brief Open the disc with libbluray, unless already open.
+   Opening costs a dozen round trips to the disc (index.bdmv, the BDMV/META localisations,
+   CERTIFICATE/id.bdmv and the AACS probe), which is why it is deferred until a caller needs
+   something only libbluray can answer. SetRealPath must have been called first.
+   \return true if libbluray has the disc open
+   */
+  bool EnsureBlurayOpen();
+
+  /*!
+   \brief Get whether this disc supports menus, opening it only on the first call per disc.
+   */
+  bool HasMenuSupport();
+
+  /*!
+   \brief Get the main playlist named in the disc's disc.inf, reading it only once per disc.
+   \return the playlist number, or -1 if the disc names none
+   */
+  int GetMainPlaylist();
+
+  void Dispose();
+  std::string GetDiscInfoString(DiscInfo info);
+  const BLURAY_DISC_INFO* GetDiscInfo() const;
+
+  CURL m_url;
+  std::string m_realPath;
+  BLURAY* m_bd{nullptr};
+  bool m_blurayInitialized{false};
+
+#if defined(HAS_UDFREAD)
+  //! Keeps a disc image's UDF volume mounted for as long as this disc is in use
+  std::optional<CUDFMount> m_udfMount;
+#endif
+
+  std::map<unsigned int, ClipInformation> m_clipCache;
+};
+} // namespace XFILE

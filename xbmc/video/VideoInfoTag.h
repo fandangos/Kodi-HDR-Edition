@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "SetInfoTag.h"
 #include "XBDateTime.h"
 #include "utils/EmbeddedArt.h"
 #include "utils/Fanart.h"
@@ -17,6 +18,7 @@
 #include "video/Bookmark.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 class CArchive;
@@ -36,7 +38,7 @@ struct SActorInfo
   std::string strRole;
   CScraperUrl thumbUrl;
   std::string thumb;
-  int        order = -1;
+  int order{-1};
 };
 
 class CRating
@@ -48,14 +50,14 @@ public:
   float rating = 0.0f;
   int votes = 0;
 };
-typedef std::map<std::string, CRating> RatingMap;
+using RatingMap = std::map<std::string, CRating, std::less<>>;
 
 class CVideoInfoTag : public IArchivable, public ISerializable, public ISortable
 {
 public:
   CVideoInfoTag() { Reset(); }
-  virtual ~CVideoInfoTag() = default;
-  void Reset();
+  ~CVideoInfoTag() override = default;
+  virtual void Reset();
   /* \brief Load information to a videoinfotag from an XML element
    There are three types of tags supported:
     1. Single-value tags, such as <title>.  These are set if available, else are left untouched.
@@ -72,15 +74,19 @@ public:
    \sa ParseNative
    */
   bool Load(const TiXmlElement *element, bool append = false, bool prioritise = false);
-  bool Save(TiXmlNode *node, const std::string &tag, bool savePathInfo = true, const TiXmlElement *additionalNode = NULL);
+  bool Save(TiXmlNode* node,
+            const std::string& tag,
+            bool savePathInfo = true,
+            const TiXmlElement* additionalNode = nullptr);
   void Merge(CVideoInfoTag& other);
   void Archive(CArchive& ar) override;
   void Serialize(CVariant& value) const override;
   void ToSortable(SortItem& sortable, Field field) const override;
-  const CRating GetRating(std::string type = "") const;
+  int GetDatabaseId() const;
+  CRating GetRating(std::string type = "") const;
   const std::string& GetDefaultRating() const;
-  const std::string GetUniqueID(std::string type = "") const;
-  const std::map<std::string, std::string>& GetUniqueIDs() const;
+  std::string GetUniqueID(std::string type = "") const;
+  const std::map<std::string, std::string, std::less<>>& GetUniqueIDs() const;
   const std::string& GetDefaultUniqueID() const;
   bool HasUniqueID() const;
   virtual bool HasYear() const;
@@ -88,7 +94,7 @@ public:
   bool HasPremiered() const;
   const CDateTime& GetPremiered() const;
   const CDateTime& GetFirstAired() const;
-  const std::string GetCast(bool bIncludeRole = false) const;
+  std::string GetCast(const std::string& separator, bool bIncludeRole = false) const;
   bool HasStreamDetails() const;
   bool IsEmpty() const;
 
@@ -132,26 +138,42 @@ public:
   std::string const& GetTitle() const;
   void SetTitle(std::string title);
   void SetSortTitle(std::string sortTitle);
-  void SetPictureURL(CScraperUrl &pictureURL);
+  void SetPictureURL(const CScraperUrl& pictureURL);
   void SetRating(float rating, int votes, const std::string& type = "", bool def = false);
   void SetRating(CRating rating, const std::string& type = "", bool def = false);
   void SetRating(float rating, const std::string& type = "", bool def = false);
   void RemoveRating(const std::string& type);
   void SetRatings(RatingMap ratings, const std::string& defaultRating = "");
   void SetVotes(int votes, const std::string& type = "");
-  void SetUniqueIDs(std::map<std::string, std::string> uniqueIDs);
+  void SetUniqueIDs(std::map<std::string, std::string, std::less<>> uniqueIDs);
   void SetPremiered(const CDateTime& premiered);
   void SetPremieredFromDBDate(const std::string& premieredString);
   virtual void SetYear(int year);
   void SetArtist(std::vector<std::string> artist);
-  void SetSet(std::string set);
-  void SetSetOverview(std::string setOverview);
+  void SetSet(std::string_view set);
+  void SetSetOverview(std::string_view setOverview);
   void SetTags(std::vector<std::string> tags);
   void SetFile(std::string file);
   void SetPath(std::string path);
   void SetMPAARating(std::string mpaaRating);
   void SetFileNameAndPath(std::string fileNameAndPath);
   void SetOriginalTitle(std::string originalTitle);
+
+  enum class LanguageTagSource
+  {
+    SOURCE_INTERNAL,
+    SOURCE_EXTERNAL,
+  };
+
+  /*!
+   * \brief Set the original audio language, with optional conversion.
+   * \param[in] language The original language.
+   * \param[in] type The language tag type.
+   *            For 'type' TYPE_ANY, the function will attempt to guess the encoding of 'language'
+   *            and recognizes ISO 639-1, ISO 639-2, BCP47 tags, and English names
+   * \return success of the conversion
+   */
+  bool SetOriginalLanguage(std::string language, LanguageTagSource source);
   void SetEpisodeGuide(std::string episodeGuide);
   void SetStatus(std::string status);
   void SetProductionCode(std::string productionCode);
@@ -159,10 +181,20 @@ public:
   void SetStudio(std::vector<std::string> studio);
   void SetAlbum(std::string album);
   void SetShowLink(std::vector<std::string> showLink);
-  void SetUniqueID(const std::string& uniqueid, const std::string& type = "", bool def = false);
+  void SetUniqueID(std::string_view uniqueid, const std::string& type = "", bool def = false);
   void RemoveUniqueID(const std::string& type);
-  void SetNamedSeasons(std::map<int, std::string> namedSeasons);
+  struct SeasonAttributes
+  {
+    std::string m_name;
+    std::string m_plot;
+    bool operator==(const SeasonAttributes& other) const = default;
+    bool IsEmpty() const { return m_name.empty() && m_plot.empty(); }
+  };
+  void SetSeasons(std::map<int, SeasonAttributes> seasons);
   void SetUserrating(int userrating);
+
+  void SetOverride(bool setOverride) { m_override = setOverride; }
+  bool GetOverride() const { return m_override; }
 
   /*!
    * @brief Get this videos's play count.
@@ -225,7 +257,7 @@ public:
      * @brief Store all data to XML.
      * @param movie The XML element to write the data to.
      */
-    void Save(TiXmlNode* movie);
+    void Save(TiXmlNode* movie) const;
 
     /*!
      * @brief Restore all data from XML.
@@ -237,7 +269,7 @@ public:
      * @brief Merge in all valid data from another asset info.
      * @param other The other asset info.
      */
-    void Merge(CAssetInfo& other);
+    void Merge(const CAssetInfo& other);
 
     /*!
      * @brief Serialize all data.
@@ -301,8 +333,8 @@ public:
   bool HasVideoVersions() const { return m_hasVideoVersions; }
 
   /*!
-   * @brief Set whether this video has video versions.
-   * @param hasVersion The versions flag.
+   * \brief Set whether this video has video versions.
+   * \param[in] hasVersions The versions flag.
    */
   void SetHasVideoVersions(bool hasVersions);
 
@@ -331,13 +363,6 @@ public:
   void SetIsDefaultVideoVersion(bool isDefaultVideoVersion);
 
   /*!
-  * @brief Get whether the Set Overview should be updated. If an NFO contains a <name> but no <overview> then
-  * this allows the current Overview to be kept. Otherwise it is overwritten. Default is true - so if updated
-  * by a scraper the Overview will be overwritten.
-  */
-  bool GetUpdateSetOverview() const { return m_updateSetOverview; }
-
-  /*!
    * @brief Set this videos's resume point.
    * @param timeInSeconds the time of the resume point
    * @param totalTimeInSeconds the total time of the video
@@ -345,6 +370,8 @@ public:
    * @return True if resume point was set successfully, false otherwise.
    */
   virtual bool SetResumePoint(double timeInSeconds, double totalTimeInSeconds, const std::string &playerState);
+
+  const std::string& GetOriginalLanguage() const { return m_originalLanguage; }
 
   std::string m_basePath; // the base path of the video, for folder-based lookups
   int m_parentPathID;      // the parent path id where the base path of the video lies
@@ -360,15 +387,8 @@ public:
   std::string m_strTitle;
   std::string m_strSortTitle;
   std::vector<std::string> m_artist;
-  std::vector< SActorInfo > m_cast;
-  typedef std::vector< SActorInfo >::const_iterator iCast;
-  struct SetInfo //!< Struct holding information about a movie set
-  {
-    std::string title; //!< Title of the movie set
-    int id; //!< ID of movie set in database
-    std::string overview; //!< Overview/description of the movie set
-  };
-  SetInfo m_set; //!< Assigned movie set
+  std::vector<SActorInfo> m_cast;
+  CSetInfoTag m_set;
   std::vector<std::string> m_tags;
   std::string m_strFile;
   std::string m_strPath;
@@ -386,7 +406,7 @@ public:
   std::string m_strAlbum;
   CDateTime m_lastPlayed;
   std::vector<std::string> m_showLink;
-  std::map<int, std::string> m_namedSeasons;
+  std::map<int, SeasonAttributes> m_seasons;
   int m_iTop250;
   int m_year;
   int m_iSeason;
@@ -415,6 +435,14 @@ public:
   // TODO: cannot be private, because of 'struct SDbTableOffsets'
   unsigned int m_duration; ///< duration in seconds
 
+protected:
+  /*!
+   * \brief Add the seasons information to an XML node
+   * \param[in] node the XML node to append to
+   * \return true for success, false otherwise.
+   */
+  bool SaveTvShowSeasons(TiXmlNode* node) const;
+
 private:
   /* \brief Parse our native XML format for video info.
    See Load for a description of the available tag types.
@@ -427,9 +455,10 @@ private:
 
   std::string m_strDefaultRating;
   std::string m_strDefaultUniqueID;
-  std::map<std::string, std::string> m_uniqueIDs;
-  std::string Trim(std::string &&value);
-  std::vector<std::string> Trim(std::vector<std::string> &&items);
+  std::map<std::string, std::string, std::less<>> m_uniqueIDs;
+  std::string Trim(std::string&& value) const;
+  std::vector<std::string> Trim(std::vector<std::string>&& items) const;
+  std::string m_originalLanguage;
 
   int m_playCount;
   CBookmark m_resumePoint;
@@ -440,7 +469,5 @@ private:
   bool m_hasVideoExtras{false};
   bool m_isDefaultVideoVersion{false};
 
-  bool m_updateSetOverview{true};
+  bool m_override{false};
 };
-
-typedef std::vector<CVideoInfoTag> VECMOVIES;

@@ -2,6 +2,8 @@
 
 set(PACKAGE_OUTPUT_DIR ${CMAKE_BINARY_DIR}/build/${CORE_BUILD_CONFIG})
 
+set(APP_ICON_ICNS ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/osx/${APP_NAME_LC}.icns)
+
 configure_file(${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/osx/Info.plist.in
                ${CMAKE_BINARY_DIR}/xbmc/platform/darwin/osx/Info.plist @ONLY)
 execute_process(COMMAND perl -p -i -e "s/r####/${APP_SCMID}/" ${CMAKE_BINARY_DIR}/xbmc/platform/darwin/osx/Info.plist)
@@ -21,6 +23,47 @@ if(CMAKE_GENERATOR MATCHES "Xcode")
   unset(_addons)
 endif()
 
+# Optional package lib handling
+# Copies TARGET INTERFACE_LINK_LIBRARIES or IMPORTED_LOCATION_* files to the
+# app bundle's "Libraries" folder.
+foreach(_pkg_lib IN LISTS package_libs)
+  # Need to check if the target is an alias, or a direct target
+  get_target_property(ALIASTARGET ${_pkg_lib} ALIASED_TARGET)
+  if(ALIASTARGET)
+    set(_pkg_target_name ${ALIASTARGET})
+  else()
+    set(_pkg_target_name ${_pkg_lib})
+  endif()
+
+  # Is the target an INTERFACE target, or an actual imported lib target
+  get_target_property(_${dep}_interface_lib ${_pkg_target_name} INTERFACE_LINK_LIBRARIES)
+  if(_${dep}_interface_lib)
+    # An interface target does not have a CONFIGURATION option, it will only be the
+    # single version file. We just always append to package_libs
+    set(package_lib_expression "$<TARGET_PROPERTY:${_pkg_target_name},INTERFACE_LINK_LIBRARIES>")
+  else()
+    # Currently we only support DEBUG or RELEASE specifically.
+    set(package_lib_expression "$<TARGET_GENEX_EVAL:${_pkg_target_name},$<IF:$<CONFIG:Debug>,$<TARGET_PROPERTY:${_pkg_target_name},IMPORTED_LOCATION_DEBUG>,$<TARGET_PROPERTY:${_pkg_target_name},IMPORTED_LOCATION_RELEASE>>>")
+  endif()
+  list(APPEND ADDITIONAL_COMMANDS COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:${APP_NAME_LC}>/Libraries)
+  list(APPEND ADDITIONAL_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different ${package_lib_expression} $<TARGET_BUNDLE_CONTENT_DIR:${APP_NAME_LC}>/Libraries)
+endforeach()
+
+if(TARGET Extras::BlurayBDJ)
+  get_target_property(_interface_files Extras::BlurayBDJ INTERFACE_LINK_LIBRARIES)
+
+  list(APPEND ADDITIONAL_COMMANDS COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:${APP_NAME_LC}>/Java)
+
+  foreach(file IN LISTS _interface_files)
+    list(APPEND ADDITIONAL_COMMANDS COMMAND ${CMAKE_COMMAND} -E copy_if_different ${file} $<TARGET_BUNDLE_CONTENT_DIR:${APP_NAME_LC}>/Java)
+  endforeach()
+endif()
+
+if(EXISTS ${APP_ICON_ICNS})
+  set_source_files_properties(${APP_ICON_ICNS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+  target_sources(${APP_NAME_LC} PRIVATE ${APP_ICON_ICNS})
+endif()
+
 add_custom_command(TARGET ${APP_NAME_LC} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/DllPaths_generated.h
                                      ${CMAKE_BINARY_DIR}/xbmc/DllPaths_generated.h
@@ -36,8 +79,10 @@ add_custom_command(TARGET ${APP_NAME_LC} POST_BUILD
             "APP_NAME=${APP_NAME}"
             "FULL_PRODUCT_NAME=${APP_NAME}.app"
             "SRCROOT=${CMAKE_BINARY_DIR}"
+            "SOURCE_ROOT=${CMAKE_SOURCE_DIR}"
             "PYTHON_VERSION=${PYTHON_VERSION}"
-            ${CMAKE_SOURCE_DIR}/tools/darwin/Support/copyframeworks-osx.command)
+            ${CMAKE_SOURCE_DIR}/tools/darwin/Support/copyframeworks-osx.command
+    ${ADDITIONAL_COMMANDS})
 
 configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/osx/mkdmg-osx.sh.in
                ${CMAKE_BINARY_DIR}/tools/darwin/packaging/osx/mkdmg-osx.sh @ONLY)

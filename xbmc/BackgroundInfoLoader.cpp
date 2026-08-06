@@ -11,9 +11,11 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "URL.h"
+#include "application/Application.h"
 #include "threads/Thread.h"
 #include "utils/log.h"
 
+#include <algorithm>
 #include <mutex>
 
 CBackgroundInfoLoader::CBackgroundInfoLoader() = default;
@@ -39,10 +41,8 @@ void CBackgroundInfoLoader::Run()
       OnLoaderStart();
 
       // Stage 1: All "fast" stuff we have already cached
-      for (std::vector<CFileItemPtr>::const_iterator iter = m_vecItems.begin(); iter != m_vecItems.end(); ++iter)
+      for (const auto& pItem : m_vecItems)
       {
-        const CFileItemPtr& pItem = *iter;
-
         // Ask the callback if we should abort
         if ((m_pProgressCallback && m_pProgressCallback->Abort()) || m_bStop)
           break;
@@ -61,10 +61,8 @@ void CBackgroundInfoLoader::Run()
       }
 
       // Stage 2: All "slow" stuff that we need to lookup
-      for (std::vector<CFileItemPtr>::const_iterator iter = m_vecItems.begin(); iter != m_vecItems.end(); ++iter)
+      for (const auto& pItem : m_vecItems)
       {
-        const CFileItemPtr& pItem = *iter;
-
         // Ask the callback if we should abort
         if ((m_pProgressCallback && m_pProgressCallback->Abort()) || m_bStop)
           break;
@@ -95,21 +93,24 @@ void CBackgroundInfoLoader::Run()
 
 void CBackgroundInfoLoader::Load(CFileItemList& items)
 {
+  // Never start a background load while the application is shutting down.
+  if (g_application.IsStopping())
+    return;
+
   StopThread();
 
   if (items.IsEmpty())
     return;
 
-  std::unique_lock<CCriticalSection> lock(m_lock);
+  std::unique_lock lock(m_lock);
 
-  for (int nItem=0; nItem < items.Size(); nItem++)
-    m_vecItems.push_back(items[nItem]);
+  std::ranges::copy(items, std::back_inserter(m_vecItems));
 
   m_pVecItems = &items;
   m_bStop = false;
   m_bIsLoading = true;
 
-  m_thread = new CThread(this, "BackgroundLoader");
+  m_thread = std::make_unique<CThread>(this, "BackgroundLoader");
   m_thread->Create();
   m_thread->SetPriority(ThreadPriority::BELOW_NORMAL);
 }
@@ -119,7 +120,6 @@ void CBackgroundInfoLoader::StopAsync()
   m_bStop = true;
 }
 
-
 void CBackgroundInfoLoader::StopThread()
 {
   StopAsync();
@@ -127,8 +127,7 @@ void CBackgroundInfoLoader::StopThread()
   if (m_thread)
   {
     m_thread->StopThread();
-    delete m_thread;
-    m_thread = NULL;
+    m_thread.reset();
   }
   Reset();
 }
@@ -147,4 +146,3 @@ void CBackgroundInfoLoader::SetProgressCallback(IProgressCallback* pCallback)
 {
   m_pProgressCallback = pCallback;
 }
-

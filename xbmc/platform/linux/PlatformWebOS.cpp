@@ -8,10 +8,19 @@
 
 #include "PlatformWebOS.h"
 
+#include "CompileInfo.h"
 #include "ServiceBroker.h"
 #include "filesystem/SpecialProtocol.h"
 #include "powermanagement/LunaPowerManagement.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "settings/lib/Setting.h"
 #include "utils/log.h"
+
+#include "platform/linux/WebOSTVPlatformConfig.h"
+
+#include <filesystem>
+#include <memory>
 
 #include <sys/resource.h>
 
@@ -20,15 +29,41 @@ CPlatform* CPlatform::CreateInstance()
   return new CPlatformWebOS();
 }
 
+std::string CPlatformWebOS::GetHomePath()
+{
+  std::filesystem::path self("/proc/self/exe");
+  std::error_code ec;
+  std::filesystem::path path = std::filesystem::read_symlink(self, ec);
+
+  if (ec)
+  {
+    const char* homeEnv = getenv("HOME");
+    return homeEnv ? std::string(homeEnv) : std::string("");
+  }
+
+  return path.parent_path().string();
+}
+
 bool CPlatformWebOS::InitStageOne()
 {
-  // WebOS ipks run in a chroot like environment. $HOME is set to the ipk dir and $LD_LIBRARY_PATH is lib
-  const auto HOME = std::string(getenv("HOME"));
+  // WebOS ipks run in a chroot like std::filesystem::current_pathenvironment
+  // $HOME is set to the ipk dir and $LD_LIBRARY_PATH is lib
+  const auto HOME = GetHomePath();
+
+  setenv("APPID", CCompileInfo::GetPackage(), 0);
+  setenv("FONTCONFIG_FILE", "/etc/fonts/fonts.conf", 1);
+  setenv("FONTCONFIG_PATH", "/etc/fonts", 1);
+  setenv("GST_PLUGIN_SCANNER_1_0", (HOME + "/lib/gst-plugin-scanner").c_str(), 1);
   setenv("XDG_RUNTIME_DIR", "/tmp/xdg", 1);
   setenv("XKB_CONFIG_ROOT", "/usr/share/X11/xkb", 1);
   setenv("WAYLAND_DISPLAY", "wayland-0", 1);
   setenv("PYTHONHOME", (HOME + "/lib/python3").c_str(), 1);
-  setenv("PYTHONPATH", (HOME + "/lib/python3").c_str(), 1);
+
+  std::string pythonPath;
+  pythonPath = HOME + "/lib/python3";
+  pythonPath += ":" + pythonPath + "/site-packages";
+
+  setenv("PYTHONPATH", pythonPath.c_str(), 1);
   setenv("PYTHONIOENCODING", "UTF-8", 1);
   setenv("KODI_HOME", HOME.c_str(), 1);
   setenv("SSL_CERT_FILE",
@@ -39,17 +74,33 @@ bool CPlatformWebOS::InitStageOne()
 
 bool CPlatformWebOS::InitStageTwo()
 {
-  if (CServiceBroker::GetLogging().GetLogLevel() > LOG_LEVEL_DEBUG)
-  {
-    constexpr rlimit limit{0, 0};
-    if (setrlimit(RLIMIT_CORE, &limit) != 0)
-      CLog::Log(LOGERROR, "Failed to disable core dumps");
-  }
+  constexpr rlimit limit{0, 0};
+  if (setrlimit(RLIMIT_CORE, &limit) != 0)
+    CLog::Log(LOGERROR, "Failed to disable core dumps");
 
+  WebOSTVPlatformConfig::Load();
+  WebOSTVPlatformConfig::LoadARCStatus();
   return CPlatformLinux::InitStageTwo();
+}
+
+bool CPlatformWebOS::InitStageThree()
+{
+  // Setting dependencies cannot be removed by XML files
+  const std::shared_ptr<CSetting> passthrough =
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(
+          CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH);
+  if (passthrough)
+    passthrough->SetDependencies({});
+
+  return CPlatformLinux::InitStageThree();
 }
 
 void CPlatformWebOS::RegisterPowerManagement()
 {
   CLunaPowerManagement::Register();
+}
+
+bool CPlatformWebOS::IsConfigureAddonsAtStartupEnabled()
+{
+  return false;
 }

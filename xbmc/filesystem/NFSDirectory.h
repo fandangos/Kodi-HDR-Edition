@@ -11,6 +11,10 @@
 #include "IDirectory.h"
 #include "NFSFile.h"
 
+#include <memory>
+#include <vector>
+
+class CFileItem;
 struct nfsdirent;
 
 namespace XFILE
@@ -26,9 +30,9 @@ namespace XFILE
       bool Exists(const CURL& url) override;
       bool Remove(const CURL& url) override;
     private:
-      bool GetServerList(CFileItemList &items);
-      bool GetDirectoryFromExportList(const std::string& strPath, CFileItemList &items);
-      bool ResolveSymlink( const std::string &dirName, struct nfsdirent *dirent, CURL &resolvedUrl);
+      std::vector<std::shared_ptr<CFileItem>> GetServerList() const;
+      std::vector<std::shared_ptr<CFileItem>> GetDirectoryFromExportList(
+          const CURL& inputURL) const;
   };
 }
 

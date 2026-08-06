@@ -1,15 +1,15 @@
 # xrandr
 if(TARGET ${APP_NAME_LC}::X AND TARGET ${APP_NAME_LC}::XRandR)
-  find_package(X QUIET)
-  find_package(XRandR QUIET)
+  find_package(X ${SEARCH_QUIET})
+  find_package(XRandR ${SEARCH_QUIET})
   add_executable(${APP_NAME_LC}-xrandr ${CMAKE_SOURCE_DIR}/xbmc-xrandr.c)
   target_link_libraries(${APP_NAME_LC}-xrandr ${SYSTEM_LDFLAGS} ${APP_NAME_LC}::X m ${APP_NAME_LC}::XRandR)
 endif()
 
 # WiiRemote
 if(ENABLE_EVENTCLIENTS AND TARGET ${APP_NAME_LC}::Bluetooth)
-  find_package(CWiid QUIET)
-  find_package(GLU QUIET)
+  find_package(CWiid ${SEARCH_QUIET})
+  find_package(GLU ${SEARCH_QUIET})
   if(TARGET ${APP_NAME_LC}::CWiid AND TARGET ${APP_NAME_LC}::GLU)
     add_subdirectory(${CMAKE_SOURCE_DIR}/tools/EventClients/Clients/WiiRemote build/WiiRemote)
   endif()
@@ -20,8 +20,14 @@ if("wayland" IN_LIST CORE_PLATFORM_NAME_LC)
   # to already be resolved
   set(PROTOCOL_XMLS "${WAYLANDPP_PROTOCOLS_DIR}/presentation-time.xml"
                     "${WAYLANDPP_PROTOCOLS_DIR}/xdg-shell.xml"
+                    "${WAYLAND_PROTOCOLS_DIR}/stable/viewporter/viewporter.xml"
+                    "${WAYLAND_PROTOCOLS_DIR}/staging/fractional-scale/fractional-scale-v1.xml"
                     "${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-shell/xdg-shell-unstable-v6.xml"
                     "${WAYLAND_PROTOCOLS_DIR}/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml")
+
+  if(PC_WAYLAND_PROTOCOLS_VERSION VERSION_GREATER_EQUAL 1.41)
+    list(APPEND PROTOCOL_XMLS "${WAYLAND_PROTOCOLS_DIR}/staging/color-management/color-management-v1.xml")
+  endif()
 
   add_custom_command(OUTPUT "${WAYLAND_EXTRA_PROTOCOL_GENERATED_DIR}/wayland-extra-protocols.hpp" "${WAYLAND_EXTRA_PROTOCOL_GENERATED_DIR}/wayland-extra-protocols.cpp"
                      COMMAND wayland::waylandppscanner

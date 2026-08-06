@@ -38,7 +38,7 @@ CIRServerSuite::~CIRServerSuite()
 {
   m_event.Set();
   {
-    std::unique_lock<CCriticalSection> lock(m_critSection);
+    std::unique_lock lock(m_critSection);
     Close();
   }
   StopThread();
@@ -383,7 +383,7 @@ bool CIRServerSuite::HandleRemoteEvent(CIrssMessage& message)
 
     //translate to a buttoncode xbmc understands
     CLog::LogF(LOGDEBUG, "remoteEvent: {} {}", deviceName, keycode);
-    unsigned button = m_irTranslator.TranslateButton(deviceName, keycode);
+    const uint32_t button = m_irTranslator.TranslateButton(deviceName, keycode);
 
     XBMC_Event newEvent = {};
     newEvent.type = XBMC_BUTTON;
@@ -413,7 +413,7 @@ int CIRServerSuite::ReadN(char *buffer, int n)
   {
     int nBytes = 0;
     {
-      std::unique_lock<CCriticalSection> lock(m_critSection);
+      std::unique_lock lock(m_critSection);
       nBytes = recv(m_socket, ptr, n, 0);
     }
 
@@ -452,7 +452,7 @@ bool CIRServerSuite::WriteN(const char *buffer, int n)
   {
     int nBytes;
     {
-      std::unique_lock<CCriticalSection> lock(m_critSection);
+      std::unique_lock lock(m_critSection);
       nBytes = send(m_socket, ptr, n, 0);
     }
 

@@ -10,10 +10,12 @@
 
 #include "FileItem.h"
 #include "FileItemList.h"
+#include "ServiceBroker.h"
 #include "cores/RetroPlayer/RetroPlayerUtils.h"
 #include "cores/RetroPlayer/guibridge/GUIGameVideoHandle.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/GameSettings.h"
 #include "settings/MediaSettings.h"
 #include "utils/Variant.h"
@@ -24,10 +26,14 @@ using namespace GAME;
 const std::vector<CDialogGameStretchMode::StretchModeProperties>
     CDialogGameStretchMode::m_allStretchModes = {
         {630, RETRO::STRETCHMODE::Normal},
+        {35237, RETRO::STRETCHMODE::Normal1x1},
         //  { 631,   RETRO::STRETCHMODE::Zoom }, //! @todo RetroArch allows trimming some outer
         //  pixels
         {632, RETRO::STRETCHMODE::Stretch4x3},
+        {634, RETRO::STRETCHMODE::Stretch16x9},
         {35232, RETRO::STRETCHMODE::Fullscreen},
+        {35238, RETRO::STRETCHMODE::Integer},
+        {35239, RETRO::STRETCHMODE::Integer1x1},
         {635, RETRO::STRETCHMODE::Original},
 };
 
@@ -38,7 +44,7 @@ CDialogGameStretchMode::CDialogGameStretchMode()
 
 std::string CDialogGameStretchMode::GetHeading()
 {
-  return g_localizeStrings.Get(35233); // "Stretch mode"
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35233); // "Stretch mode"
 }
 
 void CDialogGameStretchMode::PreInit()
@@ -52,12 +58,16 @@ void CDialogGameStretchMode::PreInit()
     switch (stretchMode.stretchMode)
     {
       case RETRO::STRETCHMODE::Normal:
+      case RETRO::STRETCHMODE::Normal1x1:
       case RETRO::STRETCHMODE::Original:
         bSupported = true;
         break;
 
       case RETRO::STRETCHMODE::Stretch4x3:
+      case RETRO::STRETCHMODE::Stretch16x9:
       case RETRO::STRETCHMODE::Fullscreen:
+      case RETRO::STRETCHMODE::Integer:
+      case RETRO::STRETCHMODE::Integer1x1:
         if (m_gameVideoHandle)
         {
           bSupported = m_gameVideoHandle->SupportsRenderFeature(RETRO::RENDERFEATURE::STRETCH) ||
@@ -78,7 +88,8 @@ void CDialogGameStretchMode::GetItems(CFileItemList& items)
 {
   for (const auto& stretchMode : m_stretchModes)
   {
-    CFileItemPtr item = std::make_shared<CFileItem>(g_localizeStrings.Get(stretchMode.stringIndex));
+    CFileItemPtr item = std::make_shared<CFileItem>(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(stretchMode.stringIndex));
 
     const std::string stretchModeId =
         RETRO::CRetroPlayerUtils::StretchModeToIdentifier(stretchMode.stretchMode);

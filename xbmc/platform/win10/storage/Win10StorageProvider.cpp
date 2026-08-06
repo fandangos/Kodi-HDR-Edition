@@ -9,9 +9,9 @@
 
 #include "ServiceBroker.h"
 #include "filesystem/SpecialProtocol.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "storage/MediaManager.h"
-#include "utils/JobManager.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
@@ -49,7 +49,7 @@ void CStorageProvider::Initialize()
   if (!vShare.empty())
     CServiceBroker::GetMediaManager().SetHasOpticalDrive(true);
   else
-    CLog::Log(LOGDEBUG, "{}: No optical drive found.", __FUNCTION__);
+    CLog::LogF(LOGDEBUG, "No optical drive found.");
 
   m_watcher = DeviceInformation::CreateWatcher(DeviceClass::PortableStorageDevice);
   m_watcher.Added([this](auto&&, auto&&)
@@ -71,7 +71,7 @@ void CStorageProvider::GetLocalDrives(std::vector<CMediaSource>& localDrives)
 {
   CMediaSource share;
   share.strPath = CSpecialProtocol::TranslatePath("special://home");
-  share.strName = g_localizeStrings.Get(21440);
+  share.strName = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21440);
   share.m_ignore = true;
   share.m_iDriveType = SourceType::LOCAL;
   localDrives.push_back(share);
@@ -149,8 +149,10 @@ std::vector<std::string> CStorageProvider::GetDiskUsage()
 
   auto localfolder = winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
   GetDiskFreeSpaceExW(localfolder.c_str(), nullptr, &ULTotal, &ULTotalFree);
-  strRet = StringUtils::Format("{}: {} MB {}", g_localizeStrings.Get(21440),
-                               (ULTotalFree.QuadPart / (1024 * 1024)), g_localizeStrings.Get(160));
+  strRet = StringUtils::Format(
+      "{}: {} MB {}", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21440),
+      (ULTotalFree.QuadPart / (1024 * 1024)),
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(160));
   result.push_back(strRet);
 
   DWORD drivesBits = GetLogicalDrives();
@@ -170,9 +172,9 @@ std::vector<std::string> CStorageProvider::GetDiskUsage()
     if (DRIVE_FIXED == GetDriveTypeA(strDrive.c_str())
       && GetDiskFreeSpaceExA((strDrive.c_str()), nullptr, &ULTotal, &ULTotalFree))
     {
-      strRet =
-          StringUtils::Format("{} {} MB {}", strDrive, int(ULTotalFree.QuadPart / (1024 * 1024)),
-                              g_localizeStrings.Get(160));
+      strRet = StringUtils::Format(
+          "{} {} MB {}", strDrive, int(ULTotalFree.QuadPart / (1024 * 1024)),
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(160));
       result.push_back(strRet);
     }
   }
@@ -243,11 +245,15 @@ void CStorageProvider::GetDrivesByType(std::vector<CMediaSource>& localDrives,
       switch (uDriveType)
       {
       case DRIVE_CDROM:
-        share.strName = StringUtils::Format("{} ({})", share.strPath, g_localizeStrings.Get(218));
+        share.strName = StringUtils::Format(
+            "{} ({})", share.strPath,
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(218));
         break;
       case DRIVE_REMOVABLE:
         if (share.strName.empty())
-          share.strName = StringUtils::Format("{} ({})", g_localizeStrings.Get(437), share.strPath);
+          share.strName = StringUtils::Format(
+              "{} ({})", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(437),
+              share.strPath);
         break;
       default:
         if (share.strName.empty())

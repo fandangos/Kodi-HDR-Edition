@@ -18,6 +18,7 @@
 #include "addons/addoninfo/AddonType.h"
 #include "filesystem/SpecialProtocol.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <mutex>
 #if defined(HAS_GL)
@@ -140,10 +141,7 @@ CGUIFont* GUIFontManager::LoadTTF(const std::string& strFontName,
   CWinSystemBase* const winSystem = CServiceBroker::GetWinSystem();
   if (!winSystem)
   {
-    CLog::Log(LOGFATAL,
-              "GUIFontManager::{}: Something tries to call function without an available GUI "
-              "window system",
-              __func__);
+    CLog::LogF(LOGFATAL, "Something tries to call function without an available GUI window system");
     return nullptr;
   }
 
@@ -207,13 +205,12 @@ CGUIFont* GUIFontManager::LoadTTF(const std::string& strFontName,
       // font could not be loaded - try Arial.ttf, which we distribute
       if (strFilename != "arial.ttf")
       {
-        CLog::Log(LOGERROR, "GUIFontManager::{}: Couldn't load font name: {}({}), trying arial.ttf",
-                  __func__, strFontName, strFilename);
+        CLog::LogF(LOGERROR, "Couldn't load font name: {}({}), trying arial.ttf", strFontName,
+                   strFilename);
         return LoadTTF(strFontName, "arial.ttf", textColor, shadowColor, iSize, iStyle, border,
                        lineSpacing, originalAspect);
       }
-      CLog::Log(LOGERROR, "GUIFontManager::{}: Couldn't load font name:{} file:{}", __func__,
-                strFontName, strPath);
+      CLog::LogF(LOGERROR, "Couldn't load font name:{} file:{}", strFontName, strPath);
 
       return nullptr;
     }
@@ -302,10 +299,11 @@ void GUIFontManager::ReloadTTFFonts(void)
       if (!pFontFile || !pFontFile->Load(strPath, newSize, aspect, 1.0f, fontInfo.border))
       {
         delete pFontFile;
-        // font could not be loaded
-        CLog::Log(LOGERROR, "GUIFontManager::{}: Couldn't re-load font file: '{}'", __func__,
-                  strPath);
-        return;
+        // This font could not be re-rasterised, but the rest still can. It
+        // keeps the CGUIFontTTF it already had, which m_vecFontFiles still
+        // owns, so it stays renderable at the old size.
+        CLog::LogF(LOGERROR, "Couldn't re-load font file: '{}'", strPath);
+        continue;
       }
 
       m_vecFontFiles.emplace_back(pFontFile);
@@ -427,7 +425,9 @@ bool GUIFontManager::LoadFontsFromFile(const std::string& fontsetFilePath,
   if (LoadXMLData(fontsetFilePath, xmlDoc))
   {
     TiXmlElement* rootElement = xmlDoc.RootElement();
-    g_SkinInfo->ResolveIncludes(rootElement);
+    auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+    if (skin)
+      skin->ResolveIncludes(rootElement);
     const TiXmlElement* fontsetElement = rootElement->FirstChildElement("fontset");
     while (fontsetElement)
     {
@@ -455,9 +455,13 @@ bool GUIFontManager::LoadFontsFromFile(const std::string& fontsetFilePath,
 
 void GUIFontManager::LoadFonts(const std::string& fontSet)
 {
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  if (!skin)
+    return;
+
   std::string firstFontset;
   // Try to load the fontset from Font.xml
-  const std::string fontsetFilePath = g_SkinInfo->GetSkinPath("Font.xml", &m_skinResolution);
+  const std::string fontsetFilePath = skin->GetSkinPath("Font.xml", &m_skinResolution);
   if (LoadFontsFromFile(fontsetFilePath, fontSet, firstFontset))
     return;
 
@@ -544,8 +548,7 @@ void GUIFontManager::GetStyle(const TiXmlNode* fontNode, int& iStyle)
 
 void GUIFontManager::SettingOptionsFontsFiller(const SettingConstPtr& setting,
                                                std::vector<StringSettingOption>& list,
-                                               std::string& current,
-                                               void* data)
+                                               std::string& current)
 {
   CFileItemList itemsRoot;
   CFileItemList items;
@@ -563,7 +566,7 @@ void GUIFontManager::SettingOptionsFontsFiller(const SettingConstPtr& setting,
 
   for (const auto& item : items)
   {
-    if (item->m_bIsFolder)
+    if (item->IsFolder())
       continue;
 
     list.emplace_back(item->GetLabel(), item->GetLabel());
@@ -572,7 +575,7 @@ void GUIFontManager::SettingOptionsFontsFiller(const SettingConstPtr& setting,
 
 void GUIFontManager::Initialize()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   LoadUserFonts();
 }
 
@@ -646,7 +649,7 @@ void GUIFontManager::LoadUserFonts()
   for (auto& item : dirItems)
   {
     std::string filepath = item->GetPath();
-    if (item->m_bIsFolder)
+    if (item->IsFolder())
       continue;
 
     std::set<std::string> familyNames;

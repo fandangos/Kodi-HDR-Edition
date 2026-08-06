@@ -77,14 +77,14 @@ public:
                     bool bNotRandom = false,
                     const std::string& beginSlidePath = "",
                     bool startSlideShow = true,
-                    SortBy method = SortByLabel,
-                    SortOrder order = SortOrderAscending,
+                    SortBy method = SortBy::LABEL,
+                    SortOrder order = SortOrder::ASCENDING,
                     SortAttribute sortAttributes = SortAttributeNone,
                     const std::string& strExtensions = "") override;
   void AddFromPath(const std::string& strPath,
                    bool bRecursive,
-                   SortBy method = SortByLabel,
-                   SortOrder order = SortOrderAscending,
+                   SortBy method = SortBy::LABEL,
+                   SortOrder order = SortOrder::ASCENDING,
                    SortAttribute sortAttributes = SortAttributeNone,
                    const std::string& strExtensions = "") override;
   void Shuffle() override;
@@ -118,9 +118,10 @@ private:
   void SetDirection(int direction); // -1: rewind, 1: forward
 
   typedef std::set<std::string> path_set;  // set to track which paths we're adding
-  void AddItems(const std::string &strPath, path_set *recursivePaths,
-                SortBy method = SortByLabel,
-                SortOrder order = SortOrderAscending,
+  void AddItems(const std::string& strPath,
+                path_set* recursivePaths,
+                SortBy method = SortBy::LABEL,
+                SortOrder order = SortOrder::ASCENDING,
                 SortAttribute sortAttributes = SortAttributeNone);
   bool PlayVideo();
   CSlideShowPic::DISPLAY_EFFECT GetDisplayEffect(int iSlideNumber) const;
@@ -166,6 +167,6 @@ private:
   std::unique_ptr<CBackgroundPicLoader> m_pBackgroundLoader;
   int m_iLastFailedNextSlide;
   bool m_bLoadNextPic;
-  RESOLUTION m_Resolution;
+  RESOLUTION m_Resolution = RES_INVALID;
   CPoint m_firstGesturePoint;
 };

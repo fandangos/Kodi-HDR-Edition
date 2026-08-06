@@ -22,6 +22,11 @@
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
+extern "C"
+{
+#include <libavcodec/defs.h>
+}
+
 VideoPlayerCodec::VideoPlayerCodec() : m_processInfo(CProcessInfo::CreateInstance())
 {
   m_CodecName = "VideoPlayer";
@@ -119,7 +124,7 @@ bool VideoPlayerCodec::Init(const CFileItem &file, unsigned int filecache)
   int64_t demuxerId = -1;
   for (auto stream : m_pDemuxer->GetStreams())
   {
-    if (stream && stream->type == STREAM_AUDIO)
+    if (stream && stream->type == StreamType::AUDIO)
     {
       m_nAudioStream = stream->uniqueId;
       demuxerId = stream->demuxerId;
@@ -232,9 +237,27 @@ bool VideoPlayerCodec::Init(const CFileItem &file, unsigned int filecache)
   if (NeedConvert(m_srcFormat.m_dataFormat))
   {
     m_needConvert = true;
-    // if we don't know the framesize yet, we will fail when converting
+    // Some codecs (notably TrueHD over slow sources like NFS) do not populate
+    // m_frameSize within the 10-packet sanity loop above even when channels
+    // and sample rate are already known. For PCM-decoded data the frame size
+    // is determined by bits-per-sample and channel count - both already known
+    // at this point - so compute it as a fallback instead of failing silently.
     if (m_srcFormat.m_frameSize == 0)
-      return false;
+    {
+      // The fallback only handles interleaved formats: the downstream divisor
+      // in ReadPCM (m_frameSize / m_channels) assumes interleaved layout, and
+      // for planar the per-plane sample width is too small to safely divide by
+      // m_channels (e.g. 8-bit planar stereo would integer-divide to 0).
+      // Bail out for planar - preserves pre-existing behavior for that path.
+      if (AE_IS_PLANAR(m_srcFormat.m_dataFormat))
+        return false;
+      const unsigned int bytesPerSample = CAEUtil::DataFormatToBits(m_srcFormat.m_dataFormat) >> 3;
+      // Also bail if bits-per-sample is <8: a zero frame size would propagate
+      // to ReadPCM and divide-by-zero on m_frameSize.
+      if (bytesPerSample == 0)
+        return false;
+      m_srcFormat.m_frameSize = bytesPerSample * m_channels;
+    }
 
     m_pResampler = ActiveAE::CAEResampleFactory::Create();
 
@@ -492,10 +515,10 @@ CAEStreamInfo::DataType VideoPlayerCodec::GetPassthroughStreamType(AVCodecID cod
       break;
 
     case AV_CODEC_ID_DTS:
-      if (profile == FF_PROFILE_DTS_HD_HRA)
+      if (profile == AV_PROFILE_DTS_HD_HRA)
         format.m_streamInfo.m_type = CAEStreamInfo::STREAM_TYPE_DTSHD;
-      else if (profile == FF_PROFILE_DTS_HD_MA || profile == FF_PROFILE_DTS_HD_MA_X ||
-               profile == FF_PROFILE_DTS_HD_MA_X_IMAX)
+      else if (profile == AV_PROFILE_DTS_HD_MA || profile == AV_PROFILE_DTS_HD_MA_X ||
+               profile == AV_PROFILE_DTS_HD_MA_X_IMAX)
         format.m_streamInfo.m_type = CAEStreamInfo::STREAM_TYPE_DTSHD_MA;
       else
         format.m_streamInfo.m_type = CAEStreamInfo::STREAM_TYPE_DTSHD_CORE;

@@ -10,59 +10,69 @@
 function(get_versionfile_data)
 
   # Dependency path
-  set(MODULE_PATH "${PROJECTSOURCE}/tools/depends/${${MODULE_LC}_LIB_TYPE}/${${MODULE_LC}_MODULE_LOCATION}")
+  set(MODULE_PATH "${PROJECTSOURCE}/tools/depends/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_LOCATION}")
 
-  if(NOT EXISTS "${MODULE_PATH}/${${MODULE_LC}_MODULE_VERSION}-VERSION")
-    MESSAGE(FATAL_ERROR "${${MODULE_LC}_MODULE_VERSION}-VERSION does not exist at ${MODULE_PATH}.")
+  if(NOT EXISTS "${MODULE_PATH}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_VERSION}-VERSION")
+    MESSAGE(FATAL_ERROR "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_VERSION}-VERSION does not exist at ${MODULE_PATH}.")
   else()
-    set(${MODULE}_FILE "${MODULE_PATH}/${${MODULE_LC}_MODULE_VERSION}-VERSION")
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE "${MODULE_PATH}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_VERSION}-VERSION")
   endif()
 
-  file(STRINGS ${${MODULE}_FILE} ${MODULE}_LNAME REGEX "^[ \t]*LIBNAME=")
-  file(STRINGS ${${MODULE}_FILE} ${MODULE}_VER REGEX "^[ \t]*VERSION=")
-  file(STRINGS ${${MODULE}_FILE} ${MODULE}_ARCHIVE REGEX "^[ \t]*ARCHIVE=")
-  file(STRINGS ${${MODULE}_FILE} ${MODULE}_BASE_URL REGEX "^[ \t]*BASE_URL=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LNAME REGEX "^[ \t]*LIBNAME=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER REGEX "^[ \t]*VERSION=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE REGEX "^[ \t]*ARCHIVE=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL REGEX "^[ \t]*BASE_URL=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL REGEX "^[ \t]*FULL_URL=")
+
   if(WIN32 OR WINDOWS_STORE)
-    file(STRINGS ${${MODULE}_FILE} ${MODULE}_BYPRODUCT REGEX "^[ \t]*BYPRODUCT_WIN=")
+    file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT REGEX "^[ \t]*BYPRODUCT_WIN=")
   else()
-    file(STRINGS ${${MODULE}_FILE} ${MODULE}_BYPRODUCT REGEX "^[ \t]*BYPRODUCT=")
+    file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT REGEX "^[ \t]*BYPRODUCT=")
   endif()
 
   # Tarball Hash
-  file(STRINGS ${${MODULE}_FILE} ${MODULE}_HASH_SHA256 REGEX "^[ \t]*SHA256=")
-  file(STRINGS ${${MODULE}_FILE} ${MODULE}_HASH_SHA512 REGEX "^[ \t]*SHA512=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH_SHA256 REGEX "^[ \t]*SHA256=")
+  file(STRINGS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FILE} ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH_SHA512 REGEX "^[ \t]*SHA512=")
 
-  string(REGEX REPLACE ".*LIBNAME=([^ \t]*).*" "\\1" ${MODULE}_LNAME "${${MODULE}_LNAME}")
-  string(REGEX REPLACE ".*VERSION=([^ \t]*).*" "\\1" ${MODULE}_VER "${${MODULE}_VER}")
-  string(REGEX REPLACE ".*ARCHIVE=([^ \t]*).*" "\\1" ${MODULE}_ARCHIVE "${${MODULE}_ARCHIVE}")
-  string(REGEX REPLACE ".*BASE_URL=([^ \t]*).*" "\\1" ${MODULE}_BASE_URL "${${MODULE}_BASE_URL}")
+  string(REGEX REPLACE ".*LIBNAME=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LNAME "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LNAME}")
+  string(REGEX REPLACE ".*VERSION=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}")
+  string(REGEX REPLACE ".*ARCHIVE=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE}")
+  string(REGEX REPLACE ".*BASE_URL=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL}")
+  string(REGEX REPLACE ".*FULL_URL=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL}")
   if(WIN32 OR WINDOWS_STORE)
-    string(REGEX REPLACE ".*BYPRODUCT_WIN=([^ \t]*).*" "\\1" ${MODULE}_BYPRODUCT "${${MODULE}_BYPRODUCT}")
+    string(REGEX REPLACE ".*BYPRODUCT_WIN=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT}")
   else()
-    string(REGEX REPLACE ".*BYPRODUCT=([^ \t]*).*" "\\1" ${MODULE}_BYPRODUCT "${${MODULE}_BYPRODUCT}")
+    string(REGEX REPLACE ".*BYPRODUCT=([^ \t]*).*" "\\1" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT}")
   endif()
 
-  string(REGEX REPLACE "\\$\\(LIBNAME\\)" "${${MODULE}_LNAME}" ${MODULE}_ARCHIVE "${${MODULE}_ARCHIVE}")
-  string(REGEX REPLACE "\\$\\(VERSION\\)" "${${MODULE}_VER}" ${MODULE}_ARCHIVE "${${MODULE}_ARCHIVE}")
+  string(REGEX REPLACE "\\$\\(LIBNAME\\)" "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LNAME}" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE}")
+  string(REGEX REPLACE "\\$\\(VERSION\\)" "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE}")
 
-  set(${MODULE}_ARCHIVE ${${MODULE}_ARCHIVE} PARENT_SCOPE)
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE} PARENT_SCOPE)
 
-  set(${MODULE}_VER ${${MODULE}_VER} PARENT_SCOPE)
+  # FULL_URL substitutes the following VERSION, BASE_URL
+  # FULL_URL syntax: FULL_URL=$(BASE_URL)/archive/$(VERSION).tar.gz
+  string(REGEX REPLACE "\\$\\(BASE_URL\\)" "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL}" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL}")
+  string(REGEX REPLACE "\\$\\(VERSION\\)" "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}" ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL}")
 
-  if (${MODULE}_BASE_URL)
-    set(${MODULE}_BASE_URL ${${MODULE}_BASE_URL} PARENT_SCOPE)
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL} PARENT_SCOPE)
+
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER} PARENT_SCOPE)
+
+  if (${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL} PARENT_SCOPE)
   else()
-    set(${MODULE}_BASE_URL "${KODI_MIRROR}/build-deps/sources" PARENT_SCOPE)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL "${KODI_MIRROR}/build-deps/sources" PARENT_SCOPE)
   endif()
-  set(${MODULE}_BYPRODUCT ${${MODULE}_BYPRODUCT} PARENT_SCOPE)
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT} PARENT_SCOPE)
 
   # allow user to override the download URL hash with a local tarball hash
   # needed for offline build envs
-  if (NOT DEFINED ${MODULE}_HASH)
-    if (${MODULE}_HASH_SHA256)
-      set(${MODULE}_HASH ${${MODULE}_HASH_SHA256} PARENT_SCOPE)
-    elseif(${MODULE}_HASH_SHA512)
-      set(${MODULE}_HASH ${${MODULE}_HASH_SHA512} PARENT_SCOPE)
+  if (NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH)
+    if (${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH_SHA256)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH_SHA256} PARENT_SCOPE)
+    elseif(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH_SHA512)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH_SHA512} PARENT_SCOPE)
     endif()
   endif()
 endfunction()
@@ -96,7 +106,7 @@ endfunction()
 # Used to test windows line endings and set appropriate patch commands
 function(generate_patchcommand _patchlist)
   # find the path to the patch executable
-  find_package(Patch MODULE REQUIRED)
+  find_package(Patch MODULE REQUIRED ${SEARCH_QUIET})
 
   # Loop through patches and add to PATCH_COMMAND
   # for windows, check CRLF/LF state
@@ -121,24 +131,36 @@ endfunction()
 
 # Macro to factor out the repetitive URL setup
 macro(SETUP_BUILD_VARS)
-  string(TOUPPER ${MODULE_LC} MODULE)
+  string(TOUPPER ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC} ${CMAKE_FIND_PACKAGE_NAME}_MODULE)
 
-  if(DEFINED ${MODULE_LC}_MODULE_LOCATION)
-    string(TOUPPER ${${MODULE_LC}_MODULE_LOCATION} _MODULE_UPPER)
-    set(${MODULE_LC}_MODULE_VERSION ${_MODULE_UPPER})
+  if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_LOCATION)
+    string(TOUPPER ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_LOCATION} _MODULE_UPPER)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_VERSION ${_MODULE_UPPER})
     unset(_MODULE_UPPER)
   else()
-    set(${MODULE_LC}_MODULE_LOCATION ${MODULE_LC})
-    set(${MODULE_LC}_MODULE_VERSION ${MODULE})
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_LOCATION ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC})
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_MODULE_VERSION ${${CMAKE_FIND_PACKAGE_NAME}_MODULE})
+  endif()
+
+  if(NOT DEFINED ${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME)
+    set(${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC})
+  endif()
+
+  if(NOT DEFINED ${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME_PC)
+    set(${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME_PC ${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
   endif()
 
   # Fall through to target build module dir if not explicitly set
-  if(NOT DEFINED ${MODULE_LC}_LIB_TYPE)
-    set(${MODULE_LC}_LIB_TYPE "target")
+  if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE "target")
+  endif()
+
+  if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME build-${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC})
   endif()
 
   # Location for build type, native or target
-  if(${MODULE_LC}_LIB_TYPE STREQUAL "target")
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE STREQUAL "target")
     set(DEP_LOCATION "${DEPENDS_PATH}")
   else()
     set(DEP_LOCATION "${NATIVEPREFIX}")
@@ -150,24 +172,16 @@ macro(SETUP_BUILD_VARS)
     set(PROJECTSOURCE ${CMAKE_SOURCE_DIR})
   endif()
 
-  if(NOT ${MODULE}_DISABLE_VERSION)
+  if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_DISABLE_VERSION)
     # populate variables of data from VERSION file for MODULE
     get_versionfile_data()
   endif()
 
-  # allow user to override the download URL with a local tarball
-  # needed for offline build envs
-  if(${MODULE}_URL)
-    get_filename_component(${MODULE}_URL "${${MODULE}_URL}" ABSOLUTE)
-  else()
-    set(${MODULE}_URL ${${MODULE}_BASE_URL}/${${MODULE}_ARCHIVE})
-  endif()
   if(VERBOSE)
-    message(STATUS "MODULE: ${MODULE}")
-    message(STATUS "${MODULE_LC}_LIB_TYPE: ${${MODULE_LC}_LIB_TYPE}")
+    message(STATUS "MODULE: ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}")
+    message(STATUS "${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE: ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE}")
     message(STATUS "DEP_LOCATION: ${DEP_LOCATION}")
     message(STATUS "PROJECTSOURCE: ${PROJECTSOURCE}")
-    message(STATUS "${MODULE}_URL: ${${MODULE}_URL}")
   endif()
 endmacro()
 
@@ -175,7 +189,6 @@ macro(CLEAR_BUILD_VARS)
   # unset all generic variables to insure clean state between macro calls
   # Potentially an issue with scope when a macro is used inside a dep that uses a macro
   unset(PROJECTSOURCE)
-  unset(BUILD_NAME)
   unset(INSTALL_DIR)
   unset(CMAKE_ARGS)
   unset(PATCH_COMMAND)
@@ -188,12 +201,12 @@ macro(CLEAR_BUILD_VARS)
 
   # unset all module specific variables to insure clean state between macro calls
   # potentially an issue when a native and a target of the same module exists
-  unset(${MODULE}_LIST_SEPARATOR)
-  unset(${MODULE}_GENERATOR)
-  unset(${MODULE}_GENERATOR_PLATFORM)
-  unset(${MODULE}_INSTALL_PREFIX)
-  unset(${MODULE}_TOOLCHAIN_FILE)
-  unset(${MODULE_LC}_LIB_TYPE)
+  unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIST_SEPARATOR)
+  unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR)
+  unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR_PLATFORM)
+  unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INSTALL_PREFIX)
+  unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TOOLCHAIN_FILE)
+  unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE)
 endmacro()
 
 # Macro to create externalproject_add target
@@ -218,6 +231,20 @@ endmacro()
 macro(BUILD_DEP_TARGET)
   include(ExternalProject)
 
+  # allow user to override the download URL with a local tarball
+  # needed for offline build envs
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL)
+    get_filename_component(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL}" ABSOLUTE)
+  elseif(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_FULL_URL}")
+  else()
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BASE_URL}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE})
+  endif()
+
+  if(VERBOSE)
+    message(STATUS "${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL: ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL}")
+  endif()
+
   # Remove cmake warning when Xcode generator used with "New" build system
   if(CMAKE_GENERATOR STREQUAL Xcode)
     # Policy CMP0114 is not set to NEW.  In order to support the Xcode "new build
@@ -240,41 +267,42 @@ macro(BUILD_DEP_TARGET)
     # for host build tools (eg flatc) that may be a different arch to the core app
     if(WIN32 OR WINDOWS_STORE)
       if(NOT (DEFINED WIN_DISABLE_PROJECT_FLAGS OR
-         ${MODULE_LC}_LIB_TYPE STREQUAL "native"))
-        list(APPEND CMAKE_ARGS "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} $<$<CONFIG:Debug>:${CMAKE_C_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_C_FLAGS_RELEASE}> ${${MODULE}_C_FLAGS}"
-                               "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} $<$<CONFIG:Debug>:${CMAKE_CXX_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_CXX_FLAGS_RELEASE}> ${${MODULE}_CXX_FLAGS}"
-                               "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} $<$<CONFIG:Debug>:${CMAKE_EXE_LINKER_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_EXE_LINKER_FLAGS_RELEASE}> ${${MODULE}_EXE_LINKER_FLAGS}")
+         ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE STREQUAL "native"))
+        list(APPEND CMAKE_ARGS "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} $<$<CONFIG:Debug>:${CMAKE_C_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_C_FLAGS_RELEASE}> ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_C_FLAGS}"
+                               "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} $<$<CONFIG:Debug>:${CMAKE_CXX_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_CXX_FLAGS_RELEASE}> ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_CXX_FLAGS}"
+                               "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} $<$<CONFIG:Debug>:${CMAKE_EXE_LINKER_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_EXE_LINKER_FLAGS_RELEASE}> ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_EXE_LINKER_FLAGS}")
       endif()
     endif()
 
-    if(DEFINED ${MODULE}_INSTALL_LIBDIR)
-      list(APPEND CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=${${MODULE}_INSTALL_LIBDIR})
+    if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INSTALL_LIBDIR)
+      list(APPEND CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INSTALL_LIBDIR})
     else()
       list(APPEND CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
     endif()
 
-    if(${MODULE}_INSTALL_PREFIX)
-      list(APPEND CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${${MODULE}_INSTALL_PREFIX})
+    if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INSTALL_PREFIX)
+      list(APPEND CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INSTALL_PREFIX})
+      set(DEP_LOCATION ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INSTALL_PREFIX})
     else()
       list(APPEND CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${DEP_LOCATION})
     endif()
 
-    if(DEFINED ${MODULE}_TOOLCHAIN_FILE)
-      list(APPEND CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${${MODULE}_TOOLCHAIN_FILE})
+    if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TOOLCHAIN_FILE)
+      list(APPEND CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TOOLCHAIN_FILE})
     elseif(CMAKE_TOOLCHAIN_FILE)
       list(APPEND CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE})
     endif()
 
     # Set build type for dep build.
     # if MODULE has set a manual build type, use it, otherwise use project build type
-    if(${MODULE}_BUILD_TYPE)
-      list(APPEND CMAKE_ARGS "-DCMAKE_BUILD_TYPE=${${MODULE}_BUILD_TYPE}")
+    if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_TYPE)
+      list(APPEND CMAKE_ARGS "-DCMAKE_BUILD_TYPE=${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_TYPE}")
       # Build_type is forced, so unset the opposite <MODULE>_LIBRARY_<TYPE> to only give
       # select_library_configurations one library name to choose from
-      if(${MODULE}_BUILD_TYPE STREQUAL "Release")
-        unset(${MODULE}_LIBRARY_DEBUG)
+      if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_TYPE STREQUAL "Release")
+        unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG)
       else()
-        unset(${MODULE}_LIBRARY_RELEASE)
+        unset(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE)
       endif()
     else()
       # single config generator (ie Make, Ninja)
@@ -292,12 +320,12 @@ macro(BUILD_DEP_TARGET)
     # Xcode - Default sub projects to makefile builds. More consistent
     # Windows - Default to same generator version used in parent
     if(CMAKE_GENERATOR STREQUAL Xcode)
-      if(NOT ${MODULE}_GENERATOR)
-        set(${MODULE}_GENERATOR CMAKE_GENERATOR "Unix Makefiles")
+      if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR CMAKE_GENERATOR "Unix Makefiles")
       endif()
     elseif(MSVC)
       # Only apply SYSTEM variables for target build libs
-      if(${MODULE_LC}_LIB_TYPE STREQUAL "target")
+      if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE STREQUAL "target")
         if(DEFINED CMAKE_SYSTEM_VERSION)
           list(APPEND CMAKE_ARGS -DCMAKE_SYSTEM_VERSION=${CMAKE_SYSTEM_VERSION})
         endif()
@@ -306,11 +334,11 @@ macro(BUILD_DEP_TARGET)
         endif()
       endif()
 
-      if(NOT ${MODULE}_GENERATOR)
-        set(${MODULE}_GENERATOR CMAKE_GENERATOR "${CMAKE_GENERATOR}")
+      if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR CMAKE_GENERATOR "${CMAKE_GENERATOR}")
       endif()
-      if(NOT ${MODULE}_GENERATOR_PLATFORM)
-        set(${MODULE}_GENERATOR_PLATFORM CMAKE_GENERATOR_PLATFORM ${CMAKE_GENERATOR_PLATFORM})
+      if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR_PLATFORM)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR_PLATFORM CMAKE_GENERATOR_PLATFORM ${CMAKE_GENERATOR_PLATFORM})
       endif()
     endif()
   endif()
@@ -320,7 +348,10 @@ macro(BUILD_DEP_TARGET)
   endif()
 
   if(CONFIGURE_COMMAND)
-    if(NOT CMAKE_ARGS AND DEP_BUILDENV)
+    # DEP_BUILDENV is potentially populated in a toolchain file. We dont want to use it
+    # for host tool builds, so make sure to check _LIB_TYPE
+    if(NOT CMAKE_ARGS AND
+      (DEP_BUILDENV AND NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE STREQUAL "native"))
       # DEP_BUILDENV only used for non cmake externalproject_add builds
       # iterate through CONFIGURE_COMMAND looking for multiple COMMAND, we need to
       # add DEP_BUILDENV for each distinct COMMAND
@@ -339,7 +370,25 @@ macro(BUILD_DEP_TARGET)
   endif()
 
   if(BUILD_COMMAND)
-    set(BUILD_COMMAND BUILD_COMMAND ${BUILD_COMMAND})
+    # DEP_BUILDENV is potentially populated in a toolchain file. We dont want to use it
+    # for host tool builds, so make sure to check _LIB_TYPE
+    if(NOT CMAKE_ARGS AND
+      (DEP_BUILDENV AND NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_LIB_TYPE STREQUAL "native"))
+      # DEP_BUILDENV only used for non cmake externalproject_add builds
+      # iterate through BUILD_COMMAND looking for multiple COMMAND, we need to
+      # add DEP_BUILDENV for each distinct COMMAND
+      set(tmp_build_command ${DEP_BUILDENV})
+      foreach(item ${BUILD_COMMAND})
+        list(APPEND tmp_build_command ${item})
+        if(item STREQUAL "COMMAND")
+          list(APPEND tmp_build_command ${DEP_BUILDENV})
+        endif()
+      endforeach()
+      set(BUILD_COMMAND BUILD_COMMAND ${tmp_build_command})
+      unset(tmp_build_command)
+    else()
+      set(BUILD_COMMAND BUILD_COMMAND ${BUILD_COMMAND})
+    endif()
   endif()
 
   if(INSTALL_COMMAND)
@@ -352,53 +401,101 @@ macro(BUILD_DEP_TARGET)
 
   # Change extension of BYPRODUCT
   # eg, Macos uses dylib for shared libs, but all other unix platforms use .so
-  if(${MODULE}_BYPRODUCT_EXTENSION)
-    string(REGEX REPLACE "\\.[^.]*$" "" _LIBNAME ${${MODULE}_BYPRODUCT})
-    set(${MODULE}_BYPRODUCT "${_LIBNAME}.${${MODULE}_BYPRODUCT_EXTENSION}")
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT_EXTENSION)
+    string(REGEX REPLACE "\\.[^.]*$" "" _LIBNAME ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT})
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT "${_LIBNAME}.${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT_EXTENSION}")
     unset(_LIBNAME)
   endif()
 
+  # Defines if the build byproduct is a shared lib
+  # This sets up extension changes, and output paths. Both can be overridden by the 
+  # caller if required.
+  # Unix platforms default to .so extension
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB)
+    if(WIN32 OR WINDOWS_STORE)
+      if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_POSTFIX)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_POSTFIX dll)
+      endif()
+      if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH bin)
+      endif()
+      if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_PATH)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_PATH lib)
+      endif()
+    else()
+      if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_POSTFIX)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_POSTFIX so)
+      endif()
+      if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH lib)
+      endif()
+    endif()
+  else()
+    if(NOT DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH lib)
+    endif()
+  endif()
+
   # Set Library names.
-  if(DEFINED ${MODULE}_DEBUG_POSTFIX)
-    set(_POSTFIX ${${MODULE}_DEBUG_POSTFIX})
-    string(REGEX REPLACE "\\.[^.]*$" "" _LIBNAME ${${MODULE}_BYPRODUCT})
-    string(REGEX REPLACE "^.*\\." "" _LIBEXT ${${MODULE}_BYPRODUCT})
-    set(${MODULE}_LIBRARY_DEBUG ${DEP_LOCATION}/lib/${_LIBNAME}${${MODULE}_DEBUG_POSTFIX}.${_LIBEXT})
+  if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX)
+    set(_POSTFIX ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX})
+    string(REGEX REPLACE "\\.[^.]*$" "" _LIBNAME ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT})
+    string(REGEX REPLACE "^.*\\." "" _LIBEXT ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT})
+
+    if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB)
+      # Windows shared libs have both a .lib and a .dll artifact. 
+      # IMPLIB_<CONFIG> is windows only for our use cases
+      if(WIN32 OR WINDOWS_STORE)
+        set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_DEBUG ${DEP_LOCATION}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_PATH}/${_LIBNAME}${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX}.${_LIBEXT})
+      endif()
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG ${DEP_LOCATION}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH}/${_LIBNAME}${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX}.${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_POSTFIX})
+    else()
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG ${DEP_LOCATION}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH}/${_LIBNAME}${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX}.${_LIBEXT})
+    endif()
   endif()
   # set <MODULE>_LIBRARY_RELEASE for use of select_library_configurations
   # any modules that dont use select_library_configurations, we set <MODULE>_LIBRARY
   # No harm in having either set for both potential paths
-  set(${MODULE}_LIBRARY_RELEASE ${DEP_LOCATION}/lib/${${MODULE}_BYPRODUCT})
-  set(${MODULE}_LIBRARY ${${MODULE}_LIBRARY_RELEASE})
+  if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB)
+    string(REGEX REPLACE "\\.[^.]*$" "" _LIBNAME ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT})
+    string(REGEX REPLACE "^.*\\." "" _LIBEXT ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT})
+    if(WIN32 OR WINDOWS_STORE)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_RELEASE ${DEP_LOCATION}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_PATH}/${_LIBNAME}.${_LIBEXT})
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_RELEASE})
+    endif()
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE ${DEP_LOCATION}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH}/${_LIBNAME}.${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_POSTFIX})
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE})
+  elseif(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INTERFACE_LIB)
+    # Dont create LIBRARY variables for interface libs. We consider these header only for now
+  else()
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE ${DEP_LOCATION}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LOCATION_PATH}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BYPRODUCT})
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE})
+  endif()
 
-  if(NOT ${MODULE}_INCLUDE_DIR)
-    set(${MODULE}_INCLUDE_DIR ${DEP_LOCATION}/include)
+  if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INCLUDE_DIR)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INCLUDE_DIR ${DEP_LOCATION}/include)
   endif()
 
   if(BUILD_BYPRODUCTS)
     set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS ${BUILD_BYPRODUCTS})
   else()
-    if(DEFINED ${MODULE}_LIBRARY_DEBUG)
+    if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG)
       if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.20")
-        set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "$<IF:$<CONFIG:Debug,RelWithDebInfo>,${${MODULE}_LIBRARY_DEBUG},${${MODULE}_LIBRARY_RELEASE}>")
+        set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "$<IF:$<CONFIG:Debug,RelWithDebInfo>,${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG},${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE}>")
       else()
         if(DEFINED CMAKE_BUILD_TYPE)
-          if(NOT CMAKE_BUILD_TYPE STREQUAL "Release" AND DEFINED ${MODULE}_LIBRARY_DEBUG)
-            set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "${${MODULE}_LIBRARY_DEBUG}")
+          if(NOT CMAKE_BUILD_TYPE STREQUAL "Release" AND DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG)
+            set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG}")
           else()
-            set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "${${MODULE}_LIBRARY}")
+            set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY}")
           endif()
         else()
           message(FATAL_ERROR "MultiConfig Generator usage requires CMake >= 3.20.0 - Generator Expressions in BYPRODUCT option")
         endif()
       endif()
     else()
-      set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "${${MODULE}_LIBRARY}")
+      set(BUILD_BYPRODUCTS BUILD_BYPRODUCTS "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY}")
     endif()
-  endif()
-
-  if(NOT BUILD_NAME)
-    set(BUILD_NAME ${MODULE_LC})
   endif()
 
   if(NOT INSTALL_DIR)
@@ -406,23 +503,23 @@ macro(BUILD_DEP_TARGET)
   endif()
 
   # Allow a target to supply in-tree source location. eg TexturePacker, JsonSchemaBuilder
-  if(${MODULE}_SOURCE_DIR)
-    set(BUILD_DOWNLOAD_STEPS SOURCE_DIR "${${MODULE}_SOURCE_DIR}")
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SOURCE_DIR)
+    set(BUILD_DOWNLOAD_STEPS SOURCE_DIR "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SOURCE_DIR}")
   else()
-    set(BUILD_DOWNLOAD_STEPS URL ${${MODULE}_URL}
-                             URL_HASH ${${MODULE}_HASH}
+    set(BUILD_DOWNLOAD_STEPS URL ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_URL}
+                             URL_HASH ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_HASH}
                              DOWNLOAD_DIR ${TARBALL_DIR}
-                             DOWNLOAD_NAME ${${MODULE}_ARCHIVE})
+                             DOWNLOAD_NAME ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_ARCHIVE})
   endif()
 
-  externalproject_add(${BUILD_NAME}
+  externalproject_add(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME}
                       ${BUILD_DOWNLOAD_STEPS}
-                      PREFIX ${CORE_BUILD_DIR}/${BUILD_NAME}
+                      PREFIX ${CORE_BUILD_DIR}/${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME}
                       INSTALL_DIR ${INSTALL_DIR}
-                      ${${MODULE}_LIST_SEPARATOR}
+                      ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIST_SEPARATOR}
                       ${CMAKE_ARGS}
-                      ${${MODULE}_GENERATOR}
-                      ${${MODULE}_GENERATOR_PLATFORM}
+                      ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR}
+                      ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_GENERATOR_PLATFORM}
                       ${PATCH_COMMAND}
                       ${CONFIGURE_COMMAND}
                       ${BUILD_COMMAND}
@@ -430,9 +527,17 @@ macro(BUILD_DEP_TARGET)
                       ${BUILD_BYPRODUCTS}
                       ${BUILD_IN_SOURCE})
 
-  set_target_properties(${BUILD_NAME} PROPERTIES FOLDER "External Projects")
+  set_target_properties(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} PROPERTIES FOLDER "External Projects")
 
   CLEAR_BUILD_VARS()
+
+  # Set both <UPPER>_FOUND and <lower>_FOUND as we have some legacy macros/functions that
+  # rely on <UPPER>_FOUND, but cmake has new policies that are heading towards <lower>_FOUND
+  set(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND 1)
+
+  string(TOUPPER "${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}" _search_upper)
+  set(${_search_upper}_FOUND 1)
+  unset(_search_upper)
 endmacro()
 
 # Macro to test format of line endings of a patch
@@ -458,9 +563,433 @@ macro(PATCH_LF_CHECK patch)
   unset(patch_content_hex)
 endmacro()
 
+# Function to check a list of libraries to force the calling library to be
+# rebuilt if one of its dependencies needs to be built.
+#
+# ToDo: all dep_list libs are considered REQUIRED for find_package call
+#       Should we handle optional dependencies?
+#
+# caller: Parent lib
+# dep_list: List of libraries to be checked for LIB_BUILD property
+#
+# Return: Set ${caller}_FORCE_BUILD variable to alert caller lib to force a rebuild
+#
+# ToDo: We break early on detection of first lib in dep_list requiring a build
+#       We may want to run all find_package calls regardless for dependency inception
+function(check_dependency_build caller dep_list)
+    foreach(_dep ${dep_list})
+      find_package(${_dep} REQUIRED ${SEARCH_QUIET})
+      if(TARGET LIBRARY::${_dep})
+        # Test if LIB_BUILD property is set on LIBRARY::${_dep} TARGET indicating
+        # if it requires to be build (version update, or even just missing)
+        get_target_property(${caller}_DEP_BUILD LIBRARY::${_dep} LIB_BUILD)
+
+        if(${caller}_DEP_BUILD)
+          # A dependency is to be rebuilt, set this lib to be built, no need to check any
+          # other libs in DEPLIST
+          set(${caller}_FORCE_BUILD ON PARENT_SCOPE)
+          if(VERBOSE)
+            message(WARNING "${caller} alerted to rebuild required by ${_dep}")
+          endif()
+          break()
+        endif()
+      endif()
+    endforeach()
+endfunction()
+
+macro(SETUP_FIND_SPECS)
+  # Setup Find version specs if requested by caller
+  if(${CMAKE_FIND_PACKAGE_NAME}_FIND_VERSION)
+    if(${CMAKE_FIND_PACKAGE_NAME}_FIND_VERSION_EXACT)
+      set(CONFIG_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC "${${CMAKE_FIND_PACKAGE_NAME}_FIND_VERSION_COMPLETE} EXACT")
+      set(PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC "=${${CMAKE_FIND_PACKAGE_NAME}_FIND_VERSION_COMPLETE}")
+    else()
+      set(CONFIG_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC "${${CMAKE_FIND_PACKAGE_NAME}_FIND_VERSION_COMPLETE}")
+      set(PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC ">=${${CMAKE_FIND_PACKAGE_NAME}_FIND_VERSION_COMPLETE}")
+    endif()
+  endif()
+endmacro()
+
+# Macro to generate a TARGET based on information created by a BUILD_DEP_TARGET call
+#
+# Populates the following INTERFACE options for a target if they exist for ${CMAKE_FIND_PACKAGE_NAME}_MODULE
+#   INTERFACE_INCLUDE_DIRECTORIES
+#   INTERFACE_LINK_LIBRARIES
+#   IMPORTED_LOCATION_RELEASE
+#   IMPORTED_IMPLIB_RELEASE
+#   IMPORTED_LOCATION_DEBUG
+#   IMPORTED_IMPLIB_DEBUG
+#
+# Input:
+#   ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB (BOOL) - Library created as SHARED
+#   ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INTERFACE_LIB (BOOL) - Library created as INTERFACE
+#   Default: STATIC - Library created as INTERFACE
+#
+#   ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TYPE
+#   Default: ${APP_NAME_LC}
+#   Option:  LIBRARY
+#
+macro(SETUP_BUILD_TARGET)
+  if(DEFINED ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TYPE)
+    set(LIB_SCOPE ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TYPE})
+  else()
+    set(LIB_SCOPE ${APP_NAME_LC})
+  endif()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB)
+    add_library(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} SHARED IMPORTED)
+  elseif(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INTERFACE_LIB)
+    add_library(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} INTERFACE IMPORTED)
+  else()
+    add_library(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} STATIC IMPORTED)
+  endif()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INCLUDE_DIR)
+    set_target_properties(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                   INTERFACE_INCLUDE_DIRECTORIES "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_INCLUDE_DIR}")
+  endif()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES)
+    set_target_properties(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                   INTERFACE_LINK_LIBRARIES "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES}")
+  endif()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE)
+    set_target_properties(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                   IMPORTED_CONFIGURATIONS RELEASE
+                                                                   IMPORTED_LOCATION_RELEASE "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_RELEASE}")
+    if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB AND (WIN32 OR WINDOWS_STORE))
+      set_target_properties(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                     IMPORTED_IMPLIB_RELEASE "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_RELEASE}")
+    endif()
+  endif()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG)
+    set_target_properties(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                   IMPORTED_LOCATION_DEBUG "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LIBRARY_DEBUG}")
+    set_property(TARGET ${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} APPEND PROPERTY
+                                                                        IMPORTED_CONFIGURATIONS DEBUG)
+
+    if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB AND (WIN32 OR WINDOWS_STORE))
+      set_target_properties(${LIB_SCOPE}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
+                                                                     IMPORTED_IMPLIB_DEBUG "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_IMPLIB_DEBUG}")
+    endif()
+  endif()
+endmacro()
+
+# Macro to add INTERFACE_COMPILE_DEFINITIONS to a TARGET
+# if ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS is defined
+#
+# We use this to add HAVE_<LIB> defines to any TARGET type we use (pkgconfig, cmake or build)
+#
+macro(ADD_TARGET_COMPILE_DEFINITION)
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS)
+
+    if("${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TYPE}" STREQUAL "LIBRARY")
+      set(TARGET_NAMESPACE LIBRARY)
+    else()
+      set(TARGET_NAMESPACE ${APP_NAME_LC})
+    endif()
+
+    get_target_property(_ALIASTARGET ${TARGET_NAMESPACE}::${CMAKE_FIND_PACKAGE_NAME} ALIASED_TARGET)
+    if(_ALIASTARGET)
+      set(LIB_TARGET ${_ALIASTARGET})
+    else()
+      set(LIB_TARGET ${TARGET_NAMESPACE}::${CMAKE_FIND_PACKAGE_NAME})
+    endif()
+
+    set_property(TARGET ${LIB_TARGET} APPEND PROPERTY
+                                             INTERFACE_COMPILE_DEFINITIONS "${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS}")
+  endif()
+endmacro()
+
+# Add internal build target when a Multi Config Generator is used
+# We cant add a dependency based off a generator expression for targeted build types,
+# https://gitlab.kitware.com/cmake/cmake/-/issues/19467
+# therefore if the find heuristics only find the library, we add the internal build
+# target to the project to allow user to manually trigger for any build type they need
+# in case only a specific build type is actually available (eg Release found, Debug Required)
+# This is mainly targeted for windows who required different runtime libs for different
+# types, and they arent compatible
+macro(ADD_MULTICONFIG_BUILDMACRO)
+  if(_multiconfig_generator)
+    if(NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      cmake_language(EVAL CODE "
+        buildmacro${CMAKE_FIND_PACKAGE_NAME}()
+      ")
+      set_target_properties(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} PROPERTIES EXCLUDE_FROM_ALL TRUE)
+    endif()
+    add_dependencies(build_internal_depends ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+  endif()
+endmacro()
+
+macro(SEARCH_EXISTING_PACKAGES)
+  if(${CMAKE_FIND_PACKAGE_NAME}_HINT_PREFIX_PATH)
+    set(_search_prefix ${${CMAKE_FIND_PACKAGE_NAME}_HINT_PREFIX_PATH})
+  else()
+    set(_search_prefix ${DEPENDS_PATH})
+  endif()
+
+  find_package(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} ${CONFIG_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} CONFIG ${SEARCH_QUIET}
+                                                         HINTS ${_search_prefix}/share/cmake
+                                                               ${_search_prefix}/lib/cmake
+                                                         ${${CORE_SYSTEM_NAME}_SEARCH_CONFIG})
+
+  # fallback to pkgconfig to cover all bases
+  if(NOT ${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    find_package(PkgConfig ${SEARCH_QUIET})
+
+    if(PKG_CONFIG_FOUND)
+      foreach(_pc_search_name ${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME_PC})
+        pkg_check_modules(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} ${_pc_search_name}${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET} IMPORTED_TARGET)
+
+        if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+          break()
+        endif()
+      endforeach()
+    endif()
+  endif()
+endmacro()
+
 # Custom property that we can track to allow us to notify to dependency find modules
 # that a dependency of that find module is being built, and therefore that higher level
 # dependency should also be built regardless of success in lib searches
 define_property(TARGET PROPERTY LIB_BUILD
                        BRIEF_DOCS "This target will be compiling the library"
                        FULL_DOCS "This target will be compiling the library")
+
+
+# Functions to generate meson cross files for a platform
+
+macro(generate_mesoncrossfile)
+
+  create_mesonbinaries()
+  file(WRITE ${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson "${meson_binaries_string}\n")
+
+  create_mesonhostmachine()
+  file(APPEND ${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson "${meson_host_machine_string}\n")
+
+  create_mesonproperties()
+  file(APPEND ${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson "${meson_properties_string}\n")
+
+  create_mesonbuiltin()
+  file(APPEND ${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson "${meson_builtin_string}\n")
+
+endmacro()
+
+# Creates the [binaries] block of a meson cross file
+# sets meson_binaries_string to PARENT_SCOPE
+# Format for binaries is <meson_app_name> <target_app_variable>
+# Additional module specific binaries can be supplied by setting
+# ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_BINARIES with suitable pairs
+function(create_mesonbinaries)
+
+  set(binariespairs "c" "CMAKE_C_COMPILER"
+                    "cpp" "CMAKE_CXX_COMPILER"
+                    "ar" "CMAKE_AR"
+                    "cmake" "CMAKE_COMMAND")
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_BINARIES)
+    list(APPEND binariespairs ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_BINARIES})
+  endif()
+
+  if(NOT "${CMAKE_STRIP}" STREQUAL "")
+    list(APPEND binariespairs "strip" "CMAKE_STRIP")
+  endif()
+
+  if(PKG_CONFIG_EXECUTABLE)
+    list(APPEND binariespairs "pkg-config" "PKG_CONFIG_EXECUTABLE")
+  endif()
+
+  # Get/set loop limit (Size - 1) from size of binariespairs list
+  list(LENGTH binariespairs options_length)
+  math(EXPR options_length "${options_length} - 1")
+
+  foreach(option_arg RANGE 0 ${options_length} 2)
+    math(EXPR cmake_arg "${option_arg} + 1")
+    # meson option name
+    list(GET binariespairs ${option_arg} meson_label_name)
+    # cmake source variable name
+    list(GET binariespairs ${cmake_arg} cmake_binary_name)
+
+    set(input "${${cmake_binary_name}}")
+    string(STRIP "${input}" input)
+
+    string(PREPEND input "${meson_label_name} = '")
+    string(APPEND input "'")
+    string(APPEND output_string "${input}\n")
+  endforeach()
+
+  # Easiest to just prepend header at the end of the full string creation
+  string(PREPEND output_string "[binaries]\n")
+  set(meson_binaries_string ${output_string} PARENT_SCOPE)
+endfunction()
+
+# Creates the [host_machine] block of a meson cross file
+# sets meson_host_machine_string to PARENT_SCOPE
+function(create_mesonhostmachine)
+
+  # CMAKE_C_COMPILER_ARCHITECTURE_ID is only populated for MSVC prior to cmake 4.1
+  # cmake 4.1+ does populate for unix platforms
+  if(CMAKE_C_COMPILER_ARCHITECTURE_ID)
+    string(TOUPPER "${CMAKE_C_COMPILER_ARCHITECTURE_ID}" UPPER_C_ARCH)
+  else()
+    string(TOUPPER "${CPU}" UPPER_C_ARCH)
+  endif()
+
+  # Non-exhaustive list to map cmake CPU to meson cpu names
+  # https://mesonbuild.com/Reference-tables.html#cpu-families
+  if("${UPPER_C_ARCH}" MATCHES "ARM64" OR "${UPPER_C_ARCH}" MATCHES "AARCH64")
+    set(meson_cpu_family aarch64)
+  elseif("${UPPER_C_ARCH}" MATCHES "ARMV.")
+    set(meson_cpu_family arm)
+  elseif("${UPPER_C_ARCH}" STREQUAL "X64" OR "${UPPER_C_ARCH}" STREQUAL "X86_64")
+    set(meson_cpu_family x86_64)
+  elseif("${UPPER_C_ARCH}" STREQUAL "X86" OR "${UPPER_C_ARCH}" MATCHES "I.86")
+    set(meson_cpu_family x86)
+  elseif("${UPPER_C_ARCH}" MATCHES "WASM")
+    set(meson_cpu_family wasm32)
+  endif()
+
+  # Non-exhaustive list to map cmake to meson os names
+  # https://mesonbuild.com/Reference-tables.html#operating-system-names
+  if(CMAKE_SYSTEM_NAME MATCHES "Android")
+    set(meson_sys_name android)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    set(meson_sys_name darwin)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "Emscripten")
+    set(meson_sys_name emscripten)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+    set(meson_sys_name freebsd)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    set(meson_sys_name linux)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
+    set(meson_sys_name netbsd)
+  elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
+    set(meson_sys_name windows)
+  endif()
+
+  string(APPEND output_string "system = '${meson_sys_name}'\n")
+  string(APPEND output_string "cpu_family = '${meson_cpu_family}'\n")
+
+  # cpu is apparently unnecessary from a functional stand point, however the field
+  # is still required. We have no easy way to populate, so for now just use an empty value
+  string(APPEND output_string "cpu = ''\n")
+  string(APPEND output_string "endian = 'little'\n")
+
+  # Easiest to just prepend header at the end of the full string creation
+  string(PREPEND output_string "[host_machine]\n")
+  set(meson_host_machine_string ${output_string} PARENT_SCOPE)
+endfunction()
+
+# Creates the [properties] block of a meson cross file
+# sets meson_properties_string to PARENT_SCOPE
+function(create_mesonproperties)
+
+  string(APPEND output_string "pkg_config_libdir = '${DEPENDS_PATH}/lib/pkgconfig'\n")
+  if(CMAKE_TOOLCHAIN_FILE)
+    string(APPEND output_string "cmake_toolchain_file = '${CMAKE_TOOLCHAIN_FILE}'\n")
+  endif()
+
+  # Easiest to just prepend header at the end of the full string creation
+  string(PREPEND output_string "[properties]\n")
+  set(meson_properties_string ${output_string} PARENT_SCOPE)
+endfunction()
+
+# Creates the [Built-in Options] block of a meson cross file
+# sets meson_builtin_string to PARENT_SCOPE
+function(create_mesonbuiltin)
+
+  # Pair is of the format: <meson field> <cmake_equivalent>
+  # The cmake field is based on the name of the variable, but removing the CMAKE_ prefix
+  # This allows us to also provide a module specific additional variable if additions are required
+  # eg. CMAKE_C_FLAGS dav1d_C_FLAGS
+  set(builtinpairs "c_args" "C_FLAGS"
+                   "c_link_args" "EXE_LINKER_FLAGS"
+                   "cpp_args" "CXX_FLAGS"
+                   "cpp_link_args" "EXE_LINKER_FLAGS")
+
+  # Get/set loop limit (Size - 1) from size of builtinpairs list
+  list(LENGTH builtinpairs options_length)
+  math(EXPR options_length "${options_length} - 1")
+
+  foreach(option_arg RANGE 0 ${options_length} 2)
+    math(EXPR cmake_flag_arg "${option_arg} + 1")
+    # meson option name
+    list(GET builtinpairs ${option_arg} meson_label_name)
+    # cmake source variable name
+    list(GET builtinpairs ${cmake_flag_arg} cmake_flag_name)
+
+    set(input "${CMAKE_${cmake_flag_name}} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_${cmake_flag_name}}")
+    string(STRIP "${input}" input)
+    if(input STREQUAL "")
+      string(APPEND output_string "${meson_label_name} = []\n")
+    else()
+      # builtinpairs cmake source variables are specifically single strings, and not lists
+      string(REGEX REPLACE "[ ]+" "', '" tmp_string "${input}")
+      string(PREPEND tmp_string "${meson_label_name} = ['")
+      string(APPEND tmp_string "']")
+      string(APPEND output_string "${tmp_string}\n")
+    endif()
+  endforeach()
+
+  # allow a module to override the default_library type.
+  if(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType)
+    string(APPEND output_string "default_library = '${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType}'\n")
+  else()
+    string(APPEND output_string "default_library = 'static'\n")
+  endif()
+
+  string(APPEND output_string "prefix = '${DEPENDS_PATH}'\n")
+  string(APPEND output_string "libdir = 'lib'\n")
+  string(APPEND output_string "bindir = 'bin'\n")
+  string(APPEND output_string "includedir = 'include'\n")
+
+  # Easiest to just prepend header at the end of the full string creation
+  string(PREPEND output_string "[built-in options]\n")
+  set(meson_builtin_string ${output_string} PARENT_SCOPE)
+endfunction()
+
+# Creates a variable and sets in parent scope - ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env
+# Variable is purposely set with an ending COMMAND to allow the variable to be placed
+# in an externalproject_add build or configure step.
+#
+# eg.     set(BUILD_COMMAND ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env}
+#                           Ninja::Ninja -C ./build)
+#
+function(create_module_dev_env)
+  if(WIN32 OR WINDOWS_STORE)
+    set(Vcvars_FIND_VCVARSALL TRUE)
+
+    if(NOT VERBOSE_FIND)
+      set(Vcvars_FIND_QUIETLY TRUE)
+    endif()
+
+    find_package(Vcvars REQUIRED)
+    if(WINDOWS_STORE)
+      set(vcstore store)
+    endif()
+
+    string(TOLOWER "${CMAKE_VS_PLATFORM_TOOLSET_HOST_ARCHITECTURE}" _lower_hostarch)
+    string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" _lower_targetarch)
+
+    if("${_lower_hostarch}" STREQUAL "x64")
+      set(_lower_hostarch amd64)
+    endif()
+    if("${_lower_targetarch}" STREQUAL "x64")
+      set(_lower_targetarch amd64)
+    elseif("${_lower_targetarch}" STREQUAL "win32")
+      set(_lower_targetarch x86)
+    endif()
+
+    if("${_lower_hostarch}" STREQUAL "${_lower_targetarch}")
+      set(vcarch ${_lower_hostarch})
+    else()
+      set(vcarch ${_lower_hostarch}_${_lower_targetarch})
+    endif()
+
+    set(cmd_wrapper "${Vcvars_BATCH_FILE}" ${vcarch} ${vcstore} ${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION})
+    # trailing COMMAND sets externalproject_add commands up, and is required
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env ${cmd_wrapper} COMMAND PARENT_SCOPE)
+  endif()
+endfunction()

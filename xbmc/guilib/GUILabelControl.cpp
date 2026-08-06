@@ -10,9 +10,11 @@
 
 #include "GUIFont.h"
 #include "GUIMessage.h"
+#include "ServiceBroker.h"
 #include "utils/CharsetConverter.h"
 #include "utils/ColorUtils.h"
 #include "utils/StringUtils.h"
+#include "windowing/WinSystem.h"
 
 using namespace KODI::GUILIB;
 

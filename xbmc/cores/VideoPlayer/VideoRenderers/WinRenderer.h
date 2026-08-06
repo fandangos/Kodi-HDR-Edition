@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -12,7 +12,6 @@
 #include "windows/RendererBase.h"
 
 struct VideoPicture;
-class CRenderCapture;
 
 class CWinRenderer : public CBaseRenderer
 {
@@ -24,7 +23,6 @@ public:
   static bool Register();
 
   void Update() override;
-  bool RenderCapture(int index, CRenderCapture* capture) override;
 
   // Player functions
   bool Configure(const VideoPicture &picture, float fps, unsigned int orientation) override;
@@ -49,13 +47,13 @@ public:
   // Debug info video
   DEBUG_INFO_VIDEO GetDebugInfo(int idx) override;
 
-  CRenderCapture* GetRenderCapture() override;
-
 protected:
   void PreInit();
   int NextBuffer() const;
   CRendererBase* SelectRenderer(const VideoPicture &picture);
   CRect GetScreenRect() const;
+  void ClearBackBuffer() const;
+  void ClearBackBufferQuad() const;
 
   bool m_bConfigured = false;
   std::unique_ptr<CRendererBase> m_renderer;

@@ -15,6 +15,7 @@ while true; do
     --build32=* ) build32="${1#*=}"; shift ;;
     --build64=* ) build64="${1#*=}"; shift ;;
     --buildArm=* ) buildArm="${1#*=}"; shift ;;
+    --buildArm64=* ) buildArm64="${1#*=}"; shift ;;
     --prompt=* ) PROMPTLEVEL="${1#*=}"; shift ;;
     --mode=* ) BUILDMODE="${1#*=}"; shift ;;
     --win10=* ) win10="${1#*=}"; shift ;;
@@ -33,6 +34,9 @@ elif [[ $build64 = "yes" ]]; then
 elif [[ $buildArm = "yes" ]]; then
   TRIPLET=arm
   ARCH=arm
+elif [[ $buildArm64 = "yes" ]]; then
+  TRIPLET=arm64
+  ARCH=arm64
 else
   echo "-------------------------------------------------------------------------------"
   echo " none of build types (build32, build64 or buildArm) was specified "
@@ -73,7 +77,7 @@ checkfiles() {
 
 buildProcess() {
 export PREFIX=/xbmc/project/BuildDependencies/mingwlibs/$TRIPLET
-if [ "$(pathChanged $PREFIX /xbmc/tools/buildsteps/windows /xbmc/project/BuildDependencies/scripts /xbmc/tools/depends/target/ffmpeg/FFMPEG-VERSION)" == "0" ]; then
+if [ "$(pathChanged $PREFIX /xbmc/tools/depends/target/ffmpeg /xbmc/tools/buildsteps/windows /xbmc/tools/depends/target/dav1d/DAV1D-VERSION /xbmc/tools/depends/target/ffmpeg/FFMPEG-VERSION)" == "0" ]; then
   return
 fi
 
@@ -106,7 +110,7 @@ echo "--------------------------------------------------------------------------
 echo " compile mingw libs $TRIPLET done..."
 echo "-------------------------------------------------------------------------------"
 
-tagSuccessFulBuild $PREFIX /xbmc/tools/buildsteps/windows /xbmc/project/BuildDependencies/scripts /xbmc/tools/depends/target/ffmpeg/FFMPEG-VERSION
+tagSuccessFulBuild $PREFIX /xbmc/tools/depends/target/ffmpeg /xbmc/tools/buildsteps/windows /xbmc/tools/depends/target/dav1d/DAV1D-VERSION /xbmc/tools/depends/target/ffmpeg/FFMPEG-VERSION
 }
 
 run_builds() {
@@ -117,6 +121,8 @@ run_builds() {
       profile_path=/local64/etc/profile.local
     elif [[ $buildArm = "yes" ]]; then
       profile_path=/local32/etc/profile.local
+    elif [[ $buildArm64 = "yes" ]]; then
+      profile_path=/localarm64/etc/profile.local
     fi
 
     if [ ! -z $profile_path ]; then
@@ -124,6 +130,7 @@ run_builds() {
           echo "-------------------------------------------------------------------------------"
           echo " $TRIPLET build environment not configured, please run download-msys2.bat"
           echo "-------------------------------------------------------------------------------"
+          exit 1
         else
           source $profile_path
           buildProcess

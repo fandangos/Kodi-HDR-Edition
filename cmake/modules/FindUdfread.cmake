@@ -3,90 +3,106 @@
 # --------
 # Finds the udfread library
 #
-# This will define the following target:
+# This will define the following targets:
 #
 #   ${APP_NAME_LC}::Udfread - The libudfread library
+#   LIBRARY::Udfread - ALIAS target for the libudfread library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
-  macro(buildudfread)
-    set(UDFREAD_VERSION ${${MODULE}_VER})
-    set(BUILD_NAME udfread_build)
+  include(cmake/scripts/common/ModuleHelpers.cmake)
 
-    set(CONFIGURE_COMMAND autoreconf -vif &&
-                          ./configure
-                          --enable-static
-                          --disable-shared
-                          --prefix=${DEPENDS_PATH})
+  macro(buildmacroUdfread)
+
+    find_package(Meson REQUIRED)
+    find_package(Ninja REQUIRED)
+
+    if(WIN32 OR WINDOWS_STORE)
+      create_module_dev_env()
+    endif()
+
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType static)
+
+    set(patches "${CMAKE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/001-win-MR10-merged.patch")
+    generate_patchcommand("${patches}")
+    unset(patches)
+
+    # generate meson cross file for build target
+    generate_mesoncrossfile()
+
+    if(EXISTS ${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_CROSS_FILE --cross-file=${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson)
+    elseif(EXISTS ${DEPENDS_PATH}/share/cross-file.meson)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_CROSS_FILE --cross-file=${DEPENDS_PATH}/share/cross-file.meson)
+    endif()
+
+    set(CONFIGURE_COMMAND ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env}
+                          ${CMAKE_COMMAND} -E env --modify NINJA=set:${NINJA_EXECUTABLE}
+                          ${MESON_EXECUTABLE} setup ./build
+                          --cmake-prefix-path=['${DEPENDS_PATH}/lib/cmake']
+                          --prefix=${DEPENDS_PATH}
+                          --libdir=lib
+                          --buildtype=release
+                          -Ddefault_library=${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType}
+                          ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_CROSS_FILE})
+
+    set(BUILD_COMMAND ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env}
+                      ${NINJA_EXECUTABLE} -C ./build)
+    set(INSTALL_COMMAND ${NINJA_EXECUTABLE} -C ./build install)
     set(BUILD_IN_SOURCE 1)
 
     BUILD_DEP_TARGET()
+
   endmacro()
 
-  if(WIN32 OR WINDOWS_STORE)
-    include(FindPackageMessage)
+  set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC udfread)
+  set(${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME libudfread)
 
-    find_package(libudfread CONFIG QUIET
-                            HINTS ${DEPENDS_PATH}/lib/cmake
-                            ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
+  SETUP_BUILD_VARS()
 
-    if(libudfread_FOUND)
-      # Specifically tailored to kodi windows cmake config - Debug and RelWithDebInfo available
-      get_target_property(UDFREAD_LIBRARY_RELEASE libudfread::libudfread IMPORTED_LOCATION_RELWITHDEBINFO)
-      get_target_property(UDFREAD_LIBRARY_DEBUG libudfread::libudfread IMPORTED_LOCATION_DEBUG)
-      get_target_property(UDFREAD_INCLUDE_DIR libudfread::libudfread INTERFACE_INCLUDE_DIRECTORIES)
+  SETUP_FIND_SPECS()
 
-      include(SelectLibraryConfigurations)
-      select_library_configurations(UDFREAD)
-      unset(UDFREAD_LIBRARIES)
-    endif()
-  else()
-    find_package(PkgConfig QUIET)
-    pkg_check_modules(libudfread libudfread IMPORTED_TARGET GLOBAL QUIET)
+  SEARCH_EXISTING_PACKAGES()
 
-    include(cmake/scripts/common/ModuleHelpers.cmake)
+  if((${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_VERSION VERSION_LESS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER} AND ENABLE_INTERNAL_UDFREAD) OR
+     (((CORE_SYSTEM_NAME STREQUAL linux AND NOT "webos" IN_LIST CORE_PLATFORM_NAME_LC) OR CORE_SYSTEM_NAME STREQUAL freebsd) AND ENABLE_INTERNAL_UDFREAD))
 
-    set(MODULE_LC udfread)
-    SETUP_BUILD_VARS()
+    message(STATUS "Building ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}: \(version \"${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}\"\)")
 
-    # Check for existing UDFREAD. If version >= UDFREAD-VERSION file version, dont build
-    # A corner case, but if a linux/freebsd user WANTS to build internal udfread, build anyway
-    if((libudfread_VERSION VERSION_LESS ${${MODULE}_VER} AND ENABLE_INTERNAL_UDFREAD) OR
-       ((CORE_SYSTEM_NAME STREQUAL linux OR CORE_SYSTEM_NAME STREQUAL freebsd) AND ENABLE_INTERNAL_UDFREAD))
-      buildudfread()
-  
-    else()
-      if(TARGET PkgConfig::libudfread)
-        get_target_property(UDFREAD_LIBRARY PkgConfig::libudfread INTERFACE_LINK_LIBRARIES)
-        get_target_property(UDFREAD_INCLUDE_DIR PkgConfig::libudfread INTERFACE_INCLUDE_DIRECTORIES)
-        set(UDFREAD_VERSION ${libudfread_VERSION})
-      endif()
-    endif()
+    cmake_language(EVAL CODE "
+      buildmacro${CMAKE_FIND_PACKAGE_NAME}()
+    ")
   endif()
 
-  find_package_handle_standard_args(Udfread
-                                    REQUIRED_VARS UDFREAD_LIBRARY UDFREAD_INCLUDE_DIR
-                                    VERSION_VAR UDFREAD_VERSION)
+  if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS HAS_UDFREAD)
 
-  if(UDFREAD_FOUND)
-    # pkgconfig populate target that is sufficient version
-    if(TARGET PkgConfig::libudfread AND NOT TARGET udfread_build)
-      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::libudfread)
-      set_target_properties(PkgConfig::libudfread PROPERTIES
-                                                  INTERFACE_COMPILE_DEFINITIONS HAS_UDFREAD)
     # windows cmake config populated target
-    elseif(TARGET libudfread::libudfread)
+    if(TARGET libudfread::libudfread AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
       add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS libudfread::libudfread)
-      set_target_properties(libudfread::libudfread PROPERTIES
-                                                   INTERFACE_COMPILE_DEFINITIONS HAS_UDFREAD)
-    # otherwise we are building
-    elseif(TARGET udfread_build)
-      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
-      set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                       IMPORTED_LOCATION "${UDFREAD_LIBRARY}"
-                                                                       INTERFACE_INCLUDE_DIRECTORIES "${UDFREAD_INCLUDE_DIR}"
-                                                                       INTERFACE_COMPILE_DEFINITIONS HAS_UDFREAD)
-      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} udfread_build)
+      add_library(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} ALIAS libudfread::libudfread)
+    # pkgconfig populated target that is sufficient version
+    elseif(TARGET PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
+      add_library(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
+    else()
+      SETUP_BUILD_TARGET()
+      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+
+      # We are building as a requirement, so set LIB_BUILD property to allow calling
+      # modules to know we will be building, and they will want to rebuild as well.
+      # Property must be set on actual TARGET and not the ALIAS
+      set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES LIB_BUILD ON)
+
+      add_library(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} ALIAS ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
+    endif()
+
+    ADD_TARGET_COMPILE_DEFINITION()
+
+    ADD_MULTICONFIG_BUILDMACRO()
+  else()
+    if(Udfread_FIND_REQUIRED)
+      message(FATAL_ERROR "Udfread libraries were not found.")
     endif()
   endif()
 endif()

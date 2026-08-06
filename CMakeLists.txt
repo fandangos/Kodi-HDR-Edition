@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 if(WIN32)
-  # Version 3.20 is required for multi-config generator expressions to work
-  cmake_minimum_required(VERSION 3.20)
+  cmake_minimum_required(VERSION 3.30.6)
 endif()
+
 project(kodi LANGUAGES CXX C ASM)
 
 if(POLICY CMP0069)
@@ -34,6 +34,11 @@ if(POLICY CMP0144)
   cmake_policy(SET CMP0144 NEW)
 endif()
 
+if(POLICY CMP0168)
+  set(CMAKE_POLICY_DEFAULT_CMP0168 NEW)
+  cmake_policy(SET CMP0168 NEW)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules/buildtools)
 if(DEPENDS_DIR)
@@ -56,7 +61,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # set KODI_MIRROR to the default if not already set
 if(NOT DEFINED KODI_MIRROR)
-  set(KODI_MIRROR "http://mirrors.kodi.tv")
+  set(KODI_MIRROR "https://mirrors.kodi.tv")
 endif()
 
 message(STATUS "Mirror download location: ${KODI_MIRROR}")
@@ -69,6 +74,11 @@ endif()
 # Hide messages from Check*.cmake (e.g. CheckCSourceCompiles)
 if(NOT VERBOSE)
   set(CMAKE_REQUIRED_QUIET ON)
+
+  # Hide Find module output
+  if(NOT VERBOSE_FIND)
+    set(SEARCH_QUIET QUIET)
+  endif()
 endif()
 
 # Includes
@@ -88,6 +98,7 @@ include(cmake/scripts/common/DependencyOptions.cmake)
 
 # general
 option(VERBOSE            "Enable verbose output?" OFF)
+option(VERBOSE_FIND       "Enable verbose output of library searches only?" OFF)
 option(ENABLE_CLANGTIDY   "Enable clang-tidy support?" OFF)
 option(ENABLE_CPPCHECK    "Enable cppcheck support?" OFF)
 option(ENABLE_DVDCSS      "Enable libdvdcss support?" ON)
@@ -108,14 +119,23 @@ option(ENABLE_INTERNAL_FFMPEG "Enable internal ffmpeg?" OFF)
 
 # These are built for all platforms not using system libs or disabled by user
 dependent_option(ENABLE_INTERNAL_ASS "Enable internal libass?")
+dependent_option(ENABLE_INTERNAL_BLURAY "Enable internal libbluray?")
 dependent_option(ENABLE_INTERNAL_CEC "Enable internal libcec?")
 dependent_option(ENABLE_INTERNAL_CURL "Enable internal libcurl?")
+dependent_option(ENABLE_INTERNAL_DAV1D "Enable internal dav1d?")
 dependent_option(ENABLE_INTERNAL_EXIV2 "Enable internal exiv2?")
 dependent_option(ENABLE_INTERNAL_FLATBUFFERS "Enable internal flatbuffers?")
 dependent_option(ENABLE_INTERNAL_FMT "Enable internal fmt?")
+dependent_option(ENABLE_INTERNAL_LCMS2  "Enable internal lcms2?")
+dependent_option(ENABLE_INTERNAL_LIBDVD  "Enable internal libdvd libraries?")
+dependent_option(ENABLE_INTERNAL_LIBMICROHTTPD  "Enable internal libmicrohttpd?")
+dependent_option(ENABLE_INTERNAL_LZO2 "Enable internal lzo2?")
 dependent_option(ENABLE_INTERNAL_NFS "Enable internal libnfs?")
 dependent_option(ENABLE_INTERNAL_PCRE2 "Enable internal pcre2?")
-dependent_option(ENABLE_INTERNAL_RapidJSON "Enable internal rapidjson?")
+dependent_option(ENABLE_INTERNAL_MARIADBCLIENT "Enable internal mariadb-c-connector?")
+dependent_option(ENABLE_INTERNAL_NLOHMANNJSON "Enable internal nlohmannjson?")
+dependent_option(ENABLE_INTERNAL_UDFREAD "Enable internal libudfread?")
+dependent_option(ENABLE_INTERNAL_XSLT "Enable internal libxslt?")
 
 # If ENABLE_INTERNAL_FMT is ON, we force ENABLE_INTERNAL_SPDLOG ON as it has a hard
 # dependency on fmt
@@ -135,9 +155,10 @@ endif()
 if(UNIX)
   option(FFMPEG_PATH        "Path to external ffmpeg?" "")
   option(ENABLE_INTERNAL_FSTRCMP "Enable internal fstrcmp?" OFF)
-  option(ENABLE_INTERNAL_DAV1D "Enable internal dav1d?" OFF)
-  option(ENABLE_INTERNAL_GTEST "Enable internal gtest?" OFF)
-  option(ENABLE_INTERNAL_UDFREAD "Enable internal udfread?" OFF)
+endif()
+
+if(HOST_CAN_EXECUTE_TARGET)
+  dependent_option(ENABLE_INTERNAL_GTEST "Enable internal gtest?")
 endif()
 
 # System options
@@ -167,9 +188,7 @@ add_custom_target(${APP_NAME_LC}-libraries)
 set(LIBRARY_FILES "" CACHE STRING "" FORCE)
 mark_as_advanced(LIBRARY_FILES)
 
-set(INCLUDES ${CMAKE_SOURCE_DIR}
-             ${CMAKE_SOURCE_DIR}/lib
-             ${CMAKE_SOURCE_DIR}/xbmc
+set(INCLUDES ${CMAKE_SOURCE_DIR}/xbmc
              ${CMAKE_SOURCE_DIR}/xbmc/${PLATFORM_DIR}
              ${CMAKE_SOURCE_DIR}/xbmc/cores/VideoPlayer
              ${CORE_SOURCE_DIR}/xbmc/cores/DSPlayer
@@ -182,9 +201,9 @@ if (NOT PLATFORMDEFS_DIR STREQUAL "")
   list(APPEND INCLUDES ${CMAKE_SOURCE_DIR}/xbmc/${PLATFORMDEFS_DIR})
 endif()
 
-find_package(PkgConfig QUIET)
+find_package(PkgConfig ${SEARCH_QUIET})
 set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED QUIET)
+find_package(Threads REQUIRED ${SEARCH_QUIET})
 list(APPEND DEPLIBS ${CMAKE_THREAD_LIBS_INIT})
 
 # Clean any existing generated build dir cmake files
@@ -211,7 +230,7 @@ set(required_buildtools FlatC
 
 # Optional build tools
 set(optional_buildtools CCache
-                        ClangFormat
+                        ClangFormat>=9.0
                         ClangTidy
                         Cppcheck
                         IncludeWhatYouUse)
@@ -227,7 +246,6 @@ endif()
 
 # Required dependencies. Keep in alphabetical order please
 set(required_deps ASS>=0.15.0
-                  Cdio
                   CrossGUID
                   Curl
                   Exiv2
@@ -243,7 +261,7 @@ set(required_deps ASS>=0.15.0
                   Lzo2
                   OpenSSL>=1.1.0
                   PCRE2
-                  RapidJSON>=1.0.2
+                  NlohmannJSON>=3.2.0
                   Spdlog
                   Sqlite3
                   TagLib>=1.9.0
@@ -259,7 +277,6 @@ set(optional_deps Alsa>=1.0.27
                   Bluray>=0.9.3
                   CAP
                   CEC>=4.0.0
-                  Dav1d
                   DBus
                   Iso9660pp>=2.1.0
                   LCMS2>=2.10
@@ -287,6 +304,13 @@ endforeach()
 core_optional_dep(${optional_deps})
 core_require_dep(${required_deps})
 
+# Check for any libs to be packaged with main app. eg libaacs
+# These libs are not directly linked with main app, but may be used if available from a
+# dependency in the main app. eg libbluray can dyload libaacs for additional features
+if(PLATFORM_OPTIONAL_PACKAGES)
+  core_optional_package_lib(${PLATFORM_OPTIONAL_PACKAGES})
+endif()
+
 if(ENABLE_MARIADBCLIENT AND NOT ENABLE_MARIADBCLIENT STREQUAL AUTO AND ENABLE_MYSQLCLIENT AND NOT ENABLE_MYSQLCLIENT STREQUAL AUTO)
   MESSAGE(FATAL_ERROR "You can not use MySql and MariaDB at the same time. Disable one by adding -DENABLE_MYSQLCLIENT=OFF or -DENABLE_MARIADBCLIENT=OFF.")
 elseif(ENABLE_MYSQLCLIENT AND NOT ENABLE_MYSQLCLIENT STREQUAL AUTO)
@@ -307,11 +331,12 @@ if(ENABLE_UPNP)
 endif()
 
 if(ENABLE_OPTICAL)
+  core_require_dep(Cdio>=0.80)
   list(APPEND DEP_DEFINES -DHAS_OPTICAL_DRIVE -DHAS_CDDA_RIPPER)
 endif()
 
 if(ENABLE_AIRTUNES)
-  find_package(Shairplay)
+  find_package(Shairplay ${SEARCH_QUIET})
   if(TARGET ${APP_NAME_LC}::Shairplay)
     core_require_dep(Shairplay)
   endif()
@@ -524,6 +549,13 @@ add_custom_target(generate-packaging ALL
 
 core_target_add_dependencies(export-files)
 
+# optional package_libs must be built/available before exporting files to buildtrees
+# some platforms require the libraries to exist, otherwise their packaging may not copy
+# the requested package_libs into the final app
+if(package_libs)
+  add_dependencies(export-files ${package_libs})
+endif()
+
 # Add to lib${APP_NAME_LC} solely for Win UWP. msix building doesnt seem to pick up the
 # generated buildtree if we do it later. Other platforms dont care when this happens.
 add_dependencies(lib${APP_NAME_LC} generate-packaging)
@@ -555,24 +587,46 @@ endif()
 
 # testing
 if(HOST_CAN_EXECUTE_TARGET AND ENABLE_TESTING)
-  find_package(Gtest 1.10.0 REQUIRED)
+  find_package(Gtest 1.10.0 REQUIRED ${SEARCH_QUIET})
 
   copy_files_from_filelist_to_buildtree(${CMAKE_SOURCE_DIR}/cmake/installdata/test-reference-data.txt NO_INSTALL)
   add_executable(${APP_NAME_LC}-test EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/xbmc/test/xbmc-test.cpp ${test_sources})
 
+  add_dependencies(${APP_NAME_LC}-test LIBRARY::Gtest)
+
   set_target_properties(PROPERTIES ENABLE_EXPORTS ON)
 
-  whole_archive(_TEST_LIBRARIES ${core_DEPENDS} ${GTEST_LIBRARY})
+  whole_archive(_TEST_LIBRARIES ${core_DEPENDS} LIBRARY::Gtest)
   target_link_libraries(${APP_NAME_LC}-test PRIVATE ${SYSTEM_LDFLAGS} ${_TEST_LIBRARIES} lib${APP_NAME_LC} ${DEPLIBS} ${CMAKE_DL_LIBS})
   unset(_TEST_LIBRARIES)
-
-  if (ENABLE_INTERNAL_GTEST)
-    add_dependencies(${APP_NAME_LC}-test ${APP_NAME_LC}-libraries generate-packaging gtest)
-  endif()
 
   # Enable unit-test related targets
   enable_testing()
   gtest_add_tests(${APP_NAME_LC}-test "" ${test_sources})
+  find_program(TEST_DPKG_DEB_EXECUTABLE NAMES dpkg-deb)
+  find_program(TEST_RSYNC_EXECUTABLE NAMES rsync)
+  if(TEST_DPKG_DEB_EXECUTABLE AND TEST_RSYNC_EXECUTABLE)
+    foreach(_test_platform IN ITEMS iphoneos appletvos)
+      if(_test_platform STREQUAL iphoneos)
+        set(_test_device iOS)
+        set(_test_bundle_identifier org.xbmc.kodi-ios)
+        set(_test_architecture iphoneos-arm)
+      else()
+        set(_test_device tvOS)
+        set(_test_bundle_identifier org.xbmc.kodi-tvos)
+        set(_test_architecture appletvos-arm64)
+      endif()
+      add_test(NAME TestDarwinEmbeddedDebPackaging${_test_device}
+               COMMAND ${CMAKE_COMMAND}
+                       -DKODI_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                       -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/test
+                       -DDPKG_DEB_EXECUTABLE=${TEST_DPKG_DEB_EXECUTABLE}
+                       -DTEST_PLATFORM=${_test_platform}
+                       -DTEST_BUNDLE_IDENTIFIER=${_test_bundle_identifier}
+                       -DTEST_ARCHITECTURE=${_test_architecture}
+                       -P ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/test/TestDebPackaging.cmake)
+    endforeach()
+  endif()
   add_custom_target(check ${CMAKE_CTEST_COMMAND} WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
   add_dependencies(check ${APP_NAME_LC}-test)
 
@@ -604,7 +658,7 @@ if(HOST_CAN_EXECUTE_TARGET AND ENABLE_TESTING)
 endif()
 
 # Documentation
-find_package(Doxygen)
+find_package(Doxygen ${SEARCH_QUIET})
 if(DOXYGEN_FOUND)
   add_custom_target(doc
                     COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_SOURCE_DIR}/docs/doxygen/Doxyfile.doxy
@@ -619,6 +673,10 @@ if(FFMPEG_LINK_EXECUTABLE)
 endif()
 if(FFMPEG_CREATE_SHARED_LIBRARY)
   set(CMAKE_CXX_CREATE_SHARED_LIBRARY "${FFMPEG_CREATE_SHARED_LIBRARY}")
+endif()
+if(FFMPEG_XCODE_WRAPPER)
+  set(CMAKE_XCODE_ATTRIBUTE_LD "${FFMPEG_XCODE_WRAPPER}")
+  set(CMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS "${FFMPEG_XCODE_WRAPPER}")
 endif()
 
 # Platform specific additional extra targets

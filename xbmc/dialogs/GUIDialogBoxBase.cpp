@@ -8,8 +8,10 @@
 
 #include "GUIDialogBoxBase.h"
 
+#include "ServiceBroker.h"
 #include "guilib/GUIMessage.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 
@@ -52,7 +54,7 @@ bool CGUIDialogBoxBase::IsConfirmed() const
 void CGUIDialogBoxBase::SetHeading(const CVariant& heading)
 {
   std::string label = GetLocalized(heading);
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (label != m_strHeading)
   {
     m_strHeading = label;
@@ -62,14 +64,14 @@ void CGUIDialogBoxBase::SetHeading(const CVariant& heading)
 
 bool CGUIDialogBoxBase::HasHeading() const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return !m_strHeading.empty();
 }
 
 void CGUIDialogBoxBase::SetLine(unsigned int iLine, const CVariant& line)
 {
   std::string label = GetLocalized(line);
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   std::vector<std::string> lines = StringUtils::Split(m_text, '\n');
   if (iLine >= lines.size())
     lines.resize(iLine+1);
@@ -81,7 +83,7 @@ void CGUIDialogBoxBase::SetLine(unsigned int iLine, const CVariant& line)
 void CGUIDialogBoxBase::SetText(const CVariant& text)
 {
   std::string label = GetLocalized(text);
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   StringUtils::Trim(label, "\n");
   if (label != m_text)
   {
@@ -92,7 +94,7 @@ void CGUIDialogBoxBase::SetText(const CVariant& text)
 
 bool CGUIDialogBoxBase::HasText() const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return !m_text.empty();
 }
 
@@ -102,7 +104,7 @@ void CGUIDialogBoxBase::SetChoice(int iButton, const CVariant &choice) // iButto
     return;
 
   std::string label = GetLocalized(choice);
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (label != m_strChoices[iButton])
   {
     m_strChoices[iButton] = label;
@@ -118,7 +120,7 @@ void CGUIDialogBoxBase::Process(unsigned int currentTime, CDirtyRegionList &dirt
     std::vector<std::string> choices;
     choices.reserve(DIALOG_MAX_CHOICES);
     {
-      std::unique_lock<CCriticalSection> lock(m_section);
+      std::unique_lock lock(m_section);
       heading = m_strHeading;
       text = m_text;
       for (const std::string& choice : m_strChoices)
@@ -154,7 +156,7 @@ void CGUIDialogBoxBase::OnInitWindow()
 
   // set initial labels
   {
-    std::unique_lock<CCriticalSection> lock(m_section);
+    std::unique_lock lock(m_section);
     for (int i = 0 ; i < DIALOG_MAX_CHOICES ; ++i)
     {
       if (m_strChoices[i].empty())
@@ -168,7 +170,7 @@ void CGUIDialogBoxBase::OnDeinitWindow(int nextWindowID)
 {
   // make sure we set default labels for heading, lines and choices
   {
-    std::unique_lock<CCriticalSection> lock(m_section);
+    std::unique_lock lock(m_section);
     m_strHeading.clear();
     m_text.clear();
     for (std::string& choice : m_strChoices)
@@ -183,14 +185,16 @@ std::string CGUIDialogBoxBase::GetLocalized(const CVariant &var) const
   if (var.isString())
     return var.asString();
   else if (var.isInteger() && var.asInteger())
-    return g_localizeStrings.Get((uint32_t)var.asInteger());
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        (uint32_t)var.asInteger());
   return "";
 }
 
 std::string CGUIDialogBoxBase::GetDefaultLabel(int controlId) const
 {
   int labelId = GetDefaultLabelID(controlId);
-  return labelId != -1 ? g_localizeStrings.Get(labelId) : "";
+  return labelId != -1 ? CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(labelId)
+                       : "";
 }
 
 int CGUIDialogBoxBase::GetDefaultLabelID(int controlId) const

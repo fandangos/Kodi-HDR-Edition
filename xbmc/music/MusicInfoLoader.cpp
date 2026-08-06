@@ -30,6 +30,8 @@
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
+#include <ranges>
+
 using namespace KODI;
 using namespace MUSIC_INFO;
 using namespace XFILE;
@@ -76,7 +78,7 @@ void CMusicInfoLoader::OnLoaderStart()
 
 bool CMusicInfoLoader::LoadAdditionalTagInfo(CFileItem* pItem)
 {
-  if (!pItem || (pItem->m_bIsFolder && !MUSIC::IsAudio(*pItem)) || PLAYLIST::IsPlayList(*pItem) ||
+  if (!pItem || (pItem->IsFolder() && !MUSIC::IsAudio(*pItem)) || PLAYLIST::IsPlayList(*pItem) ||
       pItem->IsNFO() || NETWORK::IsInternetStream(*pItem))
     return false;
 
@@ -121,6 +123,15 @@ bool CMusicInfoLoader::LoadAdditionalTagInfo(CFileItem* pItem)
       CMusicDatabase::SetPropertiesFromAlbum(*pItem, album);
 
     path = pItem->GetMusicInfoTag()->GetURL();
+
+    // The artist and album lookups above have populated the item from the DB.
+    // The remaining work below opens the source file with TagLib just to
+    // fetch lyrics, which is not worth the cost - particularly for files on
+    // network shares, or large Matroska/chaptered containers where TagLib
+    // seeks to EOF hunting for ID3-style tags that aren't there. Bail out for
+    // anything already in the music DB.
+    pItem->SetProperty("hasfullmusictag", "true");
+    return true;
   }
 
   CLog::Log(LOGDEBUG, "Loading additional tag info for file {}", path);
@@ -150,7 +161,7 @@ bool CMusicInfoLoader::LoadItem(CFileItem* pItem)
 
 bool CMusicInfoLoader::LoadItemCached(CFileItem* pItem)
 {
-  if ((pItem->m_bIsFolder && !MUSIC::IsAudio(*pItem)) || PLAYLIST::IsPlayList(*pItem) ||
+  if ((pItem->IsFolder() && !MUSIC::IsAudio(*pItem)) || PLAYLIST::IsPlayList(*pItem) ||
       PLAYLIST::IsSmartPlayList(*pItem) ||
       StringUtils::StartsWithNoCase(pItem->GetPath(), "newplaylist://") ||
       StringUtils::StartsWithNoCase(pItem->GetPath(), "newsmartplaylist://") || pItem->IsNFO() ||
@@ -165,10 +176,10 @@ bool CMusicInfoLoader::LoadItemCached(CFileItem* pItem)
 
 bool CMusicInfoLoader::LoadItemLookup(CFileItem* pItem)
 {
-  if (m_pProgressCallback && !pItem->m_bIsFolder)
+  if (m_pProgressCallback && !pItem->IsFolder())
     m_pProgressCallback->SetProgressAdvance();
 
-  if ((pItem->m_bIsFolder && !MUSIC::IsAudio(*pItem)) || //
+  if ((pItem->IsFolder() && !MUSIC::IsAudio(*pItem)) || //
       PLAYLIST::IsPlayList(*pItem) || PLAYLIST::IsSmartPlayList(*pItem) || //
       StringUtils::StartsWithNoCase(pItem->GetPath(), "newplaylist://") || //
       StringUtils::StartsWithNoCase(pItem->GetPath(), "newsmartplaylist://") || //
@@ -179,7 +190,8 @@ bool CMusicInfoLoader::LoadItemLookup(CFileItem* pItem)
   {
     // first check the cached item
     CFileItemPtr mapItem = (*m_mapFileItems)[pItem->GetPath()];
-    if (mapItem && mapItem->m_dateTime==pItem->m_dateTime && mapItem->HasMusicInfoTag() && mapItem->GetMusicInfoTag()->Loaded())
+    if (mapItem && mapItem->HasMusicInfoTag() && mapItem->GetMusicInfoTag()->Loaded() &&
+        mapItem->GetDateTime() == pItem->GetDateTime())
     { // Query map if we previously cached the file on HD
       *pItem->GetMusicInfoTag() = *mapItem->GetMusicInfoTag();
       if (mapItem->HasArt("thumb"))
@@ -197,16 +209,7 @@ bool CMusicInfoLoader::LoadItemLookup(CFileItem* pItem)
         m_databaseHits++;
       }
 
-      /*
-      This only loads the item with the song from the database when it maps to a single song,
-      it can not load song data for items with cuesheets that expand to multiple songs.
-      For songs from embedded or separate cuesheets strFileName is not unique, so the song map for
-      the path will have the list of songs from that file. But items with cuesheets are expanded
-      (replacing each item with items for every track) elsewhere. When the item we are looking up
-      has a cuesheet document or is a music file with a cuesheet embedded in the tags, and it maps
-      to more than one song then we can not fill the tag data and thumb from the database.
-      */
-      MAPSONGS::iterator it = m_songsMap.find(pItem->GetPath()); // Find file in song map
+      const auto it = m_songsMap.find(pItem->GetPath()); // Find file in song map
       if (it != m_songsMap.end() && it->second.size() == 1)
       {
         // Have we loaded this item from database before,
@@ -214,6 +217,31 @@ bool CMusicInfoLoader::LoadItemLookup(CFileItem* pItem)
         pItem->GetMusicInfoTag()->SetSong(it->second[0]);
         if (!it->second[0].strThumb.empty())
           pItem->SetArt("thumb", it->second[0].strThumb);
+      }
+      else if (it != m_songsMap.end() && it->second.size() > 1 &&
+               pItem->GetProperty("cueloadinformation").asBoolean(false))
+      {
+        // Find matching song
+        const auto& songs{it->second};
+        const auto it2{std::ranges::find_if(
+            songs,
+            [&pItem](const CSong& song)
+            {
+              return song.iStartOffset == static_cast<int>(pItem->GetStartOffset()) &&
+                     song.iEndOffset == static_cast<int>(pItem->GetEndOffset());
+            })};
+        if (it2 != songs.end())
+        {
+          // Populate the music info tag from the matched song
+          pItem->GetMusicInfoTag()->SetSong(*it2);
+          if (!it2->strThumb.empty())
+            pItem->SetArt("thumb", it2->strThumb);
+
+          // Build the musicdb:// path so the item references the database entry
+          pItem->SetDynPath(pItem->GetPath());
+          pItem->SetPath(StringUtils::Format("musicdb://songs/{}{}", it2->idSong,
+                                             URIUtils::GetExtension(it2->strFileName)));
+        }
       }
       else if (MUSIC::IsMusicDb(*pItem))
       { // a music db item that doesn't have tag loaded - grab details from the database
@@ -293,7 +321,7 @@ void CMusicInfoLoader::LoadCache(const std::string& strFileName, CFileItemList& 
   }
 }
 
-void CMusicInfoLoader::SaveCache(const std::string& strFileName, CFileItemList& items)
+void CMusicInfoLoader::SaveCache(const std::string& strFileName, const CFileItemList& items)
 {
   int iSize = items.Size();
 

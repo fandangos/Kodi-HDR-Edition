@@ -37,8 +37,8 @@
 // because cmake uses this area in this form to perform its addon dependency
 // check.
 // clang-format off
-#define ADDON_GLOBAL_VERSION_MAIN                     "2.0.2"
-#define ADDON_GLOBAL_VERSION_MAIN_MIN                 "2.0.0"
+#define ADDON_GLOBAL_VERSION_MAIN                     "2.0.3"
+#define ADDON_GLOBAL_VERSION_MAIN_MIN                 "2.0.3"
 #define ADDON_GLOBAL_VERSION_MAIN_XML_ID              "kodi.binary.global.main"
 #define ADDON_GLOBAL_VERSION_MAIN_DEPENDS             "AddonBase.h" \
                                                       "addon-instance/" \
@@ -62,8 +62,8 @@
 #define ADDON_GLOBAL_VERSION_AUDIOENGINE_DEPENDS      "AudioEngine.h" \
                                                       "c-api/audio_engine.h"
 
-#define ADDON_GLOBAL_VERSION_FILESYSTEM               "1.1.9"
-#define ADDON_GLOBAL_VERSION_FILESYSTEM_MIN           "1.1.7"
+#define ADDON_GLOBAL_VERSION_FILESYSTEM               "1.1.11"
+#define ADDON_GLOBAL_VERSION_FILESYSTEM_MIN           "1.1.11"
 #define ADDON_GLOBAL_VERSION_FILESYSTEM_XML_ID        "kodi.binary.global.filesystem"
 #define ADDON_GLOBAL_VERSION_FILESYSTEM_DEPENDS       "Filesystem.h" \
                                                       "c-api/filesystem.h" \
@@ -97,8 +97,8 @@
 #define ADDON_INSTANCE_VERSION_AUDIOENCODER_DEPENDS   "c-api/addon-instance/audioencoder.h" \
                                                       "addon-instance/AudioEncoder.h"
 
-#define ADDON_INSTANCE_VERSION_GAME                   "4.0.0"
-#define ADDON_INSTANCE_VERSION_GAME_MIN               "4.0.0"
+#define ADDON_INSTANCE_VERSION_GAME                   "6.0.0"
+#define ADDON_INSTANCE_VERSION_GAME_MIN               "6.0.0"
 #define ADDON_INSTANCE_VERSION_GAME_XML_ID            "kodi.binary.instance.game"
 #define ADDON_INSTANCE_VERSION_GAME_DEPENDS           "addon-instance/Game.h"
 
@@ -108,8 +108,8 @@
 #define ADDON_INSTANCE_VERSION_IMAGEDECODER_DEPENDS   "c-api/addon-instance/imagedecoder.h" \
                                                       "addon-instance/ImageDecoder.h"
 
-#define ADDON_INSTANCE_VERSION_INPUTSTREAM            "3.3.0"
-#define ADDON_INSTANCE_VERSION_INPUTSTREAM_MIN        "3.3.0"
+#define ADDON_INSTANCE_VERSION_INPUTSTREAM            "3.4.0"
+#define ADDON_INSTANCE_VERSION_INPUTSTREAM_MIN        "3.4.0"
 #define ADDON_INSTANCE_VERSION_INPUTSTREAM_XML_ID     "kodi.binary.instance.inputstream"
 #define ADDON_INSTANCE_VERSION_INPUTSTREAM_DEPENDS    "c-api/addon-instance/inputstream.h" \
                                                       "c-api/addon-instance/inputstream/demux_packet.h" \
@@ -163,19 +163,24 @@
 #define ADDON_INSTANCE_VERSION_SCREENSAVER_DEPENDS    "c-api/addon-instance/screensaver.h" \
                                                       "addon-instance/Screensaver.h"
 
+#define ADDON_INSTANCE_VERSION_SHADERPRESET           "1.1.0"
+#define ADDON_INSTANCE_VERSION_SHADERPRESET_MIN       "1.1.0"
+#define ADDON_INSTANCE_VERSION_SHADERPRESET_XML_ID    "kodi.binary.instance.shaderpreset"
+#define ADDON_INSTANCE_VERSION_SHADERPRESET_DEPENDS   "addon-instance/ShaderPreset.h"
+
 #define ADDON_INSTANCE_VERSION_VFS                    "3.0.1"
 #define ADDON_INSTANCE_VERSION_VFS_MIN                "3.0.1"
 #define ADDON_INSTANCE_VERSION_VFS_XML_ID             "kodi.binary.instance.vfs"
 #define ADDON_INSTANCE_VERSION_VFS_DEPENDS            "c-api/addon-instance/vfs.h" \
                                                       "addon-instance/VFS.h"
 
-#define ADDON_INSTANCE_VERSION_VISUALIZATION          "4.0.0"
-#define ADDON_INSTANCE_VERSION_VISUALIZATION_MIN      "4.0.0"
+#define ADDON_INSTANCE_VERSION_VISUALIZATION          "5.0.0"
+#define ADDON_INSTANCE_VERSION_VISUALIZATION_MIN      "5.0.0"
 #define ADDON_INSTANCE_VERSION_VISUALIZATION_XML_ID   "kodi.binary.instance.visualization"
 #define ADDON_INSTANCE_VERSION_VISUALIZATION_DEPENDS  "addon-instance/Visualization.h" \
                                                       "c-api/addon-instance/visualization.h"
 
-#define ADDON_INSTANCE_VERSION_VIDEOCODEC             "2.1.0"
+#define ADDON_INSTANCE_VERSION_VIDEOCODEC             "2.2.0"
 #define ADDON_INSTANCE_VERSION_VIDEOCODEC_MIN         "2.1.0"
 #define ADDON_INSTANCE_VERSION_VIDEOCODEC_XML_ID      "kodi.binary.instance.videocodec"
 #define ADDON_INSTANCE_VERSION_VIDEOCODEC_DEPENDS     "c-api/addon-instance/video_codec.h" \
@@ -183,7 +188,7 @@
                                                       "c-api/addon-instance/inputstream/stream_crypto.h" \
                                                       "addon-instance/VideoCodec.h" \
                                                       "addon-instance/inputstream/StreamCodec.h" \
-                                                      "addon-instance/inputstream/StreamCrypto.h" \
+                                                      "addon-instance/inputstream/StreamCrypto.h"
 // clang-format on
 
 //==============================================================================
@@ -247,271 +252,287 @@ typedef enum ADDON_TYPE
 
   /// Video codec instance, see @ref cpp_kodi_addon_videocodec "kodi::addon::CInstanceVideoCodec"
   ADDON_INSTANCE_VIDEOCODEC = 112,
+
+  /// Shader preset instance, see @ref cpp_kodi_addon_shaderpreset "kodi::addon::CInstanceShaderPreset"
+  ADDON_INSTANCE_SHADERPRESET = 113,
 } ADDON_TYPE;
 ///@}
 //------------------------------------------------------------------------------
 
 #ifdef __cplusplus
-extern "C" {
-namespace kodi {
-namespace addon {
+extern "C"
+{
+  namespace kodi
+  {
+  namespace addon
+  {
 #endif
 
-///
-/// This is used from Kodi to get the active version of add-on parts.
-/// It is compiled in add-on and also in Kodi itself, with this can be Kodi
-/// compare the version from him with them on add-on.
-///
-/// @param[in] type The with 'enum ADDON_TYPE' type to ask
-/// @return version The current version of asked type
-///
-inline const char* GetTypeVersion(int type)
-{
-  /*
+  ///
+  /// This is used from Kodi to get the active version of add-on parts.
+  /// It is compiled in add-on and also in Kodi itself, with this can be Kodi
+  /// compare the version from him with them on add-on.
+  ///
+  /// @param[in] type The with 'enum ADDON_TYPE' type to ask
+  /// @return version The current version of asked type
+  ///
+  inline const char* GetTypeVersion(int type)
+  {
+    /*
    * #ifdef's below becomes set by cmake, no set by hand needed.
    */
-  switch (type)
-  {
-    /* addon global parts */
-    case ADDON_GLOBAL_MAIN:
-      return ADDON_GLOBAL_VERSION_MAIN;
+    switch (type)
+    {
+      /* addon global parts */
+      case ADDON_GLOBAL_MAIN:
+        return ADDON_GLOBAL_VERSION_MAIN;
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_GLOBAL_VERSION_GENERAL_USED)
-    case ADDON_GLOBAL_GENERAL:
-      return ADDON_GLOBAL_VERSION_GENERAL;
+      case ADDON_GLOBAL_GENERAL:
+        return ADDON_GLOBAL_VERSION_GENERAL;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_GLOBAL_VERSION_GUI_USED)
-    case ADDON_GLOBAL_GUI:
-      return ADDON_GLOBAL_VERSION_GUI;
+      case ADDON_GLOBAL_GUI:
+        return ADDON_GLOBAL_VERSION_GUI;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_GLOBAL_VERSION_AUDIOENGINE_USED)
-    case ADDON_GLOBAL_AUDIOENGINE:
-      return ADDON_GLOBAL_VERSION_AUDIOENGINE;
+      case ADDON_GLOBAL_AUDIOENGINE:
+        return ADDON_GLOBAL_VERSION_AUDIOENGINE;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_GLOBAL_VERSION_FILESYSTEM_USED)
-    case ADDON_GLOBAL_FILESYSTEM:
-      return ADDON_GLOBAL_VERSION_FILESYSTEM;
+      case ADDON_GLOBAL_FILESYSTEM:
+        return ADDON_GLOBAL_VERSION_FILESYSTEM;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_GLOBAL_VERSION_NETWORK_USED)
-    case ADDON_GLOBAL_NETWORK:
-      return ADDON_GLOBAL_VERSION_NETWORK;
+      case ADDON_GLOBAL_NETWORK:
+        return ADDON_GLOBAL_VERSION_NETWORK;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_GLOBAL_VERSION_TOOLS_USED)
-    case ADDON_GLOBAL_TOOLS:
-      return ADDON_GLOBAL_VERSION_TOOLS;
+      case ADDON_GLOBAL_TOOLS:
+        return ADDON_GLOBAL_VERSION_TOOLS;
 #endif
 
-    /* addon type instances */
+        /* addon type instances */
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_AUDIODECODER_USED)
-    case ADDON_INSTANCE_AUDIODECODER:
-      return ADDON_INSTANCE_VERSION_AUDIODECODER;
+      case ADDON_INSTANCE_AUDIODECODER:
+        return ADDON_INSTANCE_VERSION_AUDIODECODER;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_AUDIOENCODER_USED)
-    case ADDON_INSTANCE_AUDIOENCODER:
-      return ADDON_INSTANCE_VERSION_AUDIOENCODER;
+      case ADDON_INSTANCE_AUDIOENCODER:
+        return ADDON_INSTANCE_VERSION_AUDIOENCODER;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_GAME_USED)
-    case ADDON_INSTANCE_GAME:
-      return ADDON_INSTANCE_VERSION_GAME;
+      case ADDON_INSTANCE_GAME:
+        return ADDON_INSTANCE_VERSION_GAME;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_IMAGEDECODER_USED)
-    case ADDON_INSTANCE_IMAGEDECODER:
-      return ADDON_INSTANCE_VERSION_IMAGEDECODER;
+      case ADDON_INSTANCE_IMAGEDECODER:
+        return ADDON_INSTANCE_VERSION_IMAGEDECODER;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_INPUTSTREAM_USED)
-    case ADDON_INSTANCE_INPUTSTREAM:
-      return ADDON_INSTANCE_VERSION_INPUTSTREAM;
+      case ADDON_INSTANCE_INPUTSTREAM:
+        return ADDON_INSTANCE_VERSION_INPUTSTREAM;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_PERIPHERAL_USED)
-    case ADDON_INSTANCE_PERIPHERAL:
-      return ADDON_INSTANCE_VERSION_PERIPHERAL;
+      case ADDON_INSTANCE_PERIPHERAL:
+        return ADDON_INSTANCE_VERSION_PERIPHERAL;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_PVR_USED)
-    case ADDON_INSTANCE_PVR:
-      return ADDON_INSTANCE_VERSION_PVR;
+      case ADDON_INSTANCE_PVR:
+        return ADDON_INSTANCE_VERSION_PVR;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_SCREENSAVER_USED)
-    case ADDON_INSTANCE_SCREENSAVER:
-      return ADDON_INSTANCE_VERSION_SCREENSAVER;
+      case ADDON_INSTANCE_SCREENSAVER:
+        return ADDON_INSTANCE_VERSION_SCREENSAVER;
+#endif
+#if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_SHADERPRESET_USED)
+      case ADDON_INSTANCE_SHADERPRESET:
+        return ADDON_INSTANCE_VERSION_SHADERPRESET;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_VFS_USED)
-    case ADDON_INSTANCE_VFS:
-      return ADDON_INSTANCE_VERSION_VFS;
+      case ADDON_INSTANCE_VFS:
+        return ADDON_INSTANCE_VERSION_VFS;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_VISUALIZATION_USED)
-    case ADDON_INSTANCE_VISUALIZATION:
-      return ADDON_INSTANCE_VERSION_VISUALIZATION;
+      case ADDON_INSTANCE_VISUALIZATION:
+        return ADDON_INSTANCE_VERSION_VISUALIZATION;
 #endif
 #if !defined(BUILD_KODI_ADDON) || defined(ADDON_INSTANCE_VERSION_VIDEOCODEC_USED)
-    case ADDON_INSTANCE_VIDEOCODEC:
-      return ADDON_INSTANCE_VERSION_VIDEOCODEC;
+      case ADDON_INSTANCE_VIDEOCODEC:
+        return ADDON_INSTANCE_VERSION_VIDEOCODEC;
 #endif
+    }
+    return "0.0.0";
   }
-  return "0.0.0";
-}
 
-///
-/// This is used from Kodi to get the minimum supported version of add-on parts.
-/// It is compiled in add-on and also in Kodi itself, with this can be Kodi
-/// compare the version from him with them on add-on.
-///
-/// @param[in] type The with 'enum ADDON_TYPE' type to ask
-/// @return version The minimum version of asked type
-///
-inline const char* GetTypeMinVersion(int type)
-{
-  switch (type)
+  ///
+  /// This is used from Kodi to get the minimum supported version of add-on parts.
+  /// It is compiled in add-on and also in Kodi itself, with this can be Kodi
+  /// compare the version from him with them on add-on.
+  ///
+  /// @param[in] type The with 'enum ADDON_TYPE' type to ask
+  /// @return version The minimum version of asked type
+  ///
+  inline const char* GetTypeMinVersion(int type)
   {
-    /* addon global parts */
-    case ADDON_GLOBAL_MAIN:
-      return ADDON_GLOBAL_VERSION_MAIN_MIN;
-    case ADDON_GLOBAL_GUI:
-      return ADDON_GLOBAL_VERSION_GUI_MIN;
-    case ADDON_GLOBAL_GENERAL:
-      return ADDON_GLOBAL_VERSION_GENERAL_MIN;
-    case ADDON_GLOBAL_AUDIOENGINE:
-      return ADDON_GLOBAL_VERSION_AUDIOENGINE_MIN;
-    case ADDON_GLOBAL_FILESYSTEM:
-      return ADDON_GLOBAL_VERSION_FILESYSTEM_MIN;
-    case ADDON_GLOBAL_NETWORK:
-      return ADDON_GLOBAL_VERSION_NETWORK_MIN;
-    case ADDON_GLOBAL_TOOLS:
-      return ADDON_GLOBAL_VERSION_TOOLS_MIN;
+    switch (type)
+    {
+      /* addon global parts */
+      case ADDON_GLOBAL_MAIN:
+        return ADDON_GLOBAL_VERSION_MAIN_MIN;
+      case ADDON_GLOBAL_GUI:
+        return ADDON_GLOBAL_VERSION_GUI_MIN;
+      case ADDON_GLOBAL_GENERAL:
+        return ADDON_GLOBAL_VERSION_GENERAL_MIN;
+      case ADDON_GLOBAL_AUDIOENGINE:
+        return ADDON_GLOBAL_VERSION_AUDIOENGINE_MIN;
+      case ADDON_GLOBAL_FILESYSTEM:
+        return ADDON_GLOBAL_VERSION_FILESYSTEM_MIN;
+      case ADDON_GLOBAL_NETWORK:
+        return ADDON_GLOBAL_VERSION_NETWORK_MIN;
+      case ADDON_GLOBAL_TOOLS:
+        return ADDON_GLOBAL_VERSION_TOOLS_MIN;
 
-    /* addon type instances */
-    case ADDON_INSTANCE_AUDIODECODER:
-      return ADDON_INSTANCE_VERSION_AUDIODECODER_MIN;
-    case ADDON_INSTANCE_AUDIOENCODER:
-      return ADDON_INSTANCE_VERSION_AUDIOENCODER_MIN;
-    case ADDON_INSTANCE_GAME:
-      return ADDON_INSTANCE_VERSION_GAME_MIN;
-    case ADDON_INSTANCE_IMAGEDECODER:
-      return ADDON_INSTANCE_VERSION_IMAGEDECODER_MIN;
-    case ADDON_INSTANCE_INPUTSTREAM:
-      return ADDON_INSTANCE_VERSION_INPUTSTREAM_MIN;
-    case ADDON_INSTANCE_PERIPHERAL:
-      return ADDON_INSTANCE_VERSION_PERIPHERAL_MIN;
-    case ADDON_INSTANCE_PVR:
-      return ADDON_INSTANCE_VERSION_PVR_MIN;
-    case ADDON_INSTANCE_SCREENSAVER:
-      return ADDON_INSTANCE_VERSION_SCREENSAVER_MIN;
-    case ADDON_INSTANCE_VFS:
-      return ADDON_INSTANCE_VERSION_VFS_MIN;
-    case ADDON_INSTANCE_VISUALIZATION:
-      return ADDON_INSTANCE_VERSION_VISUALIZATION_MIN;
-    case ADDON_INSTANCE_VIDEOCODEC:
-      return ADDON_INSTANCE_VERSION_VIDEOCODEC_MIN;
+      /* addon type instances */
+      case ADDON_INSTANCE_AUDIODECODER:
+        return ADDON_INSTANCE_VERSION_AUDIODECODER_MIN;
+      case ADDON_INSTANCE_AUDIOENCODER:
+        return ADDON_INSTANCE_VERSION_AUDIOENCODER_MIN;
+      case ADDON_INSTANCE_GAME:
+        return ADDON_INSTANCE_VERSION_GAME_MIN;
+      case ADDON_INSTANCE_IMAGEDECODER:
+        return ADDON_INSTANCE_VERSION_IMAGEDECODER_MIN;
+      case ADDON_INSTANCE_INPUTSTREAM:
+        return ADDON_INSTANCE_VERSION_INPUTSTREAM_MIN;
+      case ADDON_INSTANCE_PERIPHERAL:
+        return ADDON_INSTANCE_VERSION_PERIPHERAL_MIN;
+      case ADDON_INSTANCE_PVR:
+        return ADDON_INSTANCE_VERSION_PVR_MIN;
+      case ADDON_INSTANCE_SCREENSAVER:
+        return ADDON_INSTANCE_VERSION_SCREENSAVER_MIN;
+      case ADDON_INSTANCE_SHADERPRESET:
+        return ADDON_INSTANCE_VERSION_SHADERPRESET_MIN;
+      case ADDON_INSTANCE_VFS:
+        return ADDON_INSTANCE_VERSION_VFS_MIN;
+      case ADDON_INSTANCE_VISUALIZATION:
+        return ADDON_INSTANCE_VERSION_VISUALIZATION_MIN;
+      case ADDON_INSTANCE_VIDEOCODEC:
+        return ADDON_INSTANCE_VERSION_VIDEOCODEC_MIN;
+    }
+    return "0.0.0";
   }
-  return "0.0.0";
-}
 
-///
-/// Function used internally on add-on and in Kodi itself to get name
-/// about given type.
-///
-/// @param[in] type The with 'enum ADDON_TYPE' defined type to ask
-/// @return Name of the asked instance type
-///
-inline const char* GetTypeName(int type)
-{
-  switch (type)
+  ///
+  /// Function used internally on add-on and in Kodi itself to get name
+  /// about given type.
+  ///
+  /// @param[in] type The with 'enum ADDON_TYPE' defined type to ask
+  /// @return Name of the asked instance type
+  ///
+  inline const char* GetTypeName(int type)
   {
-    /* addon global parts */
-    case ADDON_GLOBAL_MAIN:
-      return "Addon";
-    case ADDON_GLOBAL_GUI:
-      return "GUI";
-    case ADDON_GLOBAL_GENERAL:
-      return "General";
-    case ADDON_GLOBAL_AUDIOENGINE:
-      return "AudioEngine";
-    case ADDON_GLOBAL_FILESYSTEM:
-      return "Filesystem";
-    case ADDON_GLOBAL_NETWORK:
-      return "Network";
-    case ADDON_GLOBAL_TOOLS:
-      return "Tools";
+    switch (type)
+    {
+      /* addon global parts */
+      case ADDON_GLOBAL_MAIN:
+        return "Addon";
+      case ADDON_GLOBAL_GUI:
+        return "GUI";
+      case ADDON_GLOBAL_GENERAL:
+        return "General";
+      case ADDON_GLOBAL_AUDIOENGINE:
+        return "AudioEngine";
+      case ADDON_GLOBAL_FILESYSTEM:
+        return "Filesystem";
+      case ADDON_GLOBAL_NETWORK:
+        return "Network";
+      case ADDON_GLOBAL_TOOLS:
+        return "Tools";
 
-    /* addon type instances */
-    case ADDON_INSTANCE_AUDIODECODER:
-      return "AudioDecoder";
-    case ADDON_INSTANCE_AUDIOENCODER:
-      return "AudioEncoder";
-    case ADDON_INSTANCE_GAME:
-      return "Game";
-    case ADDON_INSTANCE_IMAGEDECODER:
-      return "ImageDecoder";
-    case ADDON_INSTANCE_INPUTSTREAM:
-      return "Inputstream";
-    case ADDON_INSTANCE_PERIPHERAL:
-      return "Peripheral";
-    case ADDON_INSTANCE_PVR:
-      return "PVR";
-    case ADDON_INSTANCE_SCREENSAVER:
-      return "ScreenSaver";
-    case ADDON_INSTANCE_VISUALIZATION:
-      return "Visualization";
-    case ADDON_INSTANCE_VIDEOCODEC:
-      return "VideoCodec";
+      /* addon type instances */
+      case ADDON_INSTANCE_AUDIODECODER:
+        return "AudioDecoder";
+      case ADDON_INSTANCE_AUDIOENCODER:
+        return "AudioEncoder";
+      case ADDON_INSTANCE_GAME:
+        return "Game";
+      case ADDON_INSTANCE_IMAGEDECODER:
+        return "ImageDecoder";
+      case ADDON_INSTANCE_INPUTSTREAM:
+        return "Inputstream";
+      case ADDON_INSTANCE_PERIPHERAL:
+        return "Peripheral";
+      case ADDON_INSTANCE_PVR:
+        return "PVR";
+      case ADDON_INSTANCE_SCREENSAVER:
+        return "ScreenSaver";
+      case ADDON_INSTANCE_SHADERPRESET:
+        return "ShaderPreset";
+      case ADDON_INSTANCE_VISUALIZATION:
+        return "Visualization";
+      case ADDON_INSTANCE_VIDEOCODEC:
+        return "VideoCodec";
+    }
+    return "unknown";
   }
-  return "unknown";
-}
 
-///
-/// Function used internally on add-on and in Kodi itself to get id number
-/// about given type name.
-///
-/// @param[in] name The type name string to ask
-/// @return Id number of the asked instance type
-///
-/// @warning String must be lower case here!
-///
-inline int GetTypeId(const char* name)
-{
-  if (name)
+  ///
+  /// Function used internally on add-on and in Kodi itself to get id number
+  /// about given type name.
+  ///
+  /// @param[in] name The type name string to ask
+  /// @return Id number of the asked instance type
+  ///
+  /// @warning String must be lower case here!
+  ///
+  inline int GetTypeId(const char* name)
   {
-    if (strcmp(name, "addon") == 0)
-      return ADDON_GLOBAL_MAIN;
-    else if (strcmp(name, "general") == 0)
-      return ADDON_GLOBAL_GENERAL;
-    else if (strcmp(name, "gui") == 0)
-      return ADDON_GLOBAL_GUI;
-    else if (strcmp(name, "audioengine") == 0)
-      return ADDON_GLOBAL_AUDIOENGINE;
-    else if (strcmp(name, "filesystem") == 0)
-      return ADDON_GLOBAL_FILESYSTEM;
-    else if (strcmp(name, "network") == 0)
-      return ADDON_GLOBAL_NETWORK;
-    else if (strcmp(name, "tools") == 0)
-      return ADDON_GLOBAL_TOOLS;
-    else if (strcmp(name, "audiodecoder") == 0)
-      return ADDON_INSTANCE_AUDIODECODER;
-    else if (strcmp(name, "audioencoder") == 0)
-      return ADDON_INSTANCE_AUDIOENCODER;
-    else if (strcmp(name, "game") == 0)
-      return ADDON_INSTANCE_GAME;
-    else if (strcmp(name, "imagedecoder") == 0)
-      return ADDON_INSTANCE_IMAGEDECODER;
-    else if (strcmp(name, "inputstream") == 0)
-      return ADDON_INSTANCE_INPUTSTREAM;
-    else if (strcmp(name, "peripheral") == 0)
-      return ADDON_INSTANCE_PERIPHERAL;
-    else if (strcmp(name, "pvr") == 0)
-      return ADDON_INSTANCE_PVR;
-    else if (strcmp(name, "screensaver") == 0)
-      return ADDON_INSTANCE_SCREENSAVER;
-    else if (strcmp(name, "vfs") == 0)
-      return ADDON_INSTANCE_VFS;
-    else if (strcmp(name, "visualization") == 0)
-      return ADDON_INSTANCE_VISUALIZATION;
-    else if (strcmp(name, "videocodec") == 0)
-      return ADDON_INSTANCE_VIDEOCODEC;
+    if (name)
+    {
+      if (strcmp(name, "addon") == 0)
+        return ADDON_GLOBAL_MAIN;
+      else if (strcmp(name, "general") == 0)
+        return ADDON_GLOBAL_GENERAL;
+      else if (strcmp(name, "gui") == 0)
+        return ADDON_GLOBAL_GUI;
+      else if (strcmp(name, "audioengine") == 0)
+        return ADDON_GLOBAL_AUDIOENGINE;
+      else if (strcmp(name, "filesystem") == 0)
+        return ADDON_GLOBAL_FILESYSTEM;
+      else if (strcmp(name, "network") == 0)
+        return ADDON_GLOBAL_NETWORK;
+      else if (strcmp(name, "tools") == 0)
+        return ADDON_GLOBAL_TOOLS;
+      else if (strcmp(name, "audiodecoder") == 0)
+        return ADDON_INSTANCE_AUDIODECODER;
+      else if (strcmp(name, "audioencoder") == 0)
+        return ADDON_INSTANCE_AUDIOENCODER;
+      else if (strcmp(name, "game") == 0)
+        return ADDON_INSTANCE_GAME;
+      else if (strcmp(name, "imagedecoder") == 0)
+        return ADDON_INSTANCE_IMAGEDECODER;
+      else if (strcmp(name, "inputstream") == 0)
+        return ADDON_INSTANCE_INPUTSTREAM;
+      else if (strcmp(name, "peripheral") == 0)
+        return ADDON_INSTANCE_PERIPHERAL;
+      else if (strcmp(name, "pvr") == 0)
+        return ADDON_INSTANCE_PVR;
+      else if (strcmp(name, "screensaver") == 0)
+        return ADDON_INSTANCE_SCREENSAVER;
+      else if (strcmp(name, "shaderpreset") == 0)
+        return ADDON_INSTANCE_SHADERPRESET;
+      else if (strcmp(name, "vfs") == 0)
+        return ADDON_INSTANCE_VFS;
+      else if (strcmp(name, "visualization") == 0)
+        return ADDON_INSTANCE_VISUALIZATION;
+      else if (strcmp(name, "videocodec") == 0)
+        return ADDON_INSTANCE_VIDEOCODEC;
+    }
+    return -1;
   }
-  return -1;
-}
 
 #ifdef __cplusplus
-} /* namespace addon */
-} /* namespace kodi */
+  } /* namespace addon */
+  } /* namespace kodi */
 } /* extern "C" */
 #endif
 

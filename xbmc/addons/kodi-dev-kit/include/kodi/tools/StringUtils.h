@@ -1453,10 +1453,7 @@ public:
   /// EXPECT_STREQ(refstr.c_str(), varstr.c_str());
   /// ~~~~~~~~~~~~~
   ///
-  inline static void RemoveCRLF(std::string& strLine)
-  {
-    StringUtils::TrimRight(strLine, "\n\r");
-  }
+  inline static void RemoveCRLF(std::string& strLine) { StringUtils::TrimRight(strLine, "\n\r"); }
   //----------------------------------------------------------------------------
 
   //============================================================================
@@ -1468,7 +1465,8 @@ public:
   /// --------------------------------------------------------------------------
   /// Example:
   /// ~~~~~~~~~~~~~{.cpp}
-  /// std::string ref, var;
+  /// std::string ref;
+  /// std::string var;
   ///
   /// ref = "8378 787464";
   /// var = "test string";
@@ -1597,7 +1595,7 @@ public:
       c2 = *s2++;
       // This includes the possibility that one of the characters is the null-terminator,
       // which implies a string mismatch.
-      if (c1 != c2 && ::tolower(c1) != ::tolower(c2))
+      if (c1 != c2 && ToLowerAscii(c1) != ToLowerAscii(c2))
         return false;
     } while (c2 != '\0'); // At this point, we know c1 == c2, so there's no need to test them both.
     return true;
@@ -1647,8 +1645,8 @@ public:
       index++;
       // This includes the possibility that one of the characters is the null-terminator,
       // which implies a string mismatch.
-      if (c1 != c2 && ::tolower(c1) != ::tolower(c2))
-        return ::tolower(c1) - ::tolower(c2);
+      if (c1 != c2 && ToLowerAscii(c1) != ToLowerAscii(c2))
+        return ToLowerAscii(c1) - ToLowerAscii(c2);
     } while (c2 != '\0' &&
              index != n); // At this point, we know c1 == c2, so there's no need to test them both.
     return 0;
@@ -1782,7 +1780,7 @@ public:
   {
     while (*s2 != '\0')
     {
-      if (::tolower(*s1) != ::tolower(*s2))
+      if (ToLowerAscii(*s1) != ToLowerAscii(*s2))
         return false;
       s1++;
       s2++;
@@ -1873,7 +1871,7 @@ public:
     const char* s2 = str2.c_str();
     while (*s2 != '\0')
     {
-      if (::tolower(*s1) != ::tolower(*s2))
+      if (ToLowerAscii(*s1) != ToLowerAscii(*s2))
         return false;
       s1++;
       s2++;
@@ -1899,7 +1897,7 @@ public:
     const char* s1 = str1.c_str() + str1.size() - len2;
     while (*s2 != '\0')
     {
-      if (::tolower(*s1) != ::tolower(*s2))
+      if (ToLowerAscii(*s1) != ToLowerAscii(*s2))
         return false;
       s1++;
       s2++;
@@ -2028,10 +2026,7 @@ public:
   /// @param[in] c Character to check
   /// @return true if space, false otherwise
   ///
-  inline static int IsSpace(char c)
-  {
-    return (c & 0x80) == 0 && ::isspace(c);
-  }
+  inline static int IsSpace(char c) { return (c & 0x80) == 0 && ::isspace(c); }
   //----------------------------------------------------------------------------
 
   //============================================================================
@@ -2931,7 +2926,8 @@ public:
   /// ~~~~~~~~~~~~~{.cpp}
   /// #include <kodi/tools/StringUtils.h>
   ///
-  /// std::string ref, var;
+  /// std::string ref;
+  /// std::string var;
   ///
   /// ref = "21:30:55";
   /// var = kodi::tools::StringUtils::SecondsToTimeString(77455);
@@ -3029,6 +3025,10 @@ private:
       return 1;
     return 0;
   }
+
+  inline static char ToLowerAscii(char c) { return 'A' <= c && c <= 'Z' ? c - 'A' + 'a' : c; }
+
+  inline static char ToUpperAscii(char c) { return 'a' <= c && c <= 'z' ? c - 'a' + 'A' : c; }
 
   inline static wchar_t tolowerUnicode(const wchar_t& c)
   {

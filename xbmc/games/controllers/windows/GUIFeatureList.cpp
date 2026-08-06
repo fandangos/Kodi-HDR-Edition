@@ -10,6 +10,7 @@
 
 #include "GUIConfigurationWizard.h"
 #include "GUIControllerDefines.h"
+#include "ServiceBroker.h"
 #include "games/addons/GameClient.h"
 #include "games/addons/input/GameClientInput.h"
 #include "games/controllers/Controller.h"
@@ -23,20 +24,22 @@
 #include "guilib/GUIImage.h"
 #include "guilib/GUILabelControl.h"
 #include "guilib/GUIWindow.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 
 using namespace KODI;
 using namespace GAME;
 
 CGUIFeatureList::CGUIFeatureList(CGUIWindow* window, GameClientPtr gameClient)
-  : m_window(window), m_gameClient(std::move(gameClient)), m_wizard(new CGUIConfigurationWizard)
+  : m_window(window),
+    m_gameClient(std::move(gameClient)),
+    m_wizard(std::make_unique<CGUIConfigurationWizard>())
 {
 }
 
 CGUIFeatureList::~CGUIFeatureList(void)
 {
   Deinitialize();
-  delete m_wizard;
 }
 
 bool CGUIFeatureList::Initialize(void)
@@ -221,7 +224,8 @@ std::vector<CGUIFeatureList::FeatureGroup> CGUIFeatureList::GetFeatureGroups(
       if (feature.Category() == JOYSTICK::FEATURE_CATEGORY::KEY)
       {
         FeatureGroup virtualGroup;
-        virtualGroup.groupName = g_localizeStrings.Get(35166); // "All keys"
+        virtualGroup.groupName =
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35166); // "All keys"
         virtualGroup.bIsVirtualKey = true;
         virtualGroup.features.emplace_back(feature);
         groups.emplace_back(std::move(virtualGroup));
@@ -239,7 +243,8 @@ std::vector<CGUIFeatureList::FeatureGroup> CGUIFeatureList::GetFeatureGroups(
   if (groups.empty())
   {
     FeatureGroup group;
-    group.groupName = g_localizeStrings.Get(35022); // "Nothing to map"
+    group.groupName =
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35022); // "Nothing to map"
     groups.emplace_back(std::move(group));
   }
 
@@ -262,8 +267,8 @@ std::vector<CGUIButtonControl*> CGUIFeatureList::GetButtons(
   {
     BUTTON_TYPE buttonType = CGUIFeatureTranslator::GetButtonType(feature.Type());
 
-    CGUIButtonControl* pButton = CGUIFeatureFactory::CreateButton(buttonType, *m_guiButtonTemplate,
-                                                                  m_wizard, feature, buttonIndex);
+    CGUIButtonControl* pButton = CGUIFeatureFactory::CreateButton(
+        buttonType, *m_guiButtonTemplate, m_wizard.get(), feature, buttonIndex);
 
     // If successful, add button to result
     if (pButton != nullptr)
@@ -286,6 +291,6 @@ CGUIButtonControl* CGUIFeatureList::GetSelectKeyButton(
       m_wizard->RegisterKey(feature);
   }
 
-  return CGUIFeatureFactory::CreateButton(BUTTON_TYPE::SELECT_KEY, *m_guiButtonTemplate, m_wizard,
-                                          CPhysicalFeature(), buttonIndex);
+  return CGUIFeatureFactory::CreateButton(BUTTON_TYPE::SELECT_KEY, *m_guiButtonTemplate,
+                                          m_wizard.get(), CPhysicalFeature(), buttonIndex);
 }

@@ -32,12 +32,13 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/ActionIDs.h"
+#include "jobs/Job.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
-#include "utils/JobManager.h"
 #include "utils/LangCodeExpander.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -85,7 +86,7 @@ public:
     CDirectory::GetDirectory(m_url.Get(), *m_items, "", DIR_FLAG_DEFAULTS);
     return true;
   }
-  bool operator==(const CJob *job) const override
+  bool Equals(const CJob* job) const override
   {
     if (strcmp(job->GetType(),GetType()) == 0)
     {
@@ -170,7 +171,10 @@ bool CGUIDialogSubtitles::OnMessage(CGUIMessage& message)
     else if (iControl == CONTROL_MANUALSEARCH)
     {
       //manual search
-      if (CGUIKeyboardFactory::ShowAndGetInput(m_strManualSearch, CVariant{g_localizeStrings.Get(24121)}, true))
+      if (CGUIKeyboardFactory::ShowAndGetInput(
+              m_strManualSearch,
+              CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24121)},
+              true))
       {
         Search(m_strManualSearch);
         return true;
@@ -221,7 +225,7 @@ void CGUIDialogSubtitles::Process(unsigned int currentTime, CDirtyRegionList &di
     std::string status;
     CFileItemList subs;
     {
-      std::unique_lock<CCriticalSection> lock(m_critsection);
+      std::unique_lock lock(m_critsection);
       status = m_status;
       subs.Assign(*m_subtitles);
     }
@@ -370,7 +374,7 @@ void CGUIDialogSubtitles::Search(const std::string &search/*=""*/)
 
   std::string preferredLanguage = settings->GetString(CSettings::SETTING_LOCALE_SUBTITLELANGUAGE);
 
-  if (StringUtils::EqualsNoCase(preferredLanguage, "original"))
+  if (StringUtils::EqualsNoCase(preferredLanguage, KODI::LANGINFO::subLanguageOriginal))
   {
     AudioStreamInfo info;
     std::string strLanguage;
@@ -384,7 +388,7 @@ void CGUIDialogSubtitles::Search(const std::string &search/*=""*/)
 
     preferredLanguage = strLanguage;
   }
-  else if (StringUtils::EqualsNoCase(preferredLanguage, "default"))
+  else if (StringUtils::EqualsNoCase(preferredLanguage, KODI::LANGINFO::subLanguageDefault))
     preferredLanguage = g_langInfo.GetEnglishLanguageName();
 
   url.SetOption("preferredlanguage", preferredLanguage);
@@ -406,7 +410,7 @@ void CGUIDialogSubtitles::OnJobComplete(unsigned int jobID, bool success, CJob *
 
 void CGUIDialogSubtitles::OnSearchComplete(const CFileItemList *items)
 {
-  std::unique_lock<CCriticalSection> lock(m_critsection);
+  std::unique_lock lock(m_critsection);
   m_subtitles->Assign(*items);
   UpdateStatus(SEARCH_COMPLETE);
   m_updateSubsList = true;
@@ -436,10 +440,10 @@ void CGUIDialogSubtitles::OnSubtitleServiceContextMenu(int itemIdx)
   CContextButtons buttons;
   // Subtitle addon settings
   buttons.Add(static_cast<int>(SUBTITLE_SERVICE_CONTEXT_BUTTONS::ADDON_SETTINGS),
-              g_localizeStrings.Get(21417));
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21417));
   // Disable addon
   buttons.Add(static_cast<int>(SUBTITLE_SERVICE_CONTEXT_BUTTONS::ADDON_DISABLE),
-              g_localizeStrings.Get(24021));
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24021));
 
   auto idx = static_cast<SUBTITLE_SERVICE_CONTEXT_BUTTONS>(CGUIDialogContextMenu::Show(buttons));
   switch (idx)
@@ -486,24 +490,26 @@ void CGUIDialogSubtitles::OnSubtitleServiceContextMenu(int itemIdx)
 
 void CGUIDialogSubtitles::UpdateStatus(STATUS status)
 {
-  std::unique_lock<CCriticalSection> lock(m_critsection);
+  std::unique_lock lock(m_critsection);
   std::string label;
   switch (status)
   {
     case NO_SERVICES:
-      label = g_localizeStrings.Get(24114);
+      label = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24114);
       break;
     case SEARCHING:
-      label = g_localizeStrings.Get(24107);
+      label = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24107);
       break;
     case SEARCH_COMPLETE:
       if (!m_subtitles->IsEmpty())
-        label = StringUtils::Format(g_localizeStrings.Get(24108), m_subtitles->Size());
+        label = StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24108),
+            m_subtitles->Size());
       else
-        label = g_localizeStrings.Get(24109);
+        label = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24109);
       break;
     case DOWNLOADING:
-      label = g_localizeStrings.Get(24110);
+      label = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24110);
       break;
     default:
       break;
@@ -534,7 +540,9 @@ void CGUIDialogSubtitles::OnDownloadComplete(const CFileItemList *items, const s
   {
     CFileItemPtr service = GetService();
     if (service)
-      CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, service->GetLabel(), g_localizeStrings.Get(24113));
+      CGUIDialogKaiToast::QueueNotification(
+          CGUIDialogKaiToast::Error, service->GetLabel(),
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24113));
     UpdateStatus(SEARCH_COMPLETE);
     return;
   }
@@ -618,7 +626,9 @@ void CGUIDialogSubtitles::OnDownloadComplete(const CFileItemList *items, const s
 
     if (!CFile::Copy(strUrl, strDownloadFile))
     {
-      CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, strSubName, g_localizeStrings.Get(24113));
+      CGUIDialogKaiToast::QueueNotification(
+          CGUIDialogKaiToast::Error, strSubName,
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24113));
       CLog::Log(LOGERROR, "{} - Saving of subtitle {} to {} failed", __FUNCTION__, strUrl,
                 strDownloadFile);
     }
@@ -685,7 +695,7 @@ void CGUIDialogSubtitles::ClearSubtitles()
 {
   CGUIMessage msg(GUI_MSG_LABEL_RESET, GetID(), CONTROL_SUBLIST);
   OnMessage(msg);
-  std::unique_lock<CCriticalSection> lock(m_critsection);
+  std::unique_lock lock(m_critsection);
   m_subtitles->Clear();
 }
 

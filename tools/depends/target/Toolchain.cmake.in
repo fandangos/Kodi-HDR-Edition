@@ -12,7 +12,9 @@ set(PLATFORM "@target_platform@")
 if(OS STREQUAL linux)
   set(CMAKE_SYSTEM_NAME Linux)
   set(CORE_SYSTEM_NAME linux)
-  set(CORE_PLATFORM_NAME @target_platform@)
+  if(NOT DEFINED CORE_PLATFORM_NAME)
+    set(CORE_PLATFORM_NAME "@target_platform@")
+  endif()
   set(APP_RENDER_SYSTEM @app_rendersystem@ CACHE STRING "Render system to use: \"gl\" or \"gles\"")
   if(PLATFORM STREQUAL webos)
     set(TOOLCHAIN @use_toolchain@)
@@ -27,10 +29,18 @@ elseif(OS STREQUAL osx)
 elseif(OS STREQUAL darwin_embedded)
   set(CMAKE_SYSTEM_NAME Darwin)
   set(CORE_SYSTEM_NAME darwin_embedded)
-  if(PLATFORM STREQUAL appletvos)
+  if(PLATFORM MATCHES "^appletv")
     set(CORE_PLATFORM_NAME tvos)
   else()
     set(CORE_PLATFORM_NAME ios)
+  endif()
+elseif(OS STREQUAL wasm)
+  set(CMAKE_SYSTEM_NAME Emscripten)
+  set(CORE_SYSTEM_NAME wasm)
+  # Prefer Emscripten-provided CMake find modules without including its
+  # Platform/Emscripten.cmake (which clobbers PKG_CONFIG_LIBDIR).
+  if(EXISTS "@use_toolchain@/cmake/Modules")
+    list(PREPEND CMAKE_MODULE_PATH "@use_toolchain@/cmake/Modules")
   endif()
 endif()
 
@@ -86,11 +96,14 @@ if(NOT "@use_sdk_path@" STREQUAL "")
 endif()
 # Currently this is only set to reject android by default
 if(NOT "@use_toolchain@" STREQUAL "")
-  list(APPEND CMAKE_FIND_ROOT_PATH @use_toolchain@/@use_host@ @use_toolchain@/@use_host@/sysroot @use_toolchain@/@use_host@/sysroot/usr @use_toolchain@/@use_host@/libc @use_toolchain@/lib/@use_host@/sysroot @use_toolchain@/usr @use_toolchain@/sysroot/usr)
-  # Explicitly set this as last. This potentially is /usr which can then cause linux
-  # cross compilation to search paths that are not relevant to target arch (eg host libs)
-  # x86/x86_64 jenkins CI jobs require /usr for libs like iconv
-  list(APPEND CMAKE_FIND_ROOT_PATH @use_toolchain@)
+  list(APPEND CMAKE_FIND_ROOT_PATH @use_toolchain@/@use_host@ @use_toolchain@/@use_host@/sysroot @use_toolchain@/@use_host@/sysroot/usr @use_toolchain@/@use_host@/libc @use_toolchain@/lib/@use_host@/sysroot @use_toolchain@/sysroot/usr)
+
+  if (OS STREQUAL linux AND NOT PLATFORM STREQUAL webos)
+    # Explicitly set this as last. This potentially is /usr which can then cause linux
+    # cross compilation to search paths that are not relevant to target arch (eg host libs)
+    # x86/x86_64 jenkins CI jobs require /usr for libs like iconv
+    list(APPEND CMAKE_FIND_ROOT_PATH @use_toolchain@/usr @use_toolchain@)
+  endif()
   set(CMAKE_LIBRARY_PATH "${CMAKE_LIBRARY_PATH}:@use_toolchain@/usr/lib/@use_host@:@use_toolchain@/lib/@use_host@")
 endif()
 

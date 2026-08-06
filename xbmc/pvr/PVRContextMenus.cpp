@@ -11,7 +11,6 @@
 #include "ContextMenuItem.h"
 #include "FileItem.h"
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
 #include "pvr/PVRManager.h"
 #include "pvr/addons/PVRClient.h"
 #include "pvr/addons/PVRClientMenuHooks.h"
@@ -19,6 +18,7 @@
 #include "pvr/channels/PVRChannel.h"
 #include "pvr/channels/PVRChannelGroupsContainer.h"
 #include "pvr/epg/EpgInfoTag.h"
+#include "pvr/guilib/PVRGUIActionsChannels.h"
 #include "pvr/guilib/PVRGUIActionsEPG.h"
 #include "pvr/guilib/PVRGUIActionsPlayback.h"
 #include "pvr/guilib/PVRGUIActionsRecordings.h"
@@ -29,9 +29,12 @@
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "pvr/timers/PVRTimers.h"
 #include "pvr/timers/PVRTimersPath.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/URIUtils.h"
+#include "video/guilib/VideoPlayActionProcessor.h"
 
 #include <memory>
 #include <string>
@@ -83,6 +86,7 @@ DECL_STATICCONTEXTMENUITEM(RenameSearch);
 DECL_STATICCONTEXTMENUITEM(ChooseIconForSearch);
 DECL_STATICCONTEXTMENUITEM(DuplicateSearch);
 DECL_STATICCONTEXTMENUITEM(DeleteSearch);
+DECL_STATICCONTEXTMENUITEM(HideChannel);
 
 class PVRClientMenuHook : public IContextMenuItem
 {
@@ -137,9 +141,11 @@ std::string PlayEpgTagFromHere::GetLabel(const CFileItem& item) const
 {
   if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
           CSettings::SETTING_PVRPLAYBACK_AUTOPLAYNEXTPROGRAMME))
-    return g_localizeStrings.Get(19354); /* Play only this programme */
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        19354); /* Play only this programme */
 
-  return g_localizeStrings.Get(19353); /* Play programmes from here */
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+      19353); /* Play programmes from here */
 }
 
 bool PlayEpgTagFromHere::IsVisible(const CFileItem& item) const
@@ -176,8 +182,13 @@ bool PlayRecording::IsVisible(const CFileItem& item) const
 
 bool PlayRecording::Execute(const CFileItemPtr& item) const
 {
-  return CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().PlayRecording(
-      *item, true /* bCheckResume */);
+  const std::shared_ptr<CPVRRecording> recording{
+      CServiceBroker::GetPVRManager().Recordings()->GetRecordingForEpgTag(item->GetEPGInfoTag())};
+  if (!recording)
+    return false;
+
+  KODI::VIDEO::GUILIB::CVideoPlayActionProcessor proc{std::make_shared<CFileItem>(recording)};
+  return proc.ProcessDefaultAction();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -186,9 +197,11 @@ bool PlayRecording::Execute(const CFileItemPtr& item) const
 std::string ShowInformation::GetLabel(const CFileItem& item) const
 {
   if (item.GetPVRRecordingInfoTag())
-    return g_localizeStrings.Get(19053); /* Recording Information */
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        19053); /* Recording Information */
 
-  return g_localizeStrings.Get(19047); /* Programme information */
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+      19047); /* Programme information */
 }
 
 bool ShowInformation::IsVisible(const CFileItem& item) const
@@ -376,26 +389,35 @@ bool EditRecording::Execute(const CFileItemPtr& item) const
 
 std::string DeleteRecording::GetLabel(const CFileItem& item) const
 {
-  const std::shared_ptr<const CPVRRecording> recording(item.GetPVRRecordingInfoTag());
+  const std::shared_ptr<const CPVRRecording> recording{item.GetPVRRecordingInfoTag()};
   if (recording && recording->IsDeleted())
-    return g_localizeStrings.Get(19291); /* Delete permanently */
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        19291); // Delete permanently
 
-  return g_localizeStrings.Get(117); /* Delete */
+  if (recording || item.IsFolder())
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(117); // Delete
+
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+      19357); // Delete recording
 }
 
 bool DeleteRecording::IsVisible(const CFileItem& item) const
 {
-  const std::shared_ptr<const CPVRClient> client = CServiceBroker::GetPVRManager().GetClient(item);
+  const auto& pvrMgr{CServiceBroker::GetPVRManager()};
+
+  const std::shared_ptr<const CPVRClient> client{pvrMgr.GetClient(item)};
   if (client && !client->GetClientCapabilities().SupportsRecordingsDelete())
     return false;
 
-  const std::shared_ptr<const CPVRRecording> recording(item.GetPVRRecordingInfoTag());
+  std::shared_ptr<const CPVRRecording> recording{item.GetPVRRecordingInfoTag()};
+  if (!recording && item.HasEPGInfoTag())
+    recording = pvrMgr.Recordings()->GetRecordingForEpgTag(item.GetEPGInfoTag());
+
   if (recording && !recording->IsInProgress())
     return true;
 
   // recordings folder?
-  if (item.m_bIsFolder &&
-      CServiceBroker::GetPVRManager().Clients()->AnyClientSupportingRecordingsDelete())
+  if (item.IsFolder() && pvrMgr.Clients()->AnyClientSupportingRecordingsDelete())
   {
     const CPVRRecordingsPath path(item.GetPath());
     return path.IsValid() && !path.IsRecordingsRoot();
@@ -432,8 +454,8 @@ bool UndeleteRecording::Execute(const CFileItemPtr& item) const
 bool DeleteWatchedRecordings::IsVisible(const CFileItem& item) const
 {
   // recordings folder?
-  if (item.m_bIsFolder && !item.IsParentFolder())
-    return CPVRRecordingsPath(item.GetPath()).IsValid();
+  if (item.IsFolder() && !item.IsParentFolder() && CPVRRecordingsPath(item.GetPath()).IsValid())
+    return item.GetProperty("watchedepisodes").asInteger() > 0;
 
   return false;
 }
@@ -468,9 +490,9 @@ std::string ToggleTimerState::GetLabel(const CFileItem& item) const
 {
   const std::shared_ptr<const CPVRTimerInfoTag> timer(item.GetPVRTimerInfoTag());
   if (timer && !timer->IsDisabled())
-    return g_localizeStrings.Get(844); /* Deactivate */
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(844); /* Deactivate */
 
-  return g_localizeStrings.Get(843); /* Activate */
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(843); /* Activate */
 }
 
 bool ToggleTimerState::IsVisible(const CFileItem& item) const
@@ -516,11 +538,13 @@ std::string EditTimerRule::GetLabel(const CFileItem& item) const
     if (parentTimer)
     {
       if (!parentTimer->GetTimerType()->IsReadOnly())
-        return g_localizeStrings.Get(19243); /* Edit timer rule */
+        return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+            19243); /* Edit timer rule */
     }
   }
 
-  return g_localizeStrings.Get(19304); /* View timer rule */
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+      19304); /* View timer rule */
 }
 
 bool EditTimerRule::IsVisible(const CFileItem& item) const
@@ -556,7 +580,7 @@ bool DeleteTimerRule::IsVisible(const CFileItem& item) const
 
 bool DeleteTimerRule::Execute(const CFileItemPtr& item) const
 {
-  auto& timers = CServiceBroker::GetPVRManager().Get<PVR::GUI::Timers>();
+  const auto& timers{CServiceBroker::GetPVRManager().Get<PVR::GUI::Timers>()};
   const std::shared_ptr<CFileItem> parentTimer = timers.GetTimerRule(*item);
   if (parentTimer)
     return timers.DeleteTimerRule(*parentTimer);
@@ -576,16 +600,19 @@ std::string EditTimer::GetLabel(const CFileItem& item) const
     if (item.GetEPGInfoTag())
     {
       if (timerType->IsReminder())
-        return g_localizeStrings.Get(timerType->IsReadOnly() ? 829 /* View reminder */
-                                                             : 830); /* Edit reminder */
+        return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+            timerType->IsReadOnly() ? 829 /* View reminder */
+                                    : 830); /* Edit reminder */
       else
-        return g_localizeStrings.Get(timerType->IsReadOnly() ? 19241 /* View timer */
-                                                             : 19242); /* Edit timer */
+        return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+            timerType->IsReadOnly() ? 19241 /* View timer */
+                                    : 19242); /* Edit timer */
     }
     else
-      return g_localizeStrings.Get(timerType->IsReadOnly() ? 21483 : 21450); /* View/Edit */
+      return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+          timerType->IsReadOnly() ? 21483 : 21450); /* View/Edit */
   }
-  return g_localizeStrings.Get(19241); /* View timer */
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19241); /* View timer */
 }
 
 bool EditTimer::IsVisible(const CFileItem& item) const
@@ -606,7 +633,7 @@ bool EditTimer::Execute(const CFileItemPtr& item) const
 std::string DeleteTimer::GetLabel(const CFileItem& item) const
 {
   if (item.GetPVRTimerInfoTag())
-    return g_localizeStrings.Get(117); /* Delete */
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(117); /* Delete */
 
   const std::shared_ptr<const CPVREpgInfoTag> epg = item.GetEPGInfoTag();
   if (epg)
@@ -614,9 +641,10 @@ std::string DeleteTimer::GetLabel(const CFileItem& item) const
     const std::shared_ptr<const CPVRTimerInfoTag> timer =
         CServiceBroker::GetPVRManager().Timers()->GetTimerForEpgTag(epg);
     if (timer && timer->IsReminder())
-      return g_localizeStrings.Get(827); /* Delete reminder */
+      return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+          827); /* Delete reminder */
   }
-  return g_localizeStrings.Get(19060); /* Delete timer */
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19060); /* Delete timer */
 }
 
 bool DeleteTimer::IsVisible(const CFileItem& item) const
@@ -651,8 +679,7 @@ bool PVRClientMenuHook::IsVisible(const CFileItem& item) const
     return false;
 
   if (m_hook.IsAllHook())
-    return !item.m_bIsFolder &&
-           !URIUtils::PathEquals(item.GetPath(), CPVRTimersPath::PATH_ADDTIMER);
+    return !item.IsFolder() && !URIUtils::PathEquals(item.GetPath(), CPVRTimersPath::PATH_ADDTIMER);
   else if (m_hook.IsEpgHook())
     return item.IsEPG();
   else if (m_hook.IsChannelHook())
@@ -767,6 +794,19 @@ bool DeleteSearch::Execute(const std::shared_ptr<CFileItem>& item) const
   return CServiceBroker::GetPVRManager().Get<PVR::GUI::EPG>().DeleteSavedSearch(*item);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Hide channel
+
+bool HideChannel::IsVisible(const CFileItem& item) const
+{
+  return item.IsPVRChannel() && item.GetProperty("hideable").asBoolean(false);
+}
+
+bool HideChannel::Execute(const std::shared_ptr<CFileItem>& item) const
+{
+  return CServiceBroker::GetPVRManager().Get<PVR::GUI::Channels>().HideChannel(*item);
+}
+
 } // namespace CONTEXTMENUITEM
 
 CPVRContextMenuManager& CPVRContextMenuManager::GetInstance()
@@ -802,6 +842,7 @@ CPVRContextMenuManager::CPVRContextMenuManager()
         std::make_shared<CONTEXTMENUITEM::ChooseIconForSearch>(19284), /* Choose icon */
         std::make_shared<CONTEXTMENUITEM::DuplicateSearch>(19355), /* Duplicate */
         std::make_shared<CONTEXTMENUITEM::DeleteSearch>(117), /* Delete */
+        std::make_shared<CONTEXTMENUITEM::HideChannel>(19054), /* Hide channel */
     })
 {
 }
@@ -823,8 +864,7 @@ void CPVRContextMenuManager::RemoveMenuHook(const CPVRClientMenuHook& hook)
 
   for (auto it = m_items.begin(); it < m_items.end(); ++it)
   {
-    const CONTEXTMENUITEM::PVRClientMenuHook* cmh =
-        dynamic_cast<const CONTEXTMENUITEM::PVRClientMenuHook*>((*it).get());
+    const auto* cmh{dynamic_cast<const CONTEXTMENUITEM::PVRClientMenuHook*>((*it).get())};
     if (cmh && cmh->GetHook() == hook)
     {
       m_events.Publish(PVRContextMenuEvent(PVRContextMenuEventAction::REMOVE_ITEM, *it));

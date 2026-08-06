@@ -6,39 +6,73 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include <stdlib.h>
-#include "network/Network.h"
 #include "DirectoryFactory.h"
-#include "SpecialProtocolDirectory.h"
-#include "MultiPathDirectory.h"
-#include "StackDirectory.h"
+
+#include "AddonsDirectory.h"
+#ifdef HAVE_LIBBLURAY
+#include "BlurayDirectory.h"
+#endif
+#ifdef HAS_OPTICAL_DRIVE
+#include "CDDADirectory.h"
+#include "DVDDirectory.h"
+#endif
+#include "DAVDirectory.h"
+#include "EventsDirectory.h"
+#include "FTPDirectory.h"
+#include "FavouritesDirectory.h"
+#include "File.h"
 #include "FileDirectoryFactory.h"
-#include "PlaylistDirectory.h"
+#include "FileItem.h"
+#include "HTTPDirectory.h"
+#ifdef HAS_ISO9660PP
+#include "ISO9660Directory.h"
+#endif
+#include "LibraryDirectory.h"
+#include "MultiPathDirectory.h"
 #include "MusicDatabaseDirectory.h"
 #include "MusicSearchDirectory.h"
-#include "VideoDatabaseDirectory.h"
-#include "FavouritesDirectory.h"
-#include "LibraryDirectory.h"
-#include "EventsDirectory.h"
-#include "AddonsDirectory.h"
+#ifdef HAS_FILESYSTEM_NFS
+#include "NFSDirectory.h"
+#endif
+#include "PVRDirectory.h"
+#include "PlaylistDirectory.h"
+#include "PluginDirectory.h"
+#include "RSSDirectory.h"
+#include "ResourceDirectory.h"
+#include "ServiceBroker.h"
 #include "SourcesDirectory.h"
-#include "FTPDirectory.h"
-#include "HTTPDirectory.h"
-#include "DAVDirectory.h"
+#include "SpecialProtocolDirectory.h"
+#include "StackDirectory.h"
 #if defined(HAS_UDFREAD)
 #include "UDFDirectory.h"
 #endif
-#include "utils/log.h"
+#ifdef HAS_UPNP
+#include "UPnPDirectory.h"
+#endif
+#include "URL.h"
+#include "VideoDatabaseDirectory.h"
+#include "XbtDirectory.h"
+#ifdef HAS_ZEROCONF
+#include "ZeroconfDirectory.h"
+#endif
+#include "ZipDirectory.h"
+#include "addons/VFSEntry.h"
 #include "network/WakeOnAccess.h"
+#include "utils/Set.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/log.h"
 
 #ifdef TARGET_POSIX
 #include "platform/posix/filesystem/PosixDirectory.h"
 #elif defined(TARGET_WINDOWS)
+#include "platform/win32/dirent.h" // For S_ISDIR compatability macro
 #include "platform/win32/filesystem/Win32Directory.h"
 #ifdef TARGET_WINDOWS_STORE
 #include "platform/win10/filesystem/WinLibraryDirectory.h"
 #endif
 #endif
+
 #ifdef HAS_FILESYSTEM_SMB
 #ifdef TARGET_WINDOWS
 #include "platform/win32/filesystem/Win32SMBDirectory.h"
@@ -46,47 +80,20 @@
 #include "platform/posix/filesystem/SMBDirectory.h"
 #endif
 #endif
-#include "CDDADirectory.h"
-#include "PluginDirectory.h"
-#if defined(HAS_ISO9660PP)
-#include "ISO9660Directory.h"
-#endif
-#ifdef HAS_UPNP
-#include "UPnPDirectory.h"
-#endif
-#include "PVRDirectory.h"
+
 #if defined(TARGET_ANDROID)
 #include "platform/android/filesystem/APKDirectory.h"
+#include "platform/android/filesystem/AndroidAppDirectory.h"
 #elif defined(TARGET_DARWIN_TVOS)
 #include "platform/darwin/tvos/filesystem/TVOSDirectory.h"
 #endif
-#include "XbtDirectory.h"
-#include "ZipDirectory.h"
-#include "FileItem.h"
-#include "URL.h"
-#include "RSSDirectory.h"
-#ifdef HAS_ZEROCONF
-#include "ZeroconfDirectory.h"
-#endif
-#ifdef HAS_FILESYSTEM_NFS
-#include "NFSDirectory.h"
-#endif
-#ifdef HAVE_LIBBLURAY
-#include "BlurayDirectory.h"
-#endif
-#ifdef HAS_OPTICAL_DRIVE
-#include "DVDDirectory.h"
-#endif
-#if defined(TARGET_ANDROID)
-#include "platform/android/filesystem/AndroidAppDirectory.h"
-#endif
-#include "ResourceDirectory.h"
-#include "ServiceBroker.h"
-#include "addons/VFSEntry.h"
-#include "utils/StringUtils.h"
+
+#include <algorithm>
+#include <cstdlib>
+#include <ranges>
+#include <string_view>
 
 using namespace ADDON;
-
 using namespace XFILE;
 
 /*!
@@ -119,7 +126,24 @@ IDirectory* CDirectoryFactory::Create(const CURL& url)
     return NULL;
 
   CFileItem item(url.Get(), true);
-  IFileDirectory* pDir = CFileDirectoryFactory::Create(url, &item);
+
+  // Load directory flag from the VFS. If the url is truly a directory, don't
+  // attempt to use a file-directory loader.
+  bool canBeFileDirectory = true;
+
+  struct __stat64 st = {};
+  static constexpr auto excludedProtocols =
+      make_set<std::string_view>({"upnp", "addons", "favourites", "sources"});
+  const bool exclude{excludedProtocols.contains(url.GetProtocol())};
+  if (!exclude && CFile::Stat(URIUtils::SubstitutePath(url), &st) == 0)
+  {
+    item.SetFolder(S_ISDIR(st.st_mode));
+    canBeFileDirectory = !item.IsFolder();
+  }
+
+  IFileDirectory* pDir = nullptr;
+  if (canBeFileDirectory)
+    pDir = CFileDirectoryFactory::Create(url, &item);
   if (pDir)
     return pDir;
 
@@ -129,7 +153,7 @@ IDirectory* CDirectoryFactory::Create(const CURL& url)
     {
       auto prots = StringUtils::Split(vfsAddon->GetProtocols(), "|");
 
-      if (vfsAddon->HasDirectories() && std::find(prots.begin(), prots.end(), url.GetProtocol()) != prots.end())
+      if (vfsAddon->HasDirectories() && std::ranges::find(prots, url.GetProtocol()) != prots.end())
         return new CVFSEntryIDirectoryWrapper(vfsAddon);
     }
   }

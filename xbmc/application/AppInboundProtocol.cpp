@@ -23,6 +23,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "threads/SingleLock.h"
+#include "windowing/WinSystem.h"
 
 CAppInboundProtocol::CAppInboundProtocol(CApplication &app) : m_pApp(app)
 {
@@ -30,7 +31,7 @@ CAppInboundProtocol::CAppInboundProtocol(CApplication &app) : m_pApp(app)
 
 bool CAppInboundProtocol::OnEvent(const XBMC_Event& newEvent)
 {
-  std::unique_lock<CCriticalSection> lock(m_portSection);
+  std::unique_lock lock(m_portSection);
   if (m_closed)
     return false;
   m_portEvents.push_back(newEvent);
@@ -39,7 +40,7 @@ bool CAppInboundProtocol::OnEvent(const XBMC_Event& newEvent)
 
 void CAppInboundProtocol::Close()
 {
-  std::unique_lock<CCriticalSection> lock(m_portSection);
+  std::unique_lock lock(m_portSection);
   m_closed = true;
 }
 
@@ -52,7 +53,7 @@ void CAppInboundProtocol::SetRenderGUI(bool renderGUI)
 
 void CAppInboundProtocol::HandleEvents()
 {
-  std::unique_lock<CCriticalSection> lock(m_portSection);
+  std::unique_lock lock(m_portSection);
   while (!m_portEvents.empty())
   {
     auto newEvent = m_portEvents.front();

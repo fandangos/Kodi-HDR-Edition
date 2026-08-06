@@ -25,9 +25,10 @@
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
 #include "input/actions/ActionIDs.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/FileUtils.h"
 #include "utils/Variant.h"
 #include "view/GUIViewControl.h"
@@ -333,7 +334,7 @@ bool CDialogGameSaves::Open(const std::string& gamePath)
   if (items.IsEmpty())
     return false;
 
-  items.Sort(SortByDate, SortOrderDescending);
+  items.Sort(SortBy::DATE, SortOrder::DESCENDING);
 
   SetItems(items);
 
@@ -411,7 +412,9 @@ void CDialogGameSaves::OnRename(CFileItem& item)
   std::string label(savestate->Label());
 
   // "Enter new filename"
-  if (CGUIKeyboardFactory::ShowAndGetInput(label, CVariant{g_localizeStrings.Get(16013)}, true) &&
+  if (CGUIKeyboardFactory::ShowAndGetInput(
+          label, CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16013)},
+          true) &&
       label != savestate->Label())
   {
     std::unique_ptr<RETRO::ISavestate> newSavestate = db.RenameSavestate(savestatePath, label);
@@ -431,7 +434,7 @@ void CDialogGameSaves::OnRename(CFileItem& item)
   }
 }
 
-void CDialogGameSaves::OnDelete(CFileItem& item)
+void CDialogGameSaves::OnDelete(const CFileItem& item)
 {
   // "Confirm delete"
   // "Would you like to delete the selected file(s)?[CR]Warning - this action can't be undone!"

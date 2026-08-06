@@ -612,7 +612,7 @@
           {
             "type": "number",
             "description":
-                "The value should be a multiple of 0.025 in a range of +/-10 (the default range can be overriden by advancedsettings.xml).",
+                "The value should be a multiple of 0.025 in a range of +/-10 (the default range can be overridden by advancedsettings.xml).",
             "required": true
           },
           {
@@ -1380,6 +1380,30 @@
       }
     ],
     "returns": "string"
+  },
+  "Player.GetChapters": {
+    "type": "method",
+    "description": "Returns the chapters of the currently playing item for the given player",
+    "params": [
+      {
+        "$ref": "Player.Id",
+        "name": "playerid",
+        "required": true
+      }
+    ],
+    "permission": "ReadData",
+    "returns": {
+      "type": "object",
+      "properties": {
+        "chapters": {
+          "type": "array",
+          "items": {
+            "$ref": "Player.Chapter"
+          },
+          "required": true
+        }
+      }
+    }
   },
   "Files.GetSources": {
     "type": "method",
@@ -3065,7 +3089,7 @@
   },
   "AudioLibrary.RefreshArtist": {
     "type": "method",
-    "description": "Refresh the given artist in the library",
+    "description": "Refresh the additional information for the given artist",
     "transport": "Response",
     "permission": "UpdateData",
     "params": [
@@ -3079,7 +3103,7 @@
   },
   "AudioLibrary.RefreshAlbum": {
     "type": "method",
-    "description": "Refresh the given album in the library",
+    "description": "Refresh the additional information for the given album",
     "transport": "Response",
     "permission": "UpdateData",
     "params": [
@@ -5496,6 +5520,27 @@
     "params": [],
     "returns": "string"
   },
+  "GUI.TakeScreenshot": {
+    "type": "method",
+    "description": "Takes a screenshot into the configured screenshot folder",
+    "transport": "Response",
+    "permission": "ControlGUI",
+    "params": [
+      {
+        "name": "content",
+        "type": "string",
+        "enum": [
+          "composite",
+          "video",
+          "both"
+        ],
+        "default": "composite",
+        "description":
+            "composite captures the full display output, video only the video frame, both writes two files, the video frame and the full composite, from the same rendered frame. Files are written asynchronously; the method acknowledges the request and does not wait for the write."
+      }
+    ],
+    "returns": "string"
+  },
   "Addons.GetAddons": {
     "type": "method",
     "description": "Gets all available addons",
@@ -6959,5 +7004,19 @@
         }
       }
     }
+  },
+  "Database.GetDatabaseName": {
+    "type": "method",
+    "description": "Get the full database name currently in-use by its type",
+    "transport": "Response",
+    "permission": "ReadData",
+    "params": [
+      {
+        "name": "type",
+        "$ref": "Database.Type",
+        "required": true
+      }
+    ],
+    "returns": "string"
   }
 }

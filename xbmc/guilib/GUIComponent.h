@@ -21,6 +21,11 @@ class CGUIColorManager;
 class CGUIAudioManager;
 class CGUIAnnouncementHandlerContainer;
 
+namespace ADDON
+{
+class CSkinInfo;
+}
+
 class CGUIComponent
 {
 public:
@@ -36,8 +41,13 @@ public:
   CGUITextureCallbackManager& GetTextureCallbackManager();
   CStereoscopicsManager &GetStereoscopicsManager();
   CGUIInfoManager &GetInfoManager();
+  const CGUIInfoManager& GetInfoManager() const;
   CGUIColorManager &GetColorManager();
   CGUIAudioManager &GetAudioManager();
+
+  void SetSkinInfo(std::shared_ptr<ADDON::CSkinInfo> skin);
+  std::shared_ptr<ADDON::CSkinInfo> GetSkinInfo();
+  void UnloadSkin();
 
   bool ConfirmDelete(const std::string& path);
 
@@ -52,4 +62,5 @@ protected:
   std::unique_ptr<CGUIColorManager> m_guiColorManager;
   std::unique_ptr<CGUIAudioManager> m_guiAudioManager;
   std::unique_ptr<CGUIAnnouncementHandlerContainer> m_announcementHandlerContainer;
+  std::shared_ptr<ADDON::CSkinInfo> m_skinInfo;
 };

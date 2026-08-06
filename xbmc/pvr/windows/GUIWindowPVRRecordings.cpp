@@ -16,7 +16,6 @@
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIRadioButtonControl.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "pvr/PVRManager.h"
@@ -24,7 +23,10 @@
 #include "pvr/recordings/PVRRecording.h"
 #include "pvr/recordings/PVRRecordings.h"
 #include "pvr/recordings/PVRRecordingsPath.h"
+#include "pvr/settings/PVRSettings.h"
 #include "pvr/utils/PVRPathUtils.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -41,11 +43,23 @@
 using namespace KODI;
 using namespace PVR;
 
+namespace
+{
+// Numeric values are part of the Skinning API. Do not change.
+constexpr unsigned int CONTROL_BTNGROUPITEMS = 5;
+constexpr unsigned int CONTROL_BTNSHOWDELETED = 7;
+constexpr unsigned int CONTROL_BTNSHOWMODE = 10;
+constexpr unsigned int CONTROL_LABEL_HEADER1 = 29;
+constexpr unsigned int CONTROL_LABEL_HEADER2 = 30;
+
+} // unnamed namespace
+
 CGUIWindowPVRRecordingsBase::CGUIWindowPVRRecordingsBase(bool bRadio,
                                                          int id,
                                                          const std::string& xmlFile)
   : CGUIWindowPVRBase(bRadio, id, xmlFile),
-    m_settings({CSettings::SETTING_PVRRECORD_GROUPRECORDINGS})
+    m_settings(std::make_unique<CPVRSettings>(
+        SettingsContainer({CSettings::SETTING_PVRRECORD_GROUPRECORDINGS})))
 {
 }
 
@@ -56,6 +70,14 @@ void CGUIWindowPVRRecordingsBase::OnWindowLoaded()
   CONTROL_SELECT(CONTROL_BTNGROUPITEMS);
 }
 
+void CGUIWindowPVRRecordingsBase::OnInitWindow()
+{
+  const CURL url{m_vecItems->GetPath()};
+  const std::string viewMode{url.GetOption("view")};
+  m_forceUngrouped = (viewMode == "flat");
+  CGUIWindowPVRBase::OnInitWindow();
+}
+
 void CGUIWindowPVRRecordingsBase::OnDeinitWindow(int nextWindowID)
 {
   if (UTILS::HasClientAndProvider(m_vecItems->GetPath()))
@@ -64,17 +86,17 @@ void CGUIWindowPVRRecordingsBase::OnDeinitWindow(int nextWindowID)
   CGUIWindowPVRBase::OnDeinitWindow(nextWindowID);
 }
 
-std::string CGUIWindowPVRRecordingsBase::GetRootPath() const
+std::string CGUIWindowPVRRecordingsBase::GetRootPath()
 {
   const CURL url{m_vecItems->GetPath()};
-  std::string rootPath{CPVRRecordingsPath(m_bShowDeletedRecordings, m_bRadio)};
+  std::string rootPath{CPVRRecordingsPath(m_bShowDeletedRecordings, IsRadio()).AsString()};
   rootPath += url.GetOptions();
   return rootPath;
 }
 
 std::string CGUIWindowPVRRecordingsBase::GetDirectoryPath()
 {
-  const std::string basePath = CPVRRecordingsPath(m_bShowDeletedRecordings, m_bRadio);
+  const std::string basePath{CPVRRecordingsPath(m_bShowDeletedRecordings, IsRadio()).AsString()};
   return URIUtils::PathHasParent(m_vecItems->GetPath(), basePath) ? m_vecItems->GetPath()
                                                                   : basePath;
 }
@@ -129,7 +151,7 @@ bool CGUIWindowPVRRecordingsBase::OnAction(const CAction& action)
     bool bUnWatched = false;
     if (pItem->HasPVRRecordingInfoTag())
       bUnWatched = pItem->GetPVRRecordingInfoTag()->GetPlayCount() == 0;
-    else if (pItem->m_bIsFolder)
+    else if (pItem->IsFolder())
       bUnWatched = pItem->GetProperty("unwatchedepisodes").asInteger() > 0;
     else
       return false;
@@ -156,10 +178,8 @@ bool CGUIWindowPVRRecordingsBase::OnContextButton(int itemNumber, CONTEXT_BUTTON
 {
   if (itemNumber < 0 || itemNumber >= m_vecItems->Size())
     return false;
-  CFileItemPtr pItem = m_vecItems->Get(itemNumber);
 
-  return OnContextButtonDeleteAll(pItem.get(), button) ||
-         CGUIMediaWindow::OnContextButton(itemNumber, button);
+  return OnContextButtonDeleteAll(button) || CGUIMediaWindow::OnContextButton(itemNumber, button);
 }
 
 bool CGUIWindowPVRRecordingsBase::Update(const std::string& strDirectory,
@@ -174,11 +194,11 @@ bool CGUIWindowPVRRecordingsBase::Update(const std::string& strDirectory,
 
   if (bReturn)
   {
-    // TODO: does it make sense to show the non-deleted recordings, although user wants
-    //       to see the deleted recordings? Or is this just another hack to avoid misbehavior
-    //       of CGUIMediaWindow if it has no content?
+    //! @todo does it make sense to show the non-deleted recordings, although user wants
+    //!       to see the deleted recordings? Or is this just another hack to avoid misbehavior
+    //!       of CGUIMediaWindow if it has no content?
 
-    std::unique_lock<CCriticalSection> lock(m_critSection);
+    std::unique_lock lock(m_critSection);
 
     /* empty list for deleted recordings */
     if (m_vecItems->GetObjectCount() == 0 && m_bShowDeletedRecordings)
@@ -214,18 +234,22 @@ void CGUIWindowPVRRecordingsBase::UpdateButtons()
   else if (iWatchMode == WatchedModeWatched)
     iStringId = 16102; // "Watched"
 
-  SET_CONTROL_LABEL(CONTROL_BTNSHOWMODE, g_localizeStrings.Get(iStringId));
+  SET_CONTROL_LABEL(CONTROL_BTNSHOWMODE,
+                    CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(iStringId));
 
-  bool bGroupRecordings = m_settings.GetBoolValue(CSettings::SETTING_PVRRECORD_GROUPRECORDINGS);
+  const bool bGroupRecordings{
+      !m_forceUngrouped && m_settings->GetBoolValue(CSettings::SETTING_PVRRECORD_GROUPRECORDINGS)};
+
   SET_CONTROL_SELECTED(GetID(), CONTROL_BTNGROUPITEMS, bGroupRecordings);
 
-  CGUIRadioButtonControl* btnShowDeleted =
-      static_cast<CGUIRadioButtonControl*>(GetControl(CONTROL_BTNSHOWDELETED));
+  CONTROL_ENABLE_ON_CONDITION(CONTROL_BTNGROUPITEMS, !m_forceUngrouped);
+
+  auto* btnShowDeleted{static_cast<CGUIRadioButtonControl*>(GetControl(CONTROL_BTNSHOWDELETED))};
   if (btnShowDeleted)
   {
     btnShowDeleted->SetVisible(
-        m_bRadio ? CServiceBroker::GetPVRManager().Recordings()->HasDeletedRadioRecordings()
-                 : CServiceBroker::GetPVRManager().Recordings()->HasDeletedTVRecordings());
+        IsRadio() ? CServiceBroker::GetPVRManager().Recordings()->HasDeletedRadioRecordings()
+                  : CServiceBroker::GetPVRManager().Recordings()->HasDeletedTVRecordings());
     btnShowDeleted->SetSelected(m_bShowDeletedRecordings);
   }
 
@@ -247,17 +271,13 @@ public:
   CVideoSelectActionProcessor(CGUIWindowPVRRecordingsBase& window,
                               const std::shared_ptr<CFileItem>& item,
                               int itemIndex)
-    : VIDEO::GUILIB::CVideoSelectActionProcessor(item), m_window(window), m_itemIndex(itemIndex)
+    : VIDEO::GUILIB::CVideoSelectActionProcessor(item),
+      m_window(window),
+      m_itemIndex(itemIndex)
   {
   }
 
 protected:
-  bool OnPlayPartSelected(unsigned int part) override
-  {
-    //! @todo pvr recordings do not support video stacking (yet).
-    return false;
-  }
-
   bool OnChooseSelected() override
   {
     m_window.OnPopupMenu(m_itemIndex);
@@ -302,7 +322,7 @@ bool CGUIWindowPVRRecordingsBase::OnMessage(CGUIMessage& message)
                 KODI::VIDEO::GUILIB::CVideoPlayActionProcessor proc{item};
                 bReturn = proc.ProcessDefaultAction();
               }
-              else if (item->m_bIsFolder)
+              else if (item->IsFolder())
               {
                 // recording folders and ".." folders in subfolders are handled by base class.
                 bReturn = false;
@@ -343,8 +363,8 @@ bool CGUIWindowPVRRecordingsBase::OnMessage(CGUIMessage& message)
       }
       else if (message.GetSenderId() == CONTROL_BTNSHOWDELETED)
       {
-        CGUIRadioButtonControl* radioButton =
-            static_cast<CGUIRadioButtonControl*>(GetControl(CONTROL_BTNSHOWDELETED));
+        const auto* radioButton{
+            static_cast<CGUIRadioButtonControl*>(GetControl(CONTROL_BTNSHOWDELETED))};
         if (radioButton)
         {
           m_bShowDeletedRecordings = radioButton->IsSelected();
@@ -365,16 +385,18 @@ bool CGUIWindowPVRRecordingsBase::OnMessage(CGUIMessage& message)
     {
       switch (static_cast<PVREvent>(message.GetParam1()))
       {
-        case PVREvent::CurrentItem:
-        case PVREvent::Epg:
-        case PVREvent::EpgActiveItem:
-        case PVREvent::EpgContainer:
-        case PVREvent::Timers:
+        using enum PVREvent;
+
+        case CurrentItem:
+        case Epg:
+        case EpgActiveItem:
+        case EpgContainer:
+        case Timers:
           SetInvalid();
           break;
 
-        case PVREvent::RecordingsInvalidated:
-        case PVREvent::TimersInvalidated:
+        case RecordingsInvalidated:
+        case TimersInvalidated:
           Refresh(true);
           break;
 
@@ -383,12 +405,14 @@ bool CGUIWindowPVRRecordingsBase::OnMessage(CGUIMessage& message)
       }
       break;
     }
+    default:
+      break;
   }
 
   return bReturn || CGUIWindowPVRBase::OnMessage(message);
 }
 
-bool CGUIWindowPVRRecordingsBase::OnContextButtonDeleteAll(CFileItem* item, CONTEXT_BUTTON button)
+bool CGUIWindowPVRRecordingsBase::OnContextButtonDeleteAll(CONTEXT_BUTTON button) const
 {
   if (button == CONTEXT_BUTTON_DELETE_ALL)
   {
@@ -407,7 +431,7 @@ void CGUIWindowPVRRecordingsBase::OnPrepareFileItems(CFileItemList& items)
   CFileItemList files;
   for (const auto& item : items)
   {
-    if (!item->m_bIsFolder)
+    if (!item->IsFolder())
       files.Add(item);
   }
 

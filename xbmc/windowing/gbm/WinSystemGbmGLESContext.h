@@ -9,10 +9,13 @@
 #pragma once
 
 #include "WinSystemGbmEGLContext.h"
+#include "cores/VideoPlayer/VideoRenderers/FrameBufferObject.h"
 #include "rendering/gles/RenderSystemGLES.h"
 #include "utils/EGLUtils.h"
 
 #include <memory>
+
+class CGuiCompositeShaderGLES;
 
 class CVaapiProxy;
 
@@ -30,19 +33,40 @@ public:
   ~CWinSystemGbmGLESContext() override = default;
 
   static void Register();
+  using CWinSystemGbm::Register;
   static std::unique_ptr<CWinSystemBase> CreateWinSystem();
 
   // Implementation of CWinSystemBase via CWinSystemGbm
-  CRenderSystemBase *GetRenderSystem() override { return this; }
+  CRenderSystemBase* GetRenderSystem() override { return this; }
   bool InitWindowSystem() override;
   bool SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays) override;
   void PresentRender(bool rendered, bool videoLayer) override;
+
+  // GUI compositing for HDR
+  bool SetGuiCompositing(int colorTransfer) override;
+  bool BeginGuiComposite(bool guiWillRender) override;
+  void EndGuiComposite() override;
+  void CompositeGui() override;
+  bool IsHdrComposite() const override { return m_guiCompositing; }
+
 protected:
   void SetVSyncImpl(bool enable) override {}
   void PresentRenderImpl(bool rendered) override {};
   bool CreateContext() override;
+
+private:
+  bool m_guiCompositing{false};
+  CFrameBufferObject m_guiFbo;
+  int m_guiFboWidth{0};
+  int m_guiFboHeight{0};
+  // True when the GUI FBO is empty (no draws this frame); CompositeGui skips composite when true.
+  bool m_guiFboClean{false};
+  // Whether the GUI render pass will run this frame; set by BeginGuiComposite.
+  bool m_guiWillRender{true};
+
+  std::unique_ptr<CGuiCompositeShaderGLES> m_compositeShader;
 };
 
-}
-}
-}
+} // namespace GBM
+} // namespace WINDOWING
+} // namespace KODI

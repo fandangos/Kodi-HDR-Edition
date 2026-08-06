@@ -23,7 +23,6 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUILabelControl.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/Texture.h"
 #include "imagefiles/ImageFileURL.h"
 #include "input/actions/Action.h"
@@ -35,6 +34,8 @@
 #include "pictures/SlideShowDelegator.h"
 #include "playlists/PlayListTypes.h"
 #include "rendering/RenderSystem.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -44,9 +45,9 @@
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 #include "video/VideoFileItemClassify.h"
+#include "windowing/WinSystem.h"
 
 #include <memory>
-#include <random>
 
 using namespace KODI;
 using namespace KODI::VIDEO;
@@ -145,9 +146,7 @@ void CBackgroundPicLoader::LoadPic(int iPic, int iSlideNumber, const std::string
   m_loadPic.Set();
 }
 
-CGUIWindowSlideShow::CGUIWindowSlideShow(void)
-    : CGUIDialog(WINDOW_SLIDESHOW, "SlideShow.xml"),
-      m_Resolution(RES_INVALID)
+CGUIWindowSlideShow::CGUIWindowSlideShow(void) : CGUIDialog(WINDOW_SLIDESHOW, "SlideShow.xml")
 {
   m_loadType = KEEP_IN_MEMORY;
   m_bLoadNextPic = false;
@@ -393,7 +392,7 @@ void CGUIWindowSlideShow::StartSlideShow()
 {
   m_bSlideShow = true;
   m_iDirection = 1;
-  if (m_slides.size())
+  if (!m_slides.empty())
     AnnouncePlayerPlay(m_slides.at(m_iCurrentSlide));
 }
 
@@ -696,7 +695,11 @@ void CGUIWindowSlideShow::Process(unsigned int currentTime, CDirtyRegionList &re
     CServiceBroker::GetGUI()->GetInfoManager().GetInfoProviders().GetPicturesInfoProvider().SetCurrentSlide(m_slides.at(m_iCurrentSlide).get());
 
   RenderPause();
-  if (IsVideo(*m_slides.at(m_iCurrentSlide)) && appPlayer && appPlayer->IsRenderingGuiLayer())
+  // Single-plane mode (video drawn into the GUI back buffer during the
+  // render pass): MarkDirty every frame to keep the render pass running.
+  // D2P (video has its own hardware plane): video updates independently
+  // of the render pass.
+  if (IsVideo(*m_slides.at(m_iCurrentSlide)) && appPlayer && !appPlayer->IsRenderingVideoLayer())
   {
     MarkDirtyRegion();
   }
@@ -869,7 +872,7 @@ bool CGUIWindowSlideShow::OnAction(const CAction &action)
     break;
   case ACTION_STOP:
   {
-    if (m_slides.size())
+    if (!m_slides.empty())
       AnnouncePlayerStop(m_slides.at(m_iCurrentSlide));
     auto& components = CServiceBroker::GetAppComponents();
     const auto appPlayer = components.GetComponent<CApplicationPlayer>();
@@ -911,7 +914,7 @@ bool CGUIWindowSlideShow::OnAction(const CAction &action)
 
   case ACTION_PAUSE:
   case ACTION_PLAYER_PLAY:
-    if (m_slides.size() == 0)
+    if (m_slides.empty())
       break;
     if (IsVideo(*m_slides.at(m_iCurrentSlide)))
     {
@@ -1023,7 +1026,11 @@ void CGUIWindowSlideShow::RenderErrorMessage()
   }
 
   CGUIFont *pFont = static_cast<const CGUILabelControl*>(control)->GetLabelInfo().font;
-  CGUITextLayout::DrawText(pFont, 0.5f*CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(), 0.5f*CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight(), 0xffffffff, 0, g_localizeStrings.Get(747), XBFONT_CENTER_X | XBFONT_CENTER_Y);
+  CGUITextLayout::DrawText(pFont, 0.5f * CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
+                           0.5f * CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight(),
+                           0xffffffff, 0,
+                           CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(747),
+                           XBFONT_CENTER_X | XBFONT_CENTER_Y);
 }
 
 bool CGUIWindowSlideShow::OnMessage(CGUIMessage& message)
@@ -1303,7 +1310,7 @@ void CGUIWindowSlideShow::AddFromPath(const std::string &strPath,
                                       SortBy method, SortOrder order, SortAttribute sortAttributes,
                                       const std::string &strExtensions)
 {
-  if (strPath!="")
+  if (!strPath.empty())
   {
     // reset the slideshow
     Reset();
@@ -1317,12 +1324,16 @@ void CGUIWindowSlideShow::AddFromPath(const std::string &strPath,
   }
 }
 
-void CGUIWindowSlideShow::RunSlideShow(const std::string &strPath,
-                                       bool bRecursive /* = false */, bool bRandom /* = false */,
-                                       bool bNotRandom /* = false */, const std::string &beginSlidePath /* = "" */,
-                                       bool startSlideShow /* = true */, SortBy method /* = SortByLabel */,
-                                       SortOrder order /* = SortOrderAscending */, SortAttribute sortAttributes /* = SortAttributeNone */,
-                                       const std::string &strExtensions)
+void CGUIWindowSlideShow::RunSlideShow(const std::string& strPath,
+                                       bool bRecursive /* = false */,
+                                       bool bRandom /* = false */,
+                                       bool bNotRandom /* = false */,
+                                       const std::string& beginSlidePath /* = "" */,
+                                       bool startSlideShow /* = true */,
+                                       SortBy method /* = SortBy::LABEL */,
+                                       SortOrder order /* = SortOrder::ASCENDING */,
+                                       SortAttribute sortAttributes /* = SortAttributeNone */,
+                                       const std::string& strExtensions)
 {
   // stop any video
   const auto& components = CServiceBroker::GetAppComponents();
@@ -1370,7 +1381,7 @@ void CGUIWindowSlideShow::AddItems(const std::string &strPath, path_set *recursi
   {
     std::string path(strPath);
     URIUtils::RemoveSlashAtEnd(path);
-    if (recursivePaths->find(path) != recursivePaths->end())
+    if (recursivePaths->contains(path))
       return;
     recursivePaths->insert(path);
   }
@@ -1388,11 +1399,12 @@ void CGUIWindowSlideShow::AddItems(const std::string &strPath, path_set *recursi
   for (int i = 0; i < items.Size(); i++)
   {
     CFileItemPtr item = items[i];
-    if (item->m_bIsFolder && recursivePaths)
+    if (item->IsFolder() && recursivePaths)
     {
       AddItems(item->GetPath(), recursivePaths);
     }
-    else if (!item->m_bIsFolder && !URIUtils::IsRAR(item->GetPath()) && !URIUtils::IsZIP(item->GetPath()))
+    else if (!item->IsFolder() && !URIUtils::IsRAR(item->GetPath()) &&
+             !URIUtils::IsZIP(item->GetPath()))
     { // add to the slideshow
       Add(item.get());
     }

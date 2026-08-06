@@ -24,6 +24,7 @@ enum class AddonType
   PVRDLL,
   INPUTSTREAM,
   GAMEDLL,
+  SHADERDLL,
   PERIPHERALDLL,
   SCRIPT,
   SCRIPT_WEATHER,
@@ -47,6 +48,7 @@ enum class AddonType
   RESOURCE_UISOUNDS,
   RESOURCE_GAMES,
   RESOURCE_FONT,
+  RESOURCE_SKIN,
   VFS,
   IMAGEDECODER,
   SCRAPER_LIBRARY,
@@ -75,7 +77,7 @@ class CAddonDatabaseSerializer;
 class CAddonType : public CAddonExtensions
 {
 public:
-  CAddonType(AddonType type = AddonType::UNKNOWN) : m_type(type) {}
+  explicit CAddonType(AddonType type = AddonType::UNKNOWN) : m_type(type) {}
 
   AddonType Type() const { return m_type; }
   std::string LibPath() const;
@@ -85,7 +87,7 @@ public:
   {
     return content == AddonType::UNKNOWN
                ? false
-               : m_type == content || m_providedSubContent.count(content) > 0;
+               : m_type == content || m_providedSubContent.contains(content);
   }
 
   bool ProvidesSeveralSubContents() const

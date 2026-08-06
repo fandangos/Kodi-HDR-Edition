@@ -52,6 +52,8 @@ class CStreamDetailVideo : public CStreamDetail
 public:
   CStreamDetailVideo();
   CStreamDetailVideo(const VideoStreamInfo &info, int duration = 0);
+  CStreamDetailVideo(const CStreamDetailVideo&) = default;
+  CStreamDetailVideo& operator=(const CStreamDetailVideo& that);
   void Archive(CArchive& ar) override;
   void Serialize(CVariant& value) const override;
   bool IsWorseThan(const CStreamDetail &that) const override;
@@ -68,6 +70,8 @@ public:
   unsigned long m_iFourcc;
   float m_fps;
 #endif
+  std::string m_strHdrTypeAlt;
+  std::string m_strHdrDetail;
 };
 
 class CStreamDetailAudio : public CStreamDetail
@@ -124,7 +128,7 @@ public:
   static std::string VideoDimsToResolutionDescription(int iWidth, int iHeight);
   static std::string VideoAspectToAspectDescription(float fAspect);
 
-  bool HasItems(void) const { return m_vecItems.size() > 0; }
+  bool HasItems(void) const { return !m_vecItems.empty(); }
   int GetStreamCount(CStreamDetail::StreamType type) const;
   int GetVideoStreamCount(void) const;
   int GetAudioStreamCount(void) const;
@@ -136,7 +140,8 @@ public:
   float GetVideoAspect(int idx = 0) const;
   int GetVideoWidth(int idx = 0) const;
   int GetVideoHeight(int idx = 0) const;
-  std::string GetVideoHdrType (int idx = 0) const;
+  std::string GetVideoHdrType(int idx = 0, bool alt = false) const;
+  std::string GetVideoHdrDetail(int idx = 0) const;
   int GetVideoDuration(int idx = 0) const;
   void SetVideoDuration(int idx, const int duration);
   std::string GetStereoMode(int idx = 0) const;

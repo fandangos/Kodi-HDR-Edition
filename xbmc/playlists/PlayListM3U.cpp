@@ -145,42 +145,41 @@ bool CPlayListM3U::Load(const std::string& strFileName)
              !StringUtils::StartsWith(strLine, ArtistMarker) &&
              !StringUtils::StartsWith(strLine, AlbumMarker))
     {
-      std::string strFileName = strLine;
+      std::string filePath = strLine;
 
-      if (!strFileName.empty() && strFileName[0] == '#')
+      if (!filePath.empty() && filePath[0] == '#')
         continue; // assume a comment or something else we don't support
 
       // Skip self - do not load playlist recursively
       // We compare case-less in case user has input incorrect case of the current playlist
-      if (StringUtils::EqualsNoCase(URIUtils::GetFileName(strFileName), m_strPlayListName))
+      if (StringUtils::EqualsNoCase(URIUtils::GetFileName(filePath), m_strPlayListName))
         continue;
 
-      if (strFileName.length() > 0)
+      if (!filePath.empty())
       {
         if (!utf8)
-          g_charsetConverter.unknownToUTF8(strFileName);
+          g_charsetConverter.unknownToUTF8(filePath);
 
         // If no info was read from from the extended tag information, use the file name
-        if (strInfo.length() == 0)
+        if (strInfo.empty())
         {
-          strInfo = URIUtils::GetFileName(strFileName);
+          strInfo = URIUtils::GetFileName(filePath);
         }
 
         // should substitution occur before or after charset conversion??
-        strFileName = URIUtils::SubstitutePath(strFileName);
+        filePath = URIUtils::SubstitutePath(filePath);
 
         // Get the full path file name and add it to the the play list
-        CUtil::GetQualifiedFilename(m_strBasePath, strFileName);
+        CUtil::GetQualifiedFilename(m_strBasePath, filePath);
         CFileItemPtr newItem(new CFileItem(strInfo));
-        newItem->SetPath(strFileName);
+        newItem->SetPath(filePath);
         if (iStartOffset != 0 || iEndOffset != 0)
         {
           newItem->SetStartOffset(iStartOffset);
-          newItem->m_lStartPartNumber = 1;
+          newItem->SetStartPartNumber(1);
           newItem->SetProperty("item_start", iStartOffset);
           newItem->SetEndOffset(iEndOffset);
-          // Prevent load message from file and override offset set here
-          newItem->GetMusicInfoTag()->SetLoaded();
+          newItem->SetProperty("cueloadinformation", true);
           newItem->GetMusicInfoTag()->SetTitle(strInfo);
           if (iEndOffset)
             lDuration = static_cast<int>(CUtil::ConvertMilliSecsToSecsIntRounded(iEndOffset - iStartOffset));
@@ -193,6 +192,34 @@ bool CPlayListM3U::Load(const std::string& strFileName)
         for (auto &prop : properties)
         {
           newItem->SetProperty(prop.first, prop.second);
+        }
+
+        const std::string inputSlave = newItem->GetProperty("input-slave").asString();
+
+        if (!inputSlave.empty())
+        {
+          std::vector<std::string> subtitles = StringUtils::Split(inputSlave, "#");
+
+          size_t index = 1;
+          while (newItem->HasProperty(StringUtils::Format("subtitle:{}", index)))
+            ++index;
+
+          for (std::string& subtitle : subtitles)
+          {
+            StringUtils::Trim(subtitle);
+
+            if (!subtitle.empty())
+            {
+              CUtil::GetQualifiedFilename(m_strBasePath, subtitle);
+
+              CFileItem subtitleItem(subtitle, false);
+
+              if (VIDEO::IsSubtitle(subtitleItem))
+              {
+                newItem->SetProperty(StringUtils::Format("subtitle:{}", index++), subtitle);
+              }
+            }
+          }
         }
 
         newItem->SetMimeType(newItem->GetProperty("mimetype").asString());
@@ -218,7 +245,7 @@ bool CPlayListM3U::Load(const std::string& strFileName)
 
 void CPlayListM3U::Save(const std::string& strFileName) const
 {
-  if (!m_vecItems.size())
+  if (m_vecItems.empty())
     return;
   bool utf8 = false;
   if (URIUtils::GetExtension(strFileName) == ".m3u8")

@@ -166,7 +166,7 @@ bool CMultiPathDirectory::GetPaths(const std::string& path, std::vector<std::str
 
   // URL decode each item
   paths.resize(temp.size());
-  std::transform(temp.begin(), temp.end(), paths.begin(), CURL::Decode);
+  std::ranges::transform(temp, paths.begin(), CURL::Decode);
   return true;
 }
 
@@ -242,18 +242,18 @@ void CMultiPathDirectory::MergeItems(CFileItemList &items)
     return;
   // sort items by label
   // folders are before files in this sort method
-  items.Sort(SortByLabel, SortOrderAscending);
+  items.Sort(SortBy::LABEL, SortOrder::ASCENDING);
   int i = 0;
 
   // if first item in the sorted list is a file, just abort
-  if (!items.Get(i)->m_bIsFolder)
+  if (!items.Get(i)->IsFolder())
     return;
 
   while (i + 1 < items.Size())
   {
     // there are no more folders left, so exit the loop
     CFileItemPtr pItem1 = items.Get(i);
-    if (!pItem1->m_bIsFolder)
+    if (!pItem1->IsFolder())
       break;
 
     std::vector<int> stack;

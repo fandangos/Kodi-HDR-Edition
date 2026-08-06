@@ -9,7 +9,9 @@
 #include "GUIControlGroup.h"
 
 #include "GUIMessage.h"
+#include "ServiceBroker.h"
 #include "input/mouse/MouseEvent.h"
+#include "windowing/WinSystem.h"
 
 #include <cassert>
 #include <utility>
@@ -307,7 +309,7 @@ bool CGUIControlGroup::CanFocus() const
 void CGUIControlGroup::AssignDepth()
 {
   CGUIControl* focusedControl = nullptr;
-  if (m_children.size())
+  if (!m_children.empty())
   {
     for (auto* control : m_children)
     {

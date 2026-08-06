@@ -18,9 +18,10 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUISliderControl.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/DisplaySettings.h"
 #include "settings/MediaSettings.h"
@@ -32,6 +33,7 @@
 #include "utils/Variant.h"
 #include "video/dialogs/GUIDialogAudioSettings.h"
 #include "video/guilib/VideoStreamSelectHelper.h"
+#include "windowing/WinSystem.h"
 
 using namespace KODI;
 using namespace UTILS;
@@ -68,8 +70,10 @@ bool CPlayerController::OnAction(const CAction &action)
         if (appPlayer->GetSubtitleCount() == 0)
         {
           CGUIDialogKaiToast::QueueNotification(
-              CGUIDialogKaiToast::Info, g_localizeStrings.Get(287), g_localizeStrings.Get(10005),
-              DisplTime, false, MsgTime);
+              CGUIDialogKaiToast::Info,
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(287),
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(10005), DisplTime,
+              false, MsgTime);
           return true;
         }
 
@@ -82,17 +86,26 @@ bool CPlayerController::OnAction(const CAction &action)
           SubtitleStreamInfo info;
           appPlayer->GetSubtitleStreamInfo(CURRENT_STREAM, info);
           if (!g_LangCodeExpander.Lookup(info.language, lang))
-            lang = g_localizeStrings.Get(13205); // Unknown
+            lang =
+                CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // Unknown
 
-          if (info.name.length() == 0)
+          if (info.name.empty())
             sub = lang;
           else
             sub = StringUtils::Format("{} - {}", lang, info.name);
+
+          if (!info.codecDesc.empty())
+            sub.append(StringUtils::Format(" ({})", info.codecDesc));
+          else if (!info.codecName.empty())
+            sub.append(StringUtils::Format(" ({})", info.codecName));
         }
         else
-          sub = g_localizeStrings.Get(1223);
-        CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info,
-                                              g_localizeStrings.Get(287), sub, DisplTime, false, MsgTime);
+          sub = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1223);
+
+        CGUIDialogKaiToast::QueueNotification(
+            CGUIDialogKaiToast::Info,
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(287), sub, DisplTime,
+            false, MsgTime);
         return true;
       }
 
@@ -142,16 +155,26 @@ bool CPlayerController::OnAction(const CAction &action)
           SubtitleStreamInfo info;
           appPlayer->GetSubtitleStreamInfo(currentSub, info);
           if (!g_LangCodeExpander.Lookup(info.language, lang))
-            lang = g_localizeStrings.Get(13205); // Unknown
+            lang =
+                CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // Unknown
 
-          if (info.name.length() == 0)
+          if (info.name.empty())
             sub = lang;
           else
             sub = StringUtils::Format("{} - {}", lang, info.name);
+
+          if (!info.codecDesc.empty())
+            sub.append(StringUtils::Format(" ({})", info.codecDesc));
+          else if (!info.codecName.empty())
+            sub.append(StringUtils::Format(" ({})", info.codecName));
         }
         else
-          sub = g_localizeStrings.Get(1223);
-        CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(287), sub, DisplTime, false, MsgTime);
+          sub = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1223);
+
+        CGUIDialogKaiToast::QueueNotification(
+            CGUIDialogKaiToast::Info,
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(287), sub, DisplTime,
+            false, MsgTime);
         return true;
       }
 
@@ -268,7 +291,7 @@ bool CPlayerController::OnAction(const CAction &action)
         AudioStreamInfo info;
         appPlayer->GetAudioStreamInfo(currentAudio, info);
         if (!g_LangCodeExpander.Lookup(info.language, lan))
-          lan = g_localizeStrings.Get(13205); // Unknown
+          lan = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // Unknown
 
         std::string textInfo = lan;
         if (!info.name.empty())
@@ -276,7 +299,7 @@ bool CPlayerController::OnAction(const CAction &action)
         if (!info.codecDesc.empty())
           textInfo += " (" + info.codecDesc + ")";
 
-        std::string caption = g_localizeStrings.Get(460);
+        std::string caption = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(460);
         caption += StringUtils::Format(" ({}/{})", currentAudio + 1, audioStreamCount);
         CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, caption, textInfo,
                                               DisplTime, false, MsgTime);
@@ -302,7 +325,8 @@ bool CPlayerController::OnAction(const CAction &action)
         appPlayer->SetVideoStream(currentVideo);
         VideoStreamInfo info;
         appPlayer->GetVideoStreamInfo(currentVideo, info);
-        std::string caption = g_localizeStrings.Get(38031);
+        std::string caption =
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(38031);
         caption += StringUtils::Format(" ({}/{})", currentVideo + 1, videoStreamCount);
         CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, caption, info.name, DisplTime, false, MsgTime);
         return true;
@@ -473,8 +497,11 @@ bool CPlayerController::OnAction(const CAction &action)
 
         settings->SetAlignment(align);
         CGUIDialogKaiToast::QueueNotification(
-            CGUIDialogKaiToast::Info, g_localizeStrings.Get(21460),
-            g_localizeStrings.Get(21461 + static_cast<int>(align)), TOAST_DISPLAY_TIME, false);
+            CGUIDialogKaiToast::Info,
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21460),
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                21461 + static_cast<int>(align)),
+            TOAST_DISPLAY_TIME, false);
         return true;
       }
 
@@ -484,10 +511,11 @@ bool CPlayerController::OnAction(const CAction &action)
         // Don't allow change with passthrough audio
         if (appPlayer->IsPassthrough())
         {
-          CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning,
-                                                g_localizeStrings.Get(660),
-                                                g_localizeStrings.Get(29802),
-                                                TOAST_DISPLAY_TIME, false);
+          CGUIDialogKaiToast::QueueNotification(
+              CGUIDialogKaiToast::Warning,
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(660),
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(29802),
+              TOAST_DISPLAY_TIME, false);
           return false;
         }
 
@@ -534,7 +562,8 @@ bool CPlayerController::OnAction(const CAction &action)
               playing = idx;
             idx++;
           }
-          dialog->SetHeading(CVariant{g_localizeStrings.Get(39109)});
+          dialog->SetHeading(
+              CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39109)});
           dialog->SetSelected(playing);
           dialog->Open();
           idx = dialog->GetSelectedItem();
@@ -563,7 +592,8 @@ bool CPlayerController::OnAction(const CAction &action)
               current = idx;
             idx++;
           }
-          dialog->SetHeading(CVariant{g_localizeStrings.Get(39110)});
+          dialog->SetHeading(
+              CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39110)});
           dialog->SetSelected(current);
           dialog->Open();
           idx = dialog->GetSelectedItem();
@@ -587,7 +617,9 @@ void CPlayerController::ShowSlider(int action, int label, float value, float min
 {
   m_sliderAction = action;
   if (modal)
-    CGUIDialogSlider::ShowAndGetInput(g_localizeStrings.Get(label), value, min, delta, max, this);
+    CGUIDialogSlider::ShowAndGetInput(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(label), value, min, delta,
+        max, this);
   else
     CGUIDialogSlider::Display(label, value, min, delta, max, this);
 }

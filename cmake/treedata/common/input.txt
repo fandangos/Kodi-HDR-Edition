@@ -1,6 +1,7 @@
 xbmc/input                                      input
 xbmc/input/actions                              input/actions
 xbmc/input/actions/interfaces                   input/actions/interfaces
+xbmc/input/cec                                  input/cec
 xbmc/input/hardware                             input/hardware
 xbmc/input/joysticks                            input/joysticks
 xbmc/input/joysticks/dialogs                    input/joysticks/dialogs
@@ -20,4 +21,3 @@ xbmc/input/keymaps/touch                        input/keymaps/touch
 xbmc/input/mouse                                input/mouse
 xbmc/input/mouse/generic                        input/mouse/generic
 xbmc/input/mouse/interfaces                     input/mouse/interfaces
-xbmc/input/remote                               input/remote

@@ -24,7 +24,6 @@
 #include "filesystem/VideoDatabaseFile.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "interfaces/AnnouncementManager.h"
@@ -34,6 +33,8 @@
 #include "music/tags/MusicInfoTag.h"
 #include "playlists/PlayList.h"
 #include "playlists/PlayListFileItemClassify.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
@@ -198,7 +199,10 @@ bool CPlayListPlayer::PlayNext(int offset, bool bAutoPlay)
   if ((iSong < 0) || (iSong >= playlist.size()) || (playlist.GetPlayable() <= 0))
   {
     if(!bAutoPlay)
-      CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(559), g_localizeStrings.Get(34201));
+      CGUIDialogKaiToast::QueueNotification(
+          CGUIDialogKaiToast::Info,
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(559),
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(34201));
 
     CGUIMessage msg(GUI_MSG_PLAYLISTPLAYER_STOPPED, 0, 0, static_cast<int>(m_iCurrentPlayList),
                     m_iCurrentSong);
@@ -212,7 +216,7 @@ bool CPlayListPlayer::PlayNext(int offset, bool bAutoPlay)
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
   const std::string player = appPlayer->GetName();
 
-  return Play(iSong, player, false);
+  return Play(iSong, player);
 }
 
 bool CPlayListPlayer::PlayPrevious()
@@ -231,7 +235,10 @@ bool CPlayListPlayer::PlayPrevious()
 
   if (iSong < 0 || playlist.size() <= 0)
   {
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(559), g_localizeStrings.Get(34202));
+    CGUIDialogKaiToast::QueueNotification(
+        CGUIDialogKaiToast::Info,
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(559),
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(34202));
     return false;
   }
 
@@ -274,9 +281,7 @@ bool CPlayListPlayer::PlayItemIdx(int itemIdx)
   return Play();
 }
 
-bool CPlayListPlayer::Play(const CFileItemPtr& pItem,
-                           const std::string& player,
-                           bool forceSelection /* = false */)
+bool CPlayListPlayer::Play(const CFileItemPtr& pItem, const std::string& player)
 {
   Id playlistId;
   bool isVideo{IsVideo(*pItem)};
@@ -315,14 +320,13 @@ bool CPlayListPlayer::Play(const CFileItemPtr& pItem,
   SetCurrentPlaylist(playlistId);
   Add(playlistId, pItem);
 
-  return Play(0, player, false, false, forceSelection);
+  return Play(0, player, false, false);
 }
 
 bool CPlayListPlayer::Play(int iSong,
                            const std::string& player,
                            bool bAutoPlay /* = false */,
-                           bool bPlayPrevious /* = false */,
-                           bool forceSelection /* = false */)
+                           bool bPlayPrevious /* = false */)
 {
   if (m_iCurrentPlayList == Id::TYPE_NONE)
     return false;
@@ -354,7 +358,7 @@ bool CPlayListPlayer::Play(int iSong,
   m_bPlaybackStarted = false;
 
   const auto playAttempt = std::chrono::steady_clock::now();
-  bool ret = g_application.PlayFile(*item, player, bAutoPlay, forceSelection);
+  bool ret = g_application.PlayFile(*item, player, bAutoPlay);
   if (!ret)
   {
     CLog::Log(LOGERROR, "Playlist Player: skipping unplayable item: {}, path [{}]", m_iCurrentSong,
@@ -558,7 +562,7 @@ void CPlayListPlayer::SetShuffle(Id playlistId, bool bYesNo, bool bNotify /* = f
     int iOrder = -1;
     CPlayList& playlist = GetPlaylist(playlistId);
     if (m_iCurrentSong >= 0 && m_iCurrentSong < playlist.size())
-      iOrder = playlist[m_iCurrentSong]->m_iprogramCount;
+      iOrder = playlist[m_iCurrentSong]->GetProgramCount();
 
     // shuffle or unshuffle as necessary
     if (bYesNo)
@@ -568,10 +572,13 @@ void CPlayListPlayer::SetShuffle(Id playlistId, bool bYesNo, bool bNotify /* = f
 
     if (bNotify)
     {
-      std::string shuffleStr =
-          StringUtils::Format("{}: {}", g_localizeStrings.Get(191),
-                              g_localizeStrings.Get(bYesNo ? 593 : 591)); // Shuffle: All/Off
-      CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(559),  shuffleStr);
+      std::string shuffleStr = StringUtils::Format(
+          "{}: {}", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(191),
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+              bYesNo ? 593 : 591)); // Shuffle: All/Off
+      CGUIDialogKaiToast::QueueNotification(
+          CGUIDialogKaiToast::Info,
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(559), shuffleStr);
     }
 
     // find the previous order value and fix the current song marker
@@ -626,7 +633,10 @@ void CPlayListPlayer::SetRepeat(Id playlistId, RepeatState state, bool bNotify /
       iLocalizedString = 596; // Repeat: One
     else
       iLocalizedString = 597; // Repeat: All
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(559), g_localizeStrings.Get(iLocalizedString));
+    CGUIDialogKaiToast::QueueNotification(
+        CGUIDialogKaiToast::Info,
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(559),
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(iLocalizedString));
   }
 
   m_repeatState[playlistId] = state;
@@ -947,7 +957,14 @@ void PLAYLIST::CPlayListPlayer::OnApplicationMessage(KODI::MESSAGING::ThreadMess
     {
       // Discard the current playlist, if TMSG_MEDIA_PLAY gets posted with just a single item.
       // Otherwise items may fail to play, when started while a playlist is playing.
-      Reset();
+      // But a single item in a stack is allowed.
+      if (m_iCurrentPlayList != Id::TYPE_NONE)
+      {
+
+        CPlayList& playlist{GetPlaylist(m_iCurrentPlayList)};
+        if (!URIUtils::IsStack(playlist[m_iCurrentSong]->GetDynPath()))
+          Reset();
+      }
 
       CFileItem *item = static_cast<CFileItem*>(pMsg->lpVoid);
       // TEMPORARY: whether the application thread gets this far, and back out again, brackets

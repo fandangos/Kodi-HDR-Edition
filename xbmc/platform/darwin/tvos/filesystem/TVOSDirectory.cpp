@@ -80,7 +80,7 @@ bool CTVOSDirectory::GetDirectory(const CURL& url, CFileItemList& items)
   {
     CFileItemPtr pItem(new CFileItem(URIUtils::GetFileName(path)));
     // we only save files to persistent storage
-    pItem->m_bIsFolder = false;
+    pItem->SetFolder(false);
     // path must a full path, with no protocol
     // or they will not get intercepted in CFileFactory
     pItem->SetPath(path);
@@ -95,9 +95,9 @@ bool CTVOSDirectory::GetDirectory(const CURL& url, CFileItemList& items)
         KODI::TIME::FileTime fileTime, localTime;
         KODI::TIME::TimeTToFileTime(buffer.st_mtime, &fileTime);
         KODI::TIME::FileTimeToLocalFileTime(&fileTime, &localTime);
-        pItem->m_dateTime = localTime;
+        pItem->SetDateTime(localTime);
         // all this to get the file size
-        pItem->m_dwSize = buffer.st_size;
+        pItem->SetSize(buffer.st_size);
       }
     }
     items.Add(pItem);

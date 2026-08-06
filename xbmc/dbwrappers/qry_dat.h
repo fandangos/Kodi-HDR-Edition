@@ -12,15 +12,17 @@
 
 #pragma once
 
-#include <iostream>
-#include <stdint.h>
+#include <cstdint>
+#include <ostream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace dbiplus
 {
 
-enum fType
+enum class fType
 {
   ft_String,
   ft_Boolean,
@@ -62,7 +64,7 @@ private:
     void* object_value;
   };
 
-  bool is_null;
+  bool is_null{false};
 
 public:
   field_value();
@@ -153,9 +155,10 @@ public:
   field_value& operator=(const field_value& fv);
   field_value& operator=(field_value&& fv) noexcept;
 
-  //class ostream;
+  // class ostream
   friend std::ostream& operator<<(std::ostream& os, const field_value& fv)
   {
+    using enum dbiplus::fType;
     switch (fv.get_fType())
     {
       case ft_String:
@@ -219,7 +222,7 @@ public:
   void set_isNull() { is_null = true; }
   void set_asString(const char* s);
   void set_asString(const char* s, std::size_t len);
-  void set_asString(const std::string& s);
+  void set_asString(std::string_view s);
   void set_asString(std::string&& s);
   void set_asBool(const bool b);
   void set_asChar(const char c);
@@ -231,8 +234,8 @@ public:
   void set_asDouble(const double d);
   void set_asInt64(const int64_t i);
 
-  fType get_field_type();
-  std::string gft();
+  fType get_field_type() const;
+  std::string_view gft() const;
 };
 
 struct field_prop
@@ -246,22 +249,22 @@ struct field
   field_value val;
 };
 
-typedef std::vector<field> Fields;
-typedef std::vector<field_value> sql_record;
-typedef std::vector<field_prop> record_prop;
-typedef std::vector<sql_record*> query_data;
-typedef field_value variant;
+using Fields = std::vector<field>;
+using sql_record = std::vector<field_value>;
+using record_prop = std::vector<field_prop>;
+using query_data = std::vector<sql_record*>;
+using variant = field_value;
 
 class result_set
 {
 public:
   result_set() = default;
-  ~result_set() { clear(); };
+  ~result_set() { clear(); }
   void clear()
   {
-    for (unsigned int i = 0; i < records.size(); i++)
-      if (records[i])
-        delete records[i];
+    for (const auto* record : records)
+      if (record)
+        delete record;
     records.clear();
     record_header.clear();
   };

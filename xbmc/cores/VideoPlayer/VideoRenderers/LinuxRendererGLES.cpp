@@ -8,15 +8,15 @@
 
 #include "LinuxRendererGLES.h"
 
-#include "RenderCapture.h"
-#include "RenderCaptureGLES.h"
 #include "RenderFactory.h"
 #include "ServiceBroker.h"
 #include "VideoShaders/VideoFilterShaderGLES.h"
 #include "VideoShaders/YUV2RGBShaderGLES.h"
+#include "VideoShaders/dither.h"
 #include "application/Application.h"
 #include "cores/IPlayer.h"
 #include "guilib/Texture.h"
+#include "rendering/GLExtensions.h"
 #include "rendering/MatrixGL.h"
 #include "rendering/gles/RenderSystemGLES.h"
 #include "settings/AdvancedSettings.h"
@@ -25,6 +25,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/GLUtils.h"
+#include "utils/HDRUtils.h"
 #include "utils/MathUtils.h"
 #include "utils/log.h"
 #include "windowing/WinSystem.h"
@@ -42,8 +43,61 @@ CLinuxRendererGLES::CLinuxRendererGLES()
 
   m_renderSystem = dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
 
+  std::tie(m_useDithering, m_ditherDepth) = CServiceBroker::GetWinSystem()->GetDitherSettings();
+  if (m_useDithering)
+  {
+    if (m_renderSystem && !m_renderSystem->IsExtSupported("GL_EXT_texture_norm16"))
+    {
+      CLog::Log(LOGWARNING,
+                "GLES: dithering requested but GL_EXT_texture_norm16 not supported, disabling");
+      m_useDithering = false;
+    }
+    else
+    {
+#if defined(GL_R16_EXT)
+      glGenTextures(1, &m_ditherTex);
+      glActiveTexture(GL_TEXTURE3);
+      glBindTexture(GL_TEXTURE_2D, m_ditherTex);
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_R16_EXT, dither_size, dither_size, 0, GL_RED,
+                   GL_UNSIGNED_SHORT, dither_matrix);
+      glActiveTexture(GL_TEXTURE0);
+      if (m_ditherDepth == 0)
+        CLog::Log(LOGDEBUG, "GLES: dithering auto");
+      else
+        CLog::Log(LOGDEBUG, "GLES: dithering enabled, depth={}", m_ditherDepth);
+#else
+      // GL_EXT_texture_norm16 not exposed by this GL header (e.g. iOS):
+      // no 16-bit single-channel format available for the dither texture.
+      CLog::Log(LOGWARNING, "GLES: GL_R16_EXT undefined at build time; dithering disabled");
+      m_useDithering = false;
+#endif
+    }
+  }
+
+#if defined(GL_ES_VERSION_3_0)
+  int32_t intermediatePrecision = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_VIDEOPLAYER_HQSCALERPRECISION);
+  if (intermediatePrecision == 16)
+  {
+    m_intermediateFormat = GL_RGBA16F;
+    m_intermediateType = GL_FLOAT;
+  }
+  else if (intermediatePrecision == 10)
+  {
+    m_intermediateFormat = GL_RGB10_A2;
+    m_intermediateType = GL_UNSIGNED_INT_2_10_10_10_REV;
+  }
+  CLog::Log(LOGDEBUG, "GLES: HQ scaler precision={}, intermediate format={:#x}",
+            intermediatePrecision, static_cast<unsigned>(m_intermediateFormat));
+#endif
+
 #if defined (GL_UNPACK_ROW_LENGTH_EXT)
-  if (m_renderSystem->IsExtSupported("GL_EXT_unpack_subimage"))
+  if (CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_unpack_subimage))
   {
     m_pixelStoreKey = GL_UNPACK_ROW_LENGTH_EXT;
   }
@@ -55,6 +109,9 @@ CLinuxRendererGLES::~CLinuxRendererGLES()
   UnInit();
 
   ReleaseShaders();
+
+  if (m_ditherTex)
+    glDeleteTextures(1, &m_ditherTex);
 
   free(m_planeBuffer);
   m_planeBuffer = nullptr;
@@ -84,7 +141,10 @@ bool CLinuxRendererGLES::ValidateRenderTarget()
       DeleteTexture(i);
     }
 
-     // create the yuv textures
+    // trigger update of video filters
+    m_scalingMethodGui = VS_SCALINGMETHOD_MAX;
+
+    // create the yuv textures
     UpdateVideoFilter();
     LoadShaders();
 
@@ -93,7 +153,7 @@ bool CLinuxRendererGLES::ValidateRenderTarget()
       return false;
     }
 
-    for (int i = 0 ; i < m_NumYV12Buffers ; i++)
+    for (int i = 0; i < m_NumYUVBuffers; i++)
     {
       CreateTexture(i);
     }
@@ -108,13 +168,30 @@ bool CLinuxRendererGLES::ValidateRenderTarget()
 
 bool CLinuxRendererGLES::Configure(const VideoPicture &picture, float fps, unsigned int orientation)
 {
-  CLog::Log(LOGDEBUG, "LinuxRendererGLES::Configure: fps: {:0.3f}", fps);
+  auto colorimetry = KODI::UTILS::GetColorimetry(picture);
+  bool inferred = (picture.color_space == AVCOL_SPC_UNSPECIFIED);
+  CLog::Log(LOGDEBUG,
+            "LinuxRendererGLES::Configure: fps: {:0.3f}, {}x{}, colorimetry: {}{}, {}bit, {} range",
+            fps, picture.iWidth, picture.iHeight, KODI::UTILS::ColorimetryToString(colorimetry),
+            inferred ? " (inferred)" : "", picture.colorBits,
+            picture.color_range == 1 ? "full" : "limited");
   m_format = picture.videoBuffer->GetFormat();
+
+  // CPU-upload renderer: HWACCEL pix_fmts (e.g. AV_PIX_FMT_DRM_PRIME) have no host planes.
+  if (GetShaderFormat() == SHADER_NONE)
+  {
+    CLog::Log(LOGDEBUG, "LinuxRendererGLES::Configure: refusing unsupported pix_fmt {}",
+              m_format == AV_PIX_FMT_NONE ? "none" : av_get_pix_fmt_name(m_format));
+    return false;
+  }
+
   m_sourceWidth = picture.iWidth;
   m_sourceHeight = picture.iHeight;
   m_renderOrientation = orientation;
 
   m_srcPrimaries = picture.color_primaries;
+  m_srcColorBits = picture.colorBits;
+  m_srcFullRange = picture.color_range == 1;
   m_toneMap = false;
 
   // Calculate the input frame aspect ratio.
@@ -123,22 +200,27 @@ bool CLinuxRendererGLES::Configure(const VideoPicture &picture, float fps, unsig
   ManageRenderArea();
 
   m_bConfigured = true;
-  m_scalingMethodGui = (ESCALINGMETHOD)-1;
+  m_scalingMethodGui = VS_SCALINGMETHOD_MAX;
+  m_scalingMethod = m_videoSettings.m_ScalingMethod;
 
   // Ensure that textures are recreated and rendering starts only after the 1st
   // frame is loaded after every call to Configure().
   m_bValidated = false;
 
-  // setup the background colour
-  m_clearColour = CServiceBroker::GetWinSystem()->UseLimitedColor() ? (16.0f / 0xff) : 0.0f;
+  if (!CServiceBroker::GetWinSystem()->SetVideoOutput(&picture))
+    CLog::Log(LOGWARNING, "LinuxRendererGLES::Configure: SetVideoOutput failed");
 
-  if (picture.color_transfer == AVCOL_TRC_SMPTE2084 ||
-      picture.color_transfer == AVCOL_TRC_ARIB_STD_B67)
-  {
-    m_passthroughHDR = CServiceBroker::GetWinSystem()->SetHDR(&picture);
-    CLog::Log(LOGDEBUG, "LinuxRendererGLES::Configure: HDR passthrough: {}",
-              m_passthroughHDR ? "on" : "off");
-  }
+  CServiceBroker::GetWinSystem()->SetColorimetry(&picture);
+
+  m_passthroughHDR = CServiceBroker::GetWinSystem()->SetHDR(&picture);
+  CLog::Log(LOGDEBUG, "LinuxRendererGLES::Configure: HDR passthrough: {}",
+            m_passthroughHDR ? "on" : "off");
+
+  m_hdrFboActive =
+      m_passthroughHDR && CServiceBroker::GetWinSystem()->SetGuiCompositing(picture.color_transfer);
+  if (m_passthroughHDR && !m_hdrFboActive)
+    CLog::Log(LOGWARNING, "LinuxRendererGLES::Configure: HDR passthrough active but GUI "
+                          "compositing not supported by windowing system");
 
   return true;
 }
@@ -153,9 +235,9 @@ bool CLinuxRendererGLES::ConfigChanged(const VideoPicture &picture)
   return false;
 }
 
-int CLinuxRendererGLES::NextYV12Texture()
+int CLinuxRendererGLES::NextYUVTexture()
 {
-  return (m_iYV12RenderBuffer + 1) % m_NumYV12Buffers;
+  return (m_iYUVRenderBuffer + 1) % m_NumYUVBuffers;
 }
 
 void CLinuxRendererGLES::AddVideoPicture(const VideoPicture &picture, int index)
@@ -286,7 +368,7 @@ void CLinuxRendererGLES::LoadPlane(CYuvPlane& plane, int type,
     if (m_pixelStoreKey > 0)
     {
       pixelStoreChanged = true;
-      glPixelStorei(m_pixelStoreKey, stride);
+      glPixelStorei(m_pixelStoreKey, stride / bps);
     }
     else
     {
@@ -306,7 +388,8 @@ void CLinuxRendererGLES::LoadPlane(CYuvPlane& plane, int type,
       pixelData = m_planeBuffer;
     }
   }
-  glTexSubImage2D(m_textureTarget, 0, 0, 0, width, height, type, GL_UNSIGNED_BYTE, pixelData);
+  GLenum datatype = (bpp == 2) ? GL_UNSIGNED_SHORT : GL_UNSIGNED_BYTE;
+  glTexSubImage2D(m_textureTarget, 0, 0, 0, width, height, type, datatype, pixelData);
 
   if (m_pixelStoreKey > 0 && pixelStoreChanged)
     glPixelStorei(m_pixelStoreKey, 0);
@@ -314,17 +397,13 @@ void CLinuxRendererGLES::LoadPlane(CYuvPlane& plane, int type,
   // check if we need to load any border pixels
   if (height < plane.texheight)
   {
-    glTexSubImage2D(m_textureTarget, 0,
-                    0, height, width, 1,
-                    type, GL_UNSIGNED_BYTE,
+    glTexSubImage2D(m_textureTarget, 0, 0, height, width, 1, type, datatype,
                     static_cast<const unsigned char*>(pixelData) + stride * (height - 1));
   }
 
   if (width  < plane.texwidth)
   {
-    glTexSubImage2D(m_textureTarget, 0,
-                    width, 0, 1, height,
-                    type, GL_UNSIGNED_BYTE,
+    glTexSubImage2D(m_textureTarget, 0, width, 0, 1, height, type, datatype,
                     static_cast<const unsigned char*>(pixelData) + bps * (width - 1));
   }
 
@@ -335,7 +414,7 @@ bool CLinuxRendererGLES::Flush(bool saveBuffers)
 {
   glFinish();
 
-  for (int i = 0 ; i < m_NumYV12Buffers ; i++)
+  for (int i = 0; i < m_NumYUVBuffers; i++)
   {
     DeleteTexture(i);
   }
@@ -343,7 +422,7 @@ bool CLinuxRendererGLES::Flush(bool saveBuffers)
   glFinish();
   m_bValidated = false;
   m_fbo.fbo.Cleanup();
-  m_iYV12RenderBuffer = 0;
+  m_iYUVRenderBuffer = 0;
 
   return false;
 }
@@ -396,7 +475,7 @@ void CLinuxRendererGLES::ClearBackBufferQuad()
   GLint uniCol = m_renderSystem->GUIShaderGetUniCol();
   GLint depthLoc = m_renderSystem->GUIShaderGetDepth();
 
-  glUniform4f(uniCol, m_clearColour / 255.0f, m_clearColour / 255.0f, m_clearColour / 255.0f, 1.0f);
+  glUniform4f(uniCol, 0.0f, 0.0f, 0.0f, 1.0f);
   glUniform1f(depthLoc, -1);
 
   GLuint vertexVBO;
@@ -460,7 +539,7 @@ void CLinuxRendererGLES::DrawBlackBars()
   GLint uniCol = renderSystem->GUIShaderGetUniCol();
   GLint depthLoc = m_renderSystem->GUIShaderGetDepth();
 
-  glUniform4f(uniCol, m_clearColour / 255.0f, m_clearColour / 255.0f, m_clearColour / 255.0f, 1.0f);
+  glUniform4f(uniCol, 0.0f, 0.0f, 0.0f, 1.0f);
   glUniform1f(depthLoc, -1);
 
   GLuint vertexVBO;
@@ -482,7 +561,7 @@ void CLinuxRendererGLES::DrawBlackBars()
 
 void CLinuxRendererGLES::RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha)
 {
-  m_iYV12RenderBuffer = index;
+  m_iYUVRenderBuffer = index;
 
   if (!m_bConfigured)
   {
@@ -561,14 +640,50 @@ void CLinuxRendererGLES::RenderUpdate(int index, int index2, bool clear, unsigne
 void CLinuxRendererGLES::RenderUpdateVideo(bool clear, unsigned int flags, unsigned int alpha)
 {
   if (!m_bConfigured)
-  {
     return;
-  }
 
   if (IsGuiLayer())
-  {
     return;
+
+  int index = m_iYUVRenderBuffer;
+  CPictureBuffer& buf = m_buffers[index];
+
+  if (!buf.fields[FIELD_FULL][0].id)
+    return;
+
+  ManageRenderArea();
+
+  if (clear)
+  {
+    if (alpha == 255)
+      DrawBlackBars();
+    else
+      ClearBackBuffer();
   }
+
+  if (alpha < 255)
+  {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (m_pYUVProgShader)
+      m_pYUVProgShader->SetAlpha(alpha / 255.0f);
+    if (m_pYUVBobShader)
+      m_pYUVBobShader->SetAlpha(alpha / 255.0f);
+  }
+  else
+  {
+    glDisable(GL_BLEND);
+    if (m_pYUVProgShader)
+      m_pYUVProgShader->SetAlpha(1.0f);
+    if (m_pYUVBobShader)
+      m_pYUVBobShader->SetAlpha(1.0f);
+  }
+
+  if (!Render(flags, index) && clear)
+    ClearBackBuffer();
+
+  VerifyGLState();
+  glEnable(GL_BLEND);
 }
 
 void CLinuxRendererGLES::UpdateVideoFilter()
@@ -578,18 +693,28 @@ void CLinuxRendererGLES::UpdateVideoFilter()
   CRect viewRect;
   GetVideoRect(srcRect, dstRect, viewRect);
 
+  // TODO: ValidateRenderTarget runs before the display resolution is established
+  // (the WHITELIST/resolution ADJUST happens ~500ms after the first RenderUpdate).
+  // This causes UpdateVideoFilter to be called with a 0x0 viewport. The proper fix
+  // is in CRenderManager to defer rendering until the resolution is ready.
+  if (viewRect.Height() == 0 || viewRect.Width() == 0)
+    return;
+
+  // TODO: GL also checks nonLinStretchChanged and cmsChanged in the early exit
+  // and the reload check below. Add when non-linear stretch and CMS are ported to GLES.
   if (m_scalingMethodGui == m_videoSettings.m_ScalingMethod &&
-      viewRect.Height() == m_viewRect.Height() &&
-      viewRect.Width() == m_viewRect.Width())
+      viewRect.Height() == m_lastViewRect.Height() && viewRect.Width() == m_lastViewRect.Width())
   {
     return;
   }
 
-  m_scalingMethodGui = m_videoSettings.m_ScalingMethod;
-  if (m_scalingMethod != m_scalingMethodGui)
+  // Viewport-only change doesn't need shader reload -- only method changes do
+  if (m_scalingMethod != m_videoSettings.m_ScalingMethod)
     m_reloadShaders = true;
+
+  m_scalingMethodGui = m_videoSettings.m_ScalingMethod;
   m_scalingMethod = m_scalingMethodGui;
-  m_viewRect = viewRect;
+  m_lastViewRect = viewRect;
 
   if(!Supports(m_scalingMethod))
   {
@@ -610,24 +735,58 @@ void CLinuxRendererGLES::UpdateVideoFilter()
 
   VerifyGLState();
 
+  if (m_scalingMethod == VS_SCALINGMETHOD_AUTO)
+  {
+    bool scaleSD = m_sourceHeight < 720 && m_sourceWidth < 1280;
+    bool scaleUp =
+        (int)m_sourceHeight < m_viewRect.Height() && (int)m_sourceWidth < m_viewRect.Width();
+    bool scaleFps =
+        m_fps <
+        CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoAutoScaleMaxFps +
+            0.01f;
+
+    if (Supports(VS_SCALINGMETHOD_LANCZOS3_FAST) && scaleSD && scaleUp && scaleFps)
+      m_scalingMethod = VS_SCALINGMETHOD_LANCZOS3_FAST;
+    else
+      m_scalingMethod = VS_SCALINGMETHOD_LINEAR;
+  }
+
   switch (m_scalingMethod)
   {
   case VS_SCALINGMETHOD_NEAREST:
+  case VS_SCALINGMETHOD_LINEAR:
   {
-    CLog::Log(LOGINFO, "GLES: Selecting single pass rendering");
-    SetTextureFilter(GL_NEAREST);
+    // TODO: GL creates DefaultFilterShader here (or StretchFilterShader for
+    // non-linear stretch). Add when non-linear stretch is ported to GLES.
+    SetTextureFilter(m_scalingMethod == VS_SCALINGMETHOD_NEAREST ? GL_NEAREST : GL_LINEAR);
     m_renderQuality = RQ_SINGLEPASS;
     return;
   }
-  case VS_SCALINGMETHOD_LINEAR:
   case VS_SCALINGMETHOD_LANCZOS3_FAST:
   case VS_SCALINGMETHOD_SPLINE36_FAST:
   {
-    CLog::Log(LOGINFO, "GLES: Selecting single pass rendering");
-    SetTextureFilter(GL_LINEAR);
-    m_renderQuality = RQ_SINGLEPASS;
-    return;
+    // On GLES 3.1+, FAST scalers use a single-pass combined YUV+convolution shader
+    // (YUV2RGBFilterShader with textureGather). On lower versions, fall through to
+    // multi-pass FBO path. Matches GL 4.0+ single-pass / GL <4.0 multi-pass pattern.
+    // On GLES, VAAPI maps to SHADER_NV12_RRG (GL maps it to SHADER_NV12).
+    // Only patterns the filter shader implements may pass: >8-bit planar
+    // (XBMC_YV12_HI) has no sampling block there and takes the multipass path.
+    EShaderFormat fmt = GetShaderFormat();
+    if (fmt == SHADER_NV12 || fmt == SHADER_NV12_RRG || fmt == SHADER_YV12)
+    {
+      uint32_t major, minor;
+      m_renderSystem->GetRenderVersion(major, minor);
+      if (major >= 3 && minor >= 1)
+      {
+        SetTextureFilter(GL_LINEAR);
+        m_renderQuality = RQ_SINGLEPASS;
+        return;
+      }
+    }
+
+    [[fallthrough]];
   }
+
   case VS_SCALINGMETHOD_LANCZOS2:
   case VS_SCALINGMETHOD_SPLINE36:
   case VS_SCALINGMETHOD_LANCZOS3:
@@ -645,20 +804,67 @@ void CLinuxRendererGLES::UpdateVideoFilter()
         break;
       }
 
-      if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight, GL_RGBA))
+      // m_intermediateFormat and m_intermediateType are set in the constructor from
+      // hqscalerprecision setting. Try requested format first, fall back to GL_RGBA
+      // if unsupported (e.g. GLES 2.0 context where GL_RGB10_A2 / GL_RGBA16F are
+      // not available).
+      if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight,
+                                            m_intermediateFormat, m_intermediateType, GL_NEAREST))
       {
-        CLog::Log(LOGERROR, "GLES: Error creating texture and binding to FBO");
-        break;
+        if (m_intermediateFormat != GL_RGBA)
+        {
+          m_intermediateFormat = GL_RGBA;
+          m_intermediateType = GL_UNSIGNED_BYTE;
+          if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight,
+                                                GL_RGBA))
+          {
+            CLog::Log(LOGERROR, "GLES: Error creating texture and binding to FBO");
+            break;
+          }
+        }
+        else
+        {
+          CLog::Log(LOGERROR, "GLES: Error creating texture and binding to FBO");
+          break;
+        }
       }
     }
 
-    m_pVideoFilterShader = new ConvolutionFilterShader(m_scalingMethod);
+    // TODO: GL also passes m_nonLinStretch, m_intermediateGammaCorrection.
+    // Add when non-linear stretch and gamma correction are ported to GLES.
+    m_pVideoFilterShader = new ConvolutionFilterShader(m_scalingMethod, m_useDithering);
     if (!m_pVideoFilterShader->CompileAndLink())
     {
       CLog::Log(LOGERROR, "GLES: Error compiling and linking video filter shader");
       break;
     }
 
+    if (m_useDithering && m_ditherTex)
+    {
+      bool ditherActive = true;
+      unsigned int effectiveDitherDepth = m_ditherDepth;
+      if (m_ditherDepth == 0)
+      {
+        GLint redBits = 0;
+        glGetIntegerv(GL_RED_BITS, &redBits);
+        // Use framebuffer depth on HDR displays; assume 8-bit on SDR displays
+        // since the CRTC or display will truncate to 8-bit regardless of BO depth.
+        if (CServiceBroker::GetWinSystem()->IsHDRDisplay())
+          effectiveDitherDepth = (redBits > 0) ? redBits : 8;
+        else
+          effectiveDitherDepth = 8;
+
+        float scaleFactor = ScalingAboveThreshold();
+        bool downscaling = scaleFactor > 0.0f && scaleFactor < 1.0f;
+        ditherActive = (m_srcFullRange != m_fullRange) || m_srcColorBits > effectiveDitherDepth ||
+                       m_toneMap || downscaling;
+      }
+      static_cast<ConvolutionFilterShader*>(m_pVideoFilterShader)
+          ->SetDitherUniforms(ditherActive, m_ditherTex, effectiveDitherDepth, dither_size);
+    }
+
+    CLog::Log(LOGINFO, "GLES: FBO intermediate format {:#x}",
+              static_cast<unsigned>(m_intermediateFormat));
     CLog::Log(LOGINFO, "GLES: Selecting multi pass rendering");
     SetTextureFilter(GL_LINEAR);
     m_renderQuality = RQ_MULTIPASS;
@@ -685,13 +891,20 @@ void CLinuxRendererGLES::UpdateVideoFilter()
 
   m_fbo.fbo.Cleanup();
 
+  m_pVideoFilterShader = new DefaultFilterShader();
+  if (!m_pVideoFilterShader->CompileAndLink())
+  {
+    CLog::Log(LOGERROR, "CLinuxRendererGLES::UpdateVideoFilter: Error compiling and linking "
+                        "default video filter shader");
+  }
+
   SetTextureFilter(GL_LINEAR);
   m_renderQuality = RQ_SINGLEPASS;
 }
 
 void CLinuxRendererGLES::LoadShaders(int field)
 {
-  m_reloadShaders = 0;
+  m_reloadShaders = false;
 
   if (!LoadShadersHook())
   {
@@ -708,33 +921,89 @@ void CLinuxRendererGLES::LoadShaders(int field)
         // Try GLSL shaders if supported and user requested auto or GLSL.
         if (glCreateProgram())
         {
-          // create regular scan shader
-          CLog::Log(LOGINFO, "GLES: Selecting YUV 2 RGB shader");
+          // Auto dithering (depth=0): decide per-video whether dithering is beneficial.
+          // Shaders are always compiled with XBMC_DITHER when the setting is on.
+          // The m_ditherEnabled uniform controls whether the shader applies dithering.
+          bool ditherActive = true;
+          unsigned int effectiveDitherDepth = m_ditherDepth;
+
+          if (m_ditherDepth == 0 && m_ditherTex)
+          {
+            GLint redBits = 0;
+            glGetIntegerv(GL_RED_BITS, &redBits);
+            if (CServiceBroker::GetWinSystem()->IsHDRDisplay())
+              effectiveDitherDepth = (redBits > 0) ? redBits : 8;
+            else
+              effectiveDitherDepth = 8;
+
+            float scaleFactor = ScalingAboveThreshold();
+            bool downscaling = scaleFactor > 0.0f && scaleFactor < 1.0f;
+            ditherActive = (m_srcFullRange != m_fullRange) ||
+                           m_srcColorBits > effectiveDitherDepth || m_toneMap || downscaling;
+
+            CLog::Log(LOGDEBUG,
+                      "GLES: auto dither {} (depth={}, source={}bit, "
+                      "rangeMismatch={}, toneMap={}, downscaling={})",
+                      ditherActive ? "on" : "off", effectiveDitherDepth, m_srcColorBits,
+                      m_srcFullRange != m_fullRange, m_toneMap, downscaling);
+          }
 
           EShaderFormat shaderFormat = GetShaderFormat();
           m_toneMapMethod = m_videoSettings.m_ToneMapMethod;
-          if (m_scalingMethod == VS_SCALINGMETHOD_LANCZOS3_FAST ||
-              m_scalingMethod == VS_SCALINGMETHOD_SPLINE36_FAST)
+
+          // Try single-pass filter shader for FAST scalers on GLES 3.1+
+          if (m_renderQuality == RQ_SINGLEPASS &&
+              (m_scalingMethod == VS_SCALINGMETHOD_LANCZOS3_FAST ||
+               m_scalingMethod == VS_SCALINGMETHOD_SPLINE36_FAST))
           {
             m_pYUVProgShader = new YUV2RGBFilterShader(
                 shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
-                m_srcPrimaries, m_toneMap, m_toneMapMethod, m_scalingMethod);
+                m_srcPrimaries, m_toneMap, m_toneMapMethod, m_scalingMethod, m_useDithering);
+            // TODO: GL gates this on !m_cmsOn. Add when CMS is ported to GLES.
+            m_pYUVProgShader->SetConvertFullColorRange(m_fullRange);
+
+            CLog::Log(LOGINFO, "GLES: Selecting YUV 2 RGB shader with filter");
+
+            if (m_pYUVProgShader->CompileAndLink())
+            {
+              if (m_useDithering && m_ditherTex)
+                m_pYUVProgShader->SetDitherUniforms(ditherActive, m_ditherTex, effectiveDitherDepth,
+                                                    dither_size);
+              m_renderMethod = RENDER_GLSL;
+              UpdateVideoFilter();
+              break;
+            }
+            else
+            {
+              CLog::Log(LOGERROR, "GLES: Error enabling YUV2RGB GLSL shader");
+              delete m_pYUVProgShader;
+              m_pYUVProgShader = nullptr;
+            }
           }
-          else
-          {
-            m_pYUVProgShader = new YUV2RGBProgressiveShader(
-                shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
-                m_srcPrimaries, m_toneMap, m_toneMapMethod);
-          }
+
+          // Fall back to regular progressive shader
+          m_pYUVProgShader = new YUV2RGBProgressiveShader(
+              shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
+              m_srcPrimaries, m_toneMap, m_toneMapMethod, m_useDithering);
           m_pYUVProgShader->SetConvertFullColorRange(m_fullRange);
+
+          CLog::Log(LOGINFO, "GLES: Selecting YUV 2 RGB shader");
+
           m_pYUVBobShader = new YUV2RGBBobShader(
               shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
-              m_srcPrimaries, m_toneMap, m_toneMapMethod);
+              m_srcPrimaries, m_toneMap, m_toneMapMethod, m_useDithering);
           m_pYUVBobShader->SetConvertFullColorRange(m_fullRange);
 
           if ((m_pYUVProgShader && m_pYUVProgShader->CompileAndLink())
               && (m_pYUVBobShader && m_pYUVBobShader->CompileAndLink()))
           {
+            if (m_useDithering && m_ditherTex)
+            {
+              m_pYUVProgShader->SetDitherUniforms(ditherActive, m_ditherTex, effectiveDitherDepth,
+                                                  dither_size);
+              m_pYUVBobShader->SetDitherUniforms(ditherActive, m_ditherTex, effectiveDitherDepth,
+                                                 dither_size);
+            }
             m_renderMethod = RENDER_GLSL;
             UpdateVideoFilter();
             break;
@@ -777,35 +1046,40 @@ void CLinuxRendererGLES::ReleaseShaders()
 void CLinuxRendererGLES::UnInit()
 {
   CLog::Log(LOGDEBUG, "LinuxRendererGLES: Cleaning up GLES resources");
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   glFinish();
 
-  // YV12 textures
+  // YUV textures
   for (int i = 0; i < NUM_BUFFERS; ++i)
   {
     DeleteTexture(i);
+  }
+
+  if (m_bConfigured)
+  {
+    m_hdrFboActive = false;
+    CServiceBroker::GetWinSystem()->SetGuiCompositing(false);
+    CServiceBroker::GetWinSystem()->SetHDR(nullptr);
+    m_passthroughHDR = false;
+    CServiceBroker::GetWinSystem()->SetColorimetry(nullptr);
+    CServiceBroker::GetWinSystem()->SetVideoOutput(nullptr);
   }
 
   // cleanup framebuffer object if it was in use
   m_fbo.fbo.Cleanup();
   m_bValidated = false;
   m_bConfigured = false;
-
-  CServiceBroker::GetWinSystem()->SetHDR(nullptr);
-  m_passthroughHDR = false;
 }
 
 bool CLinuxRendererGLES::CreateTexture(int index)
 {
   if (m_format == AV_PIX_FMT_NV12)
-  {
     return CreateNV12Texture(index);
-  }
+  else if (m_format == AV_PIX_FMT_YUYV422 || m_format == AV_PIX_FMT_UYVY422)
+    return CreatePackedYUVTexture(index);
   else
-  {
-    return CreateYV12Texture(index);
-  }
+    return CreatePlanarYUVTexture(index);
 }
 
 void CLinuxRendererGLES::DeleteTexture(int index)
@@ -813,13 +1087,11 @@ void CLinuxRendererGLES::DeleteTexture(int index)
   ReleaseBuffer(index);
 
   if (m_format == AV_PIX_FMT_NV12)
-  {
     DeleteNV12Texture(index);
-  }
+  else if (m_format == AV_PIX_FMT_YUYV422 || m_format == AV_PIX_FMT_UYVY422)
+    DeletePackedYUVTexture(index);
   else
-  {
-    DeleteYV12Texture(index);
-  }
+    DeletePlanarYUVTexture(index);
 }
 
 bool CLinuxRendererGLES::UploadTexture(int index)
@@ -844,10 +1116,14 @@ bool CLinuxRendererGLES::UploadTexture(int index)
   {
     ret = UploadNV12Texture(index);
   }
+  else if (m_format == AV_PIX_FMT_YUYV422 || m_format == AV_PIX_FMT_UYVY422)
+  {
+    ret = UploadPackedYUVTexture(index);
+  }
   else
   {
-    // default to YV12 texture handlers
-    ret = UploadYV12Texture(index);
+    // default to planar YUV texture handlers
+    ret = UploadPlanarYUVTexture(index);
   }
 
   if (ret)
@@ -925,6 +1201,7 @@ void CLinuxRendererGLES::RenderSinglePass(int index, int field)
 
   if (m_reloadShaders)
   {
+    m_reloadShaders = false;
     LoadShaders(field);
   }
 
@@ -1034,19 +1311,28 @@ void CLinuxRendererGLES::RenderToFBO(int index, int field)
 
   if (m_reloadShaders)
   {
-    m_reloadShaders = 0;
+    m_reloadShaders = false;
     LoadShaders(m_currentField);
   }
 
+  //! @todo Believed dead: every FBO invalidation clears m_bValidated, and
+  //! ValidateRenderTarget resets the filter cache so UpdateVideoFilter
+  //! recreates the FBO before any multipass render. Kept as a failsafe
+  //! against unenumerated invalidation paths.
   if (!m_fbo.fbo.IsValid())
   {
+    CLog::Log(LOGWARNING, "GLES: multipass FBO invalid at render time, recreating");
+
     if (!m_fbo.fbo.Initialize())
     {
       CLog::Log(LOGERROR, "GLES: Error initializing FBO");
       return;
     }
 
-    if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight, GL_RGBA))
+    // Recreate with the format/type UpdateVideoFilter settled on, so the
+    // intermediate FBO keeps the bit depth configured by hqscalerprecision.
+    if (!m_fbo.fbo.CreateAndBindToTexture(GL_TEXTURE_2D, m_sourceWidth, m_sourceHeight,
+                                          m_intermediateFormat, m_intermediateType, GL_NEAREST))
     {
       CLog::Log(LOGERROR, "GLES: Error creating texture and binding to FBO");
       return;
@@ -1277,83 +1563,42 @@ void CLinuxRendererGLES::RenderFromFBO()
   VerifyGLState();
 }
 
-bool CLinuxRendererGLES::RenderCapture(int index, CRenderCapture* capture)
-{
-  if (!m_bValidated)
-  {
-    return false;
-  }
-
-  // save current video rect
-  CRect saveSize = m_destRect;
-  saveRotatedCoords(); // backup current m_rotatedDestCoords
-
-  // new video rect is thumbnail size
-  m_destRect.SetRect(0, 0, static_cast<float>(capture->GetWidth()), static_cast<float>(capture->GetHeight()));
-  MarkDirty();
-  syncDestRectToRotatedPoints(); // syncs the changed destRect to m_rotatedDestCoords
-
-  // clear framebuffer and invert Y axis to get non-inverted image
-  glDisable(GL_BLEND);
-
-  glMatrixModview.Push();
-  glMatrixModview->Translatef(0.0f, capture->GetHeight(), 0.0f);
-  glMatrixModview->Scalef(1.0f, -1.0f, 1.0f);
-  glMatrixModview.Load();
-
-  capture->BeginRender();
-
-  Render(RENDER_FLAG_NOOSD, index);
-  // read pixels
-  glReadPixels(0, CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight() - capture->GetHeight(), capture->GetWidth(), capture->GetHeight(),
-               GL_RGBA, GL_UNSIGNED_BYTE, capture->GetRenderBuffer());
-
-  // OpenGLES returns in RGBA order but CRenderCapture needs BGRA order
-  // XOR Swap RGBA -> BGRA
-  unsigned char* pixels = static_cast<unsigned char*>(capture->GetRenderBuffer());
-  for (unsigned int i = 0; i < capture->GetWidth() * capture->GetHeight(); i++, pixels += 4)
-  {
-    std::swap(pixels[0], pixels[2]);
-  }
-
-  capture->EndRender();
-
-  // revert model view matrix
-  glMatrixModview.PopLoad();
-
-  // restore original video rect
-  m_destRect = saveSize;
-  restoreRotatedCoords(); // restores the previous state of the rotated dest coords
-
-  return true;
-}
-
 //********************************************************************************************************/
-// YV12 Texture creation, deletion, copying + clearing
+// YUV texture creation, deletion, copying + clearing
 //********************************************************************************************************/
-bool CLinuxRendererGLES::UploadYV12Texture(int source)
+bool CLinuxRendererGLES::UploadPlanarYUVTexture(int source)
 {
   CPictureBuffer& buf = m_buffers[source];
   YuvImage* im = &buf.image;
 
   VerifyGLState();
 
-  glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-  // load Y plane
-  LoadPlane(buf.fields[FIELD_FULL][0], GL_LUMINANCE,
-            im->width, im->height,
-            im->stride[0], im->bpp, im->plane[0]);
+  if (im->bpp == 2)
+  {
+    // >8-bit: three separate GL_R16_EXT planes
+    LoadPlane(buf.fields[FIELD_FULL][0], GL_RED, im->width, im->height, im->stride[0], im->bpp,
+              im->plane[0]);
 
-  // load U plane
-  LoadPlane(buf.fields[FIELD_FULL][1], GL_LUMINANCE,
-            im->width >> im->cshift_x, im->height >> im->cshift_y,
-            im->stride[1], im->bpp, im->plane[1]);
+    LoadPlane(buf.fields[FIELD_FULL][1], GL_RED, im->width >> im->cshift_x,
+              im->height >> im->cshift_y, im->stride[1], im->bpp, im->plane[1]);
 
-  // load V plane
-  LoadPlane(buf.fields[FIELD_FULL][2], GL_ALPHA,
-            im->width >> im->cshift_x, im->height >> im->cshift_y,
-            im->stride[2], im->bpp, im->plane[2]);
+    LoadPlane(buf.fields[FIELD_FULL][2], GL_RED, im->width >> im->cshift_x,
+              im->height >> im->cshift_y, im->stride[2], im->bpp, im->plane[2]);
+  }
+  else
+  {
+    // 8-bit: GL_LUMINANCE for Y/U, GL_ALPHA for V
+    LoadPlane(buf.fields[FIELD_FULL][0], GL_LUMINANCE, im->width, im->height, im->stride[0],
+              im->bpp, im->plane[0]);
+
+    LoadPlane(buf.fields[FIELD_FULL][1], GL_LUMINANCE, im->width >> im->cshift_x,
+              im->height >> im->cshift_y, im->stride[1], im->bpp, im->plane[1]);
+
+    LoadPlane(buf.fields[FIELD_FULL][2], GL_ALPHA, im->width >> im->cshift_x,
+              im->height >> im->cshift_y, im->stride[2], im->bpp, im->plane[2]);
+  }
 
   VerifyGLState();
 
@@ -1362,7 +1607,7 @@ bool CLinuxRendererGLES::UploadYV12Texture(int source)
   return true;
 }
 
-void CLinuxRendererGLES::DeleteYV12Texture(int index)
+void CLinuxRendererGLES::DeletePlanarYUVTexture(int index)
 {
   YuvImage &im = m_buffers[index].image;
 
@@ -1394,19 +1639,26 @@ void CLinuxRendererGLES::DeleteYV12Texture(int index)
   }
 }
 
-bool CLinuxRendererGLES::CreateYV12Texture(int index)
+bool CLinuxRendererGLES::CreatePlanarYUVTexture(int index)
 {
   // since we also want the field textures, pitch must be texture aligned
   unsigned p;
-  YuvImage &im = m_buffers[index].image;
+  CPictureBuffer& buf = m_buffers[index];
+  YuvImage& im = buf.image;
 
-  DeleteYV12Texture(index);
+  DeletePlanarYUVTexture(index);
 
   im.height = m_sourceHeight;
   im.width = m_sourceWidth;
-  im.cshift_x = 1;
-  im.cshift_y = 1;
-  im.bpp = 1;
+
+  // Chroma subsampling derived from libavutil's pixdesc API. Works for any
+  // planar YUV pix_fmt (4:2:0 / 4:2:2 / 4:4:4) without per-format checks.
+  const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(m_format);
+  im.cshift_x = desc ? desc->log2_chroma_w : 1;
+  im.cshift_y = desc ? desc->log2_chroma_h : 1;
+
+  buf.m_srcTextureBits = desc ? desc->comp[0].depth : 8;
+  im.bpp = (buf.m_srcTextureBits > 8) ? 2 : 1;
 
   im.stride[0] = im.bpp * im.width;
   im.stride[1] = im.bpp * (im.width >> im.cshift_x);
@@ -1463,17 +1715,28 @@ bool CLinuxRendererGLES::CreateYV12Texture(int index)
 
       glBindTexture(m_textureTarget, plane.id);
 
-      GLint format;
-      if (p == 2) // V plane needs an alpha texture
+      if (im.bpp == 2)
       {
-        format = GL_ALPHA;
+#if defined(GL_R16_EXT)
+        glTexImage2D(m_textureTarget, 0, GL_R16_EXT, plane.texwidth, plane.texheight, 0, GL_RED,
+                     GL_UNSIGNED_SHORT, nullptr);
+#else
+        CLog::Log(LOGERROR, "GLES: GL_R16_EXT undefined; cannot render >8-bit YUV");
+        return false;
+#endif
       }
       else
       {
-        format = GL_LUMINANCE;
+        GLint format;
+        if (p == 2) // V plane needs an alpha texture
+          format = GL_ALPHA;
+        else
+          format = GL_LUMINANCE;
+
+        glTexImage2D(m_textureTarget, 0, format, plane.texwidth, plane.texheight, 0, format,
+                     GL_UNSIGNED_BYTE, nullptr);
       }
 
-      glTexImage2D(m_textureTarget, 0, format, plane.texwidth, plane.texheight, 0, format, GL_UNSIGNED_BYTE, nullptr);
       glTexParameteri(m_textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       glTexParameteri(m_textureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
       glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1684,11 +1947,143 @@ void CLinuxRendererGLES::DeleteNV12Texture(int index)
 }
 
 //********************************************************************************************************
+// YUV422 packed Texture creation, deletion, copying + clearing
+//********************************************************************************************************
+bool CLinuxRendererGLES::UploadPackedYUVTexture(int source)
+{
+  CPictureBuffer& buf = m_buffers[source];
+  YuvImage* im = &buf.image;
+
+  VerifyGLState();
+
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+  // Load YUYV plane
+  LoadPlane(buf.fields[FIELD_FULL][0], GL_BGRA_EXT, im->width / 2, im->height, im->stride[0],
+            im->bpp, im->plane[0]);
+
+  VerifyGLState();
+
+  CalculateTextureSourceRects(source, 3);
+
+  return true;
+}
+
+void CLinuxRendererGLES::DeletePackedYUVTexture(int index)
+{
+  CPictureBuffer& buf = m_buffers[index];
+  YuvImage& im = buf.image;
+
+  if (buf.fields[FIELD_FULL][0].id == 0)
+    return;
+
+  // finish up all textures, and delete them
+  for (int f = 0; f < MAX_FIELDS; f++)
+  {
+    if (buf.fields[f][0].id)
+    {
+      if (glIsTexture(buf.fields[f][0].id))
+      {
+        glDeleteTextures(1, &buf.fields[f][0].id);
+      }
+      buf.fields[f][0].id = 0;
+    }
+    buf.fields[f][1].id = 0;
+    buf.fields[f][2].id = 0;
+  }
+
+  im.plane[0] = nullptr;
+}
+
+bool CLinuxRendererGLES::CreatePackedYUVTexture(int index)
+{
+  if (!CServiceBroker::GetRenderSystem()->IsExtSupported("GL_EXT_texture_format_BGRA8888"))
+  {
+    CLog::Log(LOGERROR, "CLinuxRendererGLES::CreatePackedYUVTexture - "
+                        "GL_EXT_texture_format_BGRA8888 not supported");
+    return false;
+  }
+
+  // since we also want the field textures, pitch must be texture aligned
+  CPictureBuffer& buf = m_buffers[index];
+  YuvImage& im = buf.image;
+
+  // Delete any old texture
+  DeletePackedYUVTexture(index);
+
+  im.height = m_sourceHeight;
+  im.width = m_sourceWidth;
+  im.cshift_x = 0;
+  im.cshift_y = 0;
+  im.bpp = 1;
+
+  im.stride[0] = im.width * 2;
+  im.stride[1] = 0;
+  im.stride[2] = 0;
+
+  im.planesize[0] = im.stride[0] * im.height;
+  im.planesize[1] = 0;
+  im.planesize[2] = 0;
+
+  im.plane[0] = nullptr; // will be set in UploadTexture()
+  im.plane[1] = nullptr;
+  im.plane[2] = nullptr;
+
+  for (int f = 0; f < MAX_FIELDS; f++)
+  {
+    if (!glIsTexture(buf.fields[f][0].id))
+    {
+      glGenTextures(1, &buf.fields[f][0].id);
+      VerifyGLState();
+    }
+    buf.fields[f][1].id = buf.fields[f][0].id;
+    buf.fields[f][2].id = buf.fields[f][1].id;
+  }
+
+  // YUV
+  for (int f = FIELD_FULL; f <= FIELD_BOT; f++)
+  {
+    int fieldshift = (f == FIELD_FULL) ? 0 : 1;
+    CYuvPlane(&planes)[YuvImage::MAX_PLANES] = buf.fields[f];
+
+    planes[0].texwidth = im.width / 2;
+    planes[0].texheight = im.height >> fieldshift;
+    planes[1].texwidth = planes[0].texwidth;
+    planes[1].texheight = planes[0].texheight;
+    planes[2].texwidth = planes[1].texwidth;
+    planes[2].texheight = planes[1].texheight;
+
+    for (int p = 0; p < 3; p++)
+    {
+      planes[p].pixpertex_x = 2;
+      planes[p].pixpertex_y = 1;
+    }
+
+    CYuvPlane& plane = planes[0];
+    if (plane.texwidth * plane.texheight == 0)
+      continue;
+
+    glBindTexture(m_textureTarget, plane.id);
+
+    glTexImage2D(m_textureTarget, 0, GL_RGBA, plane.texwidth, plane.texheight, 0, GL_BGRA_EXT,
+                 GL_UNSIGNED_BYTE, NULL);
+
+    glTexParameteri(m_textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(m_textureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    VerifyGLState();
+  }
+
+  return true;
+}
+
+//********************************************************************************************************
 // SurfaceTexture creation, deletion, copying + clearing
 //********************************************************************************************************
 void CLinuxRendererGLES::SetTextureFilter(GLenum method)
 {
-  for (int i = 0 ; i < m_NumYV12Buffers; i++)
+  for (int i = 0; i < m_NumYUVBuffers; i++)
   {
     CPictureBuffer& buf = m_buffers[i];
 
@@ -1739,10 +2134,32 @@ bool CLinuxRendererGLES::SupportsMultiPassRendering()
   return true;
 }
 
+float CLinuxRendererGLES::ScalingAboveThreshold() const
+{
+  float scaleX = m_destRect.Width() / static_cast<float>(m_sourceWidth);
+  float scaleY = m_destRect.Height() / static_cast<float>(m_sourceHeight);
+  float scaleFactor = (scaleX + scaleY) / 2.0f;
+  float scalePercent = fabs(1.0f - scaleFactor) * 100;
+  int minScale = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_VIDEOPLAYER_HQSCALERS);
+
+  if (scalePercent < minScale)
+    return 0.0f;
+
+  // < 1.0 = downscale, > 1.0 = upscale
+  return scaleFactor;
+}
+
 bool CLinuxRendererGLES::Supports(ESCALINGMETHOD method) const
 {
-  if(method == VS_SCALINGMETHOD_NEAREST ||
-     method == VS_SCALINGMETHOD_LINEAR)
+  // nearest neighbor doesn't work on YUY2 and UYVY
+  if (method == VS_SCALINGMETHOD_NEAREST && m_format != AV_PIX_FMT_YUYV422 &&
+      m_format != AV_PIX_FMT_UYVY422)
+  {
+    return true;
+  }
+
+  if (method == VS_SCALINGMETHOD_LINEAR || method == VS_SCALINGMETHOD_AUTO)
   {
     return true;
   }
@@ -1758,26 +2175,9 @@ bool CLinuxRendererGLES::Supports(ESCALINGMETHOD method) const
       method == VS_SCALINGMETHOD_SPLINE36 ||
       method == VS_SCALINGMETHOD_LANCZOS3)
   {
-    if (method == VS_SCALINGMETHOD_SPLINE36_FAST || method == VS_SCALINGMETHOD_LANCZOS3_FAST)
-    {
-#if defined(GL_ES_VERSION_3_0)
-      // we need GLES 3.0 headers for GL_RGBA16f, but GLES 3.1 for the shader
-      uint32_t major, minor;
-      m_renderSystem->GetRenderVersion(major, minor);
-      if (major < 3 || minor == 0)
-        return false;
-#else
-      return false;
-#endif
-    }
     // if scaling is below level, avoid hq scaling
-    float scaleX = fabs((static_cast<float>(m_sourceWidth) - m_destRect.Width()) / m_sourceWidth) * 100;
-    float scaleY = fabs((static_cast<float>(m_sourceHeight) - m_destRect.Height()) / m_sourceHeight) * 100;
-    int minScale = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOPLAYER_HQSCALERS);
-    if (scaleX < minScale && scaleY < minScale)
-    {
+    if (ScalingAboveThreshold() == 0.0f)
       return false;
-    }
 
     if (m_renderMethod & RENDER_GLSL)
     {
@@ -1798,12 +2198,7 @@ CRenderInfo CLinuxRendererGLES::GetRenderInfo()
 
 bool CLinuxRendererGLES::IsGuiLayer()
 {
-  return true;
-}
-
-CRenderCapture* CLinuxRendererGLES::GetRenderCapture()
-{
-  return new CRenderCaptureGLES;
+  return !m_hdrFboActive;
 }
 
 void CLinuxRendererGLES::CheckVideoParameters(int index)
@@ -1829,6 +2224,17 @@ void CLinuxRendererGLES::CheckVideoParameters(int index)
   if (toneMap != m_toneMap || toneMapMethod != m_toneMapMethod)
   {
     m_reloadShaders = true;
+
+    //! @todo HACK for #28468; clean up properly in Piers beta 2
+    if (toneMap != m_toneMap)
+    {
+      VideoPicture tmp{};
+      tmp.color_space = toneMap ? AVCOL_SPC_UNSPECIFIED : buf.m_srcColSpace;
+      tmp.iWidth = m_sourceWidth;
+      tmp.iHeight = m_sourceHeight;
+      CServiceBroker::GetWinSystem()->SetColorimetry(&tmp);
+    }
+
     m_toneMap = toneMap;
     m_toneMapMethod = toneMapMethod;
   }

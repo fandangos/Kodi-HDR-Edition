@@ -8,7 +8,9 @@
 
 #include "GUIListLabel.h"
 
+#include "ServiceBroker.h"
 #include "addons/Skin.h"
+#include "windowing/WinSystem.h"
 
 #include <limits>
 

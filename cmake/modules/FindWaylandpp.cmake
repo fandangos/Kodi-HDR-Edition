@@ -7,8 +7,8 @@
 #   ${APP_NAME_LC}::Waylandpp   - The waylandpp library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
-  pkg_check_modules(PC_WAYLANDPP wayland-client++ wayland-egl++ wayland-cursor++ QUIET)
+  find_package(PkgConfig ${SEARCH_QUIET})
+  pkg_check_modules(PC_WAYLANDPP wayland-client++ wayland-egl++ wayland-cursor++ ${SEARCH_QUIET})
 
   if(PC_WAYLANDPP_FOUND)
     pkg_get_variable(PC_WAYLANDPP_PKGDATADIR wayland-client++ pkgdatadir)
@@ -28,7 +28,7 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
                                      HINTS ${PC_WAYLANDPP_LIBRARY_DIRS})
 
   if(KODI_DEPENDSBUILD)
-    pkg_check_modules(PC_WAYLANDC wayland-client wayland-egl wayland-cursor QUIET)
+    pkg_check_modules(PC_WAYLANDC wayland-client wayland-egl wayland-cursor ${SEARCH_QUIET})
 
     if(PREFER_TOOLCHAIN_PATH)
       set(WAYLAND_SEARCH_PATH ${PREFER_TOOLCHAIN_PATH}
@@ -56,6 +56,10 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
   # Promote to cache variables so all code can access it
   set(WAYLANDPP_PROTOCOLS_DIR "${PC_WAYLANDPP_PKGDATADIR}/protocols" CACHE INTERNAL "")
 
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
+
   include (FindPackageHandleStandardArgs)
   find_package_handle_standard_args(Waylandpp
                                     REQUIRED_VARS WAYLANDPP_INCLUDE_DIR
@@ -66,7 +70,7 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
   if(WAYLANDPP_FOUND)
 
-    find_package(WaylandPPScanner REQUIRED)
+    find_package(WaylandPPScanner REQUIRED ${SEARCH_QUIET})
 
     set(WAYLANDPP_INCLUDE_DIRS ${WAYLANDPP_INCLUDE_DIR})
     set(WAYLANDPP_LIBRARIES 

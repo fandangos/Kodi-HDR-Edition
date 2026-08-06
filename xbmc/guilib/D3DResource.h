@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -9,10 +9,12 @@
 #pragma once
 
 #include "GUIColorManager.h"
+#include "TextureScaling.h"
 #include "utils/ColorUtils.h"
 #include "utils/Geometry.h"
 
 #include <map>
+#include <set>
 
 #include <DirectXMath.h>
 #include <d3dx11effect.h>
@@ -20,12 +22,16 @@
 
 #define KODI_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT 4
 
-typedef enum SHADER_METHOD {
+typedef enum SHADER_METHOD
+{
   SHADER_METHOD_RENDER_DEFAULT,
   SHADER_METHOD_RENDER_TEXTURE_NOBLEND,
   SHADER_METHOD_RENDER_FONT,
+  SHADER_METHOD_RENDER_FONT_SHADER_CLIP,
   SHADER_METHOD_RENDER_TEXTURE_BLEND,
+  SHADER_METHOD_RENDER_TEXTURE_BLEND_NEAREST,
   SHADER_METHOD_RENDER_MULTI_TEXTURE_BLEND,
+  SHADER_METHOD_RENDER_MULTI_TEXTURE_BLEND_NEAREST,
   SHADER_METHOD_RENDER_STEREO_INTERLACED_LEFT,
   SHADER_METHOD_RENDER_STEREO_INTERLACED_RIGHT,
   SHADER_METHOD_RENDER_STEREO_CHECKERBOARD_LEFT,
@@ -118,27 +124,31 @@ public:
                        KODI::UTILS::COLOR::Color color,
                        CD3DTexture* texture,
                        const CRect* texCoords,
-                       SHADER_METHOD options = SHADER_METHOD_RENDER_TEXTURE_BLEND);
+                       SHADER_METHOD options,
+                       float depth);
 
   static void DrawQuad(const CPoint points[4],
                        KODI::UTILS::COLOR::Color color,
                        unsigned numViews,
                        ID3D11ShaderResourceView** view,
                        const CRect* texCoords,
-                       SHADER_METHOD options = SHADER_METHOD_RENDER_TEXTURE_BLEND);
+                       SHADER_METHOD options,
+                       float depth);
 
   static void DrawQuad(const CRect& coords,
                        KODI::UTILS::COLOR::Color color,
                        CD3DTexture* texture,
                        const CRect* texCoords,
-                       SHADER_METHOD options = SHADER_METHOD_RENDER_TEXTURE_BLEND);
+                       SHADER_METHOD options,
+                       float depth);
 
   static void DrawQuad(const CRect& coords,
                        KODI::UTILS::COLOR::Color color,
                        unsigned numViews,
                        ID3D11ShaderResourceView** view,
                        const CRect* texCoords,
-                       SHADER_METHOD options = SHADER_METHOD_RENDER_TEXTURE_BLEND);
+                       SHADER_METHOD options,
+                       float depth);
 
   void OnDestroyDevice(bool fatal) override;
   void OnCreateDevice() override;
@@ -154,15 +164,15 @@ protected:
   // saved data
   BYTE* m_data;
   // creation parameters
-  UINT m_width;
-  UINT m_height;
-  UINT m_mipLevels;
-  UINT m_pitch;
-  UINT m_bindFlags;
-  UINT m_cpuFlags;
-  UINT m_viewIdx;
-  D3D11_USAGE m_usage;
-  DXGI_FORMAT m_format;
+  UINT m_width{0};
+  UINT m_height{0};
+  UINT m_mipLevels{0};
+  UINT m_pitch{0};
+  UINT m_bindFlags{0};
+  UINT m_cpuFlags{0};
+  UINT m_viewIdx{0};
+  D3D11_USAGE m_usage{D3D11_USAGE_DEFAULT};
+  DXGI_FORMAT m_format{DXGI_FORMAT_B8G8R8A8_UNORM};
 
   // created texture
   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_texture;
@@ -184,9 +194,11 @@ public:
   bool SetMatrix(LPCSTR handle, const float* mat);
   bool SetTechnique(LPCSTR handle);
   bool SetTexture(LPCSTR handle, CD3DTexture &texture);
+  bool SetTexture(LPCSTR handle, ID3D11ShaderResourceView* resourceView);
   bool SetResources(LPCSTR handle, ID3D11ShaderResourceView** ppSRViews, size_t count);
   bool SetConstantBuffer(LPCSTR handle, ID3D11Buffer *buffer);
   bool SetScalar(LPCSTR handle, float value);
+  void AddIncludePath(const std::string& includePath);
   bool Begin(UINT *passes, DWORD flags);
   bool BeginPass(UINT pass);
   bool EndPass();
@@ -209,6 +221,7 @@ private:
   Microsoft::WRL::ComPtr<ID3DX11Effect> m_effect;
   Microsoft::WRL::ComPtr<ID3DX11EffectTechnique> m_techniquie;
   Microsoft::WRL::ComPtr<ID3DX11EffectPass> m_currentPass;
+  std::set<std::string> m_includePaths;
 };
 
 class CD3DBuffer : public ID3DResource
@@ -232,11 +245,11 @@ private:
 
   // saved data
   BYTE* m_data;
-  UINT m_length;
-  UINT m_stride;
+  UINT m_length{0};
+  UINT m_stride{0};
   UINT m_cpuFlags;
-  DXGI_FORMAT m_format;
-  D3D11_USAGE m_usage;
+  DXGI_FORMAT m_format{DXGI_FORMAT_UNKNOWN};
+  D3D11_USAGE m_usage{D3D11_USAGE_DEFAULT};
   D3D11_BIND_FLAG m_type;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_buffer;
 };

@@ -8,6 +8,7 @@
 
 #include "WinEventsIOS.h"
 
+#include "ServiceBroker.h"
 #include "application/AppInboundProtocol.h"
 #include "guilib/GUIWindowManager.h"
 #include "input/InputManager.h"
@@ -35,7 +36,7 @@ bool CWinEventsIOS::MessagePump()
     // deeper message loop and call the deeper MessagePump from there.
     XBMC_Event pumpEvent;
     {
-      std::unique_lock<CCriticalSection> lock(g_inputCond);
+      std::unique_lock lock(g_inputCond);
       if (events.empty())
         return ret;
       pumpEvent = events.front();
@@ -50,6 +51,6 @@ bool CWinEventsIOS::MessagePump()
 
 size_t CWinEventsIOS::GetQueueSize()
 {
-  std::unique_lock<CCriticalSection> lock(g_inputCond);
+  std::unique_lock lock(g_inputCond);
   return events.size();
 }

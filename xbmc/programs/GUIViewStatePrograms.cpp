@@ -8,12 +8,8 @@
 
 #include "GUIViewStatePrograms.h"
 
-#include "FileItem.h"
 #include "FileItemList.h"
 #include "ServiceBroker.h"
-#include "filesystem/Directory.h"
-#include "guilib/LocalizeStrings.h"
-#include "guilib/TextureManager.h"
 #include "guilib/WindowIDs.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
@@ -21,12 +17,22 @@
 #include "view/ViewState.h"
 #include "view/ViewStateSettings.h"
 
+#ifdef TARGET_ANDROID
+#include "guilib/TextureManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
+#endif
+
 using namespace XFILE;
 
 CGUIViewStateWindowPrograms::CGUIViewStateWindowPrograms(const CFileItemList& items) : CGUIViewState(items)
 {
-  AddSortMethod(SortByLabel, 551, LABEL_MASKS("%K", "%I", "%L", ""),  // Title, Size | Foldername, empty
-    CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING) ? SortAttributeIgnoreArticle : SortAttributeNone);
+  AddSortMethod(SortBy::LABEL, 551,
+                LABEL_MASKS("%K", "%I", "%L", ""), // Title, Size | Foldername, empty
+                CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+                    CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING)
+                    ? SortAttributeIgnoreArticle
+                    : SortAttributeNone);
 
   const CViewState *viewState = CViewStateSettings::GetInstance().Get("programs");
   SetSortMethod(viewState->m_sortDescription);
@@ -57,7 +63,7 @@ std::vector<CMediaSource>& CGUIViewStateWindowPrograms::GetSources()
   {
     CMediaSource source;
     source.strPath = "androidapp://sources/apps/";
-    source.strName = g_localizeStrings.Get(20244);
+    source.strName = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20244);
     if (CServiceBroker::GetGUI()->GetTextureManager().HasTexture("DefaultProgram.png"))
       source.m_strThumbnailImage = "DefaultProgram.png";
     source.m_iDriveType = SourceType::LOCAL;

@@ -43,15 +43,15 @@ public:
                             bool bNotRandom = false,
                             const std::string& beginSlidePath = "",
                             bool startSlideShow = true,
-                            SortBy method = SortByLabel,
-                            SortOrder order = SortOrderAscending,
+                            SortBy method = SortBy::LABEL,
+                            SortOrder order = SortOrder::ASCENDING,
                             SortAttribute sortAttributes = SortAttributeNone,
                             const std::string& strExtensions = "") = 0;
   //! @todo - refactor to use an options struct. Methods with so many arguments are a sign of a bad design...
   virtual void AddFromPath(const std::string& strPath,
                            bool bRecursive,
-                           SortBy method = SortByLabel,
-                           SortOrder order = SortOrderAscending,
+                           SortBy method = SortBy::LABEL,
+                           SortOrder order = SortOrder::ASCENDING,
                            SortAttribute sortAttributes = SortAttributeNone,
                            const std::string& strExtensions = "") = 0;
 };

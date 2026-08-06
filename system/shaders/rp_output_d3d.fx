@@ -21,6 +21,7 @@
 texture2D g_Texture;
 float2    g_viewPort;
 float     m_params[1]; // 0 - range (0 - full, 1 - limited)
+float     g_alpha = 1.0;
 
 SamplerState TextureSampler : IMMUTABLE
 {
@@ -53,7 +54,7 @@ VS_OUTPUT OUTPUT_VS(VS_INPUT In)
   VS_OUTPUT output  = (VS_OUTPUT)0;
   output.Position.x =  (In.Position.x / (g_viewPort.x  / 2.0)) - 1;
   output.Position.y = -(In.Position.y / (g_viewPort.y / 2.0)) + 1;
-  output.Position.z = output.Position.z;
+  output.Position.z = 0;
   output.Position.w = 1.0;
   output.TextureUV  = In.TextureUV;
 
@@ -64,9 +65,9 @@ float4 OUTPUT_PS(VS_OUTPUT In) : SV_TARGET
 {
   float4 color = g_Texture.Sample(TextureSampler, In.TextureUV);
   [flatten] if (m_params[0])
-    color = saturate(0.0625 + color * 219.0 / 255.0);
+    color.rgb = saturate(0.0625 + color.rgb * 219.0 / 255.0);
 
-  color.a = 1.0;
+  color.a = g_alpha;
 
   return color;
 }

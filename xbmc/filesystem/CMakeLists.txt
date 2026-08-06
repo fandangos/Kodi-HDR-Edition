@@ -11,6 +11,8 @@ set(SOURCES AddonsDirectory.cpp
             DirectoryFactory.cpp
             DirectoryHistory.cpp
             DllLibCurl.cpp
+            DiscDirectoryHelper.cpp
+            EpisodesDirectory.cpp
             EventsDirectory.cpp
             FavouritesDirectory.cpp
             FileCache.cpp
@@ -73,6 +75,8 @@ set(HEADERS AddonsDirectory.h
             DirectoryFactory.h
             DirectoryHistory.h
             DllLibCurl.h
+	    DiscDirectoryHelper.h
+            EpisodesDirectory.h
             EventsDirectory.h
             FTPDirectory.h
             FTPParse.h
@@ -133,18 +137,22 @@ endif()
 
 if(TARGET ${APP_NAME_LC}::Udfread)
   list(APPEND SOURCES UDFBlockInput.cpp
+                      UDFContext.cpp
                       UDFDirectory.cpp
                       UDFFile.cpp)
   list(APPEND HEADERS UDFBlockInput.h
+                      UDFContext.h
                       UDFDirectory.h
                       UDFFile.h)
 endif()
 
 if(TARGET ${APP_NAME_LC}::Bluray)
   list(APPEND SOURCES BlurayCallback.cpp
+		      BlurayDiscCache.cpp
                       BlurayDirectory.cpp
                       BlurayFile.cpp)
   list(APPEND HEADERS BlurayCallback.h
+		      BlurayDiscCache.h
                       BlurayDirectory.h
                       BlurayFile.h)
 endif()

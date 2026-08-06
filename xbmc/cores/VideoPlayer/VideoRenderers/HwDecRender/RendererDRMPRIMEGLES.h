@@ -24,6 +24,14 @@ class CEGLFence;
 } // namespace UTILS
 } // namespace KODI
 
+namespace Shaders
+{
+namespace GLES
+{
+class BaseYUV2RGBGLSLShader;
+}
+} // namespace Shaders
+
 class CRendererDRMPRIMEGLES : public CBaseRenderer
 {
 public:
@@ -37,8 +45,10 @@ public:
   // Player functions
   bool Configure(const VideoPicture& picture, float fps, unsigned int orientation) override;
   bool IsConfigured() override { return m_configured; }
+  bool IsGuiLayer() override;
+  bool HasVideoPlane() override { return false; }
   void AddVideoPicture(const VideoPicture& picture, int index) override;
-  void UnInit() override {}
+  void UnInit() override;
   bool Flush(bool saveBuffers) override;
   void ReleaseBuffer(int idx) override;
   bool NeedBuffer(int idx) override;
@@ -46,7 +56,6 @@ public:
   void Update() override;
   void RenderUpdate(
       int index, int index2, bool clear, unsigned int flags, unsigned int alpha) override;
-  bool RenderCapture(int index, CRenderCapture* capture) override;
   bool ConfigChanged(const VideoPicture& picture) override;
 
   // Feature support
@@ -59,12 +68,21 @@ private:
   void Render(unsigned int flags, int index);
 
   bool m_configured = false;
-  float m_clearColour{0.0f};
+  bool m_passthroughHDR{false};
+  bool m_hdrFboActive{false};
+
+  // Limited-range path: per-plane EGL import + standard YUV2RGB shader.
+  // Set at Configure time when the user has limited-range output enabled
+  // AND the buffer's source fourcc can be imported by CDRMPRIMETextureYUV
+  // AND the shader compiles. If null, Render() falls through to the OES
+  // path (which always outputs full-range RGB).
+  std::unique_ptr<Shaders::GLES::BaseYUV2RGBGLSLShader> m_yuvShader;
 
   struct BUFFER
   {
     CVideoBuffer* videoBuffer = nullptr;
     std::unique_ptr<KODI::UTILS::EGL::CEGLFence> fence;
     CDRMPRIMETexture texture;
+    CDRMPRIMETextureYUV yuvTexture;
   } m_buffers[NUM_BUFFERS];
 };

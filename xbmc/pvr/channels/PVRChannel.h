@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -27,8 +28,6 @@ class CDateTime;
 
 namespace PVR
 {
-enum class PVREvent;
-
 class CPVRProvider;
 class CPVREpg;
 class CPVREpgInfoTag;
@@ -48,7 +47,6 @@ public:
   virtual ~CPVRChannel();
 
   bool operator==(const CPVRChannel& right) const;
-  bool operator!=(const CPVRChannel& right) const;
 
   void Serialize(CVariant& value) const override;
 
@@ -433,7 +431,7 @@ public:
    * @param strScraper The new scraper name.
    * @return True if something changed, false otherwise.
    */
-  bool SetEPGScraper(const std::string& strScraper);
+  bool SetEPGScraper(std::string_view strScraper);
 
   bool CanRecord() const;
 
@@ -450,12 +448,6 @@ public:
    * @return the client uid of the provider or PVR_PROVIDER_INVALID_UID
    */
   int ClientProviderUid() const { return m_iClientProviderUid; }
-
-  /*!
-   * @brief CEventStream callback for PVR events.
-   * @param event The event.
-   */
-  void Notify(const PVREvent& event);
 
   /*!
    * @brief Lock the instance. No other thread gets access to this channel until Unlock was called.
@@ -560,7 +552,7 @@ private:
       PVR_PROVIDER_INVALID_UID; /*!< the unique id for this provider from the client */
   int m_lastWatchedGroupId{
       -1}; /*!< the id of the channel group the channel was watched from the last time */
-  CDateTime m_dateTimeAdded; /*!< the date and time the channel was added to the TV datebase */
+  CDateTime m_dateTimeAdded; /*!< the date and time the channel was added to the TV database */
   //@}
 
   mutable CCriticalSection m_critSection;

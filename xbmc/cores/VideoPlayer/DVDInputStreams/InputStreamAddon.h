@@ -23,7 +23,7 @@ class CInputStreamProvider
 public:
   CInputStreamProvider(const ADDON::AddonInfoPtr& addonInfo, KODI_HANDLE parentInstance);
 
-  void GetAddonInstance(INSTANCE_TYPE instance_type,
+  void GetAddonInstance(InstanceType instance_type,
                         ADDON::AddonInfoPtr& addonInfo,
                         KODI_HANDLE& parentInstance) override;
 
@@ -100,7 +100,7 @@ public:
   int GetChapter() override;
   int GetChapterCount() override;
   void GetChapterName(std::string& name, int ch = -1) override;
-  int64_t GetChapterPos(int ch = -1) override;
+  std::chrono::milliseconds GetChapterPos(int ch = -1) override;
   bool SeekChapter(int ch) override;
 
 protected:

@@ -14,12 +14,13 @@
 #include "TextureCache.h"
 #include "cores/RetroPlayer/RetroPlayerUtils.h"
 #include "dialogs/GUIDialogFileBrowser.h"
-#include "guilib/LocalizeStrings.h"
 #include "interfaces/AnnouncementManager.h"
 #include "interfaces/builtins/Builtins.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "music/MusicLibraryQueue.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/dialogs/GUIDialogLibExportSettings.h"
 #include "settings/lib/Setting.h"
@@ -50,28 +51,6 @@ using namespace KODI::MESSAGING;
 
 using KODI::MESSAGING::HELPERS::DialogResponse;
 
-CMediaSettings::CMediaSettings()
-{
-  m_watchedModes["files"] = WatchedModeAll;
-  m_watchedModes["movies"] = WatchedModeAll;
-  m_watchedModes["tvshows"] = WatchedModeAll;
-  m_watchedModes["musicvideos"] = WatchedModeAll;
-  m_watchedModes["recordings"] = WatchedModeAll;
-
-  m_musicPlaylistRepeat = false;
-  m_musicPlaylistShuffle = false;
-  m_videoPlaylistRepeat = false;
-  m_videoPlaylistShuffle = false;
-
-  m_mediaStartWindowed = false;
-  m_additionalSubtitleDirectoryChecked = 0;
-
-  m_musicNeedsUpdate = 0;
-  m_videoNeedsUpdate = 0;
-}
-
-CMediaSettings::~CMediaSettings() = default;
-
 CMediaSettings& CMediaSettings::GetInstance()
 {
   static CMediaSettings sMediaSettings;
@@ -80,12 +59,14 @@ CMediaSettings& CMediaSettings::GetInstance()
 
 bool CMediaSettings::Load(const TiXmlNode *settings)
 {
-  if (settings == NULL)
+  if (!settings)
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
+
+  m_defaultVideoSettings.m_isDefaultVideoSettings = true;
   const TiXmlElement *pElement = settings->FirstChildElement("defaultvideosettings");
-  if (pElement != NULL)
+  if (pElement)
   {
     int interlaceMethod;
     XMLUtils::GetInt(pElement, "interlacemethod", interlaceMethod, VS_INTERLACEMETHOD_NONE, VS_INTERLACEMETHOD_MAX);
@@ -139,7 +120,7 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
 
   m_defaultGameSettings.Reset();
   pElement = settings->FirstChildElement("defaultgamesettings");
-  if (pElement != nullptr)
+  if (pElement)
   {
     std::string videoFilter;
     if (XMLUtils::GetString(pElement, "videofilter", videoFilter))
@@ -159,10 +140,10 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
 
   // mymusic settings
   pElement = settings->FirstChildElement("mymusic");
-  if (pElement != NULL)
+  if (pElement)
   {
     const TiXmlElement *pChild = pElement->FirstChildElement("playlist");
-    if (pChild != NULL)
+    if (pChild)
     {
       XMLUtils::GetBoolean(pChild, "repeat", m_musicPlaylistRepeat);
       XMLUtils::GetBoolean(pChild, "shuffle", m_musicPlaylistShuffle);
@@ -182,7 +163,7 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
 
   // Read the watchmode settings for the various media views
   pElement = settings->FirstChildElement("myvideos");
-  if (pElement != NULL)
+  if (pElement)
   {
     int tmp;
     if (XMLUtils::GetInt(pElement, "watchmodemovies", tmp, (int)WatchedModeAll, (int)WatchedModeWatched))
@@ -195,7 +176,7 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
       m_watchedModes["recordings"] = static_cast<WatchedMode>(tmp);
 
     const TiXmlElement *pChild = pElement->FirstChildElement("playlist");
-    if (pChild != NULL)
+    if (pChild)
     {
       XMLUtils::GetBoolean(pChild, "repeat", m_videoPlaylistRepeat);
       XMLUtils::GetBoolean(pChild, "shuffle", m_videoPlaylistShuffle);
@@ -218,14 +199,14 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
 
 bool CMediaSettings::Save(TiXmlNode *settings) const
 {
-  if (settings == NULL)
+  if (!settings)
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   // default video settings
   TiXmlElement videoSettingsNode("defaultvideosettings");
   TiXmlNode *pNode = settings->InsertEndChild(videoSettingsNode);
-  if (pNode == NULL)
+  if (!pNode)
     return false;
 
   XMLUtils::SetInt(pNode, "interlacemethod", m_defaultVideoSettings.m_InterlaceMethod);
@@ -253,13 +234,13 @@ bool CMediaSettings::Save(TiXmlNode *settings) const
   // default audio settings for dsp addons
   TiXmlElement audioSettingsNode("defaultaudiosettings");
   pNode = settings->InsertEndChild(audioSettingsNode);
-  if (pNode == NULL)
+  if (!pNode)
     return false;
 
   // Default game settings
   TiXmlElement gameSettingsNode("defaultgamesettings");
   pNode = settings->InsertEndChild(gameSettingsNode);
-  if (pNode == nullptr)
+  if (!pNode)
     return false;
 
   XMLUtils::SetString(pNode, "videofilter", m_defaultGameSettings.VideoFilter());
@@ -269,17 +250,17 @@ bool CMediaSettings::Save(TiXmlNode *settings) const
 
   // mymusic
   pNode = settings->FirstChild("mymusic");
-  if (pNode == NULL)
+  if (!pNode)
   {
     TiXmlElement videosNode("mymusic");
     pNode = settings->InsertEndChild(videosNode);
-    if (pNode == NULL)
+    if (!pNode)
       return false;
   }
 
   TiXmlElement musicPlaylistNode("playlist");
   TiXmlNode *playlistNode = pNode->InsertEndChild(musicPlaylistNode);
-  if (playlistNode == NULL)
+  if (!playlistNode)
     return false;
   XMLUtils::SetBoolean(playlistNode, "repeat", m_musicPlaylistRepeat);
   XMLUtils::SetBoolean(playlistNode, "shuffle", m_musicPlaylistShuffle);
@@ -288,11 +269,11 @@ bool CMediaSettings::Save(TiXmlNode *settings) const
 
   // myvideos
   pNode = settings->FirstChild("myvideos");
-  if (pNode == NULL)
+  if (!pNode)
   {
     TiXmlElement videosNode("myvideos");
     pNode = settings->InsertEndChild(videosNode);
-    if (pNode == NULL)
+    if (!pNode)
       return false;
   }
 
@@ -303,7 +284,7 @@ bool CMediaSettings::Save(TiXmlNode *settings) const
 
   TiXmlElement videoPlaylistNode("playlist");
   playlistNode = pNode->InsertEndChild(videoPlaylistNode);
-  if (playlistNode == NULL)
+  if (!playlistNode)
     return false;
   XMLUtils::SetBoolean(playlistNode, "repeat", m_videoPlaylistRepeat);
   XMLUtils::SetBoolean(playlistNode, "shuffle", m_videoPlaylistShuffle);
@@ -347,7 +328,7 @@ void CMediaSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& set
 
 void CMediaSettings::OnSettingAction(const std::shared_ptr<const CSetting>& setting)
 {
-  if (setting == NULL)
+  if (!setting)
     return;
 
   const std::string &settingId = setting->GetId();
@@ -378,7 +359,9 @@ void CMediaSettings::OnSettingAction(const std::shared_ptr<const CSetting>& sett
     CServiceBroker::GetMediaManager().GetNetworkLocations(shares);
     CServiceBroker::GetMediaManager().GetRemovableDrives(shares);
 
-    if (CGUIDialogFileBrowser::ShowAndGetFile(shares, "musicdb.xml", g_localizeStrings.Get(651) , path))
+    if (CGUIDialogFileBrowser::ShowAndGetFile(
+            shares, "musicdb.xml",
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(651), path))
     {
       // Import data to music library showing progress dialog
       CMusicLibraryQueue::GetInstance().ImportLibrary(path, true);
@@ -437,7 +420,8 @@ void CMediaSettings::OnSettingAction(const std::shared_ptr<const CSetting>& sett
     CServiceBroker::GetMediaManager().GetNetworkLocations(shares);
     CServiceBroker::GetMediaManager().GetRemovableDrives(shares);
 
-    if (CGUIDialogFileBrowser::ShowAndGetDirectory(shares, g_localizeStrings.Get(651) , path))
+    if (CGUIDialogFileBrowser::ShowAndGetDirectory(
+            shares, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(651), path))
     {
       CVideoDatabase videodatabase;
       videodatabase.Open();
@@ -451,9 +435,18 @@ void CMediaSettings::OnSettingAction(const std::shared_ptr<const CSetting>& sett
   }
 }
 
+void CMediaSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
+{
+  if (!setting)
+    return;
+
+  if (setting->GetId() == CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS)
+    CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "OnRefresh");
+}
+
 int CMediaSettings::GetWatchedMode(const std::string &content) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   WatchedModes::const_iterator it = m_watchedModes.find(GetWatchedContent(content));
   if (it != m_watchedModes.end())
     return it->second;
@@ -463,7 +456,7 @@ int CMediaSettings::GetWatchedMode(const std::string &content) const
 
 void CMediaSettings::SetWatchedMode(const std::string &content, WatchedMode mode)
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   WatchedModes::iterator it = m_watchedModes.find(GetWatchedContent(content));
   if (it != m_watchedModes.end())
     it->second = mode;
@@ -471,7 +464,7 @@ void CMediaSettings::SetWatchedMode(const std::string &content, WatchedMode mode
 
 void CMediaSettings::CycleWatchedMode(const std::string &content)
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   WatchedModes::iterator it = m_watchedModes.find(GetWatchedContent(content));
   if (it != m_watchedModes.end())
   {

@@ -88,6 +88,14 @@ public:
   */
   static bool ConvertISO6391ToISO6392B(const std::string& strISO6391, std::string& strISO6392B, bool checkWin32Locales = false);
 
+  /*!
+   * \brief Converts a language given as 3-Char (ISO 639-2/B or /T) to a 2-Char (ISO 639-1) code.
+   * \param[in] iso6392 The language that should be converted. Case-insensitive.
+   * \param[out] iso6391 The 2-Char (ISO 639-1) language code of the given language.
+   * \return true if the conversion succeeded, false otherwise.
+   */
+  static bool ConvertISO6392ToISO6391(std::string iso6392, std::string& iso6391);
+
   /** \brief Converts a language given as 2-Char (ISO 639-1),
   *          3-Char (ISO 639-2/T or ISO 639-2/B),
   *          or full english name string to a 3-Char ISO 639-2/T code.
@@ -140,15 +148,17 @@ public:
   std::vector<std::string> GetLanguageNames(LANGFORMATS format = ISO_639_1,
                                             LANG_LIST list = LANG_LIST::DEFAULT);
 
-protected:
   /*
-   * \brief Converts a language code given as a long, see #MAKECODE(a, b, c, d)
-   *        to its string representation.
-   * \param[in] code The language code given as a long, see #MAKECODE(a, b, c, d).
-   * \return The string representation of the given language code code.
+   * \brief Converts a language given as 2-Char (ISO 639-1),
+   *        3-Char (ISO 639-2/T, ISO 639-2/B), BCP 47 language tag
+   *        or full English name string to a BCP 47 tag.
+   * \param[in] text The language to convert
+   * \param[out] bcp47 The BCP47 language tag
+   * \return true if the conversion succeeded, false otherwise.
    */
-  static std::string CodeToString(long code);
+  bool ConvertToBcp47(const std::string& text, std::string& bcp47);
 
+protected:
   static bool LookupInISO639Tables(const std::string& code, std::string& desc);
 
   /*
@@ -162,11 +172,11 @@ protected:
 
   bool LookupInUserMap(const std::string& code, std::string& desc);
 
-  /** \brief Looks up the ISO 639-1, ISO 639-2/T, or ISO 639-2/B, whichever it finds first,
-  *          code of the given english language name.
+  /** \brief Looks up the ISO 639-1 or ISO 639-2/T, whichever it finds first, code of the given
+             english language name.
   *   \param[in] desc The english language name for which a code is looked for.
-  *   \param[out] code The ISO 639-1, ISO 639-2/T, or ISO 639-2/B code of the given language desc.
-  *   \return true if the a code was found, false otherwise.
+  *   \param[out] code The ISO 639-1 or ISO 639-2/T code of the given language desc.
+  *   \return true if a code was found, false otherwise.
   */
   bool ReverseLookup(const std::string& desc, std::string& code);
 
@@ -177,6 +187,15 @@ protected:
   *   \return true if desc was found, false otherwise.
   */
   bool LookupUserCode(const std::string& desc, std::string &userCode);
+
+  /*!
+   * \brief Converts a language given as 3-Char (ISO 639-2/B or /T) to a 2-Char (ISO 639-1) code.
+   *        Function meant to be used internally for an already validated input
+   * \param[in] iso6392 The language that should be converted. Must be trimmed and lowercased.
+   * \param[out] iso6391 The 2-Char (ISO 639-1) language code of the given language.
+   * \return true if the conversion succeeded, false otherwise.
+   */
+  static bool ConvertISO6392ToISO6391Internal(const std::string& iso6392, std::string& iso6391);
 
   typedef std::map<std::string, std::string> STRINGLOOKUPTABLE;
   STRINGLOOKUPTABLE m_mapUser;

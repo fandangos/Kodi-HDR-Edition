@@ -18,14 +18,13 @@
 
 using namespace KODI::GUILIB::GUIINFO;
 
-CGUIInfoBool::CGUIInfoBool(bool value)
+CGUIInfoBool::CGUIInfoBool(bool value) : m_value(value)
 {
-  m_value = value;
 }
 
 CGUIInfoBool::~CGUIInfoBool() = default;
 
-void CGUIInfoBool::Parse(const std::string &expression, int context)
+void CGUIInfoBool::Parse(const std::string& expression, int context)
 {
   if (expression == "true")
     m_value = true;

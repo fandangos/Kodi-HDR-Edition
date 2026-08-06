@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2023 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -13,14 +13,17 @@
 #include "MediaSource.h"
 #include "ServiceBroker.h"
 #include "filesystem/Directory.h"
-#include "guilib/LocalizeStrings.h"
 #include "imagefiles/ImageFileURL.h"
+#include "music/Artist.h"
 #include "music/MusicDatabase.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/ArtUtils.h"
 #include "utils/FileExtensionProvider.h"
 #include "utils/FileUtils.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
@@ -112,7 +115,7 @@ std::string CVideoItemArtworkHandler::GetLocalArt() const
 
 std::string CVideoItemArtworkHandler::GetDefaultIcon() const
 {
-  return m_item->m_bIsFolder ? "DefaultFolder.png" : "DefaultPicture.png";
+  return m_item->IsFolder() ? "DefaultFolder.png" : "DefaultPicture.png";
 }
 
 void CVideoItemArtworkHandler::AddItemPathToFileBrowserSources(std::vector<CMediaSource>& sources)
@@ -126,8 +129,9 @@ void CVideoItemArtworkHandler::AddItemPathToFileBrowserSources(std::vector<CMedi
   if (IsVideo(itemTmp))
     itemDir = URIUtils::GetParentPath(itemDir);
 
-  AddItemPathStringToFileBrowserSources(sources, itemDir,
-                                        g_localizeStrings.Get(36041) /* * Item folder */);
+  AddItemPathStringToFileBrowserSources(
+      sources, itemDir,
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(36041) /* * Item folder */);
 }
 
 void CVideoItemArtworkHandler::PersistArt(const std::string& art)
@@ -150,10 +154,9 @@ void CVideoItemArtworkHandler::AddItemPathStringToFileBrowserSources(
 {
   if (!itemDir.empty() && CDirectory::Exists(itemDir))
   {
-    CMediaSource itemSource;
+    CMediaSource& itemSource = sources.emplace_back();
     itemSource.strName = label;
     itemSource.strPath = itemDir;
-    sources.emplace_back(itemSource);
   }
 }
 
@@ -425,12 +428,13 @@ void CVideoItemArtworkMovieSetHandler::AddItemPathToFileBrowserSources(
 {
   AddItemPathStringToFileBrowserSources(
       sources, VIDEO::CVideoInfoScanner::GetMovieSetInfoFolder(m_item->GetLabel()),
-      g_localizeStrings.Get(36041) /* * Item folder */);
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(36041) /* * Item folder */);
   AddItemPathStringToFileBrowserSources(
       sources,
       CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
           CSettings::SETTING_VIDEOLIBRARY_MOVIESETSFOLDER),
-      "* " + g_localizeStrings.Get(20226) /* Movie set information folder */);
+      "* " + CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                 20226) /* Movie set information folder */);
 }
 
 //-------------------------------------------------------------------------------------------------

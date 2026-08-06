@@ -244,7 +244,7 @@ CMediaCodecVideoBufferPool::~CMediaCodecVideoBufferPool()
 
 CVideoBuffer* CMediaCodecVideoBufferPool::Get()
 {
-  std::unique_lock<CCriticalSection> lock(m_criticalSection);
+  std::unique_lock lock(m_criticalSection);
 
   if (m_freeBuffers.empty())
   {
@@ -261,14 +261,14 @@ CVideoBuffer* CMediaCodecVideoBufferPool::Get()
 
 void CMediaCodecVideoBufferPool::Return(int id)
 {
-  std::unique_lock<CCriticalSection> lock(m_criticalSection);
+  std::unique_lock lock(m_criticalSection);
   m_videoBuffers[id]->ReleaseOutputBuffer(false, 0, this);
   m_freeBuffers.push_back(id);
 }
 
 std::shared_ptr<CJNIMediaCodec> CMediaCodecVideoBufferPool::GetMediaCodec()
 {
-  std::unique_lock<CCriticalSection> lock(m_criticalSection);
+  std::unique_lock lock(m_criticalSection);
   return m_codec;
 }
 
@@ -276,13 +276,13 @@ void CMediaCodecVideoBufferPool::ResetMediaCodec()
 {
   ReleaseMediaCodecBuffers();
 
-  std::unique_lock<CCriticalSection> lock(m_criticalSection);
+  std::unique_lock lock(m_criticalSection);
   m_codec = nullptr;
 }
 
 void CMediaCodecVideoBufferPool::ReleaseMediaCodecBuffers()
 {
-  std::unique_lock<CCriticalSection> lock(m_criticalSection);
+  std::unique_lock lock(m_criticalSection);
   for (auto buffer : m_videoBuffers)
     buffer->ReleaseOutputBuffer(false, 0, this);
 }
@@ -406,16 +406,16 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
     case AV_CODEC_ID_VP9:
       switch (m_hints.profile)
       {
-        case FF_PROFILE_VP9_0:
+        case AV_PROFILE_VP9_0:
           profile = CJNIMediaCodecInfoCodecProfileLevel::VP9Profile0;
           break;
-        case FF_PROFILE_VP9_1:
+        case AV_PROFILE_VP9_1:
           profile = CJNIMediaCodecInfoCodecProfileLevel::VP9Profile1;
           break;
-        case FF_PROFILE_VP9_2:
+        case AV_PROFILE_VP9_2:
           profile = CJNIMediaCodecInfoCodecProfileLevel::VP9Profile2;
           break;
-        case FF_PROFILE_VP9_3:
+        case AV_PROFILE_VP9_3:
           profile = CJNIMediaCodecInfoCodecProfileLevel::VP9Profile3;
           break;
         default:;
@@ -429,33 +429,33 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
     case AV_CODEC_ID_H264:
       switch (m_hints.profile)
       {
-        case FF_PROFILE_H264_BASELINE:
+        case AV_PROFILE_H264_BASELINE:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileBaseline;
           break;
-        case FF_PROFILE_H264_MAIN:
+        case AV_PROFILE_H264_MAIN:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileMain;
           break;
-        case FF_PROFILE_H264_EXTENDED:
+        case AV_PROFILE_H264_EXTENDED:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileExtended;
           break;
-        case FF_PROFILE_H264_HIGH:
+        case AV_PROFILE_H264_HIGH:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileHigh;
           break;
-        case FF_PROFILE_H264_HIGH_10:
+        case AV_PROFILE_H264_HIGH_10:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileHigh10;
           break;
-        case FF_PROFILE_H264_HIGH_422:
+        case AV_PROFILE_H264_HIGH_422:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileHigh422;
           break;
-        case FF_PROFILE_H264_HIGH_444:
+        case AV_PROFILE_H264_HIGH_444:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AVCProfileHigh444;
           break;
         // All currently not supported formats
-        case FF_PROFILE_H264_HIGH_10_INTRA:
-        case FF_PROFILE_H264_HIGH_422_INTRA:
-        case FF_PROFILE_H264_HIGH_444_PREDICTIVE:
-        case FF_PROFILE_H264_HIGH_444_INTRA:
-        case FF_PROFILE_H264_CAVLC_444:
+        case AV_PROFILE_H264_HIGH_10_INTRA:
+        case AV_PROFILE_H264_HIGH_422_INTRA:
+        case AV_PROFILE_H264_HIGH_444_PREDICTIVE:
+        case AV_PROFILE_H264_HIGH_444_INTRA:
+        case AV_PROFILE_H264_CAVLC_444:
           goto FAIL;
         default:
           break;
@@ -477,16 +477,16 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
     {
       switch (m_hints.profile)
       {
-        case FF_PROFILE_HEVC_MAIN:
+        case AV_PROFILE_HEVC_MAIN:
           profile = CJNIMediaCodecInfoCodecProfileLevel::HEVCProfileMain;
           break;
-        case FF_PROFILE_HEVC_MAIN_10:
+        case AV_PROFILE_HEVC_MAIN_10:
           profile = CJNIMediaCodecInfoCodecProfileLevel::HEVCProfileMain10;
           break;
-        case FF_PROFILE_HEVC_MAIN_STILL_PICTURE:
+        case AV_PROFILE_HEVC_MAIN_STILL_PICTURE:
           profile = CJNIMediaCodecInfoCodecProfileLevel::HEVCProfileMainStill;
           break;
-        case FF_PROFILE_HEVC_REXT:
+        case AV_PROFILE_HEVC_REXT:
           // No known h/w decoder supporting Hi10P
           goto FAIL;
         default:
@@ -500,10 +500,12 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
       bool convertDovi{false};
       bool removeDovi{false};
       bool removeHdr10Plus{false};
+      bool doviZeroLevel5{false};
 
       if (settings)
       {
         convertDovi = settings->GetBool(CSettings::SETTING_VIDEOPLAYER_CONVERTDOVI);
+        doviZeroLevel5 = settings->GetBool(CSettings::SETTING_VIDEOPLAYER_DOVIZEROLEVEL5);
 
         const std::shared_ptr<CSettingList> allowedHdrFormatsSetting(
             std::dynamic_pointer_cast<CSettingList>(
@@ -600,6 +602,7 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
         {
           m_bitstream->SetRemoveDovi(removeDovi);
           m_bitstream->SetRemoveHdr10Plus(removeHdr10Plus);
+          m_bitstream->SetDoviZeroLevel5(doviZeroLevel5);
 
           // Only set for profile 7, container hint allows to skip parsing unnecessarily
           if (m_hints.dovi.dv_profile == 7)
@@ -672,11 +675,11 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
     {
       switch (m_hints.profile)
       {
-        case FF_PROFILE_AV1_MAIN:
+        case AV_PROFILE_AV1_MAIN:
           profile = CJNIMediaCodecInfoCodecProfileLevel::AV1ProfileMain8;
           break;
-        case FF_PROFILE_AV1_HIGH:
-        case FF_PROFILE_AV1_PROFESSIONAL:
+        case AV_PROFILE_AV1_HIGH:
+        case AV_PROFILE_AV1_PROFESSIONAL:
           goto FAIL;
           break;
         default:
@@ -797,7 +800,7 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
           else
           {
             m_mime = v;
-            CLog::Log(LOGDEBUG, "Succesfully replaced VC1 mime type to {}", m_mime);
+            CLog::Log(LOGDEBUG, "Successfully replaced VC1 mime type to {}", m_mime);
             success = true;
             break;
           }
@@ -916,9 +919,9 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
   if (!ConfigureMediaCodec())
     goto FAIL;
 
-  if (m_codecname.find("OMX.Nvidia", 0, 10) == 0)
+  if (m_codecname.starts_with("OMX.Nvidia"))
     m_invalidPTSValue = AV_NOPTS_VALUE;
-  else if (m_codecname.find("OMX.MTK", 0, 7) == 0)
+  else if (m_codecname.starts_with("OMX.MTK") || m_codecname.starts_with("c2.mtk"))
     m_invalidPTSValue = -1; //Use DTS
   else
     m_invalidPTSValue = 0;
@@ -965,7 +968,7 @@ void CDVDVideoCodecAndroidMediaCodec::Dispose()
   if (!m_opened)
     return;
 
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecAndroidMediaCodec::{}", __func__);
+  CLog::LogF(LOGDEBUG, "call");
 
   // invalidate any inflight outputbuffers
   FlushInternal();
@@ -1329,8 +1332,7 @@ void CDVDVideoCodecAndroidMediaCodec::SetCodecControl(int flags)
 {
   if (m_codecControlFlags != flags)
   {
-    CLog::Log(LOGDEBUG, LOGVIDEO, "CDVDVideoCodecAndroidMediaCodec::{} {:x}->{:x}", __func__,
-              m_codecControlFlags, flags);
+    CLog::LogFC(LOGDEBUG, LOGVIDEO, "{:x}->{:x}", m_codecControlFlags, flags);
     m_codecControlFlags = flags;
   }
 }
@@ -1351,14 +1353,13 @@ void CDVDVideoCodecAndroidMediaCodec::FlushInternal()
 
 void CDVDVideoCodecAndroidMediaCodec::SignalEndOfStream()
 {
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecAndroidMediaCodec::{}: state: {}", __func__, m_state);
+  CLog::LogF(LOGDEBUG, "state: {}", m_state);
   if (m_codec && (m_state == MEDIACODEC_STATE_RUNNING))
   {
     // Release all mediaodec output buffers to allow drain if we don't get inputbuffer early
     if (m_videoBufferPool)
     {
-      CLog::Log(LOGDEBUG, "CDVDVideoCodecAndroidMediaCodec::{}: ReleaseMediaCodecBuffers",
-                __func__);
+      CLog::LogF(LOGDEBUG, "ReleaseMediaCodecBuffers");
       m_videoBufferPool->ReleaseMediaCodecBuffers();
     }
 
@@ -1369,8 +1370,7 @@ void CDVDVideoCodecAndroidMediaCodec::SignalEndOfStream()
       {
         xbmc_jnienv()->ExceptionDescribe();
         xbmc_jnienv()->ExceptionClear();
-        CLog::Log(LOGERROR,
-                  "CDVDVideoCodecAndroidMediaCodec::SignalEndOfStream: dequeueInputBuffer failed");
+        CLog::LogF(LOGERROR, "dequeueInputBuffer failed");
       }
     }
 
@@ -1384,19 +1384,16 @@ void CDVDVideoCodecAndroidMediaCodec::SignalEndOfStream()
       {
         xbmc_jnienv()->ExceptionDescribe();
         xbmc_jnienv()->ExceptionClear();
-        CLog::Log(LOGERROR, "CDVDVideoCodecAndroidMediaCodec::{}: queueInputBuffer failed",
-                  __func__);
+        CLog::LogF(LOGERROR, "queueInputBuffer failed");
       }
       else
       {
         m_indexInputBuffer = -1;
-        CLog::Log(LOGDEBUG, "CDVDVideoCodecAndroidMediaCodec::{}: BUFFER_FLAG_END_OF_STREAM send",
-                  __func__);
+        CLog::LogF(LOGDEBUG, "BUFFER_FLAG_END_OF_STREAM send");
       }
     }
     else
-      CLog::Log(LOGWARNING, "CDVDVideoCodecAndroidMediaCodec::{}: invalid index: {}", __func__,
-                m_indexInputBuffer);
+      CLog::LogF(LOGWARNING, "invalid index: {}", m_indexInputBuffer);
   }
 }
 
@@ -1405,7 +1402,7 @@ void CDVDVideoCodecAndroidMediaCodec::InjectExtraData(CJNIMediaFormat& mediaform
   if (!m_hints.extradata)
     return;
 
-  CLog::Log(LOGDEBUG, "CDVDVideoCodecAndroidMediaCodec::{}", __func__);
+  CLog::LogF(LOGDEBUG, "call");
   size_t size = m_hints.extradata.GetSize();
   void* src_ptr = m_hints.extradata.GetData();
   if (m_bitstream)
@@ -1738,17 +1735,17 @@ void CDVDVideoCodecAndroidMediaCodec::ConfigureOutputFormat(CJNIMediaFormat& med
   if (mediaformat.containsKey(CJNIMediaFormat::KEY_SLICE_HEIGHT))
     slice_height = mediaformat.getInteger(CJNIMediaFormat::KEY_SLICE_HEIGHT);
 
-  if (CJNIBase::GetSDKVersion() >= 33)
-  {
-    if (mediaformat.containsKey(CJNIMediaFormat::KEY_CROP_LEFT))
-      crop_left = mediaformat.getInteger(CJNIMediaFormat::KEY_CROP_LEFT);
-    if (mediaformat.containsKey(CJNIMediaFormat::KEY_CROP_TOP))
-      crop_top = mediaformat.getInteger(CJNIMediaFormat::KEY_CROP_TOP);
-    if (mediaformat.containsKey(CJNIMediaFormat::KEY_CROP_RIGHT))
-      crop_right = mediaformat.getInteger(CJNIMediaFormat::KEY_CROP_RIGHT);
-    if (mediaformat.containsKey(CJNIMediaFormat::KEY_CROP_BOTTOM))
-      crop_bottom = mediaformat.getInteger(CJNIMediaFormat::KEY_CROP_BOTTOM);
-  }
+  // Use the crop keys directly instead of the constants defined in the MediaFormat class.
+  // These constants were formally introduced in API 33, but they had already been used
+  // directly in previous versions.
+  if (mediaformat.containsKey("crop-left"))
+    crop_left = mediaformat.getInteger("crop-left");
+  if (mediaformat.containsKey("crop-top"))
+    crop_top = mediaformat.getInteger("crop-top");
+  if (mediaformat.containsKey("crop-right"))
+    crop_right = mediaformat.getInteger("crop-right");
+  if (mediaformat.containsKey("crop-bottom"))
+    crop_bottom = mediaformat.getInteger("crop-bottom");
 
   // Note: These properties are not documented in the Android SDK but
   // are available in the MediaFormat object.

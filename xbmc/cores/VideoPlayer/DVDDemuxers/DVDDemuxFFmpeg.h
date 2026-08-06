@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -20,7 +20,9 @@ extern "C" {
 }
 
 class CDVDDemuxFFmpeg;
+class CDVDInputStream;
 class CURL;
+struct ChapterFFmpeg;
 
 enum class TRANSPORT_STREAM_STATE
 {
@@ -107,7 +109,7 @@ public:
   int GetChapterCount() override;
   int GetChapter() override;
   void GetChapterName(std::string& strChapterName, int chapterIdx=-1) override;
-  int64_t GetChapterPos(int chapterIdx = -1) override;
+  std::chrono::milliseconds GetChapterPos(int chapterIdx = -1) override;
   std::string GetStreamCodecName(int iStreamId) override;
 
   bool Aborted();
@@ -177,5 +179,5 @@ protected:
   double m_dtsAtDisplayTime;
   bool m_seekToKeyFrame = false;
   double m_startTime = 0;
+  std::vector<ChapterFFmpeg> m_chapters;
 };
-

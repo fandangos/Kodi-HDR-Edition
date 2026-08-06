@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2024 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -12,6 +12,7 @@
 #include "URL.h"
 #include "guilib/GUITextureGL.h"
 #include "platform/MessagePrinter.h"
+#include "rendering/GLExtensions.h"
 #include "rendering/MatrixGL.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
@@ -100,7 +101,7 @@ bool CRenderSystemGL::InitRenderSystem()
 #if defined(GL_KHR_debug) && defined(TARGET_LINUX)
   if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_openGlDebugging)
   {
-    if (IsExtSupported("GL_KHR_debug"))
+    if (CGLExtensions::IsExtensionSupported(CGLExtensions::KHR_debug))
     {
       auto glDebugMessageCallback =
           CEGLUtils::GetRequiredProcAddress<PFNGLDEBUGMESSAGECALLBACKPROC>(
@@ -204,7 +205,7 @@ bool CRenderSystemGL::ResetRenderSystem(int width, int height)
   glMatrixTexture->LoadIdentity();
   glMatrixTexture.Load();
 
-  if (IsExtSupported("GL_ARB_multitexture"))
+  if (CGLExtensions::IsExtensionSupported(CGLExtensions::ARB_multitexture))
   {
     //clear error flags
     ResetGLErrors();
@@ -261,7 +262,10 @@ bool CRenderSystemGL::BeginRender()
   if (!m_bRenderCreated)
     return false;
 
-  bool useLimited = CServiceBroker::GetWinSystem()->UseLimitedColor();
+  m_GUIElementCount = 0;
+
+  bool useLimited = CServiceBroker::GetWinSystem()->UseLimitedColor() &&
+                    !CServiceBroker::GetWinSystem()->IsHdrComposite();
 
   if (m_limitedColorRange != useLimited)
   {
@@ -287,17 +291,17 @@ void CRenderSystemGL::InvalidateColorBuffer()
     return;
 
   /* clear is not affected by stipple pattern, so we can only clear on first frame */
-  if (m_stereoMode == RENDER_STEREO_MODE_INTERLACED && m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+  if (m_stereoMode == RenderStereoMode::INTERLACED && m_stereoView == RenderStereoView::RIGHT)
     return;
 
   // some platforms prefer a clear, instead of rendering over
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiGeometryClear)
+  if (GetClearFunction() == ClearFunction::FIXED_FUNCTION)
   {
     ClearBuffers(0);
     return;
   }
 
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiFrontToBackRendering)
+  if (!GetEnabledFrontToBackRendering())
     return;
 
   glClearDepthf(0);
@@ -311,7 +315,7 @@ bool CRenderSystemGL::ClearBuffers(KODI::UTILS::COLOR::Color color)
     return false;
 
   /* clear is not affected by stipple pattern, so we can only clear on first frame */
-  if(m_stereoMode == RENDER_STEREO_MODE_INTERLACED && m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+  if (m_stereoMode == RenderStereoMode::INTERLACED && m_stereoView == RenderStereoView::RIGHT)
     return true;
 
   float r = KODI::UTILS::GL::GetChannelFromARGB(KODI::UTILS::GL::ColorChannel::R, color) / 255.0f;
@@ -323,7 +327,7 @@ bool CRenderSystemGL::ClearBuffers(KODI::UTILS::COLOR::Color color)
 
   GLbitfield flags = GL_COLOR_BUFFER_BIT;
 
-  if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiFrontToBackRendering)
+  if (GetEnabledFrontToBackRendering())
   {
     glClearDepthf(0);
     glDepthMask(GL_TRUE);
@@ -552,20 +556,20 @@ void CRenderSystemGL::ResetScissors()
   SetScissors(CRect(0, 0, (float)m_width, (float)m_height));
 }
 
-void CRenderSystemGL::SetDepthCulling(DEPTH_CULLING culling)
+void CRenderSystemGL::SetDepthCulling(DepthCulling culling)
 {
-  if (culling == DEPTH_CULLING_OFF)
+  if (culling == DepthCulling::OFF)
   {
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
   }
-  else if (culling == DEPTH_CULLING_BACK_TO_FRONT)
+  else if (culling == DepthCulling::BACK_TO_FRONT)
   {
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDepthFunc(GL_GEQUAL);
   }
-  else if (culling == DEPTH_CULLING_FRONT_TO_BACK)
+  else if (culling == DepthCulling::FRONT_TO_BACK)
   {
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
@@ -631,64 +635,65 @@ static const GLubyte stipple_3d[] = {
   0x00, 0x00, 0x00, 0x00,
 };
 
-void CRenderSystemGL::SetStereoMode(RENDER_STEREO_MODE mode, RENDER_STEREO_VIEW view)
+void CRenderSystemGL::SetStereoMode(RenderStereoMode mode, RenderStereoView view)
 {
   CRenderSystemBase::SetStereoMode(mode, view);
 
   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
   glDrawBuffer(GL_BACK);
 
-  if(m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN)
+  if (m_stereoMode == RenderStereoMode::ANAGLYPH_RED_CYAN)
   {
-    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+    if (m_stereoView == RenderStereoView::LEFT)
       glColorMask(GL_TRUE, GL_FALSE, GL_FALSE, GL_TRUE);
-    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    else if (m_stereoView == RenderStereoView::RIGHT)
       glColorMask(GL_FALSE, GL_TRUE, GL_TRUE, GL_TRUE);
   }
-  if(m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA)
+  if (m_stereoMode == RenderStereoMode::ANAGLYPH_GREEN_MAGENTA)
   {
-    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+    if (m_stereoView == RenderStereoView::LEFT)
       glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
-    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    else if (m_stereoView == RenderStereoView::RIGHT)
       glColorMask(GL_TRUE, GL_FALSE, GL_TRUE, GL_TRUE);
   }
-  if(m_stereoMode == RENDER_STEREO_MODE_ANAGLYPH_YELLOW_BLUE)
+  if (m_stereoMode == RenderStereoMode::ANAGLYPH_YELLOW_BLUE)
   {
-    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+    if (m_stereoView == RenderStereoView::LEFT)
       glColorMask(GL_TRUE, GL_TRUE, GL_FALSE, GL_TRUE);
-    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    else if (m_stereoView == RenderStereoView::RIGHT)
       glColorMask(GL_FALSE, GL_FALSE, GL_TRUE, GL_TRUE);
   }
 
-  if(m_stereoMode == RENDER_STEREO_MODE_INTERLACED)
+  if (m_stereoMode == RenderStereoMode::INTERLACED)
   {
     glEnable(GL_POLYGON_STIPPLE);
-    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+    if (m_stereoView == RenderStereoView::LEFT)
       glPolygonStipple(stipple_3d);
-    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    else if (m_stereoView == RenderStereoView::RIGHT)
       glPolygonStipple(stipple_3d+4);
   }
 
-  if(m_stereoMode == RENDER_STEREO_MODE_HARDWAREBASED)
+  if (m_stereoMode == RenderStereoMode::HARDWAREBASED)
   {
-    if(m_stereoView == RENDER_STEREO_VIEW_LEFT)
+    if (m_stereoView == RenderStereoView::LEFT)
       glDrawBuffer(GL_BACK_LEFT);
-    else if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    else if (m_stereoView == RenderStereoView::RIGHT)
       glDrawBuffer(GL_BACK_RIGHT);
   }
 
 }
 
-bool CRenderSystemGL::SupportsStereo(RENDER_STEREO_MODE mode) const
+bool CRenderSystemGL::SupportsStereo(RenderStereoMode mode) const
 {
   switch(mode)
   {
-    case RENDER_STEREO_MODE_ANAGLYPH_RED_CYAN:
-    case RENDER_STEREO_MODE_ANAGLYPH_GREEN_MAGENTA:
-    case RENDER_STEREO_MODE_ANAGLYPH_YELLOW_BLUE:
-    case RENDER_STEREO_MODE_INTERLACED:
+    case RenderStereoMode::ANAGLYPH_RED_CYAN:
+    case RenderStereoMode::ANAGLYPH_GREEN_MAGENTA:
+    case RenderStereoMode::ANAGLYPH_YELLOW_BLUE:
+    case RenderStereoMode::INTERLACED:
       return true;
-    case RENDER_STEREO_MODE_HARDWAREBASED: {
+    case RenderStereoMode::HARDWAREBASED:
+    {
       //This is called by setting init, at which point GL is not inited
       //luckily if GL doesn't support this, it will just behave as if
       //it was not in effect.
@@ -708,7 +713,8 @@ bool CRenderSystemGL::SupportsStereo(RENDER_STEREO_MODE mode) const
 void CRenderSystemGL::InitialiseShaders()
 {
   std::string defines;
-  m_limitedColorRange = CServiceBroker::GetWinSystem()->UseLimitedColor();
+  m_limitedColorRange = CServiceBroker::GetWinSystem()->UseLimitedColor() &&
+                        !CServiceBroker::GetWinSystem()->IsHdrComposite();
   if (m_limitedColorRange)
   {
     defines += "#define KODI_LIMITED_RANGE 1\n";

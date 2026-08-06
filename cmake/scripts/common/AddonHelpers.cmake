@@ -14,6 +14,13 @@ else()
                     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target package)
 endif()
 
+if(MINGW)
+  message(WARNING
+          "MSYS/MINGW generated add-ons are not supported for use in Kodi!\n"
+          "For compiler test purposes only!"
+         )
+endif()
+
 macro(add_cpack_workaround target version ext)
   if(NOT PACKAGE_DIR)
     set(PACKAGE_DIR "${CMAKE_INSTALL_PREFIX}/zips")
@@ -67,6 +74,11 @@ function(source_group_by_folder target)
     endif()
   endif()
   foreach(file ${files})
+    if(file MATCHES "^\\$<")
+      list(POP_FRONT files)
+      continue()
+    endif()
+
     if(NOT IS_ABSOLUTE ${file})
       set(file ${CMAKE_CURRENT_SOURCE_DIR}/${file})
     endif()
@@ -74,7 +86,7 @@ function(source_group_by_folder target)
     get_filename_component(dir "${relative_file}" DIRECTORY)
     if(NOT dir STREQUAL "${last_dir}")
       if(files)
-        source_group("${last_dir}" FILES ${files})
+        source_group(TREE "${relative_dir}" FILES ${files})
       endif()
       set(files "")
     endif()
@@ -82,7 +94,7 @@ function(source_group_by_folder target)
     set(last_dir "${dir}")
   endforeach(file)
   if(files)
-    source_group("${last_dir}" FILES ${files})
+    source_group(TREE "${relative_dir}" FILES ${files})
   endif()
 endfunction()
 
@@ -312,9 +324,11 @@ macro (build_addon target prefix libs)
                 COMPONENT ${target}-${${prefix}_VERSION}-${PLATFORM_TAG})
 
         # for debug builds also install the PDB file
-        install(FILES $<TARGET_PDB_FILE:${target}> DESTINATION ${target}
-                CONFIGURATIONS Debug RelWithDebInfo
-                COMPONENT ${target}-${${prefix}_VERSION}-${PLATFORM_TAG})
+        if(NOT MINGW)
+          install(FILES $<TARGET_PDB_FILE:${target}> DESTINATION ${target}
+                  CONFIGURATIONS Debug RelWithDebInfo
+                  COMPONENT ${target}-${${prefix}_VERSION}-${PLATFORM_TAG})
+        endif()
       endif()
       if(${prefix}_CUSTOM_BINARY)
         install(FILES ${LIBRARY_LOCATION} DESTINATION ${target} RENAME ${LIBRARY_FILENAME}

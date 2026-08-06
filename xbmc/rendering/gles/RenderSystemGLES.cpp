@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2024 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,10 +8,12 @@
 
 #include "RenderSystemGLES.h"
 
+#include "ServiceBroker.h"
 #include "URL.h"
 #include "guilib/DirtyRegion.h"
 #include "guilib/GUITextureGLES.h"
 #include "platform/MessagePrinter.h"
+#include "rendering/GLExtensions.h"
 #include "rendering/MatrixGL.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
@@ -23,6 +25,7 @@
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #if defined(TARGET_LINUX)
 #include "utils/EGLUtils.h"
@@ -80,7 +83,7 @@ bool CRenderSystemGLES::InitRenderSystem()
 #if defined(GL_KHR_debug) && defined(TARGET_LINUX)
   if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_openGlDebugging)
   {
-    if (IsExtSupported("GL_KHR_debug"))
+    if (CGLExtensions::IsExtensionSupported(CGLExtensions::KHR_debug))
     {
       auto glDebugMessageCallback = CEGLUtils::GetRequiredProcAddress<PFNGLDEBUGMESSAGECALLBACKKHRPROC>("glDebugMessageCallbackKHR");
       auto glDebugMessageControl = CEGLUtils::GetRequiredProcAddress<PFNGLDEBUGMESSAGECONTROLKHRPROC>("glDebugMessageControlKHR");
@@ -173,7 +176,10 @@ bool CRenderSystemGLES::BeginRender()
   if (!m_bRenderCreated)
     return false;
 
-  const bool useLimited = CServiceBroker::GetWinSystem()->UseLimitedColor();
+  m_GUIElementCount = 0;
+
+  const bool useLimited = CServiceBroker::GetWinSystem()->UseLimitedColor() &&
+                          !CServiceBroker::GetWinSystem()->IsHdrComposite();
   const bool usePQ = CServiceBroker::GetWinSystem()->GetGfxContext().IsTransferPQ();
 
   if (m_limitedColorRange != useLimited || m_transferPQ != usePQ)
@@ -203,10 +209,10 @@ void CRenderSystemGLES::InvalidateColorBuffer()
     return;
 
   // some platforms prefer a clear, instead of rendering over
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiGeometryClear)
+  if (GetClearFunction() == ClearFunction::FIXED_FUNCTION)
     ClearBuffers(0);
 
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiFrontToBackRendering)
+  if (!GetEnabledFrontToBackRendering())
     return;
 
   glClearDepthf(0);
@@ -228,7 +234,7 @@ bool CRenderSystemGLES::ClearBuffers(KODI::UTILS::COLOR::Color color)
 
   GLbitfield flags = GL_COLOR_BUFFER_BIT;
 
-  if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiFrontToBackRendering)
+  if (GetEnabledFrontToBackRendering())
   {
     glClearDepthf(0);
     glDepthMask(GL_TRUE);
@@ -418,20 +424,20 @@ void CRenderSystemGLES::ResetScissors()
   SetScissors(CRect(0, 0, (float)m_width, (float)m_height));
 }
 
-void CRenderSystemGLES::SetDepthCulling(DEPTH_CULLING culling)
+void CRenderSystemGLES::SetDepthCulling(DepthCulling culling)
 {
-  if (culling == DEPTH_CULLING_OFF)
+  if (culling == DepthCulling::OFF)
   {
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
   }
-  else if (culling == DEPTH_CULLING_BACK_TO_FRONT)
+  else if (culling == DepthCulling::BACK_TO_FRONT)
   {
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
     glDepthFunc(GL_GEQUAL);
   }
-  else if (culling == DEPTH_CULLING_FRONT_TO_BACK)
+  else if (culling == DepthCulling::FRONT_TO_BACK)
   {
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
@@ -442,7 +448,8 @@ void CRenderSystemGLES::SetDepthCulling(DEPTH_CULLING culling)
 void CRenderSystemGLES::InitialiseShaders()
 {
   std::string defines;
-  m_limitedColorRange = CServiceBroker::GetWinSystem()->UseLimitedColor();
+  m_limitedColorRange = CServiceBroker::GetWinSystem()->UseLimitedColor() &&
+                        !CServiceBroker::GetWinSystem()->IsHdrComposite();
   if (m_limitedColorRange)
   {
     defines += "#define KODI_LIMITED_RANGE 1\n";
@@ -582,7 +589,7 @@ void CRenderSystemGLES::InitialiseShaders()
     CLog::Log(LOGERROR, "GUI Shader gles_shader_rgba_bob.frag - compile and link failed");
   }
 
-  if (IsExtSupported("GL_OES_EGL_image_external"))
+  if (CGLExtensions::IsExtensionSupported(CGLExtensions::OES_EGL_image_external))
   {
     m_pShader[ShaderMethodGLES::SM_TEXTURE_RGBA_OES] =
         std::make_unique<CGLESShader>("gles_shader_rgba_oes.frag", defines);
@@ -747,6 +754,14 @@ GLint CRenderSystemGLES::GUIShaderGetDepth()
   return -1;
 }
 
+GLint CRenderSystemGLES::GUIShaderGetPma()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetPmaLoc();
+
+  return -1;
+}
+
 GLint CRenderSystemGLES::GUIShaderGetUniCol()
 {
   if (m_pShader[m_method])
@@ -795,7 +810,7 @@ GLint CRenderSystemGLES::GUIShaderGetBrightness()
   return -1;
 }
 
-bool CRenderSystemGLES::SupportsStereo(RENDER_STEREO_MODE mode) const
+bool CRenderSystemGLES::SupportsStereo(RenderStereoMode mode) const
 {
   return CRenderSystemBase::SupportsStereo(mode);
 }

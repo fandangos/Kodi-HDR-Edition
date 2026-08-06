@@ -26,6 +26,7 @@ NATIVE= \
   openssl \
   pcre2 \
   perlmodule-parseyapp \
+  pythonmodule-pybind11 \
   pythonmodule-setuptools \
   pkg-config \
   python3 \
@@ -88,14 +89,17 @@ meson: python3 pythonmodule-setuptools
 ninja: meson
 openssl: zlib
 pcre2: cmake
+pkgconf: meson ninja
 pugixml: cmake
 python3: $(EXPAT) $(LIBFFI) pkg-config zlib openssl autoconf-archive
+pythonmodule-pybind11: pythonmodule-setuptools python3
 pythonmodule-setuptools: python3
 swig: bison cmake pcre2
 tar: xz automake
 TexturePacker: cmake libpng liblzo2 giflib libjpeg-turbo
 wayland-scanner: expat ninja pkg-config
 waylandpp-scanner: cmake pugixml
+xz: cmake
 
 # python installs are not thread safe when using easy_install method.
 # MarkupSafe doesn't really depend on ninja but we need to make the

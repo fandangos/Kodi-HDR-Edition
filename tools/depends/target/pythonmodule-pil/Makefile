@@ -1,5 +1,7 @@
 include ../../Makefile.include PYTHONMODULE-PIL-VERSION ../../download-files.include
-DEPS= ../../Makefile.include Makefile PYTHONMODULE-PIL-VERSION ../../download-files.include pillow-crosscompile.patch
+DEPS= ../../Makefile.include Makefile PYTHONMODULE-PIL-VERSION ../../download-files.include \
+                                  pillow-crosscompile.patch \
+                                  12-android-multi-phase.patch
 
 PYTHONPATH=$(PYTHON_SITE_PKG)
 PILPATH=$(PYTHONPATH)
@@ -21,8 +23,6 @@ else ifeq ($(OS),darwin_embedded)
   PILPATH=$(PREFIX)/share/$(APP_NAME)/addons/script.module.pil
   PILPATHLIB=$(PILPATH)/lib
   PYTHONPATH=$(PILPATH):$(PYTHON_SITE_PKG)
-else ifeq ($(TARGET_PLATFORM),webos)
-  PILPATHLIB=$(PYTHON_SITE_PKG)/..
 endif
 
 SED_FLAG=-i
@@ -55,7 +55,7 @@ export ZLIB_ROOT
 
 BUILD_OPTS=--plat-name $(OS)-$(CPU) --disable-jpeg2000 --disable-webp --disable-imagequant --disable-tiff --disable-xcb --disable-lcms --disable-platform-guessing
 
-export CC CFLAGS
+export CC CFLAGS AR RANLIB
 export PYTHONXINCLUDE=$(PREFIX)/include/python$(PYTHON_VERSION)
 export LDSHARED LDFLAGS PYTHONPATH
 export SETUPTOOLS_EXT_SUFFIX=.so
@@ -63,10 +63,14 @@ export SETUPTOOLS_EXT_SUFFIX=.so
 all: .installed-$(PLATFORM)
 
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 	cd $(PLATFORM); patch -p1 -i ../pillow-crosscompile.patch
+ifeq ($(OS),android)
+	cd $(PLATFORM); patch -p1 -i ../12-android-multi-phase.patch
+endif
+	touch $@
 
 $(PILPATHLIB):
 ifeq ($(OS),android)
@@ -75,27 +79,26 @@ else ifeq ($(OS),darwin_embedded)
 	mkdir -p $(PILPATHLIB)
 endif
 
-.installed-$(PLATFORM): $(PLATFORM) $(PILPATHLIB)
-	cd $(PLATFORM); $(NATIVEPREFIX)/bin/python3 setup.py build_ext $(BUILD_OPTS) install --install-lib $(PILPATH)
+.installed-$(PLATFORM): .configured-$(PLATFORM) $(PILPATHLIB)
+	cd $(PLATFORM); $(NATIVEPREFIX)/bin/python3 setup.py build build_py build_ext $(BUILD_OPTS) install --install-lib $(PILPATH) bdist_egg
 ifeq ($(OS),android)
-	cd $(PILPATHLIB) && unzip -o ../pillow-*.egg
+	unzip -o $(PLATFORM)/dist/pillow-*.egg -d $(PILPATHLIB)
 	cd $(PILPATHLIB)/PIL && \
           sed $(SED_FLAG) -e 's/import sys/import os, sys /' \
                           -e '/__file__/ s/_imaging/lib_imaging/g' \
-                          -e 's/pkg_resources.resource_filename(__name__,/os.path.join(os.environ["KODI_ANDROID_LIBS"], /' \
+                          -e "s/\.*with.*joinpath('\(.*\)').*/__file__ = os.path.join(os.environ[\"KODI_ANDROID_LIBS\"], '\1')/" \
+                          -e 's/^        /    /' \
                               _imaging*.py
-	cd $(PILPATH) && rm -rf pillow-*.egg
 else ifeq ($(OS),darwin_embedded)
-	cd $(PILPATHLIB) && unzip -o ../pillow-*.egg
-	cd $(PILPATH) && rm -rf pillow-*.egg
+	unzip -o $(PLATFORM)/dist/pillow-*.egg -d $(PILPATHLIB)
 else ifeq ($(TARGET_PLATFORM),webos)
-	cd $(PILPATHLIB) && unzip -o $(PILPATH)/pillow-*.egg && rm -f $(PILPATH)/pillow-*.egg
+	unzip -o $(PLATFORM)/dist/pillow-*.egg -d $(PILPATH)
 endif
 	touch $@
 
 clean:
 	$(MAKE) -C $(PLATFORM) clean
-	rm -f .installed-$(PLATFORM)
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean::
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

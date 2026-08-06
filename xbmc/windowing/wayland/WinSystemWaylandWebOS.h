@@ -23,6 +23,8 @@ class CWinSystemWaylandWebOS : public CWinSystemWayland
 public:
   bool InitWindowSystem() override;
 
+  bool DestroyWindowSystem() override;
+
   /**
    * Gets the exported window name. May return an empty string on non wayland-webos-foreign devices (pre webOS 5)
    * @return Exported window name
@@ -44,9 +46,12 @@ public:
 
   IShellSurface* CreateShellSurface(const std::string& name) override;
   bool CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res) override;
-  ~CWinSystemWaylandWebOS() noexcept override;
   bool HasCursor() override;
   void OnConfigure(std::uint32_t serial, CSizeInt size, IShellSurface::StateBitset state) override;
+  void UpdateResolutions() override;
+
+  float GetGuiSdrPeakLuminance() const override;
+  bool IsHDRDisplay() override;
 
 protected:
   std::unique_ptr<KODI::WINDOWING::IOSScreenSaver> GetOSScreenSaverImpl() override;

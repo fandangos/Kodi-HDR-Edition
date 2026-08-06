@@ -662,6 +662,10 @@
       "samplerate": {
         "type": "integer",
         "required": true
+      },
+      "bitspersample": {
+        "type": "integer",
+        "required": true
       }
     }
   },
@@ -1945,7 +1949,9 @@
         "userrating",
         "ratings",
         "runtime",
-        "uniqueid"
+        "status",
+        "uniqueid",
+        "trailer"
       ]
     }
   },
@@ -2382,6 +2388,9 @@
       },
       "uniqueid": {
         "$ref": "Media.UniqueID"
+      },
+      "trailer": {
+        "type": "string"
       }
     }
   },
@@ -3181,7 +3190,8 @@
         "cachedurl",
         "lasthashcheck",
         "imagehash",
-        "sizes"
+        "sizes",
+        "lastlibrarycheck"
       ]
     }
   },
@@ -3213,6 +3223,10 @@
         "items": {
           "$ref": "Textures.Details.Size"
         }
+      },
+      "lastlibrarycheck": {
+        "type": "string",
+        "description": "Last time texture existence was verified in library"
       }
     }
   },
@@ -5079,5 +5093,38 @@
       }
     },
     "additionalProperties": false
+  },
+  "Player.Chapter": {
+    "type": "object",
+    "description": "Single chapter of the currently playing video",
+    "properties": {
+      "index": {
+        "type": "integer",
+        "required": true,
+        "description": "One-based chapter index"
+      },
+      "name": {
+        "type": "string",
+        "required": false,
+        "description": "Chapter name if available"
+      },
+      "time": {
+        "type": "integer",
+        "required": true,
+        "description": "Chapter position in seconds from start"
+      }
+    }
+  },
+  "Database.Type": {
+    "type": "string",
+    "enum": [
+      "addons",
+      "epg",
+      "music",
+      "tv",
+      "textures",
+      "videos",
+      "viewmodes"
+    ]
   }
 }

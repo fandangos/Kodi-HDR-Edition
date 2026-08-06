@@ -124,7 +124,7 @@ MHD_RESULT CWebServer::AskForAuthentication(const HTTPRequest& request) const
 
 bool CWebServer::IsAuthenticated(const HTTPRequest& request) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   if (!m_authenticationRequired)
     return true;
@@ -638,7 +638,7 @@ MHD_RESULT CWebServer::CreateMemoryDownloadResponse(
   // we MUST NOT send a multipart response
   if (request.ranges.Size() <= 1)
   {
-    CHttpResponseRange responseRange = responseRanges.front();
+    const CHttpResponseRange& responseRange = responseRanges.front();
     // check if the range is valid
     if (!responseRange.IsValid())
     {
@@ -1301,7 +1301,7 @@ bool CWebServer::WebServerSupportsSSL()
 
 void CWebServer::SetCredentials(const std::string& username, const std::string& password)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   m_authenticationUsername = username;
   m_authenticationPassword = password;
@@ -1313,7 +1313,7 @@ void CWebServer::RegisterRequestHandler(IHTTPRequestHandler* handler)
   if (handler == nullptr)
     return;
 
-  const auto& it = std::find(m_requestHandlers.cbegin(), m_requestHandlers.cend(), handler);
+  const auto& it = std::ranges::find(m_requestHandlers, handler);
   if (it != m_requestHandlers.cend())
     return;
 

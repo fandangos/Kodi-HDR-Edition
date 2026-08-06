@@ -11,6 +11,7 @@
 #include "GUIColorManager.h"
 #include "GUIControlFactory.h"
 #include "GUIInfoManager.h"
+#include "ServiceBroker.h"
 #include "Tween.h"
 #include "addons/Skin.h" // for the effect time adjustments
 #include "guilib/GUIComponent.h"
@@ -19,6 +20,7 @@
 #include "utils/XBMCTinyXML.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+#include "windowing/WinSystem.h"
 
 #include <utility>
 
@@ -30,9 +32,13 @@ CAnimEffect::CAnimEffect(const TiXmlElement *node, EFFECT_TYPE effect)
   m_pTweener.reset();
   // time and delay
 
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  float slowdown = skin ? skin->GetEffectsSlowdown() : 1.0f;
   float temp;
-  if (TIXML_SUCCESS == node->QueryFloatAttribute("time", &temp)) m_length = (unsigned int)(temp * g_SkinInfo->GetEffectsSlowdown());
-  if (TIXML_SUCCESS == node->QueryFloatAttribute("delay", &temp)) m_delay = (unsigned int)(temp * g_SkinInfo->GetEffectsSlowdown());
+  if (TIXML_SUCCESS == node->QueryFloatAttribute("time", &temp))
+    m_length = (unsigned int)(temp * slowdown);
+  if (TIXML_SUCCESS == node->QueryFloatAttribute("delay", &temp))
+    m_delay = (unsigned int)(temp * slowdown);
 
   m_pTweener = GetTweener(node);
 }

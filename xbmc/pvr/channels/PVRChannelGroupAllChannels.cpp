@@ -9,18 +9,18 @@
 #include "PVRChannelGroupAllChannels.h"
 
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
 #include "pvr/PVRDatabase.h"
 #include "pvr/PVRManager.h"
 #include "pvr/addons/PVRClients.h"
 #include "pvr/channels/PVRChannel.h"
 #include "pvr/channels/PVRChannelGroupMember.h"
 #include "pvr/epg/EpgContainer.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
 
 #include <algorithm>
-#include <iterator>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -30,7 +30,10 @@ using namespace PVR;
 
 CPVRChannelGroupAllChannels::CPVRChannelGroupAllChannels(bool bRadio)
   : CPVRChannelGroup(
-        CPVRChannelsPath(bRadio, g_localizeStrings.Get(19287), PVR_GROUP_CLIENT_ID_LOCAL), nullptr)
+        CPVRChannelsPath(bRadio,
+                         CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19287),
+                         PVR_GROUP_CLIENT_ID_LOCAL),
+        nullptr)
 {
 }
 
@@ -39,20 +42,16 @@ CPVRChannelGroupAllChannels::CPVRChannelGroupAllChannels(const CPVRChannelsPath&
 {
 }
 
-CPVRChannelGroupAllChannels::~CPVRChannelGroupAllChannels()
-{
-}
+CPVRChannelGroupAllChannels::~CPVRChannelGroupAllChannels() = default;
 
 void CPVRChannelGroupAllChannels::CheckGroupName()
 {
   //! @todo major design flaw to fix: channel and group URLs must not contain the group name!
 
   // Ensure the group name is still correct, or channels may fail to load after a locale change
-  if (!IsUserSetName())
-  {
-    if (SetGroupName(g_localizeStrings.Get(19287)))
-      Persist();
-  }
+  if (!IsUserSetName() &&
+      SetGroupName(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19287)))
+    Persist();
 }
 
 bool CPVRChannelGroupAllChannels::UpdateFromClients(
@@ -65,11 +64,12 @@ bool CPVRChannelGroupAllChannels::UpdateFromClients(
 
   // create group members for the channels
   std::vector<std::shared_ptr<CPVRChannelGroupMember>> groupMembers;
-  std::transform(channels.cbegin(), channels.cend(), std::back_inserter(groupMembers),
-                 [this](const auto& channel) {
-                   return std::make_shared<CPVRChannelGroupMember>(GroupID(), GroupName(),
-                                                                   GetClientID(), channel);
-                 });
+  std::ranges::transform(channels, std::back_inserter(groupMembers),
+                         [this](const auto& channel)
+                         {
+                           return std::make_shared<CPVRChannelGroupMember>(GroupID(), GroupName(),
+                                                                           GetClientID(), channel);
+                         });
 
   return UpdateGroupEntries(groupMembers);
 }

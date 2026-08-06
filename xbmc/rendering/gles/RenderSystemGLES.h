@@ -69,7 +69,7 @@ private:
        "multi with color/alpha texture and blend color"},
       {ShaderMethodGLES::SM_MULTI_111R_111R_BLENDCOLOR,
        "multi with alpha/alpha texture and blend color"},
-      {ShaderMethodGLES::SM_TEXTURE_RGBA, "texure rgba"},
+      {ShaderMethodGLES::SM_TEXTURE_RGBA, "texture rgba"},
       {ShaderMethodGLES::SM_TEXTURE_RGBA_OES, "texture rgba OES"},
       {ShaderMethodGLES::SM_TEXTURE_RGBA_BLENDCOLOR, "texture rgba blend colour"},
       {ShaderMethodGLES::SM_TEXTURE_RGBA_BOB, "texture rgba bob"},
@@ -110,14 +110,14 @@ public:
   void SetScissors(const CRect& rect) override;
   void ResetScissors() override;
 
-  void SetDepthCulling(DEPTH_CULLING culling) override;
+  void SetDepthCulling(DepthCulling culling) override;
 
   void CaptureStateBlock() override;
   void ApplyStateBlock() override;
 
   void SetCameraPosition(const CPoint &camera, int screenWidth, int screenHeight, float stereoFactor = 0.0f) override;
 
-  bool SupportsStereo(RENDER_STEREO_MODE mode) const override;
+  bool SupportsStereo(RenderStereoMode mode) const override;
 
   void Project(float &x, float &y, float &z) override;
 
@@ -143,6 +143,7 @@ public:
   GLint GUIShaderGetClip();
   GLint GUIShaderGetCoordStep();
   GLint GUIShaderGetDepth();
+  GLint GUIShaderGetPma();
 
 protected:
   virtual void SetVSyncImpl(bool enable) = 0;

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -23,8 +23,9 @@
 #include "dialogs/GUIDialogYesNo.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "profiles/ProfileManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSettings.h"
 #include "settings/MediaSourceSettings.h"
@@ -149,15 +150,19 @@ std::string CGUIDialogSubtitleSettings::BrowseForSubtitle()
       extras += '|' + vfsAddon->GetExtensions();
   }
 
-  std::string strPath;
-  const std::string dynPath{g_application.CurrentFileItem().GetDynPath()};
-  if (URIUtils::IsInRAR(dynPath) || URIUtils::IsInZIP(dynPath))
+  const auto currentItem{g_application.CurrentFileItem()};
+  std::string strPath{currentItem.GetProperty("BasePath").asString("")};
+  if (strPath.empty())
   {
-    strPath = CURL(dynPath).GetHostName();
-  }
-  else if (!URIUtils::IsPlugin(dynPath))
-  {
-    strPath = dynPath;
+    const std::string dynPath{currentItem.GetDynPath()};
+    if (URIUtils::IsInRAR(dynPath) || URIUtils::IsInZIP(dynPath))
+    {
+      strPath = CURL(dynPath).GetHostName();
+    }
+    else if (!URIUtils::IsPlugin(dynPath))
+    {
+      strPath = dynPath;
+    }
   }
 
   std::string strMask =
@@ -178,13 +183,16 @@ std::string CGUIDialogSubtitleSettings::BrowseForSubtitle()
       paths.push_back(URIUtils::GetDirectory(strPath));
     }
     paths.push_back(CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_SUBTITLES_CUSTOMPATH));
-    share.FromNameAndPaths("video",g_localizeStrings.Get(21367),paths);
+    share.FromNameAndPaths(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21367),
+                           paths);
     shares.push_back(share);
     strPath = share.strPath;
     URIUtils::AddSlashAtEnd(strPath);
   }
 
-  if (CGUIDialogFileBrowser::ShowAndGetFile(shares, strMask, g_localizeStrings.Get(293), strPath, false, true)) // "subtitles"
+  if (CGUIDialogFileBrowser::ShowAndGetFile(
+          shares, strMask, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(293),
+          strPath, false, true)) // "subtitles"
   {
     if (URIUtils::HasExtension(strPath, ".sub"))
     {
@@ -315,7 +323,8 @@ void CGUIDialogSubtitleSettings::InitializeSettings()
     return;
   }
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  const bool usePopup = skin && skin->HasSkinFile("DialogSlider.xml");
 
   const CVideoSettings videoSettings = appPlayer->GetVideoSettings();
 
@@ -390,11 +399,25 @@ void CGUIDialogSubtitleSettings::AddSubtitleStreams(const std::shared_ptr<CSetti
   m_subtitleStreamSetting = AddList(group, settingId, 462, SettingLevel::Basic, m_subtitleStream, SubtitleStreamsOptionFiller, 462);
 }
 
+namespace
+{
+std::string FormatCodec(const SubtitleStreamInfo& info)
+{
+  std::string codec = " (";
+  if (!info.codecDesc.empty())
+    codec += info.codecDesc;
+  else if (!info.codecName.empty())
+    codec += info.codecName;
+  else
+    codec += CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // unknown
+  codec += ")";
+
+  return codec;
+}
+} // namespace
+
 void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(
-    const SettingConstPtr& setting,
-    std::vector<IntegerSettingOption>& list,
-    int& current,
-    void* data)
+    const SettingConstPtr& setting, std::vector<IntegerSettingOption>& list, int& current)
 {
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
@@ -411,13 +434,15 @@ void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(
     std::string strLanguage;
 
     if (!g_LangCodeExpander.Lookup(info.language, strLanguage))
-      strLanguage = g_localizeStrings.Get(13205); // Unknown
+      strLanguage =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // Unknown
 
-    if (info.name.length() == 0)
+    if (info.name.empty())
       strItem = strLanguage;
     else
       strItem = StringUtils::Format("{} - {}", strLanguage, info.name);
 
+    strItem += FormatCodec(info);
     strItem += FormatFlags(info.flags);
 
 #if HAS_DS_PLAYER
@@ -435,7 +460,7 @@ void CGUIDialogSubtitleSettings::SubtitleStreamsOptionFiller(
   // no subtitle streams - just add a "None" entry
   if (list.empty())
   {
-    list.emplace_back(g_localizeStrings.Get(231), -1);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(231), -1);
     current = -1;
   }
 }
@@ -454,24 +479,28 @@ std::string CGUIDialogSubtitleSettings::SettingFormatterDelay(
   float fStep = step.asFloat();
 
   if (fabs(fValue) < 0.5f * fStep)
-    return StringUtils::Format(g_localizeStrings.Get(22003), 0.0);
+    return StringUtils::Format(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(22003), 0.0);
 
 #if HAS_DS_PLAYER
   if (g_application.GetCurrentPlayer() == "DSPlayer")
   {
+    const auto& strings = CServiceBroker::GetResourcesComponent().GetLocalizeStrings();
     if (fValue < 0)
-      return StringUtils::Format(g_localizeStrings.Get(22005).c_str(), fabs(fValue));
+      return StringUtils::Format(strings.Get(22005), fabs(fValue));
 
-    return StringUtils::Format(g_localizeStrings.Get(22004).c_str(), fValue);
+    return StringUtils::Format(strings.Get(22004), fValue);
   }
   else
   {
 #endif
 
   if (fValue < 0)
-    return StringUtils::Format(g_localizeStrings.Get(22004), fabs(fValue));
+    return StringUtils::Format(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(22004), fabs(fValue));
 
-  return StringUtils::Format(g_localizeStrings.Get(22005), fValue);
+  return StringUtils::Format(
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(22005), fValue);
 #if HAS_DS_PLAYER
   }
 #endif
@@ -481,15 +510,20 @@ std::string CGUIDialogSubtitleSettings::FormatFlags(StreamFlags flags)
 {
   std::vector<std::string> localizedFlags;
   if (flags & StreamFlags::FLAG_DEFAULT)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39105));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39105));
   if (flags & StreamFlags::FLAG_FORCED)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39106));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39106));
   if (flags & StreamFlags::FLAG_HEARING_IMPAIRED)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39107));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39107));
   if (flags &  StreamFlags::FLAG_VISUAL_IMPAIRED)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39108));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39108));
   if (flags & StreamFlags::FLAG_ORIGINAL)
-    localizedFlags.emplace_back(g_localizeStrings.Get(39111));
+    localizedFlags.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(39111));
 
   std::string formated = StringUtils::Join(localizedFlags, ", ");
 

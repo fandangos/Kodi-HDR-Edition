@@ -5,9 +5,9 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: KODI Main\n"
-"Report-Msgid-Bugs-To: translations@kodi.tv\n"
+"Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2024-12-01 02:25+0000\n"
+"PO-Revision-Date: 2025-02-04 02:37+0000\n"
 "Last-Translator: Nao3Line Prez <n.yazawa6932@gmail.com>\n"
 "Language-Team: Indonesian <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/id_id/>\n"
 "Language: id_id\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-"X-Generator: Weblate 5.8.4\n"
+"X-Generator: Weblate 5.9.2\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -133,8 +133,8 @@ msgid "Choose rating to display for media items"
 msgstr "Pilih peringkat yang akan ditampilkan untuk item media"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "Tidak ada favorit yang ditemukan. Anda dapat menambahkan item apa pun dari tampilan media ke daftar ini dengan menggunakan menu konteks."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr ""
 
 msgctxt "#31026"
 msgid "Timeshift"
@@ -222,10 +222,26 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "Hapus grup"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr ""
+
 # empty string with id 31047
 msgctxt "#31048"
 msgid "Available"
 msgstr "Tersedia"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr ""
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr ""
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr ""
 
 # empty strings from id 31049 to 31051
 msgctxt "#31052"
@@ -319,6 +335,11 @@ msgctxt "#31080"
 msgid "Ends at"
 msgstr "Berakhir di"
 
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr ""
+
 msgctxt "#31082"
 msgid "Lyrics add-on"
 msgstr "Pengaya lirik"
@@ -403,6 +424,11 @@ msgctxt "#31107"
 msgid "WideList"
 msgstr "Daftar lebar"
 
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr ""
+
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
 msgid "Video streams"
@@ -464,6 +490,10 @@ msgstr "Acara TV yang Belum Ditonton"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "Sutradara yang sama"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr ""
 
 # empty string with id 31124
 msgctxt "#31125"
@@ -567,8 +597,8 @@ msgid "Categories"
 msgstr "Kategori"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "Pilih paket fanart genre"
+msgid "Choose genre fanart pack"
+msgstr ""
 
 msgctxt "#31150"
 msgid "Origin"
@@ -691,6 +721,26 @@ msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
 msgstr "Tindakan pemilihan default untuk kumpulan film di layar beranda"
 
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr ""
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr "Info pemutar"
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr "Cache pemutar"
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr "Dekoder audio"
+
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
@@ -756,6 +806,29 @@ msgstr "Sistem"
 msgctxt "#31612"
 msgid "channels"
 msgstr "saluran"
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr ""
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr ""
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr ""
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "Tidak ada favorit yang ditemukan. Anda dapat menambahkan item apa pun dari tampilan media ke daftar ini dengan menggunakan menu konteks."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "Pilih paket fanart genre"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

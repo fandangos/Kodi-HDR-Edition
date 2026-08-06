@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2022 Team Kodi
+ *  Copyright (C) 2022-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -11,6 +11,7 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "ServiceBroker.h"
+#include "URL.h"
 #include "Util.h"
 #include "filesystem/Directory.h"
 #include "filesystem/StackDirectory.h"
@@ -26,19 +27,22 @@
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "utils/XBMCTinyXML2.h"
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
 #include "video/VideoInfoTag.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <ranges>
 #include <vector>
 
 namespace KODI::VIDEO::UTILS
 {
 
-std::string FindTrailer(const CFileItem& item)
+std::string FindTrailer(const CFileItem& item, KODI::REGEXP::RegExpCache* cache /* = nullptr */)
 {
   std::string strFile2;
   std::string strFile = item.GetPath();
@@ -48,7 +52,7 @@ std::string FindTrailer(const CFileItem& item)
     URIUtils::GetParentPath(item.GetPath(), strPath);
     XFILE::CStackDirectory dir;
     std::string strPath2;
-    strPath2 = dir.GetStackedTitlePath(strFile);
+    strPath2 = dir.GetStackTitlePath(strFile);
     strFile = URIUtils::AddFileToFolder(strPath, URIUtils::GetFileName(strPath2));
     CFileItem sitem(dir.GetFirstStackedFile(item.GetPath()), false);
     std::string strTBNFile(URIUtils::ReplaceExtension(ART::GetTBNFile(sitem), "-trailer"));
@@ -63,8 +67,8 @@ std::string FindTrailer(const CFileItem& item)
   }
 
   // no local trailer available for these
-  if (NETWORK::IsInternetStream(item) || URIUtils::IsUPnP(strFile) || URIUtils::IsBluray(strFile) ||
-      item.IsLiveTV() || item.IsPlugin() || item.IsDVD())
+  if (NETWORK::IsInternetStream(item) || URIUtils::IsUPnP(strFile) ||
+      URIUtils::IsBlurayPath(strFile) || item.IsLiveTV() || item.IsPlugin() || item.IsDVD())
     return "";
 
   std::string strDir = URIUtils::GetDirectory(strFile);
@@ -77,15 +81,16 @@ std::string FindTrailer(const CFileItem& item)
   std::string strFile3 = URIUtils::AddFileToFolder(strDir, "movie-trailer");
 
   // Precompile our REs
-  VECCREGEXP matchRegExps;
-  CRegExp tmpRegExp(true, CRegExp::autoUtf8);
+  std::vector<std::shared_ptr<CRegExp>> matchRegExps;
   const std::vector<std::string>& strMatchRegExps =
       CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_trailerMatchRegExps;
 
   for (const auto& strRegExp : strMatchRegExps)
   {
-    if (tmpRegExp.RegComp(strRegExp))
-      matchRegExps.push_back(tmpRegExp);
+    if (std::shared_ptr<CRegExp> r =
+            KODI::REGEXP::GetRegExp(strRegExp, cache, true, CRegExp::autoUtf8);
+        r != nullptr)
+      matchRegExps.push_back(r);
   }
 
   std::string strTrailer;
@@ -104,7 +109,7 @@ std::string FindTrailer(const CFileItem& item)
     {
       for (auto& expr : matchRegExps)
       {
-        if (expr.RegFind(strCandidate) != -1)
+        if (expr->RegFind(strCandidate) != -1)
         {
           strTrailer = items[i]->GetPath();
           i = items.Size();
@@ -119,23 +124,40 @@ std::string FindTrailer(const CFileItem& item)
 
 std::string GetOpticalMediaPath(const CFileItem& item)
 {
-  auto exists = [&item](const std::string& file)
-  {
-    const std::string path = URIUtils::AddFileToFolder(item.GetPath(), file);
-    return CFileUtils::Exists(path);
-  };
-
   using namespace std::string_literals;
-  const auto files = std::array{
-      "VIDEO_TS.IFO"s,    "VIDEO_TS/VIDEO_TS.IFO"s,
+  const auto files{std::array{
+      "VIDEO_TS.IFO"s,
+      "VIDEO_TS/VIDEO_TS.IFO"s,
 #ifdef HAVE_LIBBLURAY
-      "index.bdmv"s,      "INDEX.BDM"s,
-      "BDMV/index.bdmv"s, "BDMV/INDEX.BDM"s,
+      "index.bdmv"s,
+      "INDEX.BDM"s,
+      "BDMV/index.bdmv"s,
+      "BDMV/INDEX.BDM"s,
 #endif
-  };
+  }};
 
-  const auto it = std::find_if(files.begin(), files.end(), exists);
-  return it != files.end() ? URIUtils::AddFileToFolder(item.GetPath(), *it) : std::string{};
+  const std::string& dynPath{item.GetDynPath()};
+  for (const auto& file : files)
+  {
+    // See if already pointing to a playable bluray/dvd file
+    if (URIUtils::GetFileName(dynPath) == file)
+      return dynPath;
+
+    // See if one exists in the directory
+    if (const std::string path{URIUtils::AddFileToFolder(dynPath, file)}; CFileUtils::Exists(path))
+      return path;
+
+    // If disc image, then see if one exists in image
+    if (item.IsDiscImage())
+    {
+      CURL url("udf://");
+      url.SetHostName(dynPath);
+      url.SetFileName(file);
+      if (const std::string path{url.Get()}; CFileUtils::Exists(path))
+        return path;
+    }
+  }
+  return std::string{};
 }
 
 bool IsAutoPlayNextItem(const CFileItem& item)
@@ -167,6 +189,113 @@ bool IsAutoPlayNextItem(const std::string& content)
   return setting && CSettingUtils::FindIntInList(setting, settingValue);
 }
 
+std::optional<int> GetNextPartFromBookmark(const CBookmark& bookmark)
+{
+  if (!bookmark.HasSavedPlayerState())
+    return std::nullopt;
+
+  CXBMCTinyXML2 xmlDoc;
+  if (!xmlDoc.Parse(bookmark.playerState))
+    return std::nullopt;
+
+  tinyxml2::XMLHandle hRoot(xmlDoc.RootElement());
+  if (!hRoot.ToElement() || !StringUtils::EqualsNoCase(hRoot.ToElement()->Value(), "nextpart"))
+    return std::nullopt;
+
+  return std::stoi(hRoot.ToElement()->GetText());
+}
+
+namespace
+{
+bool GetStackTimes(const std::string& path, std::vector<std::chrono::milliseconds>& times)
+{
+  CVideoDatabase db;
+  if (!db.Open())
+  {
+    CLog::LogF(LOGERROR, "Cannot open VideoDatabase");
+    return false;
+  }
+  return db.GetStackTimes(path, times);
+}
+} // namespace
+
+std::optional<std::tuple<int64_t, unsigned int>> GetStackResumeOffsetAndPartNumber(
+    const CFileItem& item)
+{
+  if (item.IsStack() && item.HasVideoInfoTag())
+  {
+    const std::string& path{item.GetDynPath()};
+    const CBookmark bookmark{item.GetVideoInfoTag()->GetResumePoint()};
+    if (bookmark.IsPartWay())
+    {
+      if (std::optional<int> nextPart{GetNextPartFromBookmark(bookmark)}; nextPart)
+        return std::make_optional(std::make_tuple(0, *nextPart + 1));
+
+      int64_t offset{CUtil::ConvertSecsToMilliSecs(bookmark.timeInSeconds)};
+      unsigned int partNumber{1};
+      std::vector<std::chrono::milliseconds> times;
+      if (GetStackTimes(path, times))
+      {
+        // Look backwards through the parts to find the part we are in
+        const auto index{std::ranges::distance(
+            std::ranges::find_if(times | std::views::reverse, [offset](auto t)
+                                 { return t <= std::chrono::milliseconds(offset); }),
+            times.rend())};
+        if (index >= 0 && index < static_cast<int>(times.size()))
+          partNumber = static_cast<unsigned int>(index + 1);
+      }
+      return std::make_optional(std::make_tuple(offset, partNumber));
+    }
+  }
+  return std::nullopt;
+}
+
+int64_t GetStackPartResumeOffset(const CFileItem& item, unsigned int partNumber)
+{
+  int64_t offset{-1};
+  if (item.IsStack() && item.HasVideoInfoTag() && partNumber > 0)
+  {
+    const std::string& path{item.GetDynPath()};
+    const CBookmark bookmark{item.GetVideoInfoTag()->GetResumePoint()};
+    if (bookmark.IsPartWay())
+    {
+      std::vector<std::chrono::milliseconds> times;
+      if (GetStackTimes(path, times))
+      {
+        offset = 0;
+        const int64_t offsetToCheck{CUtil::ConvertSecsToMilliSecs(bookmark.timeInSeconds)};
+        const uint64_t partBegin{
+            partNumber == 1 ? 0 : static_cast<uint64_t>(times[partNumber - 2].count())};
+        const uint64_t partEnd{static_cast<uint64_t>(times[partNumber - 1].count())};
+        if (static_cast<uint64_t>(offsetToCheck) <= partEnd &&
+            static_cast<uint64_t>(offsetToCheck) > partBegin)
+        {
+          offset = offsetToCheck;
+        }
+      }
+    }
+  }
+  return offset;
+}
+
+int64_t GetStackPartStartOffset(const CFileItem& item, unsigned int partNumber)
+{
+  int64_t offset{-1};
+  if (item.IsStack() && partNumber > 0)
+  {
+    const std::string& path{item.GetDynPath()};
+    if (partNumber == 1)
+      offset = 0;
+    else
+    {
+      std::vector<std::chrono::milliseconds> times;
+      if (GetStackTimes(path, times) && partNumber <= times.size())
+        offset = times[partNumber - 2].count();
+    }
+  }
+  return offset;
+}
+
 ResumeInformation GetItemResumeInformation(const CFileItem& item)
 {
   // do not resume nfo files
@@ -187,11 +316,12 @@ ResumeInformation GetItemResumeInformation(const CFileItem& item)
   {
     ResumeInformation resumeInfo;
     resumeInfo.startOffset = CUtil::ConvertSecsToMilliSecs(startOffset);
+    resumeInfo.partNumber = partNumber;
     resumeInfo.isResumable = true;
     return resumeInfo;
   }
 
-  if (item.m_bIsFolder && item.IsResumable())
+  if (item.IsFolder() && item.IsResumable())
   {
     ResumeInformation resumeInfo;
     resumeInfo.isResumable = true;
@@ -199,44 +329,6 @@ ResumeInformation GetItemResumeInformation(const CFileItem& item)
   }
 
   return {};
-}
-
-ResumeInformation GetStackPartResumeInformation(const CFileItem& item, unsigned int partNumber)
-{
-  ResumeInformation resumeInfo;
-
-  if (item.IsStack())
-  {
-    const std::string& path = item.GetDynPath();
-    if (URIUtils::IsDiscImageStack(path))
-    {
-      // disc image stack
-      CFileItemList parts;
-      XFILE::CDirectory::GetDirectory(path, parts, "", XFILE::DIR_FLAG_DEFAULTS);
-
-      resumeInfo = GetItemResumeInformation(*parts[partNumber - 1]);
-      resumeInfo.partNumber = partNumber;
-    }
-    else
-    {
-      // video file stack
-      CVideoDatabase db;
-      if (!db.Open())
-      {
-        CLog::LogF(LOGERROR, "Cannot open VideoDatabase");
-        return {};
-      }
-
-      std::vector<uint64_t> times;
-      if (db.GetStackTimes(path, times))
-      {
-        resumeInfo.startOffset = times[partNumber - 1];
-        resumeInfo.isResumable = (resumeInfo.startOffset > 0);
-      }
-      resumeInfo.partNumber = partNumber;
-    }
-  }
-  return resumeInfo;
 }
 
 std::shared_ptr<CFileItem> LoadVideoFilesFolderInfo(const CFileItem& folder)

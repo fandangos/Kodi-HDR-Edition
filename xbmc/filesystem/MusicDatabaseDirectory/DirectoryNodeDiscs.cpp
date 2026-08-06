@@ -9,8 +9,10 @@
 #include "DirectoryNodeDiscs.h"
 
 #include "QueryParams.h"
-#include "guilib/LocalizeStrings.h"
+#include "ServiceBroker.h"
 #include "music/MusicDatabase.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 
 using namespace XFILE::MUSICDATABASEDIRECTORY;
 
@@ -34,7 +36,7 @@ std::string CDirectoryNodeDiscs::GetLocalizedName() const
     title = db.GetAlbumDiscTitle(params.GetAlbumId(), params.GetDisc());
   db.Close();
   if (title.empty())
-    title = g_localizeStrings.Get(15102); // All Albums
+    title = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(15102); // All Albums
 
   return title;
 }
@@ -48,7 +50,8 @@ bool CDirectoryNodeDiscs::GetContent(CFileItemList& items) const
   CQueryParams params;
   CollectQueryParams(params);
 
-  bool bSuccess = musicdatabase.GetDiscsNav(BuildPath(), items, params.GetAlbumId());
+  bool bSuccess =
+      musicdatabase.GetDiscsNav(BuildPath(), items, SortDescription(), params.GetAlbumId());
 
   musicdatabase.Close();
 

@@ -54,7 +54,7 @@ CHTTPPythonHandler::CHTTPPythonHandler(const HTTPRequest &request)
   // only allow requests to a non-static webinterface addon
   if (m_addon == NULL || m_addon->Type() != ADDON::AddonType::WEB_INTERFACE ||
       std::dynamic_pointer_cast<ADDON::CWebinterface>(m_addon)->GetType() ==
-          ADDON::WebinterfaceTypeStatic)
+          ADDON::WebinterfaceType::TYPE_STATIC)
   {
     m_response.type = HTTPError;
     m_response.status = MHD_HTTP_INTERNAL_SERVER_ERROR;
@@ -110,7 +110,7 @@ bool CHTTPPythonHandler::CanHandleRequest(const HTTPRequest &request) const
 
   // static webinterfaces aren't allowed to run python scripts
   ADDON::CWebinterface* webinterface = static_cast<ADDON::CWebinterface*>(addon.get());
-  if (webinterface->GetType() != ADDON::WebinterfaceTypeWsgi)
+  if (webinterface->GetType() != ADDON::WebinterfaceType::TYPE_WSGI)
     return false;
 
   return true;
@@ -151,10 +151,10 @@ MHD_RESULT CHTTPPythonHandler::HandleRequest()
       pythonRequest->port = port;
     }
 
-    CHTTPPythonInvoker* pythonInvoker =
-        new CHTTPPythonWsgiInvoker(&CServiceBroker::GetXBPython(), pythonRequest);
-    LanguageInvokerPtr languageInvokerPtr(pythonInvoker);
-    int result = CScriptInvocationManager::GetInstance().ExecuteSync(m_scriptPath, languageInvokerPtr, m_addon, args, 30000, false);
+    auto languageInvokerPtr =
+        std::make_shared<CHTTPPythonWsgiInvoker>(&CServiceBroker::GetXBPython(), pythonRequest);
+    int result = CScriptInvocationManager::GetInstance().ExecuteSync(
+        m_scriptPath, languageInvokerPtr, m_addon, args, 30000, false);
 
     // check if the script couldn't be started
     if (result < 0)
@@ -177,7 +177,7 @@ MHD_RESULT CHTTPPythonHandler::HandleRequest()
       return MHD_YES;
     }
 
-    HTTPPythonRequest* pythonFinalizedRequest = pythonInvoker->GetRequest();
+    HTTPPythonRequest* pythonFinalizedRequest = languageInvokerPtr->GetRequest();
     if (pythonFinalizedRequest == NULL)
     {
       m_response.type = HTTPError;

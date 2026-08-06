@@ -18,6 +18,7 @@
 #include "input/keyboard/KeyboardTypes.h"
 #include "input/keyboard/XBMC_keytable.h"
 #include "input/keyboard/XBMC_vkeys.h"
+#include "input/keymaps/keyboard/KeyIDs.h"
 #include "peripherals/Peripherals.h"
 #include "peripherals/devices/PeripheralHID.h"
 #include "utils/log.h"
@@ -42,7 +43,9 @@ void CKeyboardStat::Initialize()
 {
 }
 
-bool CKeyboardStat::LookupSymAndUnicodePeripherals(XBMC_keysym& keysym, uint8_t* key, char* unicode)
+bool CKeyboardStat::LookupSymAndUnicodePeripherals(XBMC_keysym& keysym,
+                                                   uint16_t* key,
+                                                   char* unicode)
 {
   using namespace PERIPHERALS;
 
@@ -63,7 +66,7 @@ bool CKeyboardStat::LookupSymAndUnicodePeripherals(XBMC_keysym& keysym, uint8_t*
 CKey CKeyboardStat::TranslateKey(XBMC_keysym& keysym) const
 {
   uint32_t keycode;
-  uint8_t vkey;
+  uint16_t vkey;
   wchar_t unicode;
   char ascii;
   uint32_t modifiers;
@@ -210,48 +213,55 @@ void CKeyboardStat::ProcessKeyUp(void)
 
 // Return the key name given a key ID
 // Used to make the debug log more intelligible
-// The KeyID includes the flags for ctrl, alt etc
+// The keyId includes the flags for ctrl, alt etc
 
-std::string CKeyboardStat::GetKeyName(int KeyID)
+std::string CKeyboardStat::GetKeyName(uint32_t keyId)
 {
-  int keyid;
-  std::string keyname;
+  std::string keyName;
   XBMCKEYTABLE keytable;
 
-  keyname.clear();
+  keyName.clear();
 
   // Get modifiers
 
-  if (KeyID & CKey::MODIFIER_CTRL)
-    keyname.append("ctrl-");
-  if (KeyID & CKey::MODIFIER_SHIFT)
-    keyname.append("shift-");
-  if (KeyID & CKey::MODIFIER_ALT)
-    keyname.append("alt-");
-  if (KeyID & CKey::MODIFIER_SUPER)
-    keyname.append("win-");
-  if (KeyID & CKey::MODIFIER_META)
-    keyname.append("meta-");
-  if (KeyID & CKey::MODIFIER_LONG)
-    keyname.append("long-");
+  if (keyId & CKey::MODIFIER_CTRL)
+    keyName.append("ctrl-");
+  if (keyId & CKey::MODIFIER_SHIFT)
+    keyName.append("shift-");
+  if (keyId & CKey::MODIFIER_ALT)
+    keyName.append("alt-");
+  if (keyId & CKey::MODIFIER_SUPER)
+    keyName.append("win-");
+  if (keyId & CKey::MODIFIER_META)
+    keyName.append("meta-");
+  if (keyId & CKey::MODIFIER_LONG)
+    keyName.append("long-");
 
   // Now get the key name
+  uint16_t keyCode = static_cast<uint16_t>(keyId);
 
-  keyid = KeyID & 0xFF;
-  bool VKeyFound = KeyTable::LookupVKeyName(keyid, &keytable);
-  if (VKeyFound)
-    keyname.append(keytable.keyname);
+  if (keyCode == KEY_UNICODE)
+    keyName.append(StringUtils::Format("<unicode> ({:#04x})", keyId));
+  else if (keyCode == KEY_INVALID)
+    keyName.append(StringUtils::Format("<invalid> ({:#04x})", keyId));
+  else if (keyCode >= KEY_VKEY && keyCode <= KEY_VKEY_MAX)
+  {
+    uint16_t vkey = keyCode - KEY_VKEY;
+    bool VKeyFound = KeyTable::LookupVKeyName(vkey, &keytable);
+    if (VKeyFound)
+      keyName.append(keytable.keyname);
+    else
+      keyName.append(std::to_string(keyCode));
+    keyName.append(StringUtils::Format(" ({:#04x})", keyId));
+  }
+  else if (keyCode < 256)
+    // in case this might be an universalremote keyId
+    // we also print the possible corresponding obc code
+    // so users can easily find it in their universalremote
+    // map xml
+    keyName.append(StringUtils::Format("{} ({:#02x}, obc{})", keyCode, keyId, 255 - keyCode));
   else
-    keyname += std::to_string(keyid);
+    keyName.append(StringUtils::Format("{} ({:#04x})", keyCode, keyId));
 
-  // in case this might be an universalremote keyid
-  // we also print the possible corresponding obc code
-  // so users can easily find it in their universalremote
-  // map xml
-  if (VKeyFound || keyid > 255)
-    keyname += StringUtils::Format(" ({:#02x})", KeyID);
-  else // obc keys are 255 -rawid
-    keyname += StringUtils::Format(" ({:#02x}, obc{})", KeyID, 255 - KeyID);
-
-  return keyname;
+  return keyName;
 }

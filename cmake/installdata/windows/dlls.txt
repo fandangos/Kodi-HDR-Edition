@@ -1,3 +1,4 @@
 project/BuildDependencies/${ARCH}/bin/*.dll .
 project/BuildDependencies/${ARCH}/bin/libbluray*.jar .
+project/BuildDependencies/${ARCH}/share/java/libbluray*.jar .
 project/BuildDependencies/${ARCH}/dsplayer/*.dll .

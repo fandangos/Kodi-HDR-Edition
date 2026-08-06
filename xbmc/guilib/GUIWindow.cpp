@@ -27,12 +27,13 @@
 #include "threads/SingleLock.h"
 #include "utils/ColorUtils.h"
 #include "utils/StringUtils.h"
-#include "utils/TimeUtils.h"
 #include "utils/Variant.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+#include "windowing/WinSystem.h"
 
 #include <mutex>
+#include <ranges>
 
 using namespace KODI;
 
@@ -69,7 +70,8 @@ CGUIWindow::~CGUIWindow()
 
 bool CGUIWindow::Load(const std::string& strFileName, bool bContainsPath)
 {
-  if (m_windowLoaded || !g_SkinInfo)
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  if (m_windowLoaded || !skin)
     return true;      // no point loading if it's already there
 
 #ifdef _DEBUG
@@ -102,8 +104,8 @@ bool CGUIWindow::Load(const std::string& strFileName, bool bContainsPath)
     // FIXME: strLowerPath needs to eventually go since resToUse can get incorrectly overridden
     std::string strFileNameLower = strFileName;
     StringUtils::ToLower(strFileNameLower);
-    strLowerPath =  g_SkinInfo->GetSkinPath(strFileNameLower, &m_coordsRes);
-    strPath = g_SkinInfo->GetSkinPath(strFileName, &m_coordsRes);
+    strLowerPath = skin->GetSkinPath(strFileNameLower, &m_coordsRes);
+    strPath = skin->GetSkinPath(strFileName, &m_coordsRes);
   }
 
   bool ret = LoadXML(strPath, strLowerPath);
@@ -165,7 +167,9 @@ std::unique_ptr<TiXmlElement> CGUIWindow::Prepare(const std::unique_ptr<TiXmlEle
 
   // Resolve any includes, constants, expressions that may be present
   // and save include's conditions to the given map
-  g_SkinInfo->ResolveIncludes(preparedRoot.get(), &m_xmlIncludeConditions);
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  if (skin)
+    skin->ResolveIncludes(preparedRoot.get(), &m_xmlIncludeConditions);
 
   return preparedRoot;
 }
@@ -371,7 +375,7 @@ void CGUIWindow::AfterRender()
 
 void CGUIWindow::Close_Internal(bool forceClose /*= false*/, int nextWindowID /*= 0*/, bool enableSound /*= true*/)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   if (!m_active)
     return;
@@ -743,7 +747,7 @@ bool CGUIWindow::NeedLoad() const
 
 void CGUIWindow::AllocResources(bool forceLoad /*= false */)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
 #ifdef _DEBUG
   const auto start = std::chrono::steady_clock::now();
@@ -758,7 +762,7 @@ void CGUIWindow::AllocResources(bool forceLoad /*= false */)
   if (forceLoad)
   {
     std::string xmlFile = GetProperty("xmlfile").asString();
-    if (xmlFile.size())
+    if (!xmlFile.empty())
     {
       bool bHasPath =
           xmlFile.find('\\') != std::string::npos || xmlFile.find('/') != std::string::npos;
@@ -1005,7 +1009,7 @@ void CGUIWindow::SetDefaults()
 
 CRect CGUIWindow::GetScaledBounds() const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   CServiceBroker::GetWinSystem()->GetGfxContext().SetScalingResolution(m_coordsRes, m_needsScaling);
   CPoint pos(GetPosition());
   CRect rect(pos.x, pos.y, pos.x + m_width, pos.y + m_height);
@@ -1055,6 +1059,19 @@ void CGUIWindow::ClearProperties()
 {
   std::unique_lock<CCriticalSection> lock(*this);
   m_mapProperties.clear();
+}
+
+std::vector<std::string> CGUIWindow::GetPropertyNames() const
+{
+  std::vector<std::string> names;
+
+  std::scoped_lock<CCriticalSection> lock{const_cast<CGUIWindow&>(*this)};
+  names.reserve(m_mapProperties.size());
+  for (const std::string& name : m_mapProperties | std::views::keys)
+  {
+    names.emplace_back(name);
+  }
+  return names;
 }
 
 void CGUIWindow::SetRunActionsManually()

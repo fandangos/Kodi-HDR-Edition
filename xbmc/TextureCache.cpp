@@ -20,11 +20,11 @@
 #include "guilib/Texture.h"
 #include "imagefiles/ImageCacheCleaner.h"
 #include "imagefiles/ImageFileURL.h"
+#include "jobs/Job.h"
+#include "jobs/JobManager.h"
 #include "profiles/ProfileManager.h"
 #include "settings/SettingsComponent.h"
 #include "utils/Crc32.h"
-#include "utils/Job.h"
-#include "utils/JobManager.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -48,16 +48,17 @@ CTextureCache::~CTextureCache() = default;
 void CTextureCache::Initialize()
 {
   m_cleanTimer.Start(60s);
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   if (!m_database.IsOpen())
     m_database.Open();
 }
 
 void CTextureCache::Deinitialize()
 {
+  m_cleanTimer.Stop(true);
   CancelJobs();
 
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   m_database.Close();
 }
 
@@ -136,7 +137,7 @@ void CTextureCache::BackgroundCacheImage(const std::string &url)
 
 bool CTextureCache::StartCacheImage(const std::string& image)
 {
-  std::unique_lock<CCriticalSection> lock(m_processingSection);
+  std::unique_lock lock(m_processingSection);
   std::set<std::string>::iterator i = m_processinglist.find(image);
   if (i == m_processinglist.end())
   {
@@ -158,8 +159,8 @@ std::string CTextureCache::CacheImage(
   if (url.empty())
     return "";
 
-  std::unique_lock<CCriticalSection> lock(m_processingSection);
-  if (m_processinglist.find(url) == m_processinglist.end())
+  std::unique_lock lock(m_processingSection);
+  if (!m_processinglist.contains(url))
   {
     m_processinglist.insert(url);
     lock.unlock();
@@ -178,8 +179,8 @@ std::string CTextureCache::CacheImage(
   {
     m_completeEvent.Wait(1000ms);
     {
-      std::unique_lock<CCriticalSection> lock(m_processingSection);
-      if (m_processinglist.find(url) == m_processinglist.end())
+      std::unique_lock lock(m_processingSection);
+      if (!m_processinglist.contains(url))
         break;
     }
   }
@@ -244,20 +245,20 @@ bool CTextureCache::ClearCachedImage(int id)
 
 bool CTextureCache::GetCachedTexture(const std::string &url, CTextureDetails &details)
 {
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   return m_database.GetCachedTexture(url, details);
 }
 
 bool CTextureCache::AddCachedTexture(const std::string &url, const CTextureDetails &details)
 {
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   return m_database.AddCachedTexture(url, details);
 }
 
 void CTextureCache::IncrementUseCount(const CTextureDetails &details)
 {
   static const size_t count_before_update = 100;
-  std::unique_lock<CCriticalSection> lock(m_useCountSection);
+  std::unique_lock lock(m_useCountSection);
   m_useCounts.reserve(count_before_update);
   m_useCounts.push_back(details);
   if (m_useCounts.size() >= count_before_update)
@@ -269,19 +270,19 @@ void CTextureCache::IncrementUseCount(const CTextureDetails &details)
 
 bool CTextureCache::SetCachedTextureValid(const std::string &url, bool updateable)
 {
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   return m_database.SetCachedTextureValid(url, updateable);
 }
 
 bool CTextureCache::ClearCachedTexture(const std::string &url, std::string &cachedURL)
 {
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   return m_database.ClearCachedTexture(url, cachedURL);
 }
 
 bool CTextureCache::ClearCachedTexture(int id, std::string &cachedURL)
 {
-  std::unique_lock<CCriticalSection> lock(m_databaseSection);
+  std::unique_lock lock(m_databaseSection);
   return m_database.ClearCachedTexture(id, cachedURL);
 }
 
@@ -311,7 +312,7 @@ void CTextureCache::OnCachingComplete(bool success, CTextureCacheJob *job)
   }
 
   { // remove from our processing list
-    std::unique_lock<CCriticalSection> lock(m_processingSection);
+    std::unique_lock lock(m_processingSection);
     std::set<std::string>::iterator i = m_processinglist.find(job->m_url);
     if (i != m_processinglist.end())
       m_processinglist.erase(i);
@@ -322,7 +323,7 @@ void CTextureCache::OnCachingComplete(bool success, CTextureCacheJob *job)
 
 void CTextureCache::OnJobComplete(unsigned int jobID, bool success, CJob *job)
 {
-  if (strcmp(job->GetType(), kJobTypeCacheImage) == 0)
+  if (strcmp(job->GetType(), CTextureCacheJob::JOB_TYPE_CACHE_IMAGE) == 0)
     OnCachingComplete(success, static_cast<CTextureCacheJob*>(job));
   return CJobQueue::OnJobComplete(jobID, success, job);
 }
@@ -433,14 +434,20 @@ bool CTextureCache::CleanAllUnusedImagesJob(CGUIDialogProgress* progress)
 
 void CTextureCache::CleanTimer()
 {
-  CServiceBroker::GetJobManager()->Submit(
+  if (IsSleeping())
+  {
+    CLog::LogF(LOGDEBUG, "Texture cleanup postponed. System is sleeping.");
+    m_cleanTimer.Start(1h);
+    return;
+  }
+
+  Submit(
       [this]()
       {
-        auto next = m_cleaningInProgress.test_and_set() ? std::chrono::hours(1) : ScanOldestCache();
+        auto next = m_cleaningInProgress.test_and_set() ? 1h : ScanOldestCache();
         m_cleaningInProgress.clear();
         m_cleanTimer.Start(next);
-      },
-      CJob::PRIORITY_LOW_PAUSABLE);
+      });
 }
 
 std::chrono::milliseconds CTextureCache::ScanOldestCache()

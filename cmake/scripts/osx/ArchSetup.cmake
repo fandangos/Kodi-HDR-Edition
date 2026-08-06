@@ -24,16 +24,14 @@ else()
   endif()
 endif()
 
-# xbmchelper (old apple IR remotes) only make sense for x86
-# last macs featuring the IR receiver are those of mid 2012
-# which are still able to run Mojave (10.14). Drop all together
-# when the sdk requirement is bumped.
-if(CPU STREQUAL arm64)
-  set(ENABLE_XBMCHELPER OFF)
-else()
-  set(ENABLE_XBMCHELPER ON)
-  list(APPEND SYSTEM_DEFINES -DHAS_XBMCHELPER)
-endif()
+# Tahoe seems to be setting environment variables at the xcode project level that
+# causes issues on shell based build objects that we use. Forcefully blank the most
+# problematic variables
+set(CMAKE_XCODE_ATTRIBUTE_DRIVERKIT_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_WATCHOS_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_XROS_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "")
+set(CMAKE_XCODE_ATTRIBUTE_TVOS_DEPLOYMENT_TARGET "")
 
 # m1 macs can execute x86_64 code via rosetta
 if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64" AND
@@ -58,7 +56,7 @@ list(APPEND DEPLIBS "-framework DiskArbitration" "-framework IOKit"
 if(ARCH STREQUAL aarch64)
   set(CMAKE_OSX_DEPLOYMENT_TARGET 11.0)
 else()
-  set(CMAKE_OSX_DEPLOYMENT_TARGET 10.14)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET 10.15)
 endif()
 set(CMAKE_XCODE_ATTRIBUTE_CLANG_LINK_OBJC_RUNTIME OFF)
 

@@ -10,7 +10,6 @@
 
 #include "storage/IStorageProvider.h"
 
-#include <set>
 #include <string>
 #include <vector>
 
@@ -39,12 +38,7 @@ public:
   static bool GetExternalStorage(std::string& path, const std::string& type = "");
 
 private:
-  std::string unescape(const std::string& str);
   std::vector<CMediaSource> m_removableDrives;
-  unsigned int m_removableLength;
-
-  static std::set<std::string> GetRemovableDrives();
-  static std::set<std::string> GetRemovableDrivesLinux();
 
   bool GetStorageUsage(const std::string& path, std::string& usage);
 };

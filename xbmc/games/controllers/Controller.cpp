@@ -28,7 +28,8 @@ using namespace GAME;
 struct FeatureTypeEqual
 {
   FeatureTypeEqual(FEATURE_TYPE type, JOYSTICK::INPUT_TYPE inputType)
-    : type(type), inputType(inputType)
+    : type(type),
+      inputType(inputType)
   {
   }
 
@@ -57,7 +58,8 @@ struct FeatureTypeEqual
 const ControllerPtr CController::EmptyPtr;
 
 CController::CController(const ADDON::AddonInfoPtr& addonInfo)
-  : CAddon(addonInfo, ADDON::AddonType::GAME_CONTROLLER), m_layout(new CControllerLayout)
+  : CAddon(addonInfo, ADDON::AddonType::GAME_CONTROLLER),
+    m_layout(std::make_unique<CControllerLayout>())
 {
 }
 
@@ -132,8 +134,7 @@ bool CController::LoadLayout(void)
     }
 
     auto* pRootElement = xmlDoc.RootElement();
-    if (pRootElement == nullptr || pRootElement->NoChildren() ||
-        std::strcmp(pRootElement->Value(), LAYOUT_XML_ROOT) != 0)
+    if (pRootElement == nullptr || std::strcmp(pRootElement->Value(), LAYOUT_XML_ROOT) != 0)
     {
       CLog::Log(LOGERROR, "Can't find root <{}> tag", LAYOUT_XML_ROOT);
       return false;

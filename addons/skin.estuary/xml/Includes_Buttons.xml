@@ -25,7 +25,7 @@
 		<param name="altclick">noop</param>
 		<definition>
 			<control type="togglebutton" id="$PARAM[control_id]">
-				<width>472</width>
+				<width>469</width>
 				<height>49</height>
 				<textoffsetx>16</textoffsetx>
 				<aligny>center</aligny>
@@ -38,6 +38,35 @@
 				<onclick condition="$PARAM[onclick_condition]">$PARAM[onclick]</onclick>
 				<altclick>noop</altclick>
 				<altclick condition="$PARAM[altclick_condition]">$PARAM[altclick]</altclick>
+				<label>$PARAM[label]</label>
+				<altlabel>$PARAM[altlabel]</altlabel>
+				<usealttexture>Control.HasFocus($PARAM[control_id])</usealttexture>
+				<visible>$PARAM[visible]</visible>
+			</control>
+		</definition>
+	</include>
+	<include name="InfoViewerButton">
+		<param name="onclick_condition">false</param>
+		<param name="onclick">noop</param>
+		<param name="altclick_condition">false</param>
+		<param name="altclick">noop</param>
+		<definition>
+			<control type="togglebutton" id="$PARAM[control_id]">
+				<width>1480</width>
+				<height>50</height>
+				<textoffsetx>10</textoffsetx>
+				<aligny>center</aligny>
+				<font>font13</font>
+				<texturefocus colordiffuse="button_focus">lists/focus.png</texturefocus>
+				<alttexturefocus colordiffuse="button_focus">lists/focus.png</alttexturefocus>
+				<texturenofocus />
+				<alttexturenofocus />
+				<onclick>noop</onclick>
+				<onclick condition="$PARAM[onclick_condition]">$PARAM[onclick]</onclick>
+				<altclick>noop</altclick>
+				<altclick condition="$PARAM[altclick_condition]">$PARAM[altclick]</altclick>
+				<onback>ClearProperty(InfoViewer_Visible,Home)</onback>
+				<onback>5000</onback>
 				<label>$PARAM[label]</label>
 				<altlabel>$PARAM[altlabel]</altlabel>
 				<usealttexture>Control.HasFocus($PARAM[control_id])</usealttexture>
@@ -221,6 +250,7 @@
 			<radioposy>13</radioposy>
 			<radiowidth>48</radiowidth>
 			<font>font12</font>
+			<hitrect x="21" y="21" w="245" h="100" />
 			<textureradioonfocus colordiffuse="D0FFFFFF">$PARAM[icon]</textureradioonfocus>
 			<textureradioonnofocus colordiffuse="D0FFFFFF">$PARAM[icon]</textureradioonnofocus>
 			<textureradioofffocus colordiffuse="D0FFFFFF">$PARAM[icon]</textureradioofffocus>
@@ -248,6 +278,7 @@
 				<radioposy>16</radioposy>
 				<radiowidth>48</radiowidth>
 				<font>font12</font>
+				<hitrect x="21" y="21" w="245" h="100" />
 				<textureradioonfocus colordiffuse="D0FFFFFF">$PARAM[icon]</textureradioonfocus>
 				<textureradioonnofocus colordiffuse="D0FFFFFF">$PARAM[icon]</textureradioonnofocus>
 				<textureradioofffocus colordiffuse="D0FFFFFF">$PARAM[icon]</textureradioofffocus>
@@ -264,7 +295,7 @@
 		</definition>
 	</include>
 	<include name="InfoDialogToggleButton">
-		<param name="width">262</param>
+		<param name="width">264</param>
 		<definition>
 			<control type="radiobutton" id="$PARAM[id]">
 				<width>$PARAM[width]</width>
@@ -279,6 +310,7 @@
 				<radioposy>16</radioposy>
 				<radiowidth>48</radiowidth>
 				<font>font12</font>
+				<hitrect x="21" y="21" w="245" h="100" />
 				<textureradioonfocus colordiffuse="D0FFFFFF">$PARAM[icon_on]</textureradioonfocus>
 				<textureradioonnofocus colordiffuse="D0FFFFFF">$PARAM[icon_on]</textureradioonnofocus>
 				<textureradioofffocus colordiffuse="D0FFFFFF">$PARAM[icon_off]</textureradioofffocus>

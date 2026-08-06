@@ -24,7 +24,11 @@ CZeroconfAndroid::~CZeroconfAndroid()
   doStop();
 }
 
-bool CZeroconfAndroid::doPublishService(const std::string& fcr_identifier, const std::string& fcr_type, const std::string& fcr_name, unsigned int f_port, const std::vector<std::pair<std::string, std::string> >& txt)
+bool CZeroconfAndroid::doPublishService(const std::string& fcr_identifier,
+                                        const std::string& fcr_type,
+                                        const std::string& fcr_name,
+                                        unsigned int f_port,
+                                        const std::vector<std::pair<std::string, std::string>>& txt)
 {
   CLog::Log(LOGDEBUG, "ZeroconfAndroid: identifier: {} type: {} name:{} port:{}", fcr_identifier,
             fcr_type, fcr_name, f_port);
@@ -42,9 +46,17 @@ bool CZeroconfAndroid::doPublishService(const std::string& fcr_identifier, const
     newService.serviceInfo.setAttribute(it.first, it.second);
   }
 
-  m_manager.registerService(newService.serviceInfo, 1 /* PROTOCOL_DNS_SD */, newService.registrationListener);
+  m_manager.registerService(newService.serviceInfo, 1 /* PROTOCOL_DNS_SD */,
+                            newService.registrationListener);
+  if (xbmc_jnienv()->ExceptionCheck())
+  {
+    std::string ex = CJNIBase::ExceptionToString();
+    CLog::Log(LOGERROR, "ZeroconfAndroid: {}", ex);
+    xbmc_jnienv()->ExceptionClear();
+    return false;
+  }
 
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   newService.updateNumber = 0;
   m_services.insert(make_pair(fcr_identifier, newService));
 
@@ -54,7 +66,7 @@ bool CZeroconfAndroid::doPublishService(const std::string& fcr_identifier, const
 bool CZeroconfAndroid::doForceReAnnounceService(const std::string& fcr_identifier)
 {
   bool ret = false;
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   tServiceMap::iterator it = m_services.find(fcr_identifier);
   if(it != m_services.end())
   {
@@ -69,14 +81,21 @@ bool CZeroconfAndroid::doForceReAnnounceService(const std::string& fcr_identifie
 
     m_manager.unregisterService(it->second.registrationListener);
     it->second.registrationListener = jni::CJNIXBMCNsdManagerRegistrationListener();
-    m_manager.registerService(it->second.serviceInfo, 1 /* PROTOCOL_DNS_SD */, it->second.registrationListener);
+    m_manager.registerService(it->second.serviceInfo, 1 /* PROTOCOL_DNS_SD */,
+                              it->second.registrationListener);
+    if (xbmc_jnienv()->ExceptionCheck())
+    {
+      std::string ex = CJNIBase::ExceptionToString();
+      CLog::Log(LOGERROR, "ZeroconfAndroid: {}", ex);
+      xbmc_jnienv()->ExceptionClear();
+    }
   }
   return ret;
 }
 
 bool CZeroconfAndroid::doRemoveService(const std::string& fcr_ident)
 {
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   tServiceMap::iterator it = m_services.find(fcr_ident);
   if(it != m_services.end())
   {
@@ -92,7 +111,7 @@ bool CZeroconfAndroid::doRemoveService(const std::string& fcr_ident)
 void CZeroconfAndroid::doStop()
 {
   {
-    std::unique_lock<CCriticalSection> lock(m_data_guard);
+    std::unique_lock lock(m_data_guard);
     CLog::Log(LOGDEBUG, "ZeroconfAndroid: Shutdown services");
     for (const auto& it : m_services)
     {

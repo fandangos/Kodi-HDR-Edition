@@ -18,10 +18,11 @@
 #include "cores/IPlayer.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "input/mouse/MouseEvent.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
@@ -329,10 +330,12 @@ void CGUIWindowFullScreen::FrameMove()
 
     {
       // get the "View Mode" string
-      const std::string& strTitle = g_localizeStrings.Get(629);
+      const std::string& strTitle =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(629);
       const auto& vs = appPlayer->GetVideoSettings();
-      int sId = CViewModeSettings::GetViewModeStringIndex(vs.m_ViewMode,vs.m_bUsingMadvr);
-      const std::string& strMode = g_localizeStrings.Get(sId);
+      int sId = CViewModeSettings::GetViewModeStringIndex(vs.m_ViewMode, vs.m_bUsingMadvr);
+      const std::string& strMode =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(sId);
       std::string strInfo = StringUtils::Format("{} : {}", strTitle, strMode);
       CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), LABEL_ROW1);
       msg.SetLabel(strInfo);
@@ -347,7 +350,8 @@ void CGUIWindowFullScreen::FrameMove()
       float yscale = (float)res.iScreenHeight / (float)res.iHeight;
 
       std::string strSizing = StringUtils::Format(
-          g_localizeStrings.Get(245), (int)info.SrcRect.Width(), (int)info.SrcRect.Height(),
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(245),
+          (int)info.SrcRect.Width(), (int)info.SrcRect.Height(),
           (int)(info.DestRect.Width() * xscale), (int)(info.DestRect.Height() * yscale),
           CDisplaySettings::GetInstance().GetZoomAmount(),
           info.videoAspectRatio * CDisplaySettings::GetInstance().GetPixelRatio(),
@@ -361,13 +365,17 @@ void CGUIWindowFullScreen::FrameMove()
     {
       std::string strStatus;
       if (CServiceBroker::GetWinSystem()->IsFullScreen())
-        strStatus = StringUtils::Format("{} {}x{}@{:.2f}Hz - {}", g_localizeStrings.Get(13287),
-                                        res.iScreenWidth, res.iScreenHeight, res.fRefreshRate,
-                                        g_localizeStrings.Get(244));
+        strStatus = StringUtils::Format(
+            "{} {}x{}@{:.2f}Hz - {}",
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13287),
+            res.iScreenWidth, res.iScreenHeight, res.fRefreshRate,
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(244));
       else
-        strStatus =
-            StringUtils::Format("{} {}x{} - {}", g_localizeStrings.Get(13287), res.iScreenWidth,
-                                res.iScreenHeight, g_localizeStrings.Get(242));
+        strStatus = StringUtils::Format(
+            "{} {}x{} - {}",
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13287),
+            res.iScreenWidth, res.iScreenHeight,
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(242));
 
       CGUIMessage msg(GUI_MSG_LABEL_SET, GetID(), LABEL_ROW3);
       msg.SetLabel(strStatus);
@@ -399,7 +407,12 @@ void CGUIWindowFullScreen::Process(unsigned int currentTime, CDirtyRegionList &d
 {
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
-  if (appPlayer->IsRenderingGuiLayer())
+  // IsRenderingVideoLayer: true on D2P (video has its own DRM plane);
+  // false in single-plane mode (video drawn through the render pass).
+  // Single-plane: MarkDirtyRegion every frame so the render pass keeps
+  // running and draws the next video frame. D2P video plane updates
+  // independently.
+  if (!appPlayer->IsRenderingVideoLayer())
     MarkDirtyRegion();
 
   m_controlStats->Reset();

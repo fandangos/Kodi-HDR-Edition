@@ -10,6 +10,8 @@
 
 #include "utils/log.h"
 
+#include <algorithm>
+
 using namespace KODI::WINDOWING::GBM;
 
 namespace
@@ -24,15 +26,24 @@ bool COffScreenModeSetting::InitDrm()
   if (!CDRMUtils::OpenDrm(false))
     return false;
 
-  CLog::Log(LOGDEBUG, "COffScreenModeSetting::{} - initialized offscreen DRM", __FUNCTION__);
+  // No real KMS planes exist offscreen, so the plane-scanning loop in
+  // CDRMUtils::InitDrm that flags each outputformat as active never runs.
+  // Activate AR24 here so CWinSystemGbmEGLContext::ChooseEGLConfig has a
+  // candidate and EGL context creation can proceed.
+  auto& formats = GetOutputFormats();
+  auto it = std::ranges::find(formats, DRM_FORMAT_ARGB8888, &outputformat::drm);
+  if (it != formats.end())
+    it->active = true;
+
+  CLog::LogF(LOGDEBUG, "initialized offscreen DRM");
   return true;
 }
 
 std::vector<RESOLUTION_INFO> COffScreenModeSetting::GetModes()
 {
-    std::vector<RESOLUTION_INFO> resolutions;
-    resolutions.push_back(GetCurrentMode());
-    return resolutions;
+  std::vector<RESOLUTION_INFO> resolutions;
+  resolutions.push_back(GetCurrentMode());
+  return resolutions;
 }
 
 RESOLUTION_INFO COffScreenModeSetting::GetCurrentMode()

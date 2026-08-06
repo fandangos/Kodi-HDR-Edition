@@ -15,9 +15,9 @@
 #include "threads/Event.h"
 
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,6 +49,26 @@ class CPVRStreamProperties;
 class CPVRTimerInfoTag;
 class CPVRTimerType;
 class CPVRTimersContainer;
+
+/*!
+ * @brief Holds generic data about a backend (number of channels etc.)
+ */
+struct SBackendProperties
+{
+  std::string clientname;
+  std::string instancename;
+  std::string name;
+  std::string version;
+  std::string host;
+  int numTimers{0};
+  int numRecordings{0};
+  int numDeletedRecordings{0};
+  int numProviders{0};
+  int numChannelGroups{0};
+  int numChannels{0};
+  uint64_t diskUsed{0};
+  uint64_t diskTotal{0};
+};
 
 /*!
  * Interface from Kodi to a PVR add-on.
@@ -189,7 +209,7 @@ public:
   std::string GetInstanceName() const;
 
   /*!
-   * @brief A name used to uniquely identify the client, inclusing addon name and instance
+   * @brief A name used to uniquely identify the client, including addon name and instance
    * name, if multiple instances are supported by the client implementation.
    * @return string that can be used in log messages and the GUI.
    */
@@ -202,6 +222,12 @@ public:
    * @return PVR_ERROR_NO_ERROR if the drive space has been fetched successfully.
    */
   PVR_ERROR GetDriveSpace(uint64_t& iTotal, uint64_t& iUsed) const;
+
+  /*!
+   * @brief Returns backend properties about this client
+   * @return the properties
+   */
+  SBackendProperties GetBackendProperties() const;
 
   /*!
    * @brief Start a channel scan on the server.
@@ -336,7 +362,7 @@ public:
    * @return PVR_ERROR_NO_ERROR if the list has been fetched successfully.
    */
   PVR_ERROR GetChannelGroupMembers(
-      CPVRChannelGroup* group,
+      const CPVRChannelGroup& group,
       std::vector<std::shared_ptr<CPVRChannelGroupMember>>& groupMembers) const;
 
   //@}
@@ -356,7 +382,7 @@ public:
    * @param channels The container for the channels.
    * @return PVR_ERROR_NO_ERROR if the list has been fetched successfully.
    */
-  PVR_ERROR GetChannels(bool bRadio, std::vector<std::shared_ptr<CPVRChannel>>& channels) const;
+  PVR_ERROR GetChannels(bool bRadio, std::vector<std::shared_ptr<CPVRChannel>>& channels);
 
   /*!
    * @brief Get the total amount of providers from the backend.
@@ -551,7 +577,7 @@ public:
    * @param iRead The amount of bytes that were actually read from the stream.
    * @return PVR_ERROR_NO_ERROR on success, respective error code otherwise.
    */
-  PVR_ERROR ReadLiveStream(void* lpBuf, int64_t uiBufSize, int& iRead);
+  PVR_ERROR ReadLiveStream(uint8_t* lpBuf, int64_t uiBufSize, int& iRead);
 
   /*!
    * @brief Seek in a live stream on a backend.
@@ -671,7 +697,7 @@ public:
    * @param iRead The amount of bytes that were actually read from the stream.
    * @return PVR_ERROR_NO_ERROR on success, respective error code otherwise.
    */
-  PVR_ERROR ReadRecordedStream(int64_t streamId, void* lpBuf, int64_t uiBufSize, int& iRead);
+  PVR_ERROR ReadRecordedStream(int64_t streamId, uint8_t* lpBuf, int64_t uiBufSize, int& iRead);
 
   /*!
    * @brief Seek in a recording stream on a backend.
@@ -884,12 +910,20 @@ private:
   /*!
    * @brief Write the given addon properties to the given properties container.
    * @param properties Pointer to an array of addon properties pointers.
-   * @param iPropertyCount The number of properties contained in the addon properties array.
    * @param props The container the addon properties shall be written to.
    */
-  static void WriteStreamProperties(PVR_NAMED_VALUE** properties,
-                                    unsigned int iPropertyCount,
+  static void WriteStreamProperties(std::span<PVR_NAMED_VALUE*> properties,
                                     CPVRStreamProperties& props);
+
+  using AddonInstance = AddonInstance_PVR;
+
+  /*!
+   * @brief Get the timer typed for the given addon.
+   * @param timerTypes [out] the timer types.
+   * @return PVR_ERROR_NO_ERROR on success, any other PVR_ERROR_* value otherwise.
+   */
+  PVR_ERROR GetTimerTypes(const AddonInstance* addon,
+                          std::vector<std::shared_ptr<CPVRTimerType>>& timerTypes);
 
   /*!
    * @brief Whether a channel can be played by this add-on
@@ -911,9 +945,9 @@ private:
    * @param bCheckReadyToUse If true, this method will check whether this instance is ready for use and return PVR_ERROR_SERVER_ERROR if it is not.
    * @return PVR_ERROR_NO_ERROR on success, any other PVR_ERROR_* value otherwise.
    */
-  typedef AddonInstance_PVR AddonInstance;
+  template<typename F>
   PVR_ERROR DoAddonCall(const char* strFunctionName,
-                        const std::function<PVR_ERROR(const AddonInstance*)>& function,
+                        const F& function,
                         bool bIsImplemented = true,
                         bool bCheckReadyToUse = true) const;
 
@@ -924,9 +958,10 @@ private:
    * @param function The function to wrap. It must take one parameter of type CPVRClient*.
    * @param bForceCall If true, make the call, ignoring client's state.
    */
+  template<typename F, typename KodiInstance>
   static void HandleAddonCallback(const char* strFunctionName,
-                                  void* kodiInstance,
-                                  const std::function<void(CPVRClient* client)>& function,
+                                  KodiInstance* kodiInstance,
+                                  F function,
                                   bool bForceCall = false);
 
   /*!
@@ -1098,7 +1133,7 @@ private:
    */
   static void cb_epg_event_state_change(void* kodiInstance, EPG_TAG* tag, EPG_EVENT_STATE newState);
 
-  /*! @todo remove the use complete from them, or add as generl function?!
+  /*! @todo remove the use complete from them, or add as general function?!
    * Returns the ffmpeg codec id from given ffmpeg codec string name
    */
   static PVR_CODEC cb_get_codec_by_name(const void* kodiInstance, const char* strCodecName);
@@ -1133,5 +1168,8 @@ private:
   std::string m_strClientPath; /*!< @brief translated path to this add-on */
 
   mutable CCriticalSection m_critSection;
+
+  class CPVRAddonInstanceHolder;
+  std::unique_ptr<CPVRAddonInstanceHolder> m_instance;
 };
 } // namespace PVR

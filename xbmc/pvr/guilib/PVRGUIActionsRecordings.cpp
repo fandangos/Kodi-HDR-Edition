@@ -17,8 +17,8 @@
 #include "filesystem/IDirectory.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
+#include "jobs/JobManager.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "pvr/PVREventLogJob.h"
@@ -30,6 +30,9 @@
 #include "pvr/dialogs/GUIDialogPVRRecordingSettings.h"
 #include "pvr/recordings/PVRRecording.h"
 #include "pvr/recordings/PVRRecordings.h"
+#include "pvr/settings/PVRSettings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "threads/IRunnable.h"
 #include "utils/StringUtils.h"
@@ -117,7 +120,7 @@ private:
   bool DoRun(const std::shared_ptr<CFileItem>& item) override
   {
     CFileItemList items;
-    if (item->m_bIsFolder)
+    if (item->IsFolder())
     {
       CUtil::GetRecursiveListing(item->GetPath(), items, "", XFILE::DIR_FLAG_NO_FILE_INFO);
     }
@@ -199,9 +202,12 @@ private:
 } // unnamed namespace
 
 CPVRGUIActionsRecordings::CPVRGUIActionsRecordings()
-  : m_settings({CSettings::SETTING_PVRRECORD_DELETEAFTERWATCH})
+  : m_settings(std::make_unique<CPVRSettings>(
+        SettingsContainer({CSettings::SETTING_PVRRECORD_DELETEAFTERWATCH})))
 {
 }
+
+CPVRGUIActionsRecordings::~CPVRGUIActionsRecordings() = default;
 
 bool CPVRGUIActionsRecordings::ShowRecordingInfo(const CFileItem& item) const
 {
@@ -234,7 +240,7 @@ bool CPVRGUIActionsRecordings::EditRecording(const CFileItem& item) const
     return false;
   }
 
-  std::shared_ptr<CPVRRecording> origRecording(new CPVRRecording);
+  const auto origRecording{std::make_shared<CPVRRecording>()};
   origRecording->Update(*recording,
                         *CServiceBroker::GetPVRManager().GetClient(recording->ClientID()));
 
@@ -269,7 +275,16 @@ bool CPVRGUIActionsRecordings::CanEditRecording(const CFileItem& item) const
 
 bool CPVRGUIActionsRecordings::DeleteRecording(const CFileItem& item) const
 {
-  if ((!item.IsPVRRecording() && !item.m_bIsFolder) || item.IsParentFolder())
+  if (!item.IsFolder() && !item.HasPVRRecordingInfoTag())
+  {
+    const std::shared_ptr<CPVRRecording> recording{CPVRItem(item).GetRecording()};
+    if (recording)
+      return DeleteRecording(CFileItem{recording});
+    else
+      return false;
+  }
+
+  if ((!item.IsPVRRecording() && !item.IsFolder()) || item.IsParentFolder())
     return false;
 
   if (!ConfirmDeleteRecording(item))
@@ -288,18 +303,17 @@ bool CPVRGUIActionsRecordings::ConfirmDeleteRecording(const CFileItem& item) con
 {
   return CGUIDialogYesNo::ShowAndGetInput(
       CVariant{122}, // "Confirm delete"
-      item.m_bIsFolder
-          ? CVariant{19113} // "Delete all recordings in this folder?"
-          : item.GetPVRRecordingInfoTag()->IsDeleted()
-                ? CVariant{19294}
-                // "Remove this deleted recording from trash? This operation cannot be reverted."
-                : CVariant{19112}, // "Delete this recording?"
+      item.IsFolder() ? CVariant{19113} // "Delete all recordings in this folder?"
+      : item.GetPVRRecordingInfoTag()->IsDeleted()
+          ? CVariant{19294}
+          // "Remove this deleted recording from trash? This operation cannot be reverted."
+          : CVariant{19112}, // "Delete this recording?"
       CVariant{""}, CVariant{item.GetLabel()});
 }
 
 bool CPVRGUIActionsRecordings::DeleteWatchedRecordings(const CFileItem& item) const
 {
-  if (!item.m_bIsFolder || item.IsParentFolder())
+  if (!item.IsFolder() || item.IsParentFolder())
     return false;
 
   if (!ConfirmDeleteWatchedRecordings(item))
@@ -377,7 +391,7 @@ bool CPVRGUIActionsRecordings::ProcessDeleteAfterWatch(const CFileItem& item) co
 {
   bool deleteRecording{false};
 
-  const int action{m_settings.GetIntValue(CSettings::SETTING_PVRRECORD_DELETEAFTERWATCH)};
+  const int action{m_settings->GetIntValue(CSettings::SETTING_PVRRECORD_DELETEAFTERWATCH)};
   switch (action)
   {
     case PVRRECORD_DELETE_AFTER_WATCH::NO:
@@ -406,13 +420,16 @@ bool CPVRGUIActionsRecordings::ProcessDeleteAfterWatch(const CFileItem& item) co
   {
     if (AsyncDeleteRecording().Execute(item))
     {
-      CPVREventLogJob* job = new CPVREventLogJob;
-      job->AddEvent(true, // display a toast, and log event
-                    EventLevel::Information, // info, no error
-                    g_localizeStrings.Get(860), // "Delete after watching"
-                    StringUtils::Format(g_localizeStrings.Get(866), // Recording deleted: <title>
-                                        item.GetPVRRecordingInfoTag()->GetTitle()),
-                    item.GetPVRRecordingInfoTag()->IconPath());
+      auto* job{new CPVREventLogJob};
+      job->AddEvent(
+          true, // display a toast, and log event
+          EventLevel::Information, // info, no error
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+              860), // "Delete after watching"
+          StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                                  866), // Recording deleted: <title>
+                              item.GetPVRRecordingInfoTag()->GetTitle()),
+          item.GetPVRRecordingInfoTag()->IconPath());
       CServiceBroker::GetJobManager()->AddJob(job, nullptr);
     }
     else
@@ -423,33 +440,4 @@ bool CPVRGUIActionsRecordings::ProcessDeleteAfterWatch(const CFileItem& item) co
     }
   }
   return true;
-}
-
-bool CPVRGUIActionsRecordings::IncrementPlayCount(const CFileItem& item) const
-{
-  if (!item.IsPVRRecording())
-    return false;
-
-  if (item.GetPVRRecordingInfoTag()->IncrementPlayCount())
-  {
-    // Item must now be watched (because play count > 0).
-    return ProcessDeleteAfterWatch(item);
-  }
-  return false;
-}
-
-bool CPVRGUIActionsRecordings::MarkWatched(const CFileItem& item, bool watched) const
-{
-  if (!item.IsPVRRecording())
-    return false;
-
-  if (CServiceBroker::GetPVRManager().Recordings()->MarkWatched(item.GetPVRRecordingInfoTag(),
-                                                                watched))
-  {
-    if (watched)
-      return ProcessDeleteAfterWatch(item);
-
-    return true;
-  }
-  return false;
 }

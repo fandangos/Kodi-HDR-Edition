@@ -9,14 +9,15 @@
 #include "GUIListGroup.h"
 
 #include "GUIListLabel.h"
+#include "ServiceBroker.h"
+#include "utils/Set.h"
 #include "utils/log.h"
-
-#include <set>
+#include "windowing/WinSystem.h"
 
 namespace
 {
 // Supported control types. Keep sorted.
-const std::set<CGUIControl::GUICONTROLTYPES> supportedTypes = {
+constexpr CSet supportedTypes{
     // clang-format off
     CGUIControl::GUICONTROL_BORDEREDIMAGE,
     CGUIControl::GUICONTROL_GAME,
@@ -55,7 +56,7 @@ void CGUIListGroup::AddControl(CGUIControl *control, int position /*= -1*/)
 {
   if (control)
   {
-    if (supportedTypes.find(control->GetControlType()) == supportedTypes.end())
+    if (!supportedTypes.contains(control->GetControlType()))
       CLog::Log(LOGWARNING, "Trying to add unsupported control type {}", control->GetControlType());
   }
   CGUIControlGroup::AddControl(control, position);

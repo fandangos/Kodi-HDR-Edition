@@ -25,7 +25,7 @@ CRenderBufferManager::~CRenderBufferManager()
 
 void CRenderBufferManager::RegisterPools(IRendererFactory* factory, RenderBufferPoolVector pools)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   m_pools.emplace_back(RenderBufferPools{factory, std::move(pools)});
 }
@@ -34,11 +34,9 @@ RenderBufferPoolVector CRenderBufferManager::GetPools(IRendererFactory* factory)
 {
   RenderBufferPoolVector bufferPools;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
-  auto it =
-      std::find_if(m_pools.begin(), m_pools.end(),
-                   [factory](const RenderBufferPools& pools) { return pools.factory == factory; });
+  auto it = std::ranges::find(m_pools, factory, &RenderBufferPools::factory);
 
   if (it != m_pools.end())
     bufferPools = it->pools;
@@ -50,7 +48,7 @@ std::vector<IRenderBufferPool*> CRenderBufferManager::GetBufferPools()
 {
   std::vector<IRenderBufferPool*> bufferPools;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   for (const auto& pools : m_pools)
   {
@@ -63,7 +61,7 @@ std::vector<IRenderBufferPool*> CRenderBufferManager::GetBufferPools()
 
 void CRenderBufferManager::FlushPools()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   for (const auto& pools : m_pools)
   {
@@ -74,7 +72,7 @@ void CRenderBufferManager::FlushPools()
 
 std::string CRenderBufferManager::GetRenderSystemName(IRenderBufferPool* renderBufferPool) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   for (const auto& pools : m_pools)
   {

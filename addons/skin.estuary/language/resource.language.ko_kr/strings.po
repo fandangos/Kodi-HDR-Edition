@@ -5,9 +5,9 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: KODI Main\n"
-"Report-Msgid-Bugs-To: translations@kodi.tv\n"
+"Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2024-10-19 07:10+0000\n"
+"PO-Revision-Date: 2025-06-28 05:29+0000\n"
 "Last-Translator: Minho Park <parkmino@gmail.com>\n"
 "Language-Team: Korean <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/ko_kr/>\n"
 "Language: ko_kr\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
-"X-Generator: Weblate 5.7.2\n"
+"X-Generator: Weblate 5.12.2\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -133,8 +133,8 @@ msgid "Choose rating to display for media items"
 msgstr "미디어 항목에서 보는 평점 선택"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "즐겨찾기가 없습니다. 미디어 보기에서 컨텐스트 메뉴를 사용하여 항목을 추가할 수 있습니다."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr ""
 
 msgctxt "#31026"
 msgid "Timeshift"
@@ -221,9 +221,25 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "그룹 삭제"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr ""
+
 msgctxt "#31048"
 msgid "Available"
 msgstr "사용 가능"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr ""
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr ""
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr ""
 
 msgctxt "#31052"
 msgid "filtered"
@@ -313,6 +329,11 @@ msgctxt "#31080"
 msgid "Ends at"
 msgstr "종료"
 
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr "라이브"
+
 msgctxt "#31082"
 msgid "Lyrics add-on"
 msgstr "가사 애드온"
@@ -394,6 +415,11 @@ msgctxt "#31107"
 msgid "WideList"
 msgstr "WideList"
 
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr "미디어 목록"
+
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
 msgid "Video streams"
@@ -454,6 +480,10 @@ msgstr "시청하지 않은 TV 쇼"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "같은 감독"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr ""
 
 msgctxt "#31125"
 msgid "Press up for actor info"
@@ -556,8 +586,8 @@ msgid "Categories"
 msgstr "카테고리"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "장르 팬아트 팩 선택"
+msgid "Choose genre fanart pack"
+msgstr ""
 
 msgctxt "#31150"
 msgid "Origin"
@@ -680,6 +710,26 @@ msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
 msgstr "홈 화면의 영화 세트에 대한 기본 작업 선택"
 
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr ""
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr "플레이어 정보"
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr "플레이어 캐시"
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr "오디오 디코더"
+
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
@@ -745,6 +795,29 @@ msgstr "시스템"
 msgctxt "#31612"
 msgid "channels"
 msgstr "채널"
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr ""
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr ""
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr ""
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "즐겨찾기가 없습니다. 미디어 보기에서 컨텐스트 메뉴를 사용하여 항목을 추가할 수 있습니다."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "장르 팬아트 팩 선택"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

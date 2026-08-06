@@ -31,12 +31,14 @@ set(SOURCES TestAlarmClock.cpp
             TestMap.cpp
             TestMathUtils.cpp
             TestMime.cpp
+            TestMp4ChplReader.cpp
             TestPOUtils.cpp
             TestRegExp.cpp
             TestRingBuffer.cpp
             TestRssReader.cpp
             TestScraperParser.cpp
             TestScraperUrl.cpp
+            TestSet.cpp
             TestSortUtils.cpp
             TestStopwatch.cpp
             TestStreamDetails.cpp
@@ -45,10 +47,15 @@ set(SOURCES TestAlarmClock.cpp
             TestSystemInfo.cpp
             TestURIUtils.cpp
             TestUrlOptions.cpp
+            TestUrlParsing.cpp
             TestVariant.cpp
             TestXBMCTinyXML.cpp
             TestXBMCTinyXML2.cpp
             TestXMLUtils.cpp)
+
+if(TARGET ${APP_NAME_LC}::Bluray)
+  list(APPEND SOURCES TestBluray.cpp)
+endif()
 
 set(HEADERS TestGlobalsHandlingPattern1.h)
 

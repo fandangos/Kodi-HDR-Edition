@@ -10,9 +10,15 @@
 
 #include "games/controllers/ControllerTypes.h"
 #include "games/controllers/types/ControllerNode.h"
+#include "utils/Digest.h"
 
 #include <string>
 #include <vector>
+
+namespace tinyxml2
+{
+class XMLElement;
+} // namespace tinyxml2
 
 namespace KODI
 {
@@ -34,6 +40,8 @@ public:
   CPortNode& operator=(const CPortNode& rhs);
   CPortNode& operator=(CPortNode&& rhs) noexcept;
   ~CPortNode();
+
+  void Clear();
 
   /*!
    * \brief Connection state of the port
@@ -84,6 +92,12 @@ public:
   void SetForceConnected(bool forceConnected) { m_forceConnected = forceConnected; }
 
   /*!
+   * \brief If true, this port starts connected when a game session begins
+   */
+  bool IsAutoConnect() const { return m_autoConnect; }
+  void SetAutoConnect(bool autoConnect) { m_autoConnect = autoConnect; }
+
+  /*!
    * \brief Return the controller profiles that are compatible with this port
    *
    * \return The controller profiles, or empty if this port doesn't support
@@ -119,6 +133,27 @@ public:
    */
   void GetInputPorts(std::vector<std::string>& inputPorts) const;
 
+  /*!
+   * \brief Get a list of ports that accept keyboard input
+   *
+   * \param[out] keyboardPorts The list of keyboard ports
+   */
+  void GetKeyboardPorts(std::vector<std::string>& keyboardPorts) const;
+
+  /*!
+   * \brief Get a list of ports that accept mouse input
+   *
+   * \param[out] mousePorts The list of mouse ports
+   */
+  void GetMousePorts(std::vector<std::string>& mousePorts) const;
+
+  // XML functions
+  bool Serialize(tinyxml2::XMLElement& portElement) const;
+  bool Deserialize(const tinyxml2::XMLElement& portElement);
+
+  // Crypto functions
+  std::string GetDigest(UTILITY::CDigest::Type digestType) const;
+
 private:
   void GetPort(CPhysicalPort& port) const;
 
@@ -128,6 +163,7 @@ private:
   std::string m_portId;
   std::string m_address;
   bool m_forceConnected{true};
+  bool m_autoConnect{true};
   ControllerNodeVec m_controllers;
 };
 

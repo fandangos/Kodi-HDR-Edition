@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2024 Team Kodi
+ *  Copyright (C) 2024-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -16,9 +16,11 @@
 #include "dialogs/GUIDialogSelect.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/LangCodeExpander.h"
 #include "utils/StreamDetails.h"
+#include "utils/StreamUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
@@ -30,7 +32,8 @@ constexpr int STREAM_ID_NONE = -1; // Stream id referred to item for "none" stre
 // \brief Make a FileItem entry with "Disable" label, allow to disable a stream
 const std::shared_ptr<CFileItem> MakeFileItemDisable(bool isSelected)
 {
-  const auto fileItem{std::make_shared<CFileItem>(g_localizeStrings.Get(24021))};
+  const auto fileItem{std::make_shared<CFileItem>(
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(24021))};
   fileItem->Select(isSelected);
   fileItem->SetProperty("stream.id", STREAM_ID_DISABLE);
   return fileItem;
@@ -39,7 +42,8 @@ const std::shared_ptr<CFileItem> MakeFileItemDisable(bool isSelected)
 // \brief Make a FileItem entry with "None" label, signal an empty list
 const std::shared_ptr<CFileItem> MakeFileItemNone()
 {
-  const auto fileItem{std::make_shared<CFileItem>(g_localizeStrings.Get(231))};
+  const auto fileItem{std::make_shared<CFileItem>(
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(231))};
   fileItem->SetProperty("stream.id", STREAM_ID_NONE);
   return fileItem;
 }
@@ -69,7 +73,7 @@ std::string ConvertFpsToString(float value)
 
   std::string str{StringUtils::Format("{:.3f}", value)};
   // Keep numbers after the comma only if they are not 0
-  const size_t zeroPos = str.find_last_not_of("0");
+  const size_t zeroPos = str.find_last_not_of('0');
   if (zeroPos != std::string::npos)
     str.erase(zeroPos + 1);
 
@@ -110,7 +114,8 @@ struct AudioStreamInfoExt : AudioStreamInfo
     streamId = id;
 
     if (!g_LangCodeExpander.Lookup(info.language, languageDesc))
-      languageDesc = g_localizeStrings.Get(13205); // Unknown
+      languageDesc =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // Unknown
 
     isDefault = info.flags & StreamFlags::FLAG_DEFAULT;
     isForced = info.flags & StreamFlags::FLAG_FORCED;
@@ -135,7 +140,8 @@ struct SubtitleStreamInfoExt : SubtitleStreamInfo
     streamId = id;
 
     if (!g_LangCodeExpander.Lookup(info.language, languageDesc))
-      languageDesc = g_localizeStrings.Get(13205); // Unknown
+      languageDesc =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13205); // Unknown
 
     isDefault = info.flags & StreamFlags::FLAG_DEFAULT;
     isForced = info.flags & StreamFlags::FLAG_FORCED;
@@ -404,7 +410,7 @@ void KODI::VIDEO::GUILIB::OpenDialogSelectAudioStream()
     fileItem->SetProperty("stream.description", info.name);
     fileItem->SetProperty("stream.codec", info.codecName);
     fileItem->SetProperty("stream.codecdesc", info.codecDesc);
-    fileItem->SetProperty("stream.channels", info.channels);
+    fileItem->SetProperty("stream.channels", StreamUtils::GetLayout(info.channels));
 
     fileItem->SetProperty("stream.isdefault", info.isDefault);
     fileItem->SetProperty("stream.isforced", info.isForced);
@@ -476,6 +482,7 @@ void KODI::VIDEO::GUILIB::OpenDialogSelectSubtitleStream()
     fileItem->SetProperty("stream.id", info.streamId);
     fileItem->SetProperty("stream.description", info.name);
     fileItem->SetProperty("stream.codec", info.codecName);
+    fileItem->SetProperty("stream.codecdesc", info.codecDesc);
 
     fileItem->SetProperty("stream.isdefault", info.isDefault);
     fileItem->SetProperty("stream.isforced", info.isForced);

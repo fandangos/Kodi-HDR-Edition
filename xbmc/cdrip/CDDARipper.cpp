@@ -18,7 +18,6 @@
 #include "addons/addoninfo/AddonType.h"
 #include "filesystem/CDDADirectory.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "music/MusicDatabase.h"
 #include "music/MusicDbUrl.h"
@@ -26,6 +25,8 @@
 #include "music/infoscanner/MusicInfoScanner.h"
 #include "music/tags/MusicInfoTag.h"
 #include "music/tags/MusicInfoTagLoaderFactory.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/SettingPath.h"
@@ -63,8 +64,7 @@ bool CCDDARipper::RipTrack(CFileItem* pItem)
   // don't rip non cdda items
   if (!URIUtils::HasExtension(pItem->GetPath(), ".cdda"))
   {
-    CLog::Log(LOGDEBUG, "CCDDARipper::{} - File '{}' is not a cdda track", __func__,
-              pItem->GetPath());
+    CLog::LogF(LOGDEBUG, "File '{}' is not a cdda track", pItem->GetPath());
     return false;
   }
 
@@ -90,7 +90,7 @@ bool CCDDARipper::RipCD()
   MEDIA_DETECT::CCdInfo* pInfo = CServiceBroker::GetMediaManager().GetCdInfo();
   if (pInfo == nullptr || !pInfo->IsAudio(1))
   {
-    CLog::Log(LOGDEBUG, "CCDDARipper::{} - CD is not an audio cd", __func__);
+    CLog::LogF(LOGDEBUG, "CD is not an audio cd");
     return false;
   }
 
@@ -154,7 +154,8 @@ bool CCDDARipper::CreateAlbumDir(const MUSIC_INFO::CMusicInfoTag& infoTag,
     strDirectory = recordingpathSetting->GetValue();
     if (strDirectory.empty())
     {
-      if (CGUIControlButtonSetting::GetPath(recordingpathSetting, &g_localizeStrings))
+      if (CGUIControlButtonSetting::GetPath(
+              recordingpathSetting, &CServiceBroker::GetResourcesComponent().GetLocalizeStrings()))
         strDirectory = recordingpathSetting->GetValue();
     }
   }
@@ -163,7 +164,7 @@ bool CCDDARipper::CreateAlbumDir(const MUSIC_INFO::CMusicInfoTag& infoTag,
   if (strDirectory.size() < 3)
   {
     // no rip path has been set, show error
-    CLog::Log(LOGERROR, "CCDDARipper::{} - Required path has not been set", __func__);
+    CLog::LogF(LOGERROR, "Required path has not been set");
     HELPERS::ShowOKDialogText(CVariant{257}, CVariant{608});
     return false;
   }
@@ -185,13 +186,12 @@ bool CCDDARipper::CreateAlbumDir(const MUSIC_INFO::CMusicInfoTag& infoTag,
     URIUtils::AddSlashAtEnd(strDirectory);
   }
 
-  strDirectory = CUtil::MakeLegalPath(std::move(strDirectory), legalType);
+  strDirectory = CUtil::MakeLegalPath(strDirectory, legalType);
 
   // Create directory if it doesn't exist
   if (!CUtil::CreateDirectoryEx(strDirectory))
   {
-    CLog::Log(LOGERROR, "CCDDARipper::{} - Unable to create directory '{}'", __func__,
-              strDirectory);
+    CLog::LogF(LOGERROR, "Unable to create directory '{}'", strDirectory);
     return false;
   }
 

@@ -66,5 +66,6 @@ private:
   virtual SelectFirstUnwatchedItem GetSettingSelectFirstUnwatchedItem();
   virtual IncludeAllSeasonsAndSpecials GetSettingIncludeAllSeasonsAndSpecials();
   virtual int GetFirstUnwatchedItemIndex(bool includeAllSeasons, bool includeSpecials);
-  void SelectFirstUnwatched();
+  int GetFirstSelectedItemIndex() const;
+  void SelectDefaultItem();
 };

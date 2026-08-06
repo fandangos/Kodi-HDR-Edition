@@ -21,6 +21,7 @@ using namespace wayland;
 namespace
 {
 constexpr auto WEBOS_ACCESS_POLICY_KEYS_GUIDE = "_WEBOS_ACCESS_POLICY_KEYS_GUIDE";
+constexpr auto WEBOS_SSH_DEFAULT_APPID = "com.palm.devmode.openssh";
 } // namespace
 
 CShellSurfaceWebOSShell::CShellSurfaceWebOSShell(IShellSurfaceHandler& handler,
@@ -82,8 +83,8 @@ CShellSurfaceWebOSShell::CShellSurfaceWebOSShell(IShellSurfaceHandler& handler,
     m_handler.OnClose();
   };
 
-  std::string appId = CEnvironment::getenv("APP_ID");
-  if (appId.empty())
+  std::string appId = CEnvironment::getenv("APPID");
+  if (appId.empty() || appId == WEBOS_SSH_DEFAULT_APPID)
   {
     appId = CCompileInfo::GetPackage();
   }

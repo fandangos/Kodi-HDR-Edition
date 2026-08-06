@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -41,21 +41,26 @@
 #include "GUISpinControlEx.h"
 #include "GUITextBox.h"
 #include "GUIToggleButtonControl.h"
+#include "GUIUtils.h"
 #include "GUIVideoControl.h"
 #include "GUIVisualisationControl.h"
 #include "GUIWrappingListContainer.h"
-#include "LocalizeStrings.h"
+#include "ServiceBroker.h"
 #include "addons/Skin.h"
 #include "cores/RetroPlayer/guicontrols/GUIGameControl.h"
 #include "games/controllers/guicontrols/GUIGameController.h"
 #include "games/controllers/guicontrols/GUIGameControllerList.h"
 #include "input/actions/ActionIDs.h"
 #include "pvr/guilib/GUIEPGGridContainer.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/CharsetConverter.h"
 #include "utils/RssManager.h"
 #include "utils/StringUtils.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+
+#include <array>
 
 using namespace KODI;
 using namespace KODI::GUILIB;
@@ -105,6 +110,40 @@ static const ControlMapping controls[] = {
     {"visualisation", CGUIControl::GUICONTROL_VISUALISATION},
     {"wraplist", CGUIControl::GUICONTAINER_WRAPLIST},
 };
+
+namespace
+{
+/*!
+ * \brief Retrieve vertical alignment tag value
+ * \param[in] rootNode root XML node
+ * \param[in] tag tag name
+ * \param[out] alignment vertical alignment - one of the values provided in values
+ * \param[in] values values for unknown, top, center and bottom vertical alignment (in that order)
+ * \return true when the tag is found, false otherwise
+ */
+template<typename T>
+bool GetAlignmentY(const TiXmlNode* rootNode,
+                   const char* tag,
+                   T& alignment,
+                   std::array<T, 4> values)
+{
+  const TiXmlNode* pNode = rootNode->FirstChild(tag);
+  if (!pNode || !pNode->FirstChild())
+    return false;
+
+  const std::string strAlign = pNode->FirstChild()->Value();
+
+  alignment = values[0];
+  if (strAlign == "top")
+    alignment = values[1];
+  else if (strAlign == "center")
+    alignment = values[2];
+  else if (strAlign == "bottom")
+    alignment = values[3];
+
+  return true;
+}
+} // namespace
 
 CGUIControl::GUICONTROLTYPES CGUIControlFactory::TranslateControlType(const std::string& type)
 {
@@ -452,25 +491,11 @@ bool CGUIControlFactory::GetAlignment(const TiXmlNode* pRootNode,
   return true;
 }
 
-bool CGUIControlFactory::GetAlignmentY(const TiXmlNode* pRootNode,
-                                       const char* strTag,
-                                       uint32_t& alignment)
+bool CGUIControlFactory::GetLabelAlignmentY(const TiXmlNode* pRootNode,
+                                            const char* strTag,
+                                            uint32_t& alignment)
 {
-  const TiXmlNode* pNode = pRootNode->FirstChild(strTag);
-  if (!pNode || !pNode->FirstChild())
-  {
-    return false;
-  }
-
-  std::string strAlign = pNode->FirstChild()->Value();
-
-  alignment = 0;
-  if (strAlign == "center")
-  {
-    alignment = XBFONT_CENTER_Y;
-  }
-
-  return true;
+  return GetAlignmentY(pRootNode, strTag, alignment, {0, 0, XBFONT_CENTER_Y, 0});
 }
 
 bool CGUIControlFactory::GetConditionalVisibility(const TiXmlNode* control,
@@ -491,7 +516,7 @@ bool CGUIControlFactory::GetConditionalVisibility(const TiXmlNode* control,
       conditions.emplace_back(node->FirstChild()->Value());
     node = node->NextSiblingElement("visible");
   }
-  if (!conditions.size())
+  if (conditions.empty())
     return false;
   if (conditions.size() == 1)
     condition = conditions[0];
@@ -643,7 +668,7 @@ void CGUIControlFactory::GetInfoLabel(const TiXmlNode* pControlNode,
 {
   std::vector<GUIINFO::CGUIInfoLabel> labels;
   GetInfoLabels(pControlNode, labelTag, labels, parentID);
-  if (labels.size())
+  if (!labels.empty())
     infoLabel = labels[0];
 }
 
@@ -660,9 +685,10 @@ bool CGUIControlFactory::GetInfoLabelFromElement(const TiXmlElement* element,
 
   std::string fallback = XMLUtils::GetAttribute(element, "fallback");
   if (StringUtils::IsNaturalNumber(label))
-    label = g_localizeStrings.Get(atoi(label.c_str()));
+    label = CGUIUtils::GetLocalizedString(std::atoi(label.c_str()));
+
   if (StringUtils::IsNaturalNumber(fallback))
-    fallback = g_localizeStrings.Get(atoi(fallback.c_str()));
+    fallback = CGUIUtils::GetLocalizedString(std::atoi(fallback.c_str()));
   else
     g_charsetConverter.unknownToUTF8(fallback);
   infoLabel.SetLabel(label, fallback, parentID);
@@ -698,7 +724,7 @@ void CGUIControlFactory::GetInfoLabels(const TiXmlNode* pControlNode,
   if (infoNode)
   { // <info> nodes override <label>'s (backward compatibility)
     std::string fallback;
-    if (infoLabels.size())
+    if (!infoLabels.empty())
       fallback = infoLabels[0].GetLabel(0);
     infoLabels.clear();
     while (infoNode)
@@ -718,7 +744,7 @@ std::string CGUIControlFactory::FilterLabel(const std::string& label)
 {
   std::string viewLabel = label;
   if (StringUtils::IsNaturalNumber(viewLabel))
-    viewLabel = g_localizeStrings.Get(atoi(label.c_str()));
+    viewLabel = CGUIUtils::GetLocalizedString(std::atoi(label.c_str()));
   else
     g_charsetConverter.unknownToUTF8(viewLabel);
   return viewLabel;
@@ -731,7 +757,7 @@ bool CGUIControlFactory::GetString(const TiXmlNode* pRootNode,
   if (!XMLUtils::GetString(pRootNode, strTag, text))
     return false;
   if (StringUtils::IsNaturalNumber(text))
-    text = g_localizeStrings.Get(atoi(text.c_str()));
+    text = CGUIUtils::GetLocalizedString(std::atoi(text.c_str()));
   return true;
 }
 
@@ -743,9 +769,10 @@ std::string CGUIControlFactory::GetType(const TiXmlElement* pControlNode)
   return type;
 }
 
-bool CGUIControlFactory::GetMovingSpeedConfig(const TiXmlNode* pRootNode,
-                                              const char* strTag,
-                                              KODI::UTILS::MOVING_SPEED::MapEventConfig& movingSpeedCfg)
+bool CGUIControlFactory::GetMovingSpeedConfig(
+    const TiXmlNode* pRootNode,
+    const char* strTag,
+    KODI::UTILS::MOVING_SPEED::MapEventConfig& movingSpeedCfg)
 {
   const TiXmlElement* msNode = pRootNode->FirstChildElement(strTag);
   if (!msNode)
@@ -859,7 +886,9 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
   std::string strRSSTags = "";
 
   float buttonGap = 5;
-  int iMovementRange = 0;
+  int startMovement = 0;
+  int endMovement = 0;
+  FixedListAlignY fixedListAlignY = FixedListAlignY::CENTER;
   CAspectRatio aspect;
   std::string allowHiddenFocus;
   std::string enableCondition;
@@ -902,6 +931,7 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
   int focusPosition = 0;
   int scrollTime = 200;
   int timeBlocks = 36;
+  unsigned int minutesPerTimeBlock{CGUIEPGGridContainer::DEFAULT_MINUTES_PER_BLOCK};
   int rulerUnit = 12;
   bool useControlCoords = false;
   bool renderFocusedLast = false;
@@ -996,8 +1026,12 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
     labelInfo.font = g_fontManager.GetFont(strFont);
   XMLUtils::GetString(pControlNode, "monofont", strMonoFont);
   uint32_t alignY = 0;
-  if (GetAlignmentY(pControlNode, "aligny", alignY))
+  if (GetLabelAlignmentY(pControlNode, "aligny", alignY))
     labelInfo.align |= alignY;
+  // No attribute = center vertical alignment
+  GetAlignmentY(pControlNode, "aligny", fixedListAlignY,
+                {FixedListAlignY::CENTER, FixedListAlignY::TOP, FixedListAlignY::CENTER,
+                 FixedListAlignY::BOTTOM});
   if (XMLUtils::GetFloat(pControlNode, "textwidth", labelInfo.width))
     labelInfo.align |= XBFONT_TRUNCATED;
 
@@ -1124,7 +1158,14 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
       orientation = HORIZONTAL;
   }
   XMLUtils::GetFloat(pControlNode, "itemgap", buttonGap);
-  XMLUtils::GetInt(pControlNode, "movement", iMovementRange);
+
+  int movement = 0;
+  XMLUtils::GetInt(pControlNode, "movement", movement);
+  if (!XMLUtils::GetInt(pControlNode, "startmovement", startMovement))
+    startMovement = movement;
+  if (!XMLUtils::GetInt(pControlNode, "endmovement", endMovement))
+    endMovement = movement;
+
   GetAspectRatio(pControlNode, "aspectratio", aspect);
 
   bool alwaysScroll;
@@ -1133,6 +1174,7 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
 
   XMLUtils::GetBoolean(pControlNode, "pulseonselect", bPulse);
   XMLUtils::GetInt(pControlNode, "timeblocks", timeBlocks);
+  XMLUtils::GetUInt(pControlNode, "minspertimeblock", minutesPerTimeBlock);
   XMLUtils::GetInt(pControlNode, "rulerunit", rulerUnit);
   GetTexture(pControlNode, "progresstexture", textureProgressIndicator);
 
@@ -1173,20 +1215,23 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
   // view type
   VIEW_TYPE viewType = VIEW_TYPE_NONE;
   std::string viewLabel;
+
+  const auto& localizeStrings = CServiceBroker::GetResourcesComponent().GetLocalizeStrings();
+
   if (type == CGUIControl::GUICONTAINER_PANEL)
   {
     viewType = VIEW_TYPE_ICON;
-    viewLabel = g_localizeStrings.Get(536);
+    viewLabel = localizeStrings.Get(536);
   }
   else if (type == CGUIControl::GUICONTAINER_LIST)
   {
     viewType = VIEW_TYPE_LIST;
-    viewLabel = g_localizeStrings.Get(535);
+    viewLabel = localizeStrings.Get(535);
   }
   else
   {
     viewType = VIEW_TYPE_WRAP;
-    viewLabel = g_localizeStrings.Get(541);
+    viewLabel = localizeStrings.Get(541);
   }
   TiXmlElement* itemElement = pControlNode->FirstChildElement("viewtype");
   if (itemElement && itemElement->FirstChild())
@@ -1498,6 +1543,16 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
       icontrol->SetAspectRatio(aspect);
       icontrol->SetCrossFade(fadeTime);
 
+      // Set image filter
+      GUIINFO::CGUIInfoLabel imageFilter;
+      GetInfoLabel(pControlNode, "imagefilter", imageFilter, parentID);
+      icontrol->SetImageFilter(imageFilter);
+
+      // Set diffuse filter
+      GUIINFO::CGUIInfoLabel diffuseFilter;
+      GetInfoLabel(pControlNode, "diffusefilter", diffuseFilter, parentID);
+      icontrol->SetDiffuseFilter(diffuseFilter);
+
       break;
     }
     case CGUIControl::GUICONTROL_MULTI_IMAGE:
@@ -1551,9 +1606,9 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
     }
     case CGUIControl::GUICONTAINER_EPGGRID:
     {
-      CGUIEPGGridContainer* epgGridContainer =
-          new CGUIEPGGridContainer(parentID, id, posX, posY, width, height, orientation, scrollTime,
-                                   preloadItems, timeBlocks, rulerUnit, textureProgressIndicator);
+      auto* epgGridContainer = new CGUIEPGGridContainer(
+          parentID, id, posX, posY, width, height, orientation, scrollTime, preloadItems,
+          timeBlocks, minutesPerTimeBlock, rulerUnit, textureProgressIndicator);
       control = epgGridContainer;
       epgGridContainer->LoadLayout(pControlNode);
       epgGridContainer->SetRenderOffset(offset);
@@ -1568,7 +1623,8 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
       GetScroller(pControlNode, "scrolltime", scroller);
 
       control = new CGUIFixedListContainer(parentID, id, posX, posY, width, height, orientation,
-                                           scroller, preloadItems, focusPosition, iMovementRange);
+                                           scroller, preloadItems, focusPosition, startMovement,
+                                           endMovement, fixedListAlignY);
       CGUIFixedListContainer* fcontrol = static_cast<CGUIFixedListContainer*>(control);
       fcontrol->LoadLayout(pControlNode);
       fcontrol->LoadListProvider(pControlNode, defaultControl, defaultAlways);
@@ -1615,7 +1671,7 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
       CGUITextBox* tcontrol = static_cast<CGUITextBox*>(control);
 
       tcontrol->SetPageControl(pageControl);
-      if (infoLabels.size())
+      if (!infoLabels.empty())
         tcontrol->SetInfo(infoLabels[0]);
       tcontrol->SetAutoScrolling(pControlNode);
       tcontrol->SetMinHeight(minHeight);

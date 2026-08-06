@@ -37,7 +37,11 @@ using namespace PVR;
 
 using namespace std::chrono_literals;
 
-#define MAX_INVALIDATION_FREQUENCY 2000ms // limit to one invalidation per X milliseconds
+namespace
+{
+constexpr auto MAX_INVALIDATION_FREQUENCY = 2000ms; // limit to one invalidation per X milliseconds
+
+} // unnamed namespace
 
 CGUIDialogPVRChannelsOSD::CGUIDialogPVRChannelsOSD()
   : CGUIDialogPVRItemsViewBase(WINDOW_DIALOG_PVR_OSD_CHANNELS, "DialogPVRChannelsOSD.xml")
@@ -58,13 +62,15 @@ bool CGUIDialogPVRChannelsOSD::OnMessage(CGUIMessage& message)
   {
     switch (static_cast<PVREvent>(message.GetParam1()))
     {
-      case PVREvent::CurrentItem:
+      using enum PVR::PVREvent;
+
+      case CurrentItem:
         m_viewControl.SetItems(*m_vecItems);
         return true;
 
-      case PVREvent::Epg:
-      case PVREvent::EpgContainer:
-      case PVREvent::EpgActiveItem:
+      case Epg:
+      case EpgContainer:
+      case EpgActiveItem:
         if (IsActive())
           SetInvalid();
         return true;
@@ -176,7 +182,13 @@ bool CGUIDialogPVRChannelsOSD::OnAction(const CAction& action)
 void CGUIDialogPVRChannelsOSD::Update()
 {
   CPVRManager& pvrMgr = CServiceBroker::GetPVRManager();
-  pvrMgr.Events().Subscribe(this, &CGUIDialogPVRChannelsOSD::Notify);
+  pvrMgr.Events().Subscribe(this,
+                            [this](const PVREvent& event)
+                            {
+                              const CGUIMessage m(GUI_MSG_REFRESH_LIST, GetID(), 0,
+                                                  static_cast<int>(event));
+                              CServiceBroker::GetAppMessenger()->SendGUIMessage(m);
+                            });
 
   const std::shared_ptr<const CPVRChannel> channel = pvrMgr.PlaybackState()->GetPlayingChannel();
   if (channel)
@@ -251,14 +263,7 @@ void CGUIDialogPVRChannelsOSD::GotoChannel(int iItem)
           CSettings::SETTING_PVRMENU_CLOSECHANNELOSDONSWITCH))
     Close();
 
-  CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(
-      *item, true /* bCheckResume */);
-}
-
-void CGUIDialogPVRChannelsOSD::Notify(const PVREvent& event)
-{
-  const CGUIMessage m(GUI_MSG_REFRESH_LIST, GetID(), 0, static_cast<int>(event));
-  CServiceBroker::GetAppMessenger()->SendGUIMessage(m);
+  CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(*item);
 }
 
 void CGUIDialogPVRChannelsOSD::SaveSelectedItemPath(int iGroupID)

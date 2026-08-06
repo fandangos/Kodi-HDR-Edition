@@ -93,7 +93,7 @@ bool CKeyboardLayoutManager::Load(const std::string& path /* = "" */)
       CKeyboardLayout layout;
       if (!layout.Load(layoutElement))
         CLog::Log(LOGWARNING, "CKeyboardLayoutManager: failed to load {}", layoutPath);
-      else if (m_layouts.find(layout.GetIdentifier()) != m_layouts.end())
+      else if (m_layouts.contains(layout.GetIdentifier()))
         CLog::Log(LOGWARNING,
                   "CKeyboardLayoutManager: duplicate layout with identifier \"{}\" in {}",
                   layout.GetIdentifier(), layoutPath);
@@ -133,15 +133,14 @@ namespace
 {
 inline bool LayoutSort(const StringSettingOption& i, const StringSettingOption& j)
 {
-  return (i.value < j.value);
+  return (i.label < j.label);
 }
 } // namespace
 
 void CKeyboardLayoutManager::SettingOptionsKeyboardLayoutsFiller(
-    const SettingConstPtr& setting,
+    const SettingConstPtr& /*setting*/,
     std::vector<StringSettingOption>& list,
-    std::string& current,
-    void* data)
+    std::string& /*current*/)
 {
   for (const auto& it : CServiceBroker::GetKeyboardLayoutManager()->m_layouts)
   {

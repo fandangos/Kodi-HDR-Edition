@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2010-2018 Team Kodi
+ *  Copyright (C) 2010-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -270,6 +270,7 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
           {
             SinkReply reply;
             reply.format = m_sinkFormat;
+            reply.device = &m_device;
             //! @todo
             //! use max raw packet size, for now use max size of an IEC packed packet
             //! maxIECPpacket > maxRawPacket
@@ -596,6 +597,11 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
   } // for
 }
 
+void CActiveAESink::OnStartup()
+{
+  SetTask(ThreadTask::AUDIO);
+}
+
 void CActiveAESink::Process()
 {
   Message *msg = nullptr;
@@ -670,6 +676,11 @@ void CActiveAESink::Process()
       }
     }
   }
+}
+
+void CActiveAESink::OnExit()
+{
+  RevertTask();
 }
 
 void CActiveAESink::EnumerateSinkList(bool force, std::string driver)
@@ -847,7 +858,7 @@ void CActiveAESink::EnumerateOutputDevices(AEDeviceList &devices, bool passthrou
     AESinkInfo sinkInfo = *itt;
     for (AEDeviceInfoList::iterator itt2 = sinkInfo.m_deviceInfoList.begin(); itt2 != sinkInfo.m_deviceInfoList.end(); ++itt2)
     {
-      CAEDeviceInfo devInfo = *itt2;
+      const CAEDeviceInfo& devInfo = *itt2;
       if (passthrough && devInfo.m_deviceType == AE_DEVTYPE_PCM)
         continue;
 
@@ -955,6 +966,10 @@ void CActiveAESink::OpenSink()
     m_extError = true;
     return;
   }
+
+  m_device = device;
+  const AESinkDevice openedDevice = CAESinkFactory::ParseDevice(m_device);
+  GetDeviceFriendlyName(openedDevice.name);
 
   m_sink->SetVolume(m_volume);
 
@@ -1207,7 +1222,13 @@ void CActiveAESink::SetSilenceTimer()
     m_extSilenceTimeout = XbmcThreads::EndTime<decltype(m_extSilenceTimeout)>::Max();
   else if (m_extAppFocused) // handles no playback/GUI and playback in pause and seek
   {
-    m_extSilenceTimeout = m_silenceTimeOut;
+    // only true with AudioTrack RAW + passthrough + DTSHD formats
+    const bool noSilenceOnPause =
+        !m_needIecPack && m_requestedFormat.m_dataFormat == AE_FMT_RAW &&
+        (m_sinkFormat.m_streamInfo.m_type == CAEStreamInfo::STREAM_TYPE_DTSHD_MA ||
+         m_sinkFormat.m_streamInfo.m_type == CAEStreamInfo::STREAM_TYPE_DTSHD);
+
+    m_extSilenceTimeout = (noSilenceOnPause) ? 0ms : m_silenceTimeOut;
   }
   else
   {

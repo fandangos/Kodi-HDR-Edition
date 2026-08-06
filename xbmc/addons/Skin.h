@@ -16,10 +16,9 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string_view>
 #include <utility>
 #include <vector>
-
-#define CREDIT_LINE_LENGTH 50
 
 class CSetting;
 class TiXmlElement;
@@ -28,6 +27,15 @@ struct StringSettingOption;
 
 namespace ADDON
 {
+
+// Skin string ID range constants
+inline constexpr uint32_t SKIN_STRING_RANGE_START = 31000;
+inline constexpr uint32_t SKIN_STRING_RANGE_END = 31999;
+
+constexpr bool IsSkinStringId(uint32_t id) noexcept
+{
+  return id >= SKIN_STRING_RANGE_START && id <= SKIN_STRING_RANGE_END;
+}
 
 class CSkinSettingUpdateHandler;
 
@@ -48,7 +56,7 @@ protected:
   virtual bool SerializeSetting(TiXmlElement* element) const = 0;
 };
 
-typedef std::shared_ptr<CSkinSetting> CSkinSettingPtr;
+using CSkinSettingPtr = std::shared_ptr<CSkinSetting>;
 
 class CSkinSettingString : public CSkinSetting
 {
@@ -65,7 +73,7 @@ protected:
   bool SerializeSetting(TiXmlElement* element) const override;
 };
 
-typedef std::shared_ptr<CSkinSettingString> CSkinSettingStringPtr;
+using CSkinSettingStringPtr = std::shared_ptr<CSkinSettingString>;
 
 class CSkinSettingBool : public CSkinSetting
 {
@@ -82,7 +90,7 @@ protected:
   bool SerializeSetting(TiXmlElement* element) const override;
 };
 
-typedef std::shared_ptr<CSkinSettingBool> CSkinSettingBoolPtr;
+using CSkinSettingBoolPtr = std::shared_ptr<CSkinSettingBool>;
 
 class CSkinInfo : public CAddon
 {
@@ -128,7 +136,7 @@ public:
    */
   std::string GetSkinPath(const std::string& file,
                           RESOLUTION_INFO* res = nullptr,
-                          const std::string& baseDir = "") const;
+                          std::string_view baseDir = "") const;
 
   /*! \brief Return whether skin debugging is enabled
    \return true if skin debugging (set via <debugging>true</debugging> in addon.xml) is enabled.
@@ -180,7 +188,7 @@ public:
 
   /*! \brief Starts evaluating timers
    */
-  void ProcessTimers();
+  void ProcessTimers() const;
 
   /*! \brief Called when unloading a skin, allows to cleanup specific
    * skin resources.
@@ -190,22 +198,25 @@ public:
   void ToggleDebug();
   const INFO::CSkinVariableString* CreateSkinVariable(const std::string& name, int context);
 
+  /*! \brief Look up a value in a skin-defined map.
+   \param mapName  the name of the map to look up
+   \param key      the raw infolabel value to look up
+   \return mapped display string, or \p key unchanged if no mapping exists
+  */
+  std::string LookupSkinMap(std::string_view mapName, std::string_view key) const;
+
   static void SettingOptionsSkinColorsFiller(const std::shared_ptr<const CSetting>& setting,
                                              std::vector<StringSettingOption>& list,
-                                             std::string& current,
-                                             void* data);
+                                             std::string& current);
   static void SettingOptionsSkinFontsFiller(const std::shared_ptr<const CSetting>& setting,
                                             std::vector<StringSettingOption>& list,
-                                            std::string& current,
-                                            void* data);
+                                            std::string& current);
   static void SettingOptionsSkinThemesFiller(const std::shared_ptr<const CSetting>& setting,
                                              std::vector<StringSettingOption>& list,
-                                             std::string& current,
-                                             void* data);
+                                             std::string& current);
   static void SettingOptionsStartupWindowsFiller(const std::shared_ptr<const CSetting>& setting,
                                                  std::vector<IntegerSettingOption>& list,
-                                                 int& current,
-                                                 void* data);
+                                                 int& current);
 
   /*! \brief Don't handle skin settings like normal addon settings
    */
@@ -214,7 +225,7 @@ public:
 
   int TranslateString(const std::string &setting);
   const std::string& GetString(int setting) const;
-  void SetString(int setting, const std::string &label);
+  void SetString(int setting, std::string_view label);
 
   int TranslateBool(const std::string &setting);
   bool GetBool(int setting) const;
@@ -289,10 +300,8 @@ protected:
 private:
   std::map<int, CSkinSettingStringPtr> m_strings;
   std::map<int, CSkinSettingBoolPtr> m_bools;
-  std::map<std::string, CSkinSettingPtr> m_settings;
+  std::map<std::string, CSkinSettingPtr, std::less<>> m_settings;
   std::unique_ptr<CSkinSettingUpdateHandler> m_settingsUpdateHandler;
 };
 
 } /*namespace ADDON*/
-
-extern std::shared_ptr<ADDON::CSkinInfo> g_SkinInfo;

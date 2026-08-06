@@ -67,7 +67,7 @@ public:
   {
     Stop();
     // Wait for roundtrip invocation to finish
-    std::unique_lock<CCriticalSection> lock(m_roundtripQueueMutex);
+    std::unique_lock lock(m_roundtripQueueMutex);
   }
 
   void Stop()
@@ -86,7 +86,7 @@ public:
 
     // Serialize invocations of this function - it's used very rarely and usually
     // not in parallel anyway, and doing it avoids lots of complications
-    std::unique_lock<CCriticalSection> lock(m_roundtripQueueMutex);
+    std::unique_lock lock(m_roundtripQueueMutex);
 
     m_roundtripQueueEvent.Reset();
     // We can just set the value here since there is no other writer in parallel
@@ -180,7 +180,7 @@ private:
         if (cancelPoll.revents & POLLIN)
         {
           // Read away the char so we don't get another notification
-          // Indepentent from m_roundtripQueue so there are no races
+          // Independent from m_roundtripQueue so there are no races
           char c;
           if (read(m_pipeRead, &c, 1) != 1)
             throw std::runtime_error("Error reading from wayland message pipe");
@@ -250,7 +250,7 @@ bool CWinEventsWayland::MessagePump()
     XBMC_Event event;
     {
       // Scoped lock for reentrancy
-      std::unique_lock<CCriticalSection> lock(m_queueMutex);
+      std::unique_lock lock(m_queueMutex);
 
       if (m_queue.empty())
       {
@@ -272,6 +272,6 @@ bool CWinEventsWayland::MessagePump()
 
 void CWinEventsWayland::MessagePush(XBMC_Event* ev)
 {
-  std::unique_lock<CCriticalSection> lock(m_queueMutex);
+  std::unique_lock lock(m_queueMutex);
   m_queue.emplace(*ev);
 }

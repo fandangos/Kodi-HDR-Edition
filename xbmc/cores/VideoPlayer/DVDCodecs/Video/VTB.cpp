@@ -82,7 +82,7 @@ CVideoBufferPoolVTB::~CVideoBufferPoolVTB()
 
 CVideoBuffer* CVideoBufferPoolVTB::Get()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   CVideoBufferVTB *buf = nullptr;
   if (!m_free.empty())
@@ -106,7 +106,7 @@ CVideoBuffer* CVideoBufferPoolVTB::Get()
 
 void CVideoBufferPoolVTB::Return(int id)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   m_all[id]->Unref();
   auto it = m_used.begin();
@@ -132,7 +132,7 @@ IHardwareDecoder* CDecoder::Create(CDVDStreamInfo &hint, CProcessInfo &processIn
 #if defined(TARGET_DARWIN_EMBEDDED)
   // force disable HW acceleration for live streams
   // to avoid absent image issue on interlaced videos
-  if (processInfo.IsRealtimeStream())
+  if (processInfo.IsRealtimeStream() && hint.interlaced)
     return nullptr;
 #endif
 

@@ -205,12 +205,12 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
             NPT_String name = (*device)->GetFriendlyName();
             NPT_String uuid = (*device)->GetUUID();
 
-            CFileItemPtr pItem(new CFileItem((const char*)name));
-            pItem->SetPath(std::string((const char*) "upnp://" + uuid + "/"));
-            pItem->m_bIsFolder = true;
-            pItem->SetArt("thumb", (const char*)(*device)->GetIconUrl("image/png"));
+            auto pItem{std::make_shared<CFileItem>(static_cast<const char*>(name))};
+            pItem->SetPath(static_cast<const char*>("upnp://" + uuid + "/"));
+            pItem->SetFolder(true);
+            pItem->SetArt("thumb", static_cast<const char*>((*device)->GetIconUrl("image/png")));
 
-            items.Add(pItem);
+            items.Add(std::move(pItem));
 
             ++device;
         }
@@ -316,13 +316,13 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 
             std::string id;
             if ((*entry)->m_ReferenceID.IsEmpty())
-                id = (const char*) (*entry)->m_ObjectID;
+              id = static_cast<const char*>((*entry)->m_ObjectID);
             else
-                id = (const char*) (*entry)->m_ReferenceID;
+              id = static_cast<const char*>((*entry)->m_ReferenceID);
 
             id = CURL::Encode(id);
             URIUtils::AddSlashAtEnd(id);
-            pItem->SetPath(std::string((const char*) "upnp://" + uuid + "/" + id.c_str()));
+            pItem->SetPath(static_cast<const char*>("upnp://" + uuid + "/" + id.c_str()));
 
             items.Add(pItem);
 
@@ -343,10 +343,11 @@ CUPnPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
         items.SetContent(content);
         if (content == "unknown")
         {
-          items.AddSortMethod(SortByNone, 571, LABEL_MASKS("%L", "%I", "%L", ""));
-          items.AddSortMethod(SortByLabel, SortAttributeIgnoreFolders, 551, LABEL_MASKS("%L", "%I", "%L", ""));
-          items.AddSortMethod(SortBySize, 553, LABEL_MASKS("%L", "%I", "%L", "%I"));
-          items.AddSortMethod(SortByDate, 552, LABEL_MASKS("%L", "%J", "%L", "%J"));
+          items.AddSortMethod(SortBy::NONE, 571, LABEL_MASKS("%L", "%I", "%L", ""));
+          items.AddSortMethod(SortBy::LABEL, SortAttributeIgnoreFolders, 551,
+                              LABEL_MASKS("%L", "%I", "%L", ""));
+          items.AddSortMethod(SortBy::SIZE, 553, LABEL_MASKS("%L", "%I", "%L", "%I"));
+          items.AddSortMethod(SortBy::DATE, 552, LABEL_MASKS("%L", "%J", "%L", "%J"));
         }
     }
 

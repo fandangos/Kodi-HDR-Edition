@@ -8,56 +8,30 @@
 
 #pragma once
 
-#include "WeatherManager.h"
-
-#include <map>
-#include <string>
+#include "jobs/Job.h"
+#include "weather/WeatherManager.h"
+#include "weather/WeatherTokenLocalizer.h"
 
 class CWeatherJob : public CJob
 {
 public:
+  static constexpr int MAX_HOURS_TO_FETCH = 72; // 3 days
+  static constexpr int MAX_DAYS_TO_FETCH = 31; // ~1 month
+
   explicit CWeatherJob(int location);
 
   bool DoWork() override;
 
-  const CWeatherInfo &GetInfo() const;
+  int GetLocation() const;
+  const WeatherInfo& GetInfo() const;
+  const CWeatherManager::WeatherInfoV2& GetInfoV2() const;
+
 private:
-  static std::string ConstructPath(std::string in);
-  void LocalizeOverview(std::string &str);
-  void LocalizeOverviewToken(std::string &str);
-  void LoadLocalizedToken();
-  static int ConvertSpeed(int speed);
-
   void SetFromProperties();
+  void SetFromPropertiesV2();
 
-  /*! \brief Formats a celsius temperature into a string based on the users locale
-   \param text the string to format
-   \param temp the temperature (in degrees celsius).
-   */
-  static void FormatTemperature(std::string &text, double temp);
-
-  struct ci_less
-  {
-    // case-independent (ci) compare_less binary function
-    struct nocase_compare
-    {
-      bool operator() (const unsigned char& c1, const unsigned char& c2) const {
-        return tolower(c1) < tolower(c2);
-      }
-    };
-    bool operator()(const std::string & s1, const std::string & s2) const {
-      return std::lexicographical_compare
-      (s1.begin(), s1.end(),
-        s2.begin(), s2.end(),
-        nocase_compare());
-    }
-  };
-
-  std::map<std::string, int, ci_less> m_localizedTokens;
-  typedef std::map<std::string, int, ci_less>::const_iterator ilocalizedTokens;
-
-  CWeatherInfo m_info;
-  int m_location;
-
-  static bool m_imagesOkay;
+  WeatherInfo m_info{};
+  CWeatherManager::WeatherInfoV2 m_infoV2{};
+  CWeatherTokenLocalizer m_localizer;
+  int m_location{-1};
 };

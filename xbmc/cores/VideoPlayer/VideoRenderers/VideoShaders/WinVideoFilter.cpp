@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2007-2018 Team Kodi
+ *  Copyright (C) 2007-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -30,6 +30,25 @@ using namespace Microsoft::WRL;
 
 //===================================================================
 
+CWinShader::~CWinShader()
+{
+  Unregister();
+}
+
+void CWinShader::OnDestroyDevice(bool fatal)
+{
+  // Nothing to save: the layout element descriptions cannot be retrieved from an existing input
+  // layout and were saved during the creation.
+  if (m_inputLayout != nullptr)
+    m_inputLayout.Reset();
+}
+
+void CWinShader::OnCreateDevice()
+{
+  if (!m_inputLayoutElementDesc.empty())
+    CreateInputLayoutResources(m_inputLayoutElementDesc);
+}
+
 bool CWinShader::CreateVertexBuffer(unsigned int count, unsigned int size)
 {
   if (!m_vb.Create(D3D11_BIND_VERTEX_BUFFER, count, size, DXGI_FORMAT_UNKNOWN, D3D11_USAGE_DYNAMIC))
@@ -45,7 +64,7 @@ bool CWinShader::CreateVertexBuffer(unsigned int count, unsigned int size)
   return true;
 }
 
-bool CWinShader::CreateInputLayout(D3D11_INPUT_ELEMENT_DESC *layout, unsigned numElements)
+bool CWinShader::CreateInputLayoutResources(std::span<const D3D11_INPUT_ELEMENT_DESC> elementDesc)
 {
   D3DX11_PASS_DESC desc = {};
   if (FAILED(m_effect.Get()->GetTechniqueByIndex(0)->GetPassByIndex(0)->GetDesc(&desc)))
@@ -55,14 +74,28 @@ bool CWinShader::CreateInputLayout(D3D11_INPUT_ELEMENT_DESC *layout, unsigned nu
   }
 
   ComPtr<ID3D11Device> pDevice = DX::DeviceResources::Get()->GetD3DDevice();
-  return SUCCEEDED(pDevice->CreateInputLayout(layout, numElements, desc.pIAInputSignature, desc.IAInputSignatureSize, &m_inputLayout));
+  return pDevice && SUCCEEDED(pDevice->CreateInputLayout(
+                        elementDesc.data(), elementDesc.size(), desc.pIAInputSignature,
+                        desc.IAInputSignatureSize, m_inputLayout.ReleaseAndGetAddressOf()));
 }
 
-void CWinShader::SetTarget(CD3DTexture* target)
+bool CWinShader::CreateInputLayout(std::span<const D3D11_INPUT_ELEMENT_DESC> elementDesc)
+{
+  if (CreateInputLayoutResources(elementDesc))
+  {
+    m_inputLayoutElementDesc = elementDesc;
+    Register();
+    return true;
+  }
+  return false;
+}
+
+void CWinShader::SetTarget(CD3DTexture* target, ID3D11DepthStencilView* dsv)
 {
   m_target = target;
-  if (m_target)
-    DX::DeviceResources::Get()->GetD3DContext()->OMSetRenderTargets(1, target->GetAddressOfRTV(), nullptr);
+  if (m_target != nullptr)
+    DX::DeviceResources::Get()->GetD3DContext()->OMSetRenderTargets(1, target->GetAddressOfRTV(),
+                                                                    dsv);
 }
 
 bool CWinShader::LockVertexBuffer(void **data)
@@ -108,19 +141,32 @@ bool CWinShader::LoadEffect(const std::string& filename, DefinesMap* defines)
   return true;
 }
 
-bool CWinShader::Execute(const std::vector<CD3DTexture*> &targets, unsigned int vertexIndexStep)
+bool CWinShader::Execute(const std::vector<CD3DTexture*>& targets, unsigned int vertexIndexStep)
 {
   ID3D11DeviceContext* pContext = DX::DeviceResources::Get()->GetD3DContext();
-  ComPtr<ID3D11RenderTargetView> oldRT;
+  if (pContext == nullptr)
+  {
+    CLog::LogF(LOGERROR, "unable to retrieve the device context");
+    return false;
+  }
 
-  // The render target will be overridden: save the caller's original RT
-  if (!targets.empty())
-    pContext->OMGetRenderTargets(1, &oldRT, nullptr);
+  ComPtr<ID3D11RenderTargetView> origRTV{};
+  ComPtr<ID3D11DepthStencilView> origDSV{};
+
+  // The current RTV and DSV are modified for the effect execution. Save them / restore later.
+  pContext->OMGetRenderTargets(1, &origRTV, &origDSV);
 
   unsigned cPasses;
   if (!m_effect.Begin(&cPasses, 0))
   {
     CLog::LogF(LOGERROR, "failed to begin d3d effect");
+    return false;
+  }
+
+  if (cPasses != targets.size())
+  {
+    CLog::LogF(LOGERROR, "different count of render targets ({}) and effect passes ({}).",
+               targets.size(), cPasses);
     return false;
   }
 
@@ -135,7 +181,9 @@ bool CWinShader::Execute(const std::vector<CD3DTexture*> &targets, unsigned int 
 
   for (unsigned iPass = 0; iPass < cPasses; iPass++)
   {
-    SetTarget(targets.size() > iPass ? targets.at(iPass) : nullptr);
+    // No depth buffer for intermediate render targets
+    // Set it only for the last pass of the last shader (expected to render to the back buffer)
+    SetTarget(targets[iPass], (iPass == cPasses - 1) && m_isFinalShader ? origDSV.Get() : nullptr);
     SetStepParams(iPass);
 
     if (!m_effect.BeginPass(iPass))
@@ -154,8 +202,7 @@ bool CWinShader::Execute(const std::vector<CD3DTexture*> &targets, unsigned int 
   if (!m_effect.End())
     CLog::LogF(LOGERROR, "failed to end d3d effect");
 
-  if (oldRT)
-    pContext->OMSetRenderTargets(1, oldRT.GetAddressOf(), nullptr);
+  pContext->OMSetRenderTargets(1, origRTV.GetAddressOf(), origDSV.Get());
 
   return true;
 }
@@ -284,12 +331,11 @@ bool COutputShader::Create(bool useLUT,
   }
 
   // Create input layout
-  D3D11_INPUT_ELEMENT_DESC layout[] =
-  {
-    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+  static constexpr D3D11_INPUT_ELEMENT_DESC layout[] = {
+      {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
   };
-  return CWinShader::CreateInputLayout(layout, ARRAYSIZE(layout));
+  return CWinShader::CreateInputLayout(layout);
 }
 
 void COutputShader::Render(CD3DTexture& sourceTexture, CRect sourceRect, const CPoint points[4]
@@ -578,14 +624,13 @@ bool CYUV2RGBShader::Create(AVPixelFormat fmt, AVColorPrimaries dstPrimaries,
 
   CWinShader::CreateVertexBuffer(4, sizeof(Vertex));
   // Create input layout
-  D3D11_INPUT_ELEMENT_DESC layout[] =
-  {
-    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,  0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT,    0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+  static constexpr D3D11_INPUT_ELEMENT_DESC layout[] = {
+      {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0},
   };
 
-  if (!CWinShader::CreateInputLayout(layout, ARRAYSIZE(layout)))
+  if (!CWinShader::CreateInputLayout(layout))
   {
     CLog::LogF(LOGERROR, "Failed to create input layout for Input Assembler.");
     return false;
@@ -828,12 +873,11 @@ bool CConvolutionShader1Pass::Create(ESCALINGMETHOD method, const std::shared_pt
     return false;
 
   // Create input layout
-  D3D11_INPUT_ELEMENT_DESC layout[] =
-  {
-    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+  static constexpr D3D11_INPUT_ELEMENT_DESC layout[] = {
+      {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
   };
-  return CWinShader::CreateInputLayout(layout, ARRAYSIZE(layout));
+  return CWinShader::CreateInputLayout(layout);
 }
 
 void CConvolutionShader1Pass::Render(CD3DTexture& sourceTexture, CD3DTexture& target,
@@ -968,12 +1012,11 @@ bool CConvolutionShaderSeparable::Create(ESCALINGMETHOD method, const std::share
     return false;
 
   // Create input layout
-  D3D11_INPUT_ELEMENT_DESC layout[] =
-  {
-    { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+  static constexpr D3D11_INPUT_ELEMENT_DESC layout[] = {
+      {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+      {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
   };
-  return CWinShader::CreateInputLayout(layout, ARRAYSIZE(layout));
+  return CWinShader::CreateInputLayout(layout);
 }
 
 void CConvolutionShaderSeparable::Render(CD3DTexture& sourceTexture, CD3DTexture& target,

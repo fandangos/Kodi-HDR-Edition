@@ -23,7 +23,27 @@ using namespace GAME;
 CControllerManager::CControllerManager(ADDON::CAddonMgr& addonManager)
   : m_addonManager(addonManager)
 {
-  m_addonManager.Events().Subscribe(this, &CControllerManager::OnEvent);
+  m_addonManager.Events().Subscribe(
+      this,
+      [this](const ADDON::AddonEvent& event)
+      {
+        if (typeid(event) == typeid(ADDON::AddonEvents::Enabled) || // Also called on install
+            typeid(event) == typeid(ADDON::AddonEvents::ReInstalled))
+        {
+          std::lock_guard<CCriticalSection> lock(m_mutex);
+
+          const std::string& addonId = event.addonId;
+
+          // Clear caches for add-on
+          auto it = m_cache.find(addonId);
+          if (it != m_cache.end())
+            m_cache.erase(it);
+
+          auto it2 = m_failedControllers.find(addonId);
+          if (it2 != m_failedControllers.end())
+            m_failedControllers.erase(it2);
+        }
+      });
 }
 
 CControllerManager::~CControllerManager()
@@ -35,11 +55,14 @@ ControllerPtr CControllerManager::GetController(const std::string& controllerId)
 {
   using namespace ADDON;
 
+  if (controllerId.empty())
+    return {};
+
   std::lock_guard<CCriticalSection> lock(m_mutex);
 
   ControllerPtr& cachedController = m_cache[controllerId];
 
-  if (!cachedController && m_failedControllers.find(controllerId) == m_failedControllers.end())
+  if (!cachedController && !m_failedControllers.contains(controllerId))
   {
     AddonPtr addon;
     if (m_addonManager.GetAddon(controllerId, addon, AddonType::GAME_CONTROLLER,
@@ -79,7 +102,7 @@ ControllerVector CControllerManager::GetControllers()
     for (auto& addon : addons)
     {
       ControllerPtr& cachedController = m_cache[addon->ID()];
-      if (!cachedController && m_failedControllers.find(addon->ID()) == m_failedControllers.end())
+      if (!cachedController && !m_failedControllers.contains(addon->ID()))
         cachedController = LoadController(addon);
 
       if (cachedController)
@@ -107,26 +130,6 @@ std::string CControllerManager::TranslateFeature(const std::string& controllerId
   }
 
   return "";
-}
-
-void CControllerManager::OnEvent(const ADDON::AddonEvent& event)
-{
-  if (typeid(event) == typeid(ADDON::AddonEvents::Enabled) || // Also called on install
-      typeid(event) == typeid(ADDON::AddonEvents::ReInstalled))
-  {
-    std::lock_guard<CCriticalSection> lock(m_mutex);
-
-    const std::string& addonId = event.addonId;
-
-    // Clear caches for add-on
-    auto it = m_cache.find(addonId);
-    if (it != m_cache.end())
-      m_cache.erase(it);
-
-    auto it2 = m_failedControllers.find(addonId);
-    if (it2 != m_failedControllers.end())
-      m_failedControllers.erase(it2);
-  }
 }
 
 ControllerPtr CControllerManager::LoadController(const ADDON::AddonPtr& addon)

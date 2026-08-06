@@ -8,17 +8,14 @@
 #   ${APP_NAME_LC}::WebOSHelpers   - The webOS helpers library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
-  if(PKG_CONFIG_FOUND)
-    if(WebOSHelpers_FIND_VERSION)
-      if(WebOSHelpers_FIND_VERSION_EXACT)
-        set(WebOSHelpers_FIND_SPEC "=${WebOSHelpers_FIND_VERSION_COMPLETE}")
-      else()
-        set(WebOSHelpers_FIND_SPEC ">=${WebOSHelpers_FIND_VERSION_COMPLETE}")
-      endif()
-    endif()
 
-    pkg_check_modules(PC_WEBOSHELPERS helpers${WebOSHelpers_FIND_SPEC} QUIET)
+  include(cmake/scripts/common/ModuleHelpers.cmake)
+
+  SETUP_FIND_SPECS()
+
+  find_package(PkgConfig ${SEARCH_QUIET})
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PC_WEBOSHELPERS helpers${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET})
   endif()
 
   find_path(WEBOSHELPERS_INCLUDE_DIR NAMES webos-helpers/libhelpers.h
@@ -27,6 +24,10 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
                                     HINTS ${PC_WEBOSHELPERS_LIBDIR})
 
   set(WEBOSHELPERS_VERSION ${PC_WEBOSHELPERS_VERSION})
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(WebOSHelpers

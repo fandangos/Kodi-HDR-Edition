@@ -24,7 +24,7 @@ from __future__ import absolute_import, unicode_literals
 
 import re
 import json
-from xbmc import Actor, VideoStreamDetail
+from xbmc import Actor
 from collections import namedtuple
 from .utils import safe_get, logger
 from . import settings, api_utils
@@ -36,7 +36,8 @@ try:
 except ImportError:
     pass
 
-TMDB_PARAMS = {'api_key': settings.TMDB_CLOWNCAR, 'language': settings.LANG}
+
+SOURCE_SETTINGS = settings.getSourceSettings()
 BASE_URL = 'https://api.themoviedb.org/3/{}'
 FIND_URL = BASE_URL.format('find/{}')
 TAG_RE = re.compile(r'<[^>]+>')
@@ -54,7 +55,6 @@ SHOW_ID_REGEXPS = (
     r'(thetvdb)\.com/series/(\d+)',                       # TheTVDB_http_link
     r'(thetvdb)\.com/api/.*series/(\d+)',                 # TheTVDB_http_link
     r'(thetvdb)\.com/.*?"id":(\d+)',                      # TheTVDB_http_link
-    r'<uniqueid.+?type="(tvdb|imdb)".*?>([t\d]+?)</uniqueid>'
 )
 
 
@@ -85,6 +85,7 @@ def _clean_plot(plot):
 def _set_cast(cast_info, vtag):
     # type: (InfoType, ListItem) -> ListItem
     """Save cast info to list item"""
+    imagerooturl, previewrooturl = settings.loadBaseUrls()
     cast = []
     for item in cast_info:
         actor = {
@@ -94,7 +95,7 @@ def _set_cast(cast_info, vtag):
         }
         thumb = None
         if safe_get(item, 'profile_path') is not None:
-            thumb = settings.IMAGEROOTURL + item['profile_path']
+            thumb = imagerooturl + item['profile_path']
         cast.append(Actor(actor['name'], actor['role'], actor['order'], thumb))
     vtag.setCast(cast)
 
@@ -144,7 +145,7 @@ def _set_rating(the_info, vtag):
     # type: (InfoType, ListItem) -> None
     """Set show/episode rating"""
     first = True
-    for rating_type in settings.RATING_TYPES:
+    for rating_type in SOURCE_SETTINGS["RATING_TYPES"]:
         logger.debug('adding rating type of %s' % rating_type)
         rating = float(the_info.get('ratings', {}).get(
             rating_type, {}).get('rating', '0'))
@@ -165,7 +166,8 @@ def _add_season_info(show_info, vtag):
         logger.debug('adding information for season %s to list item' %
                      season['season_number'])
         vtag.addSeason(season['season_number'],
-                       safe_get(season, 'name', ''))
+                       safe_get(season, 'name', ''),
+                       _clean_plot(safe_get(season, 'overview', '')))
         for image_type, image_list in season.get('images', {}).items():
             if image_type == 'posters':
                 destination = 'poster'
@@ -178,9 +180,19 @@ def _add_season_info(show_info, vtag):
                         theurl, arttype=destination, preview=previewurl, season=season['season_number'])
 
 
+def _get_names(item_list):
+    # type: (List) -> None
+    """Get names from a list of dicts"""
+    items = []
+    for item in item_list:
+        items.append(item['name'])
+    return items
+
+
 def get_image_urls(image):
     # type: (Dict) -> Tuple[Text, Text]
     """Get image URLs from image information"""
+    imagerooturl, previewrooturl = settings.loadBaseUrls()
     if image.get('file_path', '').endswith('.svg'):
         return None, None
     if image.get('type') == 'fanarttv':
@@ -188,8 +200,8 @@ def get_image_urls(image):
         previewurl = theurl.replace(
             '.fanart.tv/fanart/', '.fanart.tv/preview/')
     else:
-        theurl = settings.IMAGEROOTURL + image['file_path']
-        previewurl = settings.PREVIEWROOTURL + image['file_path']
+        theurl = imagerooturl + image['file_path']
+        previewurl = previewrooturl + image['file_path']
     return theurl, previewurl
 
 
@@ -202,13 +214,13 @@ def set_show_artwork(show_info, list_item):
             fanart_list = []
             for image in image_list:
                 theurl, previewurl = get_image_urls(image)
-                if image.get('iso_639_1') != None and settings.CATLANDSCAPE and theurl:
+                if (image.get('iso_639_1') != None and image.get('iso_639_1').lower() != 'xx') and SOURCE_SETTINGS["CATLANDSCAPE"] and theurl:
                     vtag.addAvailableArtwork(
                         theurl, arttype="landscape", preview=previewurl)
                 elif theurl:
                     fanart_list.append({'image': theurl})
             if fanart_list:
-                list_item.setAvailableFanart(fanart_list)
+                vtag.setAvailableFanart(fanart_list)
         else:
             if image_type == 'posters':
                 destination = 'poster'
@@ -227,18 +239,30 @@ def set_show_artwork(show_info, list_item):
 def add_main_show_info(list_item, show_info, full_info=True):
     # type: (ListItem, InfoType, bool) -> ListItem
     """Add main show info to a list item"""
+    imagerooturl, previewrooturl = settings.loadBaseUrls()
     vtag = list_item.getVideoInfoTag()
     original_name = show_info.get('original_name')
-    if settings.KEEPTITLE and original_name:
+    if SOURCE_SETTINGS["KEEPTITLE"] and original_name:
         showname = original_name
     else:
         showname = show_info['name']
+    logger.debug('trying to get original language')
+    try:
+        original_language = show_info['spoken_languages'][0]['iso_639_1']
+        logger.debug(
+            'using %s from spoken language field' % original_language)
+    except KeyError:
+        original_language = show_info.get('original_language', '')
+        logger.debug(
+            'using %s as from fallback original language field' % original_language)
     plot = _clean_plot(safe_get(show_info, 'overview', ''))
     vtag.setTitle(showname)
     vtag.setOriginalTitle(original_name)
+    vtag.setOriginalLanguage(original_language)
     vtag.setTvShowTitle(showname)
     vtag.setPlot(plot)
     vtag.setPlotOutline(plot)
+    vtag.setTagLine(show_info.get('tagline', ''))
     vtag.setMediaType('tvshow')
     ext_ids = {'tmdb_id': show_info['id']}
     ext_ids.update(show_info.get('external_ids', {}))
@@ -249,11 +273,10 @@ def add_main_show_info(list_item, show_info, full_info=True):
         vtag.setPremiered(show_info['first_air_date'])
     if full_info:
         vtag.setTvShowStatus(safe_get(show_info, 'status', ''))
-        genre_list = safe_get(show_info, 'genres', {})
-        genres = []
-        for genre in genre_list:
-            genres.append(genre['name'])
-        vtag.setGenres(genres)
+        vtag.setGenres(_get_names(show_info.get('genres', [])))
+        if SOURCE_SETTINGS["SAVETAGS"]:
+            vtag.setTags(_get_names(show_info.get(
+                'keywords', {}).get('results', [])))
         networks = show_info.get('networks', [])
         if networks:
             network = networks[0]
@@ -261,7 +284,7 @@ def add_main_show_info(list_item, show_info, full_info=True):
         else:
             network = None
             country = None
-        if network and country and settings.STUDIOCOUNTRY:
+        if network and country and SOURCE_SETTINGS["STUDIOCOUNTRY"]:
             vtag.setStudios(['{0} ({1})'.format(network['name'], country)])
         elif network:
             vtag.setStudios([network['name']])
@@ -276,14 +299,14 @@ def add_main_show_info(list_item, show_info, full_info=True):
                 iso = content_rating.get('iso_3166_1', '').lower()
                 if iso == 'us':
                     mpaa_backup = content_rating.get('rating')
-                if iso == settings.CERT_COUNTRY.lower():
+                if iso == SOURCE_SETTINGS["CERT_COUNTRY"].lower():
                     mpaa = content_rating.get('rating', '')
             if not mpaa:
                 mpaa = mpaa_backup
             if mpaa:
-                vtag.setMpaa(settings.CERT_PREFIX + mpaa)
+                vtag.setMpaa(SOURCE_SETTINGS["CERT_PREFIX"] + mpaa)
         vtag.setWriters(_get_credits(show_info))
-        if settings.ENABTRAILER:
+        if SOURCE_SETTINGS["ENABTRAILER"]:
             trailer = _parse_trailer(show_info.get(
                 'videos', {}).get('results', {}))
             if trailer:
@@ -295,8 +318,8 @@ def add_main_show_info(list_item, show_info, full_info=True):
     else:
         image = show_info.get('poster_path', '')
         if image and not image.endswith('.svg'):
-            theurl = settings.IMAGEROOTURL + image
-            previewurl = settings.PREVIEWROOTURL + image
+            theurl = imagerooturl + image
+            previewurl = previewrooturl + image
             vtag.addAvailableArtwork(
                 theurl, arttype='poster', preview=previewurl)
     logger.debug('adding tv show information for %s to list item' % showname)
@@ -325,8 +348,7 @@ def add_episode_info(list_item, episode_info, full_info=True):
             vtag.setPremiered(episode_info['air_date'])
         duration = episode_info.get('runtime')
         if duration:
-            videostream = VideoStreamDetail(duration=int(duration)*60)
-            vtag.addVideoStream(videostream)
+            vtag.setDuration(int(duration)*60)
         _set_cast(
             episode_info['season_cast'] + episode_info['credits']['guest_stars'], vtag)
         ext_ids = {'tmdb_id': episode_info['id']}
@@ -383,7 +405,8 @@ def _convert_ext_id(ext_provider, ext_id):
                       'thetvdb': 'tvdb_id',
                       'tvdb': 'tvdb_id'}
     show_url = FIND_URL.format(ext_id)
-    params = TMDB_PARAMS.copy()
+    params = {'api_key': settings.TMDB_CLOWNCAR,
+              'language': SOURCE_SETTINGS["LANG_DETAILS"]}
     provider = providers_dict.get(ext_provider)
     if provider:
         params['external_source'] = provider
@@ -419,12 +442,12 @@ def _parse_trailer(results):
     # type: (Text) -> Text
     """create a valid Tubed or YouTube plugin trailer URL"""
     if results:
-        if settings.PLAYERSOPT == 'tubed':
+        if SOURCE_SETTINGS["PLAYERSOPT"] == 'tubed':
             addon_player = 'plugin://plugin.video.tubed/?mode=play&video_id='
-        elif settings.PLAYERSOPT == 'youtube':
-            addon_player = 'plugin://plugin.video.youtube/?action=play_video&videoid='
+        elif SOURCE_SETTINGS["PLAYERSOPT"] == 'youtube':
+            addon_player = 'plugin://plugin.video.youtube/play/?video_id='
         backup_keys = []
-        for video_lang in [settings.LANG[0:2], 'en']:
+        for video_lang in [SOURCE_SETTINGS["LANG_DETAILS"][0:2], 'en']:
             for result in results:
                 if result.get('site') == 'YouTube' and result.get('iso_639_1') == video_lang:
                     key = result.get('key')

@@ -10,13 +10,15 @@
 
 #include "FileItem.h"
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "network/Network.h"
 #include "pvr/PVRManager.h"
 #include "pvr/addons/PVRClient.h"
+#include "pvr/settings/PVRSettings.h"
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "pvr/timers/PVRTimers.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
@@ -29,10 +31,13 @@ using namespace PVR;
 using namespace KODI::MESSAGING;
 
 CPVRGUIActionsPowerManagement::CPVRGUIActionsPowerManagement()
-  : m_settings({CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME,
-                CSettings::SETTING_PVRPOWERMANAGEMENT_BACKENDIDLETIME})
+  : m_settings(std::make_unique<CPVRSettings>(
+        SettingsContainer({CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME,
+                           CSettings::SETTING_PVRPOWERMANAGEMENT_BACKENDIDLETIME})))
 {
 }
+
+CPVRGUIActionsPowerManagement::~CPVRGUIActionsPowerManagement() = default;
 
 bool CPVRGUIActionsPowerManagement::CanSystemPowerdown(bool bAskUser /*= true*/) const
 {
@@ -51,7 +56,8 @@ bool CPVRGUIActionsPowerManagement::CanSystemPowerdown(bool bAskUser /*= true*/)
           if (cause->IsRecording())
           {
             text = StringUtils::Format(
-                g_localizeStrings.Get(19691), // "PVR is currently recording...."
+                CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                    19691), // "PVR is currently recording...."
                 cause->Title(), cause->ChannelName());
           }
           else
@@ -69,18 +75,21 @@ bool CPVRGUIActionsPowerManagement::CanSystemPowerdown(bool bAskUser /*= true*/)
             if (mins > 1)
             {
               // "%d minutes"
-              dueStr = StringUtils::Format(g_localizeStrings.Get(19694), mins);
+              dueStr = StringUtils::Format(
+                  CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19694), mins);
             }
             else
             {
               // "about a minute"
-              dueStr = g_localizeStrings.Get(19695);
+              dueStr = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19695);
             }
 
             text = StringUtils::Format(
                 cause->IsReminder()
-                    ? g_localizeStrings.Get(19690) // "PVR has scheduled a reminder...."
-                    : g_localizeStrings.Get(19692), // "PVR will start recording...."
+                    ? CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                          19690) // "PVR has scheduled a reminder...."
+                    : CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                          19692), // "PVR will start recording...."
                 cause->Title(), cause->ChannelName(), dueStr);
           }
         }
@@ -91,7 +100,14 @@ bool CPVRGUIActionsPowerManagement::CanSystemPowerdown(bool bAskUser /*= true*/)
 
           CDateTime dailywakeuptime;
           dailywakeuptime.SetFromDBTime(
-              m_settings.GetStringValue(CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME));
+              m_settings->GetStringValue(CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME));
+
+          const CDateTime nowAsLocalTime{CDateTime::GetCurrentDateTime()};
+
+          dailywakeuptime.SetDateTime(nowAsLocalTime.GetYear(), nowAsLocalTime.GetMonth(),
+                                      nowAsLocalTime.GetDay(), dailywakeuptime.GetHour(),
+                                      dailywakeuptime.GetMinute(), dailywakeuptime.GetSecond());
+
           dailywakeuptime = dailywakeuptime.GetAsUTCDateTime();
 
           const CDateTimeSpan diff(dailywakeuptime - now);
@@ -101,16 +117,19 @@ bool CPVRGUIActionsPowerManagement::CanSystemPowerdown(bool bAskUser /*= true*/)
           if (mins > 1)
           {
             // "%d minutes"
-            dueStr = StringUtils::Format(g_localizeStrings.Get(19694), mins);
+            dueStr = StringUtils::Format(
+                CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19694), mins);
           }
           else
           {
             // "about a minute"
-            dueStr = g_localizeStrings.Get(19695);
+            dueStr = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19695);
           }
 
-          text = StringUtils::Format(g_localizeStrings.Get(19693), // "Daily wakeup is due in...."
-                                     dueStr);
+          text =
+              StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                                      19693), // "Daily wakeup is due in...."
+                                  dueStr);
         }
 
         // Inform user about PVR being busy. Ask if user wants to powerdown anyway.
@@ -182,7 +201,7 @@ bool CPVRGUIActionsPowerManagement::IsNextEventWithinBackendIdleTime() const
   // timers going off soon?
   const CDateTime now(CDateTime::GetUTCDateTime());
   const CDateTimeSpan idle(
-      0, 0, m_settings.GetIntValue(CSettings::SETTING_PVRPOWERMANAGEMENT_BACKENDIDLETIME), 0);
+      0, 0, m_settings->GetIntValue(CSettings::SETTING_PVRPOWERMANAGEMENT_BACKENDIDLETIME), 0);
   const CDateTime next(CServiceBroker::GetPVRManager().Timers()->GetNextEventTime());
   const CDateTimeSpan delta(next - now);
 

@@ -29,6 +29,7 @@
     defined(__arm__) || \
     defined(__loongarch__) || \
     defined(_M_ARM) || \
+    defined(_M_ARM64) || \
     defined(__mips__) || \
     defined(__or1k__) || \
     defined(__powerpc__) || \
@@ -37,7 +38,8 @@
     defined(__SH4__) || \
     defined(__s390x__) || \
     defined(__sparc__) || \
-    defined(__xtensa__)
+    defined(__xtensa__) || \
+    defined(__wasm__)
 #define DISABLE_MATHUTILS_ASM_ROUND_INT
 #endif
 // clang-format on

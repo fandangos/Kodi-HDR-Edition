@@ -11,25 +11,28 @@
 #include "ModuleXbmc.h"
 
 #include "AddonUtils.h"
+#include "DatabaseManager.h"
 #include "FileItem.h"
 #include "GUIInfoManager.h"
 #include "LangInfo.h"
 #include "LanguageHook.h"
 #include "ServiceBroker.h"
 #include "Util.h"
+#include "addons/Skin.h"
 #include "aojsonrpc.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPowerHandling.h"
 #include "cores/AudioEngine/Interfaces/AE.h"
 #include "guilib/GUIAudioManager.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/TextureManager.h"
 #include "input/WindowTranslator.h"
 #include "messaging/ApplicationMessenger.h"
 #include "network/Network.h"
 #include "network/NetworkServices.h"
 #include "playlists/PlayListTypes.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
@@ -58,6 +61,26 @@ namespace XBMCAddon
     /*****************************************************************
      * start of xbmc methods
      *****************************************************************/
+
+    /*! @brief Extract base language name from compound language strings.
+     *  Removes region or script identifier suffix in parentheses.
+     *  Examples: "English(US)" -> "English", "Chinese(Hant)" -> "Chinese"
+     *  @param lang Language string that may contain region (2-char, e.g. US) or
+     *              script identifier (e.g. Hant, Cyrl, Arab) in parentheses
+     *  @return Base language name without region or script suffix
+     */
+    static std::string GetBaseLanguageName(const std::string& lang)
+    {
+      size_t openParen = lang.find('(');
+      if (openParen != std::string::npos)
+      {
+        std::string baseLang = lang.substr(0, openParen);
+        StringUtils::TrimRight(baseLang);
+        return baseLang;
+      }
+      return lang;
+    }
+
     void log(const char* msg, int level)
     {
       // check for a valid loglevel
@@ -163,15 +186,18 @@ namespace XBMCAddon
     String getLocalizedString(int id)
     {
       XBMC_TRACE;
-      String label;
-      if (id >= 30000 && id <= 30999)
-        label = g_localizeStringsTemp.Get(id);
-      else if (id >= 32000 && id <= 32999)
-        label = g_localizeStringsTemp.Get(id);
-      else
-        label = g_localizeStrings.Get(id);
-
-      return label;
+      if (ADDON::IsSkinStringId(id))
+      {
+        auto gui = CServiceBroker::GetGUI();
+        if (gui)
+        {
+          auto skin = gui->GetSkinInfo();
+          if (skin)
+            return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().GetAddonString(
+                skin->ID(), id);
+        }
+      }
+      return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(id);
     }
 
     String getSkinDir()
@@ -199,7 +225,7 @@ namespace XBMCAddon
       case CLangCodeExpander::ISO_639_1:
         {
           std::string langCode;
-          g_LangCodeExpander.ConvertToISO6391(lang, langCode);
+          g_LangCodeExpander.ConvertToISO6391(GetBaseLanguageName(lang), langCode);
           if (region)
           {
             std::string region = g_langInfo.GetRegionLocale();
@@ -213,7 +239,7 @@ namespace XBMCAddon
       case CLangCodeExpander::ISO_639_2:
         {
           std::string langCode;
-          g_LangCodeExpander.ConvertToISO6392B(lang, langCode);
+          g_LangCodeExpander.ConvertToISO6392B(GetBaseLanguageName(lang), langCode);
           if (region)
           {
             std::string region = g_langInfo.GetRegionLocale();
@@ -320,6 +346,18 @@ namespace XBMCAddon
       CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
       int ret = infoMgr.TranslateString(infotag);
       return infoMgr.GetImage(ret, WINDOW_INVALID);
+    }
+
+    String getDatabaseName(const char* dbType)
+    {
+      XBMC_TRACE;
+      if (!dbType)
+      {
+        String ret;
+        return ret;
+      }
+
+      return CServiceBroker::GetDatabaseManager().GetDatabaseNameByType(dbType);
     }
 
     void playSFX(const char* filename, bool useCached)

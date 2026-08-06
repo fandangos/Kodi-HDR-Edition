@@ -420,6 +420,7 @@ CWindowDecorator::CWindowDecorator(IWindowDecorationHandler& handler, CConnectio
 
   m_registry.RequestSingleton(m_compositor, 1, 4);
   m_registry.RequestSingleton(m_subcompositor, 1, 1, false);
+  m_registry.RequestSingleton(m_viewporter, 1, 1, false);
   m_registry.RequestSingleton(m_shm, 1, 1);
 
   m_registry.Bind();
@@ -454,7 +455,7 @@ void CWindowDecorator::OnPointerEnter(CSeat* seat,
   auto& seatState = seatStateI->second;
   // Reset first so we ignore events for surfaces we don't handle
   seatState.currentSurface = SURFACE_COUNT;
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
   for (std::size_t i{0}; i < m_borderSurfaces.size(); i++)
   {
     if (m_borderSurfaces[i].surface.wlSurface == surface)
@@ -530,7 +531,7 @@ void CWindowDecorator::OnTouchDown(CSeat* seat,
     return;
   }
   auto& seatState = seatStateI->second;
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
   for (std::size_t i{0}; i < m_borderSurfaces.size(); i++)
   {
     if (m_borderSurfaces[i].surface.wlSurface == surface)
@@ -553,7 +554,7 @@ void CWindowDecorator::UpdateSeatCursor(SeatState& seatState)
   std::string cursorName{"default"};
 
   {
-    std::unique_lock<CCriticalSection> lock(m_mutex);
+    std::unique_lock lock(m_mutex);
     auto resizeEdge = ResizeEdgeForPosition(seatState.currentSurface, SurfaceGeometry(seatState.currentSurface, m_mainSurfaceSize).ToSize(), CPointInt{seatState.pointerPosition});
     if (resizeEdge != wayland::shell_surface_resize::none)
     {
@@ -584,13 +585,23 @@ void CWindowDecorator::UpdateSeatCursor(SeatState& seatState)
   if (!seatState.cursor)
   {
     seatState.cursor = m_compositor.create_surface();
+    if (m_viewporter)
+    {
+      seatState.cursorViewport = m_viewporter.get_viewport(seatState.cursor);
+    }
   }
-  int calcScale{seatState.cursor.can_set_buffer_scale() ? m_scale : 1};
+  int calcScale{seatState.cursorViewport || seatState.cursor.can_set_buffer_scale() ? m_scale : 1};
 
   seatState.seat->SetCursor(seatState.pointerEnterSerial, seatState.cursor, cursorImage.hotspot_x() / calcScale, cursorImage.hotspot_y() / calcScale);
   seatState.cursor.attach(cursorImage.get_buffer(), 0, 0);
-  seatState.cursor.damage(0, 0, cursorImage.width() / calcScale, cursorImage.height() / calcScale);
-  if (seatState.cursor.can_set_buffer_scale())
+  seatState.cursor.damage_buffer(0, 0, cursorImage.width(), cursorImage.height());
+  if (seatState.cursorViewport)
+  {
+    seatState.cursorViewport.set_destination(cursorImage.width() / m_scale,
+                                             cursorImage.height() / m_scale);
+    seatState.cursorViewport.set_source(0.0, 0.0, cursorImage.width(), cursorImage.height());
+  }
+  else if (seatState.cursor.can_set_buffer_scale())
   {
     seatState.cursor.set_buffer_scale(m_scale);
   }
@@ -601,7 +612,7 @@ void CWindowDecorator::UpdateButtonHoverState()
 {
   std::vector<CPoint> pointerPositions;
 
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   for (auto const& seatPair : m_seats)
   {
@@ -616,7 +627,8 @@ void CWindowDecorator::UpdateButtonHoverState()
   for (auto& button : m_buttons)
   {
     bool wasHovered{button.hovered};
-    button.hovered = std::any_of(pointerPositions.cbegin(), pointerPositions.cend(), [&](CPoint point) { return button.position.PtInRect(CPointInt{point}); });
+    button.hovered = std::ranges::any_of(pointerPositions, [&](CPoint point)
+                                         { return button.position.PtInRect(CPointInt{point}); });
     changed = changed || (button.hovered != wasHovered);
   }
 
@@ -633,7 +645,7 @@ void CWindowDecorator::HandleSeatClick(SeatState const& seatState, SurfaceIndex 
   {
     case BTN_LEFT:
     {
-      std::unique_lock<CCriticalSection> lock(m_mutex);
+      std::unique_lock lock(m_mutex);
       auto resizeEdge = ResizeEdgeForPosition(surface, SurfaceGeometry(surface, m_mainSurfaceSize).ToSize(), CPointInt{position});
       if (resizeEdge == wayland::shell_surface_resize::none)
       {
@@ -672,6 +684,10 @@ CWindowDecorator::BorderSurface CWindowDecorator::MakeBorderSurface()
   CWindowDecorator::BorderSurface boarderSurface;
   boarderSurface.surface = surface;
   boarderSurface.subsurface = subsurface;
+  if (m_viewporter)
+  {
+    boarderSurface.viewport = m_viewporter.get_viewport(surface.wlSurface);
+  }
 
   return boarderSurface;
 }
@@ -715,11 +731,14 @@ CSizeInt CWindowDecorator::CalculateFullSurfaceSize(CSizeInt size, IShellSurface
   }
 }
 
-void CWindowDecorator::SetState(CSizeInt size, int scale, IShellSurface::StateBitset state)
+void CWindowDecorator::SetState(CSizeInt size, double scale, IShellSurface::StateBitset state)
 {
+  // Round to the nearest integer as manually drawing primitives with fractional scaling is hard to implement.
+  // It requires techniques like anti-aliasing, etc. Rely on the compositor to do the proper scaling
+  const int intScale = std::max(std::round(scale), 1.0);
   CSizeInt mainSurfaceSize{CalculateMainSurfaceSize(size, state)};
-  std::unique_lock<CCriticalSection> lock(m_mutex);
-  if (mainSurfaceSize == m_mainSurfaceSize && scale == m_scale && state == m_windowState)
+  std::unique_lock lock(m_mutex);
+  if (mainSurfaceSize == m_mainSurfaceSize && intScale == m_scale && state == m_windowState)
   {
     return;
   }
@@ -732,12 +751,13 @@ void CWindowDecorator::SetState(CSizeInt size, int scale, IShellSurface::StateBi
   CLog::Log(LOGDEBUG,
             "CWindowDecorator::SetState: Setting full surface size {}x{} scale {} (main surface "
             "size {}x{}), decorations active: {}",
-            size.Width(), size.Height(), scale, mainSurfaceSize.Width(), mainSurfaceSize.Height(),
-            IsDecorationActive());
+            size.Width(), size.Height(), intScale, mainSurfaceSize.Width(),
+            mainSurfaceSize.Height(), IsDecorationActive());
 
-  if (mainSurfaceSize != m_mainSurfaceSize || scale != m_scale || wasDecorations != IsDecorationActive())
+  if (mainSurfaceSize != m_mainSurfaceSize || intScale != m_scale ||
+      wasDecorations != IsDecorationActive())
   {
-    if (scale != m_scale)
+    if (intScale != m_scale)
     {
       // Reload cursor theme
       CLog::Log(LOGDEBUG, "CWindowDecorator::SetState: Buffer scale changed, reloading cursor theme");
@@ -749,7 +769,7 @@ void CWindowDecorator::SetState(CSizeInt size, int scale, IShellSurface::StateBi
     }
 
     m_mainSurfaceSize = mainSurfaceSize;
-    m_scale = scale;
+    m_scale = intScale;
     CLog::Log(LOGDEBUG, "CWindowDecorator::SetState: Resetting decorations");
     Reset(true);
   }
@@ -765,7 +785,7 @@ void CWindowDecorator::Reset(bool reallocate)
 {
   // The complete reset operation should be seen as one atomic update to the
   // internal state, otherwise buffer/surface state might be mismatched
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   if (reallocate)
   {
@@ -952,7 +972,14 @@ void CWindowDecorator::AllocateBuffers()
       auto region = m_compositor.create_region();
       region.add(opaqueRegionGeometry.x1, opaqueRegionGeometry.y1, opaqueRegionGeometry.Width(), opaqueRegionGeometry.Height());
       borderSurface.surface.wlSurface.set_opaque_region(region);
-      if (borderSurface.surface.wlSurface.can_set_buffer_scale())
+      if (borderSurface.viewport)
+      {
+        borderSurface.viewport.set_destination(borderSurface.geometry.Width(),
+                                               borderSurface.geometry.Height());
+        borderSurface.viewport.set_source(0.0, 0.0, borderSurface.surface.buffer.size.Width(),
+                                          borderSurface.surface.buffer.size.Height());
+      }
+      else if (borderSurface.surface.wlSurface.can_set_buffer_scale())
       {
         borderSurface.surface.wlSurface.set_buffer_scale(m_scale);
       }
@@ -991,7 +1018,7 @@ void CWindowDecorator::Repaint()
 
 void CWindowDecorator::CommitAllBuffers()
 {
-  std::unique_lock<CCriticalSection> lock(m_pendingBuffersMutex);
+  std::unique_lock lock(m_pendingBuffersMutex);
 
   for (auto& borderSurface : m_borderSurfaces)
   {
@@ -1009,7 +1036,7 @@ void CWindowDecorator::CommitAllBuffers()
       // never allow the object to be freed), so use the raw pointer for now
       wlBuffer.on_release() = [this, wlBufferC]()
       {
-        std::unique_lock<CCriticalSection> lock(m_pendingBuffersMutex);
+        std::unique_lock lock(m_pendingBuffersMutex);
         // Construct a dummy object for searching the set
         wayland::buffer_t findDummy(wlBufferC, wayland::proxy_t::wrapper_type::foreign);
         auto iter = m_pendingBuffers.find(findDummy);
@@ -1034,7 +1061,7 @@ void CWindowDecorator::CommitAllBuffers()
 
 void CWindowDecorator::LoadCursorTheme()
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
   if (!m_cursorTheme)
   {
     // Load default cursor theme

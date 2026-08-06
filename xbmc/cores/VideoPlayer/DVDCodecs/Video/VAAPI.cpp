@@ -10,11 +10,9 @@
 
 #include "DVDVideoCodec.h"
 #include "ServiceBroker.h"
-#include "cores/VideoPlayer/DVDCodecs/DVDCodecUtils.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "cores/VideoPlayer/Process/ProcessInfo.h"
-#include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
@@ -23,32 +21,33 @@
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <array>
 #include <mutex>
+#include <optional>
 
 #include <drm_fourcc.h>
 #include <va/va_drm.h>
 #include <va/va_drmcommon.h>
 
 extern "C" {
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 #include <libavutil/avutil.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vaapi.h>
 #include <libavutil/opt.h>
-#include <libavfilter/buffersink.h>
-#include <libavfilter/buffersrc.h>
+#include <libavutil/pixdesc.h>
 }
+
+#include <va/va_str.h>
+#include <va/va_vpp.h>
+#include <xf86drm.h>
 
 #include "system_egl.h"
 
 #include <EGL/eglext.h>
-#include <va/va_vpp.h>
-#include <xf86drm.h>
-
-#if VA_CHECK_VERSION(1, 0, 0)
-# include <va/va_str.h>
-#endif
 
 using namespace VAAPI;
 using namespace std::chrono_literals;
@@ -93,7 +92,7 @@ CVAAPIContext::CVAAPIContext()
 
 void CVAAPIContext::Release(CDecoder *decoder)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   auto it = find(m_decoders.begin(), m_decoders.end(), decoder);
   if (it != m_decoders.end())
@@ -121,7 +120,7 @@ void CVAAPIContext::Close()
 
 bool CVAAPIContext::EnsureContext(CVAAPIContext **ctx, CDecoder *decoder)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (m_context)
   {
@@ -135,7 +134,7 @@ bool CVAAPIContext::EnsureContext(CVAAPIContext **ctx, CDecoder *decoder)
   m_context = new CVAAPIContext();
   *ctx = m_context;
   {
-    std::unique_lock<CCriticalSection> gLock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock gLock(CServiceBroker::GetWinSystem()->GetGfxContext());
     if (!m_context->CreateContext())
     {
       delete m_context;
@@ -207,10 +206,8 @@ bool CVAAPIContext::CreateContext()
     return false;
   }
 
-#if VA_CHECK_VERSION(1, 0, 0)
   vaSetErrorCallback(m_display, VaErrorCallback, nullptr);
   vaSetInfoCallback(m_display, VaInfoCallback, nullptr);
-#endif
 
   int major_version, minor_version;
   if (!CheckSuccess(vaInitialize(m_display, &major_version, &minor_version), "vaInitialize"))
@@ -241,10 +238,8 @@ void CVAAPIContext::DestroyContext()
     }
     else
     {
-#if VA_CHECK_VERSION(1, 0, 0)
       vaSetErrorCallback(m_display, nullptr, nullptr);
       vaSetInfoCallback(m_display, nullptr, nullptr);
-#endif
     }
   }
 }
@@ -261,17 +256,13 @@ void CVAAPIContext::QueryCaps()
 
   for(int i = 0; i < m_profileCount; i++)
   {
-#if VA_CHECK_VERSION(1, 0, 0)
     CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - profile {}", vaProfileStr(m_profiles[i]));
-#else
-    CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI - profile {}", m_profiles[i]);
-#endif
   }
 }
 
 VAConfigAttrib CVAAPIContext::GetAttrib(VAProfile profile)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   VAConfigAttrib attrib;
   attrib.type = VAConfigAttribRTFormat;
@@ -282,7 +273,7 @@ VAConfigAttrib CVAAPIContext::GetAttrib(VAProfile profile)
 
 bool CVAAPIContext::SupportsProfile(VAProfile profile)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   for (int i=0; i<m_profileCount; i++)
   {
@@ -294,7 +285,7 @@ bool CVAAPIContext::SupportsProfile(VAProfile profile)
 
 VAConfigID CVAAPIContext::CreateConfig(VAProfile profile, VAConfigAttrib attrib)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   VAConfigID config = VA_INVALID_ID;
   CheckSuccess(vaCreateConfig(m_display, profile, VAEntrypointVLD, &attrib, 1, &config), "vaCreateConfig");
@@ -344,15 +335,15 @@ void CVAAPIContext::FFReleaseBuffer(void *opaque, uint8_t *data)
 
 void CVideoSurfaces::AddSurface(VASurfaceID surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_state[surf] = 0;
   m_freeSurfaces.push_back(surf);
 }
 
 void CVideoSurfaces::ClearReference(VASurfaceID surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) == m_state.end())
+  std::unique_lock lock(m_section);
+  if (!m_state.contains(surf))
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::ClearReference - surface invalid");
     return;
@@ -366,8 +357,8 @@ void CVideoSurfaces::ClearReference(VASurfaceID surf)
 
 bool CVideoSurfaces::MarkRender(VASurfaceID surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) == m_state.end())
+  std::unique_lock lock(m_section);
+  if (!m_state.contains(surf))
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::MarkRender - surface invalid");
     return false;
@@ -383,8 +374,8 @@ bool CVideoSurfaces::MarkRender(VASurfaceID surf)
 
 void CVideoSurfaces::ClearRender(VASurfaceID surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) == m_state.end())
+  std::unique_lock lock(m_section);
+  if (!m_state.contains(surf))
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::ClearRender - surface invalid");
     return;
@@ -398,8 +389,8 @@ void CVideoSurfaces::ClearRender(VASurfaceID surf)
 
 bool CVideoSurfaces::IsValid(VASurfaceID surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) != m_state.end())
+  std::unique_lock lock(m_section);
+  if (m_state.contains(surf))
     return true;
   else
     return false;
@@ -407,8 +398,8 @@ bool CVideoSurfaces::IsValid(VASurfaceID surf)
 
 VASurfaceID CVideoSurfaces::GetFree(VASurfaceID surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) != m_state.end())
+  std::unique_lock lock(m_section);
+  if (m_state.contains(surf))
   {
     auto it = std::find(m_freeSurfaces.begin(), m_freeSurfaces.end(), surf);
     if (it == m_freeSurfaces.end())
@@ -447,7 +438,7 @@ VASurfaceID CVideoSurfaces::GetAtIndex(int idx)
 
 VASurfaceID CVideoSurfaces::RemoveNext(bool skiprender)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   VASurfaceID surf;
   for(auto it = m_state.begin(); it != m_state.end(); ++it)
   {
@@ -466,32 +457,32 @@ VASurfaceID CVideoSurfaces::RemoveNext(bool skiprender)
 
 void CVideoSurfaces::Reset()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_freeSurfaces.clear();
   m_state.clear();
 }
 
 int CVideoSurfaces::Size()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return m_state.size();
 }
 
 bool CVideoSurfaces::HasFree()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return !m_freeSurfaces.empty();
 }
 
 int CVideoSurfaces::NumFree()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return m_freeSurfaces.size();
 }
 
 bool CVideoSurfaces::HasRefs()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   for (const auto &i : m_state)
   {
     if (i.second & SURFACE_USED_FOR_REFERENCE)
@@ -504,9 +495,38 @@ bool CVideoSurfaces::HasRefs()
 // VAAPI
 //-----------------------------------------------------------------------------
 
-bool CDecoder::m_capGeneral = false;
-bool CDecoder::m_capDeepColor = false;
+CCapabilities CDecoder::m_capFormats;
 IVaapiWinSystem* CDecoder::m_pWinSystem = nullptr;
+
+//-----------------------------------------------------------------------------
+// CCapabilities
+//-----------------------------------------------------------------------------
+
+void CCapabilities::Add(AVPixelFormat pixFmt)
+{
+  m_pixFmts.insert(pixFmt);
+}
+
+bool CCapabilities::Supports(AVPixelFormat pixFmt) const
+{
+  return m_pixFmts.count(pixFmt) > 0;
+}
+
+std::string CCapabilities::ToString() const
+{
+  if (m_pixFmts.empty())
+    return "none";
+
+  std::string out;
+  for (auto pixFmt : m_pixFmts)
+  {
+    if (!out.empty())
+      out += ',';
+    const char* name = av_get_pix_fmt_name(pixFmt);
+    out += name ? name : "?";
+  }
+  return out;
+}
 
 CDecoder::CDecoder(CProcessInfo& processInfo) :
   m_vaapiOutput(*this, &m_inMsgEvent),
@@ -529,7 +549,7 @@ CDecoder::~CDecoder()
 
 bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum AVPixelFormat fmt)
 {
-  if (!m_capGeneral)
+  if (!m_capFormats.Supports(AV_PIX_FMT_NV12))
     return false;
 
   // check if user wants to decode this format with VAAPI
@@ -581,7 +601,6 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
     return false;
   }
 
-  m_vaapiConfig.driverIsMesa = StringUtils::StartsWith(vaQueryVendorString(m_vaapiConfig.context->GetDisplay()), "Mesa");
   m_vaapiConfig.vidWidth = avctx->width;
   m_vaapiConfig.vidHeight = avctx->height;
   m_vaapiConfig.outWidth = avctx->width;
@@ -590,118 +609,158 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
   m_vaapiConfig.surfaceHeight = avctx->coded_height;
   m_vaapiConfig.aspect = avctx->sample_aspect_ratio;
   m_vaapiConfig.bitDepth = avctx->bits_per_raw_sample;
+  // ffmpeg's HEVC, VP9, and AV1 decoders do not set bits_per_raw_sample,
+  // but they do set pix_fmt correctly (e.g. yuv420p10le for 10-bit).
+  // Derive bit depth from the pixel format when bits_per_raw_sample is 0,
+  // otherwise ConfigVAAPI creates NV12 surfaces for 10-bit content.
+  if (m_vaapiConfig.bitDepth == 0)
+  {
+    const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(avctx->pix_fmt);
+    if (desc)
+      m_vaapiConfig.bitDepth = desc->comp[0].depth;
+  }
   m_DisplayState = VAAPI_OPEN;
   m_vaapiConfigured = false;
   m_presentPicture = nullptr;
   m_getBufferError = 0;
 
-  VAProfile profile;
+  // Bitstream chroma subsampling, used by HEVC and VP9 dispatch below to
+  // pick the right VA profile. log2_chroma_{w,h} encodes the subsampling
+  // factor: (1,1) = 4:2:0, (1,0) = 4:2:2, (0,0) = 4:4:4.
+  int chroma = 0;
+  if (const AVPixFmtDescriptor* d = av_pix_fmt_desc_get(avctx->pix_fmt))
+  {
+    if (d->log2_chroma_w == 1 && d->log2_chroma_h == 1)
+      chroma = 420;
+    else if (d->log2_chroma_w == 1 && d->log2_chroma_h == 0)
+      chroma = 422;
+    else if (d->log2_chroma_w == 0 && d->log2_chroma_h == 0)
+      chroma = 444;
+  }
+
+  auto declineUnsupported = [&]
+  {
+    CLog::Log(LOGINFO, "VAAPI - no usable profile/format for this stream (chroma {}, {}-bit)",
+              chroma, m_vaapiConfig.bitDepth);
+    return false;
+  };
+
+  std::optional<VAProfile> profile;
   switch (avctx->codec_id)
   {
     case AV_CODEC_ID_MPEG2VIDEO:
       profile = VAProfileMPEG2Main;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
       break;
     case AV_CODEC_ID_MPEG4:
     case AV_CODEC_ID_H263:
       profile = VAProfileMPEG4AdvancedSimple;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
       break;
     case AV_CODEC_ID_H264:
     {
-      if (avctx->profile == FF_PROFILE_H264_CONSTRAINED_BASELINE)
-      {
+      if (avctx->profile == AV_PROFILE_H264_CONSTRAINED_BASELINE)
         profile = VAProfileH264ConstrainedBaseline;
-        if (!m_vaapiConfig.context->SupportsProfile(profile))
-          return false;
-      }
+#if VA_CHECK_VERSION(1, 18, 0)
+      else if (avctx->profile == AV_PROFILE_H264_HIGH_10 && m_vaapiConfig.bitDepth == 10 &&
+               m_capFormats.Supports(AV_PIX_FMT_P010))
+        profile = VAProfileH264High10;
+#endif
+      // Prefer Main when the driver has it, otherwise High (a superset of Main).
+      else if (avctx->profile == AV_PROFILE_H264_MAIN &&
+               m_vaapiConfig.context->SupportsProfile(VAProfileH264Main))
+        profile = VAProfileH264Main;
       else
-      {
-        if(avctx->profile == FF_PROFILE_H264_MAIN)
-        {
-          profile = VAProfileH264Main;
-          if (m_vaapiConfig.context->SupportsProfile(profile))
-            break;
-        }
         profile = VAProfileH264High;
-        if (!m_vaapiConfig.context->SupportsProfile(profile))
-          return false;
-      }
       break;
     }
     case AV_CODEC_ID_HEVC:
     {
-      if (avctx->profile == FF_PROFILE_HEVC_MAIN_10)
-      {
-        if (!m_capDeepColor)
-          return false;
-
+      // VAAPI HEVC profile naming: VAProfileHEVCMain<N> is N-bit 4:2:0,
+      // VAProfileHEVCMain422_<N> is N-bit 4:2:2.
+      if (avctx->profile == AV_PROFILE_HEVC_MAIN_10 && m_capFormats.Supports(AV_PIX_FMT_P010))
         profile = VAProfileHEVCMain10;
-      }
-      else if (avctx->profile == FF_PROFILE_HEVC_MAIN)
+      else if (avctx->profile == AV_PROFILE_HEVC_MAIN)
         profile = VAProfileHEVCMain;
-      else
-        profile = VAProfileNone;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
+      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 12 &&
+               chroma == 420 &&
+               (m_capFormats.Supports(AV_PIX_FMT_P012) || m_capFormats.Supports(AV_PIX_FMT_P016)))
+        profile = VAProfileHEVCMain12;
+      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 10 &&
+               chroma == 422 && m_capFormats.Supports(AV_PIX_FMT_Y210))
+        profile = VAProfileHEVCMain422_10;
+      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 12 &&
+               chroma == 422 &&
+               (m_capFormats.Supports(AV_PIX_FMT_Y212) || m_capFormats.Supports(AV_PIX_FMT_Y216)))
+        profile = VAProfileHEVCMain422_12;
+      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 8 &&
+               chroma == 444 &&
+               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
+        profile = VAProfileHEVCMain444;
+      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 10 &&
+               chroma == 444 && m_capFormats.Supports(AV_PIX_FMT_XV30))
+        profile = VAProfileHEVCMain444_10;
+      else if (avctx->profile == AV_PROFILE_HEVC_REXT && m_vaapiConfig.bitDepth == 12 &&
+               chroma == 444 &&
+               (m_capFormats.Supports(AV_PIX_FMT_XV36) || m_capFormats.Supports(AV_PIX_FMT_XV48)))
+        profile = VAProfileHEVCMain444_12;
       break;
     }
     case AV_CODEC_ID_VP8:
-    {
       profile = VAProfileVP8Version0_3;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
       break;
-    }
     case AV_CODEC_ID_VP9:
     {
-      if (avctx->profile == FF_PROFILE_VP9_0)
+      // VP9 profiles vary chroma subsampling and bit depth orthogonally:
+      //   Profile 0: 4:2:0  8-bit
+      //   Profile 1: 4:2:2 / 4:4:4  8-bit
+      //   Profile 2: 4:2:0  10/12-bit
+      //   Profile 3: 4:2:2 / 4:4:4  10/12-bit
+      // VAAPI does not split by chroma; the VP9 profile constants cover both
+      // 4:2:2 and 4:4:4 inside Profile 1 / Profile 3, with the surface fourcc
+      // selected per the actual content's pix_fmt. Intel iHD only produces
+      // 4:4:4 surfaces for VP9 1/3, so 4:2:2 VP9 falls through to SW.
+      if (avctx->profile == AV_PROFILE_VP9_0)
         profile = VAProfileVP9Profile0;
-      else if (avctx->profile == FF_PROFILE_VP9_2)
+      else if (avctx->profile == AV_PROFILE_VP9_2)
         profile = VAProfileVP9Profile2;
-      else
-        profile = VAProfileNone;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
+      else if (avctx->profile == AV_PROFILE_VP9_1 && chroma == 444 &&
+               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
+        profile = VAProfileVP9Profile1;
+      else if (avctx->profile == AV_PROFILE_VP9_3 && chroma == 444 &&
+               ((m_vaapiConfig.bitDepth == 10 && m_capFormats.Supports(AV_PIX_FMT_XV30)) ||
+                (m_vaapiConfig.bitDepth == 12 && (m_capFormats.Supports(AV_PIX_FMT_XV36) ||
+                                                  m_capFormats.Supports(AV_PIX_FMT_XV48)))))
+        profile = VAProfileVP9Profile3;
       break;
     }
     case AV_CODEC_ID_WMV3:
       profile = VAProfileVC1Main;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
       break;
     case AV_CODEC_ID_VC1:
       profile = VAProfileVC1Advanced;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
       break;
-#if VA_CHECK_VERSION(1, 8, 0)
     case AV_CODEC_ID_AV1:
     {
-      if (avctx->profile == FF_PROFILE_AV1_MAIN)
+      // AV1 Profile 1 is 4:4:4 only per spec, 8 or 10-bit. Intel iHD (Xe3+)
+      // outputs AYUV (8-bit) or Y410 (10-bit) for this profile.
+      if (avctx->profile == AV_PROFILE_AV1_MAIN)
         profile = VAProfileAV1Profile0;
-      else if (avctx->profile == FF_PROFILE_AV1_HIGH)
+      else if (avctx->profile == AV_PROFILE_AV1_HIGH && m_vaapiConfig.bitDepth == 8 &&
+               (m_capFormats.Supports(AV_PIX_FMT_VUYA) || m_capFormats.Supports(AV_PIX_FMT_VUYX)))
         profile = VAProfileAV1Profile1;
-      else
-        profile = VAProfileNone;
-      if (!m_vaapiConfig.context->SupportsProfile(profile))
-        return false;
+      else if (avctx->profile == AV_PROFILE_AV1_HIGH && m_vaapiConfig.bitDepth == 10 &&
+               m_capFormats.Supports(AV_PIX_FMT_XV30))
+        profile = VAProfileAV1Profile1;
       break;
     }
-#endif
     default:
       return false;
   }
 
-  m_vaapiConfig.profile = profile;
-  m_vaapiConfig.attrib = m_vaapiConfig.context->GetAttrib(profile);
-  if ((m_vaapiConfig.attrib.value & (VA_RT_FORMAT_YUV420 | VA_RT_FORMAT_YUV420_10BPP)) == 0)
-  {
-    CLog::Log(LOGERROR, "VAAPI - invalid yuv format {:x}", m_vaapiConfig.attrib.value);
-    return false;
-  }
+  if (!profile || !m_vaapiConfig.context->SupportsProfile(*profile))
+    return declineUnsupported();
+
+  m_vaapiConfig.profile = *profile;
+  m_vaapiConfig.attrib = m_vaapiConfig.context->GetAttrib(*profile);
 
   if (avctx->codec_id == AV_CODEC_ID_H264)
   {
@@ -761,7 +820,7 @@ void CDecoder::Close()
 {
   CLog::Log(LOGINFO, "VAAPI::{}", __FUNCTION__);
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   FiniVAAPIOutput();
 
@@ -783,10 +842,10 @@ long CDecoder::Release()
   // a second decoder might need resources
   if (m_vaapiConfigured == true)
   {
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
     CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI::Release pre-cleanup");
 
-    std::unique_lock<CCriticalSection> lock1(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock lock1(CServiceBroker::GetWinSystem()->GetGfxContext());
     Message *reply;
     if (m_vaapiOutput.m_controlPort.SendOutMessageSync(COutputControlProtocol::PRECLEANUP, &reply,
                                                        2s))
@@ -825,7 +884,7 @@ int CDecoder::FFGetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
   CDecoder* va = static_cast<CDecoder*>(cb->GetHWAccel());
 
   // while we are waiting to recover we can't do anything
-  std::unique_lock<CCriticalSection> lock(va->m_DecoderSection);
+  std::unique_lock lock(va->m_DecoderSection);
 
   if(va->m_DisplayState != VAAPI_OPEN)
   {
@@ -874,7 +933,7 @@ void CDecoder::FFReleaseBuffer(uint8_t *data)
   {
     VASurfaceID surf;
 
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
 
     surf = (VASurfaceID)(uintptr_t)data;
     m_videoSurfaces.ClearReference(surf);
@@ -894,7 +953,7 @@ CDVDVideoCodec::VCReturn CDecoder::Decode(AVCodecContext* avctx, AVFrame* pFrame
   if (result != CDVDVideoCodec::VC_NOBUFFER && result != CDVDVideoCodec::VC_NONE)
     return result;
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   if (!m_vaapiConfigured)
     return CDVDVideoCodec::VC_ERROR;
@@ -1004,7 +1063,7 @@ CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
   EDisplayState state;
 
   {
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
     state = m_DisplayState;
   }
 
@@ -1018,13 +1077,13 @@ CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
     }
     else
     {
-      std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+      std::unique_lock lock(m_DecoderSection);
       state = m_DisplayState;
     }
   }
   if (state == VAAPI_RESET || state == VAAPI_ERROR)
   {
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
 
     avcodec_flush_buffers(avctx);
     FiniVAAPIOutput();
@@ -1063,7 +1122,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
     picture->videoBuffer = nullptr;
   }
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   if (m_DisplayState != VAAPI_OPEN)
     return false;
@@ -1077,7 +1136,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
 
 void CDecoder::Reset()
 {
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   if (m_presentPicture)
   {
@@ -1138,7 +1197,11 @@ bool CDecoder::ConfigVAAPI()
 {
   m_vaapiConfig.dpy = m_vaapiConfig.context->GetDisplay();
   m_vaapiConfig.attrib = m_vaapiConfig.context->GetAttrib(m_vaapiConfig.profile);
-  if ((m_vaapiConfig.attrib.value & (VA_RT_FORMAT_YUV420 | VA_RT_FORMAT_YUV420_10BPP)) == 0)
+  unsigned int validFormats = VA_RT_FORMAT_YUV420 | VA_RT_FORMAT_YUV420_10BPP |
+                              VA_RT_FORMAT_YUV420_12 | VA_RT_FORMAT_YUV422_10 |
+                              VA_RT_FORMAT_YUV422_12 | VA_RT_FORMAT_YUV444 |
+                              VA_RT_FORMAT_YUV444_10 | VA_RT_FORMAT_YUV444_12;
+  if ((m_vaapiConfig.attrib.value & validFormats) == 0)
   {
     CLog::Log(LOGERROR, "VAAPI - invalid yuv format {:x}", m_vaapiConfig.attrib.value);
     return false;
@@ -1153,15 +1216,63 @@ bool CDecoder::ConfigVAAPI()
   unsigned int format = VA_RT_FORMAT_YUV420;
   std::int32_t pixelFormat = VA_FOURCC_NV12;
 
-  if ((m_vaapiConfig.profile == VAProfileHEVCMain10 || m_vaapiConfig.profile == VAProfileVP9Profile2
-#if VA_CHECK_VERSION(1, 8, 0)
-       || m_vaapiConfig.profile == VAProfileAV1Profile0
+  if ((m_vaapiConfig.profile == VAProfileHEVCMain10 ||
+       m_vaapiConfig.profile == VAProfileVP9Profile2 ||
+#if VA_CHECK_VERSION(1, 18, 0)
+       m_vaapiConfig.profile == VAProfileH264High10 ||
 #endif
-       ) &&
+       m_vaapiConfig.profile == VAProfileAV1Profile0) &&
       m_vaapiConfig.bitDepth == 10)
   {
     format = VA_RT_FORMAT_YUV420_10BPP;
     pixelFormat = VA_FOURCC_P010;
+  }
+  else if ((m_vaapiConfig.profile == VAProfileHEVCMain12 ||
+            m_vaapiConfig.profile == VAProfileVP9Profile2) &&
+           m_vaapiConfig.bitDepth == 12)
+  {
+    // P012 is the 12-bit-native fourcc; P016 carries the same 12-bit content
+    // padded into 16-bit storage and is a fallback when the driver does not
+    // advertise P012.
+    format = VA_RT_FORMAT_YUV420_12;
+    pixelFormat = m_capFormats.Supports(AV_PIX_FMT_P012) ? VA_FOURCC_P012 : VA_FOURCC_P016;
+  }
+  else if (m_vaapiConfig.profile == VAProfileHEVCMain422_10 && m_vaapiConfig.bitDepth == 10)
+  {
+    format = VA_RT_FORMAT_YUV422_10;
+    pixelFormat = VA_FOURCC_Y210;
+  }
+  else if (m_vaapiConfig.profile == VAProfileHEVCMain422_12 && m_vaapiConfig.bitDepth == 12)
+  {
+    // Y212 is the 12-bit-native fourcc; Y216 is the 16-bit-storage fallback.
+    format = VA_RT_FORMAT_YUV422_12;
+    pixelFormat = m_capFormats.Supports(AV_PIX_FMT_Y212) ? VA_FOURCC_Y212 : VA_FOURCC_Y216;
+  }
+  else if ((m_vaapiConfig.profile == VAProfileHEVCMain444 ||
+            m_vaapiConfig.profile == VAProfileVP9Profile1 ||
+            m_vaapiConfig.profile == VAProfileAV1Profile1) &&
+           m_vaapiConfig.bitDepth == 8)
+  {
+    // AYUV is the standard 4:4:4 8-bit fourcc; XYUV is identical bytes
+    // with alpha ignored, used by some VAAPI versions.
+    format = VA_RT_FORMAT_YUV444;
+    pixelFormat = m_capFormats.Supports(AV_PIX_FMT_VUYA) ? VA_FOURCC_AYUV : VA_FOURCC_XYUV;
+  }
+  else if ((m_vaapiConfig.profile == VAProfileHEVCMain444_10 ||
+            m_vaapiConfig.profile == VAProfileVP9Profile3 ||
+            m_vaapiConfig.profile == VAProfileAV1Profile1) &&
+           m_vaapiConfig.bitDepth == 10)
+  {
+    format = VA_RT_FORMAT_YUV444_10;
+    pixelFormat = VA_FOURCC_Y410;
+  }
+  else if ((m_vaapiConfig.profile == VAProfileHEVCMain444_12 ||
+            m_vaapiConfig.profile == VAProfileVP9Profile3) &&
+           m_vaapiConfig.bitDepth == 12)
+  {
+    // Y412 is the 12-bit-native fourcc; Y416 is the 16-bit-storage fallback.
+    format = VA_RT_FORMAT_YUV444_12;
+    pixelFormat = m_capFormats.Supports(AV_PIX_FMT_XV36) ? VA_FOURCC_Y412 : VA_FOURCC_Y416;
   }
 
   VASurfaceAttrib attribs[1], *attrib;
@@ -1170,6 +1281,10 @@ bool CDecoder::ConfigVAAPI()
   attrib->type = VASurfaceAttribPixelFormat;
   attrib->value.type = VAGenericValueTypeInteger;
   attrib->value.value.i = pixelFormat;
+
+  // Carry the surface fourcc through to processed pictures so the renderer
+  // can dispatch sampling per-fourcc without re-inspecting each surface.
+  m_vaapiConfig.pixelFormat = pixelFormat;
 
   VASurfaceID surfaces[32];
   int nb_surfaces = m_vaapiConfig.maxReferences;
@@ -1186,7 +1301,7 @@ bool CDecoder::ConfigVAAPI()
   }
 
   // initialize output
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_vaapiConfig.stats = &m_bufferStats;
   m_bufferStats.Reset();
   m_vaapiOutput.Start();
@@ -1258,7 +1373,7 @@ IHardwareDecoder* CDecoder::Create(CDVDStreamInfo &hint, CProcessInfo &processIn
   return nullptr;
 }
 
-void CDecoder::Register(IVaapiWinSystem *winSystem, bool deepColor)
+void CDecoder::Register(IVaapiWinSystem* winSystem, bool /*deepColor*/)
 {
   m_pWinSystem = winSystem;
 
@@ -1266,8 +1381,6 @@ void CDecoder::Register(IVaapiWinSystem *winSystem, bool deepColor)
   if (!CVAAPIContext::EnsureContext(&config.context, nullptr))
     return;
 
-  m_capGeneral = true;
-  m_capDeepColor = deepColor;
   CDVDFactoryCodec::RegisterHWAccel("vaapi", CDecoder::Create);
   config.context->Release(nullptr);
 
@@ -1516,7 +1629,7 @@ COutput::~COutput()
 
 void COutput::Dispose()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_bStop = true;
   m_outMsgEvent.Set();
   StopThread();
@@ -2110,27 +2223,14 @@ void COutput::InitCycle()
     }
     if (!m_pp)
     {
-      const bool preferVaapiRender = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(SETTING_VIDEOPLAYER_PREFERVAAPIRENDER);
-      // For 1080p/i or below, always use CVppPostproc even when not deinterlacing
-      // Reason is: mesa cannot dynamically switch surfaces between use for VAAPI post-processing
-      // and use for direct export, so we run into trouble if we or the user want to switch
-      // deinterlacing on/off mid-stream.
-      // See also: https://bugs.freedesktop.org/show_bug.cgi?id=105145
-      const bool alwaysInsertVpp = m_config.driverIsMesa &&
-                                   ((m_config.vidWidth * m_config.vidHeight) <= (1920 * 1080)) &&
-                                   interlaced;
+      const bool preferVaapiRender = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+          SETTING_VIDEOPLAYER_PREFERVAAPIRENDER);
 
       m_config.stats->SetVpp(false);
       if (!preferVaapiRender)
       {
         CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI output: Initializing ffmpeg postproc");
         m_pp = new CFFmpegPostproc();
-      }
-      else if (alwaysInsertVpp)
-      {
-        CLog::Log(LOGDEBUG, LOGVIDEO, "VAAPI output: Initializing vaapi postproc");
-        m_pp = new CVppPostproc();
-        m_config.stats->SetVpp(true);
       }
       else
       {
@@ -2164,6 +2264,10 @@ CVaapiRenderPicture* COutput::ProcessPicture(CVaapiProcessedPicture &pic)
   CVaapiRenderPicture *retPic;
   retPic = m_bufferPool->GetVaapi();
   retPic->DVDPic.SetParams(pic.DVDPic);
+
+  // Stamp the surface fourcc so renderers can dispatch sampling per-fourcc
+  // (NV12/P010/P012/P016 semi-planar vs YUY2/Y210 packed).
+  pic.fourcc = m_config.pixelFormat;
 
   if (!pic.source)
   {
@@ -2554,6 +2658,8 @@ bool CVppPostproc::UpdateDeintMethod(EINTERLACEMETHOD method)
   m_forwardRefs = pplCaps.num_forward_references;
   m_backwardRefs = pplCaps.num_backward_references;
 
+  CLog::Log(LOGINFO, "VAAPI::CVppPostproc - deinterlacer active: {}",
+            fmt::formatter<EINTERLACEMETHOD>::ToString(method));
   return true;
 }
 
@@ -2971,16 +3077,30 @@ bool CFFmpegPostproc::Init(EINTERLACEMETHOD method)
     return false;
   }
 
-  if (avfilter_graph_create_filter(&m_pFilterOut, outFilter, "out", NULL, NULL, m_pFilterGraph) < 0)
+  if (!((m_pFilterOut = avfilter_graph_alloc_filter(m_pFilterGraph, outFilter, "out"))))
   {
-    CLog::Log(LOGERROR, "CFFmpegPostproc::Init  - avfilter_graph_create_filter: out");
+    CLog::LogF(LOGERROR, "unable to alloc filter out");
     return false;
   }
 
+#if LIBAVFILTER_BUILD >= AV_VERSION_INT(10, 6, 100)
+  constexpr std::array<AVPixelFormat, 1> pixFmts = {{AV_PIX_FMT_NV12}};
+  if (av_opt_set_array(m_pFilterOut, "pixel_formats", AV_OPT_SEARCH_CHILDREN, 0, pixFmts.size(),
+                       AV_OPT_TYPE_PIXEL_FMT, pixFmts.data()) < 0)
+#else
   enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_NV12, AV_PIX_FMT_NONE };
-  if (av_opt_set_int_list(m_pFilterOut, "pix_fmts", pix_fmts,  AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN) < 0)
+  if (av_opt_set_int_list(m_pFilterOut, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE,
+                          AV_OPT_SEARCH_CHILDREN) < 0)
+#endif
   {
     CLog::Log(LOGERROR, "VAAPI::CFFmpegPostproc::Init  - failed settings pix formats");
+    return false;
+  }
+
+  if (avfilter_init_str(m_pFilterOut, nullptr) < 0)
+  {
+    CLog::LogF(LOGERROR, "failed to initialize filter out");
+    avfilter_free(m_pFilterOut);
     return false;
   }
 
@@ -3098,7 +3218,6 @@ bool CFFmpegPostproc::AddPicture(CVaapiDecodedPicture &inPic)
   m_pFilterFrameIn->linesize[1] = image.pitches[1];
   m_pFilterFrameIn->data[2] = NULL;
   m_pFilterFrameIn->data[3] = NULL;
-  m_pFilterFrameIn->pkt_size = image.data_size;
 
   CheckSuccess(vaUnmapBuffer(m_config.dpy, image.buf), "vaUnmapBuffer");
   CheckSuccess(vaDestroyImage(m_config.dpy, image.image_id), "vaDestroyImage");

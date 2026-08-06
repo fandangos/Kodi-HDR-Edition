@@ -1,5 +1,5 @@
 ﻿/*
- *  Copyright (C) 2017-2019 Team Kodi
+ *  Copyright (C) 2017-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -189,6 +189,9 @@ bool CRendererBase::Configure(const VideoPicture& picture, float fps, unsigned o
   m_renderOrientation = orientation;
 
   std::tie(m_useDithering, m_ditherDepth) = DX::Windowing()->GetDitherSettings();
+  // TODO: DX does not support Auto dithering yet; treat as 8-bit (previous default)
+  if (m_ditherDepth == 0)
+    m_ditherDepth = 8;
 
   m_lastHdr10 = {};
   m_HdrType = HDR_TYPE::HDR_INVALID;
@@ -445,9 +448,11 @@ void CRendererBase::UpdateVideoFilters()
       CLog::LogF(LOGDEBUG, "unable to create output shader.");
       m_outputShader.reset();
     }
-    else if (m_pLUTView && m_lutSize)
+    else
     {
-      m_outputShader->SetLUT(m_lutSize, m_pLUTView.Get());
+      m_outputShader->SetFinalShader(true);
+      if (m_pLUTView && m_lutSize)
+        m_outputShader->SetLUT(m_lutSize, m_pLUTView.Get());
     }
   }
 }
@@ -654,9 +659,9 @@ void CRendererBase::ProcessHDR(CRenderBuffer* rb)
     {
       // Switch to SDR rendering
       CLog::LogF(LOGINFO, "Switching to SDR rendering");
-      // not need set color space because is alredy set when swap chain is re-created
       if (m_AutoSwitchHDR)
       {
+        // color space already sdr or set by the swap chain re-creation
         if (DX::Windowing()->IsHDROutput())
           DX::Windowing()->ToggleHDR(); // Toggle display HDR OFF
       }

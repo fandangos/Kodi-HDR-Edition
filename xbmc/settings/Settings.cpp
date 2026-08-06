@@ -19,13 +19,10 @@
 #include "guilib/GUIFontManager.h"
 #include "guilib/StereoscopicsManager.h"
 #include "input/keyboard/KeyboardLayoutManager.h"
+#include "network/WakeOnAccess.h"
+#include "network/upnp/UPnPSettings.h"
 
 #include <mutex>
-#include "network/upnp/UPnPSettings.h"
-#include "network/WakeOnAccess.h"
-#if defined(TARGET_DARWIN_OSX) and defined(HAS_XBMCHELPER)
-#include "platform/darwin/osx/XBMCHelper.h"
-#endif // defined(TARGET_DARWIN_OSX)
 #if defined(TARGET_DARWIN_TVOS)
 #include "platform/darwin/tvos/TVOSSettingsHandler.h"
 #endif // defined(TARGET_DARWIN_TVOS)
@@ -68,7 +65,7 @@ using namespace XFILE;
 
 bool CSettings::Initialize()
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   if (m_initialized)
     return false;
 
@@ -99,19 +96,19 @@ bool CSettings::Initialize()
 
 void CSettings::RegisterSubSettings(ISubSettings* subSettings)
 {
-  if (subSettings == nullptr)
+  if (!subSettings)
     return;
 
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   m_subSettings.insert(subSettings);
 }
 
 void CSettings::UnregisterSubSettings(ISubSettings* subSettings)
 {
-  if (subSettings == nullptr)
+  if (!subSettings)
     return;
 
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   m_subSettings.erase(subSettings);
 }
 
@@ -157,14 +154,14 @@ bool CSettings::Save()
   return Save(profileManager->GetSettingsFile());
 }
 
-bool CSettings::Save(const std::string &file)
+bool CSettings::Save(const std::string& file) const
 {
   CXBMCTinyXML xmlDoc;
   if (!SaveValuesToXml(xmlDoc))
     return false;
 
   TiXmlElement* root = xmlDoc.RootElement();
-  if (root == nullptr)
+  if (!root)
     return false;
 
   if (!Save(root))
@@ -175,7 +172,7 @@ bool CSettings::Save(const std::string &file)
 
 bool CSettings::Save(TiXmlNode* root) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   // save any ISubSettings implementations
   for (const auto& subSetting : m_subSettings)
   {
@@ -186,7 +183,7 @@ bool CSettings::Save(TiXmlNode* root) const
   return true;
 }
 
-bool CSettings::LoadSetting(const TiXmlNode *node, const std::string &settingId)
+bool CSettings::LoadSetting(const TiXmlNode* node, const std::string& settingId) const
 {
   return GetSettingsManager()->LoadSetting(node, settingId);
 }
@@ -202,7 +199,7 @@ bool CSettings::GetBool(const std::string& id) const
 
 void CSettings::Clear()
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   if (!m_initialized)
     return;
 
@@ -216,7 +213,7 @@ void CSettings::Clear()
 
 bool CSettings::Load(const TiXmlElement* root, bool& updated)
 {
-  if (root == nullptr)
+  if (!root)
     return false;
 
   if (!CSettingsBase::LoadValuesFromXml(root, updated))
@@ -228,7 +225,7 @@ bool CSettings::Load(const TiXmlElement* root, bool& updated)
 bool CSettings::Load(const TiXmlNode* settings)
 {
   bool ok = true;
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   for (const auto& subSetting : m_subSettings)
     ok &= subSetting->Load(settings);
 
@@ -273,16 +270,17 @@ bool CSettings::InitializeDefinitions()
 #elif defined(TARGET_FREEBSD)
   if (CFile::Exists(SETTINGS_XML_FOLDER "freebsd.xml") && !Initialize(SETTINGS_XML_FOLDER "freebsd.xml"))
     CLog::Log(LOGFATAL, "Unable to load freebsd-specific settings definitions");
+#elif defined(TARGET_WEBOS)
+  if (CFile::Exists(SETTINGS_XML_FOLDER "webos.xml") &&
+      !Initialize(SETTINGS_XML_FOLDER "webos.xml"))
+    CLog::Log(LOGFATAL, "Unable to load webOS-specific settings definitions");
 #elif defined(TARGET_LINUX)
   if (CFile::Exists(SETTINGS_XML_FOLDER "linux.xml") && !Initialize(SETTINGS_XML_FOLDER "linux.xml"))
     CLog::Log(LOGFATAL, "Unable to load linux-specific settings definitions");
 #elif defined(TARGET_DARWIN)
   if (CFile::Exists(SETTINGS_XML_FOLDER "darwin.xml") && !Initialize(SETTINGS_XML_FOLDER "darwin.xml"))
     CLog::Log(LOGFATAL, "Unable to load darwin-specific settings definitions");
-#if defined(TARGET_DARWIN_OSX)
-  if (CFile::Exists(SETTINGS_XML_FOLDER "darwin_osx.xml") && !Initialize(SETTINGS_XML_FOLDER "darwin_osx.xml"))
-    CLog::Log(LOGFATAL, "Unable to load osx-specific settings definitions");
-#elif defined(TARGET_DARWIN_IOS)
+#if defined(TARGET_DARWIN_IOS)
   if (CFile::Exists(SETTINGS_XML_FOLDER "darwin_ios.xml") && !Initialize(SETTINGS_XML_FOLDER "darwin_ios.xml"))
     CLog::Log(LOGFATAL, "Unable to load ios-specific settings definitions");
 #elif defined(TARGET_DARWIN_TVOS)
@@ -340,7 +338,8 @@ void CSettings::InitializeDefaults()
   // the front
   if (g_sysinfo.IsAeroDisabled())
   {
-    auto setting = GetSettingsManager()->GetSetting(CSettings::SETTING_VIDEOSCREEN_FAKEFULLSCREEN);
+    const SettingPtr setting =
+        GetSettingsManager()->GetSetting(CSettings::SETTING_VIDEOSCREEN_FAKEFULLSCREEN);
     if (!setting)
       CLog::Log(LOGERROR, "Failed to load setting for: {}",
                 CSettings::SETTING_VIDEOSCREEN_FAKEFULLSCREEN);
@@ -351,7 +350,7 @@ void CSettings::InitializeDefaults()
 
   if (CServiceBroker::GetAppParams()->IsStandAlone())
   {
-    auto setting =
+    const SettingPtr setting =
         GetSettingsManager()->GetSetting(CSettings::SETTING_POWERMANAGEMENT_SHUTDOWNSTATE);
     if (!setting)
       CLog::Log(LOGERROR, "Failed to load setting for: {}",
@@ -365,7 +364,8 @@ void CSettings::InitializeDefaults()
   if (deviceUUID->GetValue().empty())
   {
     const std::string& uuid = StringUtils::CreateUUID();
-    auto setting = GetSettingsManager()->GetSetting(CSettings::SETTING_SERVICES_DEVICEUUID);
+    const SettingPtr setting =
+        GetSettingsManager()->GetSetting(CSettings::SETTING_SERVICES_DEVICEUUID);
     if (!setting)
       CLog::Log(LOGERROR, "Failed to load setting for: {}", CSettings::SETTING_SERVICES_DEVICEUUID);
     else
@@ -392,13 +392,35 @@ void CSettings::InitializeOptionFillers()
   GetSettingsManager()->RegisterSettingOptionsFiller("languagenames", CLangInfo::SettingOptionsLanguageNamesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("refreshchangedelays", CDisplaySettings::SettingOptionsRefreshChangeDelaysFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("refreshrates", CDisplaySettings::SettingOptionsRefreshRatesFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("regions", CLangInfo::SettingOptionsRegionsFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("shortdateformats", CLangInfo::SettingOptionsShortDateFormatsFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("longdateformats", CLangInfo::SettingOptionsLongDateFormatsFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("timeformats", CLangInfo::SettingOptionsTimeFormatsFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("24hourclockformats", CLangInfo::SettingOptions24HourClockFormatsFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("speedunits", CLangInfo::SettingOptionsSpeedUnitsFiller);
-  GetSettingsManager()->RegisterSettingOptionsFiller("temperatureunits", CLangInfo::SettingOptionsTemperatureUnitsFiller);
+
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "regions", [](const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list,
+                    std::string& current)
+      { CLangInfo::SettingOptionsRegionsFiller(setting, list, current, g_langInfo); });
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "shortdateformats", [](const std::shared_ptr<const CSetting>& setting,
+                             StringSettingOptions& list, std::string& current)
+      { CLangInfo::SettingOptionsShortDateFormatsFiller(setting, list, current, g_langInfo); });
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "longdateformats", [](const std::shared_ptr<const CSetting>& setting,
+                            StringSettingOptions& list, std::string& current)
+      { CLangInfo::SettingOptionsLongDateFormatsFiller(setting, list, current, g_langInfo); });
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "timeformats", [](const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list,
+                        std::string& current)
+      { CLangInfo::SettingOptionsTimeFormatsFiller(setting, list, current, g_langInfo); });
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "24hourclockformats", [](const std::shared_ptr<const CSetting>& setting,
+                               StringSettingOptions& list, std::string& current)
+      { CLangInfo::SettingOptions24HourClockFormatsFiller(setting, list, current, g_langInfo); });
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "speedunits", [](const std::shared_ptr<const CSetting>& setting, StringSettingOptions& list,
+                       std::string& current)
+      { CLangInfo::SettingOptionsSpeedUnitsFiller(setting, list, current, g_langInfo); });
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "temperatureunits", [](const std::shared_ptr<const CSetting>& setting,
+                             StringSettingOptions& list, std::string& current)
+      { CLangInfo::SettingOptionsTemperatureUnitsFiller(setting, list, current, g_langInfo); });
   GetSettingsManager()->RegisterSettingOptionsFiller("rendermethods", CBaseRenderer::SettingOptionsRenderMethodsFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("modes", CDisplaySettings::SettingOptionsModesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("resolutions", CDisplaySettings::SettingOptionsResolutionsFiller);
@@ -422,6 +444,8 @@ void CSettings::InitializeOptionFillers()
   GetSettingsManager()->RegisterSettingOptionsFiller(
       "keyboardlayouts", KEYBOARD::CKeyboardLayoutManager::SettingOptionsKeyboardLayoutsFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller(
+      "smbversions", CServicesSettings::SettingOptionsSmbVersionsFiller);
+  GetSettingsManager()->RegisterSettingOptionsFiller(
       "filechunksizes", CServicesSettings::SettingOptionsChunkSizesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller(
       "filecachebuffermodes", CServicesSettings::SettingOptionsBufferModesFiller);
@@ -435,6 +459,8 @@ void CSettings::InitializeOptionFillers()
       "playerqueuetimesizes", CPlayerSettings::SettingOptionsQueueTimeSizesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller(
       "playerqueuedatasizes", CPlayerSettings::SettingOptionsQueueDataSizesFiller);
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "playerfastforwardspeeds", CPlayerSettings::SettingOptionsFastForwardSpeeds);
 }
 
 void CSettings::UninitializeOptionFillers()
@@ -487,6 +513,7 @@ void CSettings::UninitializeOptionFillers()
 #endif // defined(TARGET_LINUX)
   GetSettingsManager()->UnregisterSettingOptionsFiller("verticalsyncs");
   GetSettingsManager()->UnregisterSettingOptionsFiller("keyboardlayouts");
+  GetSettingsManager()->UnregisterSettingOptionsFiller("smbversions");
   GetSettingsManager()->UnregisterSettingOptionsFiller("filechunksizes");
   GetSettingsManager()->UnregisterSettingOptionsFiller("filecachebuffermodes");
   GetSettingsManager()->UnregisterSettingOptionsFiller("filecachememorysizes");
@@ -494,6 +521,7 @@ void CSettings::UninitializeOptionFillers()
   GetSettingsManager()->UnregisterSettingOptionsFiller("filecachechunksizes");
   GetSettingsManager()->UnregisterSettingOptionsFiller("playerqueuetimesizes");
   GetSettingsManager()->UnregisterSettingOptionsFiller("playerqueuedatasizes");
+  GetSettingsManager()->UnregisterSettingOptionsFiller("playerfastforwardspeeds");
 }
 
 void CSettings::InitializeConditions()
@@ -501,14 +529,16 @@ void CSettings::InitializeConditions()
   CSettingConditions::Initialize();
 
   // add basic conditions
-  const std::set<std::string> &simpleConditions = CSettingConditions::GetSimpleConditions();
-  for (std::set<std::string>::const_iterator itCondition = simpleConditions.begin(); itCondition != simpleConditions.end(); ++itCondition)
-    GetSettingsManager()->AddCondition(*itCondition);
+  const CSettingConditions::SimpleConditions& simpleConditions =
+      CSettingConditions::GetSimpleConditions();
+  for (const auto& simpleCondition : simpleConditions)
+    GetSettingsManager()->AddCondition(simpleCondition);
 
   // add more complex conditions
-  const std::map<std::string, SettingConditionCheck> &complexConditions = CSettingConditions::GetComplexConditions();
-  for (std::map<std::string, SettingConditionCheck>::const_iterator itCondition = complexConditions.begin(); itCondition != complexConditions.end(); ++itCondition)
-    GetSettingsManager()->AddDynamicCondition(itCondition->first, itCondition->second);
+  const CSettingConditions::ComplexConditions& complexConditions =
+      CSettingConditions::GetComplexConditions();
+  for (const auto& [identifier, condition] : complexConditions)
+    GetSettingsManager()->AddDynamicCondition(identifier, condition);
 }
 
 void CSettings::UninitializeConditions()
@@ -566,110 +596,83 @@ void CSettings::UninitializeISubSettings()
 void CSettings::InitializeISettingCallbacks()
 {
   // register any ISettingCallback implementations
-  std::set<std::string> settingSet;
-  settingSet.insert(CSettings::SETTING_MUSICLIBRARY_CLEANUP);
-  settingSet.insert(CSettings::SETTING_MUSICLIBRARY_EXPORT);
-  settingSet.insert(CSettings::SETTING_MUSICLIBRARY_IMPORT);
-  settingSet.insert(CSettings::SETTING_MUSICFILES_TRACKFORMAT);
-  settingSet.insert(CSettings::SETTING_VIDEOLIBRARY_FLATTENTVSHOWS);
-  settingSet.insert(CSettings::SETTING_VIDEOLIBRARY_GROUPMOVIESETS);
-  settingSet.insert(CSettings::SETTING_VIDEOLIBRARY_CLEANUP);
-  settingSet.insert(CSettings::SETTING_VIDEOLIBRARY_IMPORT);
-  settingSet.insert(CSettings::SETTING_VIDEOLIBRARY_EXPORT);
-  settingSet.insert(CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS);
-  settingSet.insert(CSettings::SETTING_MAINTENANCE_CLEANIMAGECACHE);
+  GetSettingsManager()->RegisterCallback(
+      &CMediaSettings::GetInstance(),
+      {CSettings::SETTING_MUSICLIBRARY_CLEANUP, CSettings::SETTING_MUSICLIBRARY_EXPORT,
+       CSettings::SETTING_MUSICLIBRARY_IMPORT, CSettings::SETTING_MUSICFILES_TRACKFORMAT,
+       CSettings::SETTING_VIDEOLIBRARY_FLATTENTVSHOWS,
+       CSettings::SETTING_VIDEOLIBRARY_GROUPMOVIESETS, CSettings::SETTING_VIDEOLIBRARY_CLEANUP,
+       CSettings::SETTING_VIDEOLIBRARY_IMPORT, CSettings::SETTING_VIDEOLIBRARY_EXPORT,
+       CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS,
+       CSettings::SETTING_MAINTENANCE_CLEANIMAGECACHE,
 #if HAS_DS_PLAYER
-  settingSet.insert(CSettings::SETTING_DSPLAYER_RULES);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_FILTERS);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_PLAYCORE);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_LAVSPLITTER);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_LAVVIDEO);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_LAVAUDIO);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_XYSUBFILTER);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_XYVSFILTER);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_DSAREARESET);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARDEVICES);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEAREXCLUSIVE);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARALLOWBITSTREAM);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARSTEREOCROSSFEED);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARIGNORESYSTEMCHANNELMIXER);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARCMOY);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARJMEIER);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARCUTOFF);
-  settingSet.insert(CSettings::SETTING_DSPLAYER_SANEARLEVEL);
+       CSettings::SETTING_DSPLAYER_RULES,
+       CSettings::SETTING_DSPLAYER_FILTERS,
+       CSettings::SETTING_DSPLAYER_PLAYCORE,
+       CSettings::SETTING_DSPLAYER_LAVSPLITTER,
+       CSettings::SETTING_DSPLAYER_LAVVIDEO,
+       CSettings::SETTING_DSPLAYER_LAVAUDIO,
+       CSettings::SETTING_DSPLAYER_XYSUBFILTER,
+       CSettings::SETTING_DSPLAYER_XYVSFILTER,
+       CSettings::SETTING_DSPLAYER_DSAREARESET,
+       CSettings::SETTING_DSPLAYER_SANEARDEVICES,
+       CSettings::SETTING_DSPLAYER_SANEAREXCLUSIVE,
+       CSettings::SETTING_DSPLAYER_SANEARALLOWBITSTREAM,
+       CSettings::SETTING_DSPLAYER_SANEARSTEREOCROSSFEED,
+       CSettings::SETTING_DSPLAYER_SANEARIGNORESYSTEMCHANNELMIXER,
+       CSettings::SETTING_DSPLAYER_SANEARCMOY,
+       CSettings::SETTING_DSPLAYER_SANEARJMEIER,
+       CSettings::SETTING_DSPLAYER_SANEARCUTOFF,
+       CSettings::SETTING_DSPLAYER_SANEARLEVEL
 #endif
-  GetSettingsManager()->RegisterCallback(&CMediaSettings::GetInstance(), settingSet);
+      });
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_SCREEN);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_RESOLUTION);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_SCREENMODE);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_MONITOR);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_PREFEREDSTEREOSCOPICMODE);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_3DLUT);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_DISPLAYPROFILE);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_BLANKDISPLAYS);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_WHITELIST);
-  settingSet.insert(CSettings::SETTING_VIDEOSCREEN_10BITSURFACES);
-  GetSettingsManager()->RegisterCallback(&CDisplaySettings::GetInstance(), settingSet);
+  GetSettingsManager()->RegisterCallback(
+      &CDisplaySettings::GetInstance(),
+      {CSettings::SETTING_VIDEOSCREEN_SCREEN, CSettings::SETTING_VIDEOSCREEN_RESOLUTION,
+       CSettings::SETTING_VIDEOSCREEN_SCREENMODE, CSettings::SETTING_VIDEOSCREEN_MONITOR,
+       CSettings::SETTING_VIDEOSCREEN_PREFEREDSTEREOSCOPICMODE,
+       CSettings::SETTING_VIDEOSCREEN_3DLUT, CSettings::SETTING_VIDEOSCREEN_DISPLAYPROFILE,
+       CSettings::SETTING_VIDEOSCREEN_BLANKDISPLAYS, CSettings::SETTING_VIDEOSCREEN_WHITELIST,
+       CSettings::SETTING_VIDEOSCREEN_10BITSURFACES});
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_SUBTITLES_CHARSET);
-  settingSet.insert(CSettings::SETTING_LOCALE_CHARSET);
-  GetSettingsManager()->RegisterCallback(&g_charsetConverter, settingSet);
+  GetSettingsManager()->RegisterCallback(&g_charsetConverter, {CSettings::SETTING_SUBTITLES_CHARSET,
+                                                               CSettings::SETTING_LOCALE_CHARSET});
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_LOCALE_AUDIOLANGUAGE);
-  settingSet.insert(CSettings::SETTING_LOCALE_SUBTITLELANGUAGE);
-  settingSet.insert(CSettings::SETTING_LOCALE_LANGUAGE);
-  settingSet.insert(CSettings::SETTING_LOCALE_COUNTRY);
-  settingSet.insert(CSettings::SETTING_LOCALE_SHORTDATEFORMAT);
-  settingSet.insert(CSettings::SETTING_LOCALE_LONGDATEFORMAT);
-  settingSet.insert(CSettings::SETTING_LOCALE_TIMEFORMAT);
-  settingSet.insert(CSettings::SETTING_LOCALE_USE24HOURCLOCK);
-  settingSet.insert(CSettings::SETTING_LOCALE_TEMPERATUREUNIT);
-  settingSet.insert(CSettings::SETTING_LOCALE_SPEEDUNIT);
-  GetSettingsManager()->RegisterCallback(&g_langInfo, settingSet);
+  GetSettingsManager()->RegisterCallback(
+      &g_langInfo,
+      {CSettings::SETTING_LOCALE_AUDIOLANGUAGE, CSettings::SETTING_LOCALE_SUBTITLELANGUAGE,
+       CSettings::SETTING_LOCALE_LANGUAGE, CSettings::SETTING_LOCALE_COUNTRY,
+       CSettings::SETTING_LOCALE_SHORTDATEFORMAT, CSettings::SETTING_LOCALE_LONGDATEFORMAT,
+       CSettings::SETTING_LOCALE_TIMEFORMAT, CSettings::SETTING_LOCALE_USE24HOURCLOCK,
+       CSettings::SETTING_LOCALE_TEMPERATUREUNIT, CSettings::SETTING_LOCALE_SPEEDUNIT});
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_MASTERLOCK_LOCKCODE);
-  GetSettingsManager()->RegisterCallback(&g_passwordManager, settingSet);
+  GetSettingsManager()->RegisterCallback(&g_passwordManager,
+                                         {CSettings::SETTING_MASTERLOCK_LOCKCODE});
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_LOOKANDFEEL_RSSEDIT);
-  GetSettingsManager()->RegisterCallback(&CRssManager::GetInstance(), settingSet);
-
-#if defined(TARGET_DARWIN_OSX) and defined(HAS_XBMCHELPER)
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_INPUT_APPLEREMOTEMODE);
-  settingSet.insert(CSettings::SETTING_INPUT_APPLEREMOTEALWAYSON);
-  GetSettingsManager()->RegisterCallback(&XBMCHelper::GetInstance(), settingSet);
-#endif
+  GetSettingsManager()->RegisterCallback(&CRssManager::GetInstance(),
+                                         {CSettings::SETTING_LOOKANDFEEL_RSSEDIT});
 
 #if defined(TARGET_DARWIN_TVOS)
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_INPUT_SIRIREMOTEIDLETIMERENABLED);
-  settingSet.insert(CSettings::SETTING_INPUT_SIRIREMOTEIDLETIME);
-  settingSet.insert(CSettings::SETTING_INPUT_SIRIREMOTEHORIZONTALSENSITIVITY);
-  settingSet.insert(CSettings::SETTING_INPUT_SIRIREMOTEVERTICALSENSITIVITY);
-  GetSettingsManager()->RegisterCallback(&CTVOSInputSettings::GetInstance(), settingSet);
+  GetSettingsManager()->RegisterCallback(&CTVOSInputSettings::GetInstance(),
+                                         {CSettings::SETTING_INPUT_SIRIREMOTEIDLETIMERENABLED,
+                                          CSettings::SETTING_INPUT_SIRIREMOTEIDLETIME,
+                                          CSettings::SETTING_INPUT_SIRIREMOTEHORIZONTALSENSITIVITY,
+                                          CSettings::SETTING_INPUT_SIRIREMOTEVERTICALSENSITIVITY});
 #endif
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_ADDONS_SHOW_RUNNING);
-  settingSet.insert(CSettings::SETTING_ADDONS_MANAGE_DEPENDENCIES);
-  settingSet.insert(CSettings::SETTING_ADDONS_REMOVE_ORPHANED_DEPENDENCIES);
-  settingSet.insert(CSettings::SETTING_ADDONS_ALLOW_UNKNOWN_SOURCES);
-  GetSettingsManager()->RegisterCallback(&ADDON::CAddonSystemSettings::GetInstance(), settingSet);
+  GetSettingsManager()->RegisterCallback(&ADDON::CAddonSystemSettings::GetInstance(),
+                                         {CSettings::SETTING_ADDONS_SHOW_RUNNING,
+                                          CSettings::SETTING_ADDONS_MANAGE_DEPENDENCIES,
+                                          CSettings::SETTING_ADDONS_REMOVE_ORPHANED_DEPENDENCIES,
+                                          CSettings::SETTING_ADDONS_ALLOW_UNKNOWN_SOURCES});
 
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_POWERMANAGEMENT_WAKEONACCESS);
-  GetSettingsManager()->RegisterCallback(&CWakeOnAccess::GetInstance(), settingSet);
+  GetSettingsManager()->RegisterCallback(&CWakeOnAccess::GetInstance(),
+                                         {CSettings::SETTING_POWERMANAGEMENT_WAKEONACCESS});
 
 #ifdef HAVE_LIBBLURAY
-  settingSet.clear();
-  settingSet.insert(CSettings::SETTING_DISC_PLAYBACK);
-  GetSettingsManager()->RegisterCallback(&CDiscSettings::GetInstance(), settingSet);
+  GetSettingsManager()->RegisterCallback(&CDiscSettings::GetInstance(),
+                                         {CSettings::SETTING_DISC_PLAYBACK});
 #endif
 }
 
@@ -681,9 +684,6 @@ void CSettings::UninitializeISettingCallbacks()
   GetSettingsManager()->UnregisterCallback(&g_langInfo);
   GetSettingsManager()->UnregisterCallback(&g_passwordManager);
   GetSettingsManager()->UnregisterCallback(&CRssManager::GetInstance());
-#if defined(TARGET_DARWIN_OSX) and defined(HAS_XBMCHELPER)
-  GetSettingsManager()->UnregisterCallback(&XBMCHelper::GetInstance());
-#endif
   GetSettingsManager()->UnregisterCallback(&CWakeOnAccess::GetInstance());
 #ifdef HAVE_LIBBLURAY
   GetSettingsManager()->UnregisterCallback(&CDiscSettings::GetInstance());

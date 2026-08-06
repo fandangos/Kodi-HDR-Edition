@@ -12,7 +12,8 @@
 #include "FileItemList.h"
 #include "ServiceBroker.h"
 #include "filesystem/VideoDatabaseDirectory/DirectoryNode.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -69,7 +70,8 @@ void CVideoFileItemListModifier::AddQueuingFolder(CFileItemList& items)
   {
     case NodeType::SEASONS:
     {
-      const std::string& strLabel = g_localizeStrings.Get(20366);
+      const std::string& strLabel =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20366);
       pItem = std::make_shared<CFileItem>(strLabel); // "All Seasons"
       videoUrl.AppendPath("-1/");
       pItem->SetPath(videoUrl.ToString());
@@ -102,12 +104,13 @@ void CVideoFileItemListModifier::AddQueuingFolder(CFileItemList& items)
       {
         for (int i = 1; i < items.Size(); i++)
         {
-          if (items[i]->GetVideoInfoTag() &&
+          if (items[i]->HasVideoInfoTag() &&
               items[i]->GetVideoInfoTag()->m_type == MediaTypeSeason &&
               items[i]->GetVideoInfoTag()->m_iSeason > 0)
           {
             *pItem->GetVideoInfoTag() = *items[i]->GetVideoInfoTag();
             pItem->GetVideoInfoTag()->m_iSeason = -1;
+            pItem->GetVideoInfoTag()->m_strPlot = "";
             break;
           }
         }
@@ -126,7 +129,9 @@ void CVideoFileItemListModifier::AddQueuingFolder(CFileItemList& items)
   }
   break;
   case NodeType::MUSICVIDEOS_ALBUM:
-    pItem = std::make_shared<CFileItem>("* " + g_localizeStrings.Get(16100)); // "* All Videos"
+    pItem = std::make_shared<CFileItem>(
+        "* " +
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16100)); // "* All Videos"
     videoUrl.AppendPath("-1/");
     pItem->SetPath(videoUrl.ToString());
     break;
@@ -136,8 +141,10 @@ void CVideoFileItemListModifier::AddQueuingFolder(CFileItemList& items)
 
   if (pItem)
   {
-    pItem->m_bIsFolder = true;
-    pItem->SetSpecialSort(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bVideoLibraryAllItemsOnBottom ? SortSpecialOnBottom : SortSpecialOnTop);
+    pItem->SetFolder(true);
+    const auto advSettings = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings();
+    pItem->SetSpecialSort(advSettings->m_bVideoLibraryAllItemsOnBottom ? SortSpecial::BOTTOM
+                                                                       : SortSpecial::TOP);
     pItem->SetCanQueue(false);
     items.Add(pItem);
   }

@@ -24,13 +24,14 @@ CGUIRenderTarget::CGUIRenderTarget(IRenderManager* renderManager) : m_renderMana
 // --- CGUIRenderControl -------------------------------------------------------
 
 CGUIRenderControl::CGUIRenderControl(IRenderManager* renderManager, CGUIGameControl& gameControl)
-  : CGUIRenderTarget(renderManager), m_gameControl(gameControl)
+  : CGUIRenderTarget(renderManager),
+    m_gameControl(gameControl)
 {
 }
 
 void CGUIRenderControl::Render()
 {
-  m_renderManager->RenderControl(true, true, m_gameControl.GetRenderRegion(),
+  m_renderManager->RenderControl(false, true, m_gameControl.GetRenderRegion(),
                                  m_gameControl.GetRenderSettings());
 }
 
@@ -45,7 +46,8 @@ void CGUIRenderControl::RenderEx()
 
 CGUIRenderFullScreen::CGUIRenderFullScreen(IRenderManager* renderManager,
                                            CGameWindowFullScreen& window)
-  : CGUIRenderTarget(renderManager), m_window(window)
+  : CGUIRenderTarget(renderManager),
+    m_window(window)
 {
 }
 

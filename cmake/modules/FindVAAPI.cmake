@@ -8,10 +8,10 @@
 #   ${APP_NAME_LC}::VAAPI   - The VAAPI library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
+  find_package(PkgConfig ${SEARCH_QUIET})
 
   if(PKG_CONFIG_FOUND)
-    pkg_check_modules(PC_VAAPI libva libva-drm libva-wayland libva-x11 QUIET)
+    pkg_check_modules(PC_VAAPI libva libva-drm libva-wayland libva-x11 ${SEARCH_QUIET})
   endif()
 
   set(REQUIRED_VARS "VAAPI_libva_LIBRARY" "VAAPI_libva-drm_LIBRARY" "VAAPI_libva_INCLUDE_DIR" "VAAPI_libva-drm_INCLUDE_DIR")
@@ -50,6 +50,10 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
   if(NOT VAAPI_FIND_VERSION)
     set(VAAPI_FIND_VERSION 0.39.0)
   endif()
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(VAAPI

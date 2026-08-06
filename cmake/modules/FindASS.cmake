@@ -12,20 +12,18 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
   include(cmake/scripts/common/ModuleHelpers.cmake)
 
-  macro(buildlibASS)
+  macro(buildmacroASS)
 
-    find_package(FreeType REQUIRED QUIET)
-    find_package(HarfBuzz REQUIRED QUIET)
-    find_package(FriBidi REQUIRED QUIET)
-    find_package(Iconv REQUIRED QUIET)
+    find_package(FreeType REQUIRED ${SEARCH_QUIET})
+    find_package(HarfBuzz REQUIRED ${SEARCH_QUIET})
+    find_package(FriBidi REQUIRED ${SEARCH_QUIET})
+    find_package(Iconv REQUIRED ${SEARCH_QUIET})
 
-    # Posix platforms (except Apple) use fontconfig
-    if(NOT (WIN32 OR WINDOWS_STORE) AND
-       NOT (CMAKE_SYSTEM_NAME STREQUAL Darwin))
-      find_package(Fontconfig REQUIRED QUIET)
+    if(NOT (WIN32 OR WINDOWS_STORE))
+      find_package(Fontconfig REQUIRED ${SEARCH_QUIET})
     endif()
 
-    set(ASS_VERSION ${${MODULE}_VER})
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VERSION ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER})
 
     if(WIN32 OR WINDOWS_STORE)
       set(patches "${CMAKE_SOURCE_DIR}/tools/depends/target/libass/01-win-CMakeLists.patch"
@@ -34,8 +32,9 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
                   "${CMAKE_SOURCE_DIR}/tools/depends/target/libass/04-win-nullcheck-shared_hdc.patch")
 
       generate_patchcommand("${patches}")
+      unset(patches)
 
-      set(LIBASS_DEBUG_POSTFIX d)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX d)
     endif()
 
     if(WIN32 OR WINDOWS_STORE)
@@ -64,6 +63,7 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
                               --prefix=${DEPENDS_PATH}
                               --disable-shared
                               --disable-libunibreak
+                              --enable-fontconfig
                               ${DISABLE_ASM})
 
       set(BUILD_COMMAND ${MAKE_EXECUTABLE})
@@ -74,144 +74,57 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
     BUILD_DEP_TARGET()
 
     # Link libraries for target interface
-    set(ASS_LINK_LIBRARIES ${APP_NAME_LC}::FriBidi ${APP_NAME_LC}::Iconv ${APP_NAME_LC}::HarfBuzz ${APP_NAME_LC}::FreeType)
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES ${APP_NAME_LC}::FriBidi ${APP_NAME_LC}::Iconv ${APP_NAME_LC}::HarfBuzz ${APP_NAME_LC}::FreeType)
 
     if(WIN32 OR WINDOWS_STORE)
       # Directwrite dependency
-      list(APPEND ASS_LINK_LIBRARIES dwrite.lib)
-    elseif(CMAKE_SYSTEM_NAME STREQUAL Darwin)
-      # Coretext dependencies
-      list(APPEND ASS_LINK_LIBRARIES "-framework CoreText"
-                                     "-framework CoreFoundation")
+      list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES dwrite.lib)
     else()
-      list(APPEND ASS_LINK_LIBRARIES Fontconfig::Fontconfig)
-      add_dependencies(${MODULE_LC} Fontconfig::Fontconfig)
-    endif()
+      if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
+        # Coretext dependencies
+        list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES "-framework CoreText"
+                                                                        "-framework CoreFoundation")
+      endif()
 
-    set(ASS_INCLUDE_DIR ${LIBASS_INCLUDE_DIR})
-    set(ASS_LIBRARY_RELEASE ${LIBASS_LIBRARY_RELEASE})
-    if(LIBASS_LIBRARY_DEBUG)
-      set(ASS_LIBRARY_DEBUG ${LIBASS_LIBRARY_DEBUG})
+      list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES Fontconfig::Fontconfig)
+      add_dependencies(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} Fontconfig::Fontconfig)
     endif()
 
     # Add dependencies to build target
-    add_dependencies(${MODULE_LC} ${APP_NAME_LC}::FriBidi)
-    add_dependencies(${MODULE_LC} ${APP_NAME_LC}::Iconv)
-    add_dependencies(${MODULE_LC} ${APP_NAME_LC}::HarfBuzz)
-    add_dependencies(${MODULE_LC} ${APP_NAME_LC}::FreeType)
+    add_dependencies(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} ${APP_NAME_LC}::FriBidi
+                                                                        ${APP_NAME_LC}::Iconv
+                                                                        ${APP_NAME_LC}::HarfBuzz
+                                                                        ${APP_NAME_LC}::FreeType)
   endmacro()
 
-  set(MODULE_LC libass)
+  set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC libass)
 
   SETUP_BUILD_VARS()
 
-  if(WIN32 OR WINDOWS_STORE)
-    find_package(libass CONFIG QUIET
-                        HINTS ${DEPENDS_PATH}/lib/cmake
-                        ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
+  SETUP_FIND_SPECS()
 
-    if(libass_VERSION VERSION_LESS ${${MODULE}_VER} AND ENABLE_INTERNAL_ASS)
-      # build internal module
-      buildlibASS()
-    else()
-  
-      # we only do this because we use find_package_handle_standard_args for config time output
-      # and it isnt capable of handling TARGETS, so we have to extract the info
-      get_target_property(_ASS_CONFIGURATIONS libass::libass IMPORTED_CONFIGURATIONS)
-      foreach(_ass_config IN LISTS _ASS_CONFIGURATIONS)
-        # Some non standard config (eg None on Debian)
-        # Just set to RELEASE var so select_library_configurations can continue to work its magic
-        string(TOUPPER ${_ass_config} _ass_config_UPPER)
-        if((NOT ${_ass_config_UPPER} STREQUAL "RELEASE") AND
-           (NOT ${_ass_config_UPPER} STREQUAL "DEBUG"))
-          get_target_property(ASS_LIBRARY_RELEASE libass::libass IMPORTED_LOCATION_${_ass_config_UPPER})
-        else()
-          get_target_property(ASS_LIBRARY_${_ass_config_UPPER} libass::libass IMPORTED_LOCATION_${_ass_config_UPPER})
-        endif()
-      endforeach()
-  
-      get_target_property(ASS_INCLUDE_DIR libass::libass INTERFACE_INCLUDE_DIRECTORIES)
-      set(ASS_VERSION ${libass_VERSION})
-  
-    endif()
-  else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(PC_ASS libass QUIET IMPORTED_TARGET)
+  SEARCH_EXISTING_PACKAGES()
 
-    if((PC_ASS_VERSION VERSION_LESS ${${MODULE}_VER} AND ENABLE_INTERNAL_ASS) OR
-       ((CORE_SYSTEM_NAME STREQUAL linux OR CORE_SYSTEM_NAME STREQUAL freebsd) AND ENABLE_INTERNAL_ASS))
-      # build internal module
-      buildlibASS()
-    else()
-      # INTERFACE_LINK_OPTIONS is incorrectly populated when cmake generation is executed
-      # when an existing build generation is already done. Just set this to blank
-      set_target_properties(PkgConfig::PC_ASS PROPERTIES INTERFACE_LINK_OPTIONS "")
-  
-      # First item is the full path of the library file found
-      # pkg_check_modules does not populate a variable of the found library explicitly
-      list(GET PC_ASS_LINK_LIBRARIES 0 ASS_LIBRARY_RELEASE)
-      set(ASS_INCLUDE_DIR ${PC_ASS_INCLUDEDIR})
-      set(ASS_LINK_LIBRARIES ${PC_ASS_LINK_LIBRARIES})
-      set(ASS_VERSION ${PC_ASS_VERSION})
-    endif()
+  if(("${${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_VERSION}" VERSION_LESS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER} AND ENABLE_INTERNAL_ASS) OR
+    (((CORE_SYSTEM_NAME STREQUAL linux AND NOT "webos" IN_LIST CORE_PLATFORM_NAME_LC) OR CORE_SYSTEM_NAME STREQUAL freebsd) AND ENABLE_INTERNAL_ASS))
+    message(STATUS "Building ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}: \(version \"${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}\"\)")
+    cmake_language(EVAL CODE "
+      buildmacro${CMAKE_FIND_PACKAGE_NAME}()
+    ")
   endif()
 
-  include(SelectLibraryConfigurations)
-  select_library_configurations(ASS)
-  unset(ASS_LIBRARIES)
-
-  include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(ASS
-                                    REQUIRED_VARS ASS_LIBRARY ASS_INCLUDE_DIR
-                                    VERSION_VAR ASS_VERSION)
-
-  if(ASS_FOUND)
-    if(TARGET PkgConfig::PC_ASS AND NOT TARGET libass)
-      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::PC_ASS)
-    elseif(TARGET libass::libass AND NOT TARGET libass)
+  if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    if(TARGET PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
+    elseif(TARGET libass::libass AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
       # Kodi custom libass target used for windows platforms
       add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS libass::libass)
     else()
-      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
-      if(ASS_LIBRARY_RELEASE)
-        set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                         IMPORTED_CONFIGURATIONS RELEASE
-                                                                         IMPORTED_LOCATION_RELEASE "${ASS_LIBRARY_RELEASE}")
-      endif()
-      if(ASS_LIBRARY_DEBUG)
-        set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                         IMPORTED_LOCATION_DEBUG "${ASS_LIBRARY_DEBUG}")
-        set_property(TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} APPEND PROPERTY
-                                                                              IMPORTED_CONFIGURATIONS DEBUG)
-      endif()
-      set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                       INTERFACE_INCLUDE_DIRECTORIES "${ASS_INCLUDE_DIR}")
-
-      if(ASS_LINK_LIBRARIES)
-        set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                         INTERFACE_LINK_LIBRARIES "${ASS_LINK_LIBRARIES}")  
-      endif()
+      SETUP_BUILD_TARGET()
+      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
     endif()
 
-    if(TARGET libass)
-      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} libass)
-    endif()
-
-    # Add internal build target when a Multi Config Generator is used
-    # We cant add a dependency based off a generator expression for targeted build types,
-    # https://gitlab.kitware.com/cmake/cmake/-/issues/19467
-    # therefore if the find heuristics only find the library, we add the internal build
-    # target to the project to allow user to manually trigger for any build type they need
-    # in case only a specific build type is actually available (eg Release found, Debug Required)
-    # This is mainly targeted for windows who required different runtime libs for different
-    # types, and they arent compatible
-    if(_multiconfig_generator)
-      if(NOT TARGET libass)
-        buildlibASS()
-        set_target_properties(libass PROPERTIES EXCLUDE_FROM_ALL TRUE)
-      endif()
-      add_dependencies(build_internal_depends libass)
-    endif()
+    ADD_MULTICONFIG_BUILDMACRO()
   else()
     if(ASS_FIND_REQUIRED)
       message(FATAL_ERROR "Ass libraries were not found.")

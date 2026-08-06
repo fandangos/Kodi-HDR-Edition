@@ -119,8 +119,7 @@ bool CVideoPlayerVideo::OpenStream(CDVDStreamInfo hint)
         hint.codec == AV_CODEC_ID_HEVC ||
         hint.codec == AV_CODEC_ID_MPEG4 ||
         hint.codec == AV_CODEC_ID_WMV3 ||
-        hint.codec == AV_CODEC_ID_VC1 ||
-        hint.codec == AV_CODEC_ID_AV1)
+        hint.codec == AV_CODEC_ID_VC1)
     {
       CLog::LogF(LOGERROR, "Codec id {} require extradata.", hint.codec);
       return false;
@@ -128,7 +127,7 @@ bool CVideoPlayerVideo::OpenStream(CDVDStreamInfo hint)
     // clang-format on
   }
 
-  CLog::Log(LOGINFO, "Creating video codec with codec id: {}", hint.codec);
+  CLog::Log(LOGINFO, "Creating video codec: {}", avcodec_get_name(hint.codec));
 
   if (m_messageQueue.IsInited())
   {
@@ -168,7 +167,8 @@ bool CVideoPlayerVideo::OpenStream(CDVDStreamInfo hint)
 
 void CVideoPlayerVideo::OpenStream(CDVDStreamInfo& hint, std::unique_ptr<CDVDVideoCodec> codec)
 {
-  CLog::Log(LOGDEBUG, "CVideoPlayerVideo::OpenStream - open stream with codec id: {}", hint.codec);
+  CLog::Log(LOGDEBUG, "CVideoPlayerVideo::OpenStream - open stream with codec: {}",
+            avcodec_get_name(hint.codec));
 
   m_processInfo.GetVideoBufferManager().ReleasePools();
 
@@ -219,7 +219,7 @@ void CVideoPlayerVideo::OpenStream(CDVDStreamInfo& hint, std::unique_ptr<CDVDVid
 
   if (!codec)
   {
-    CLog::Log(LOGINFO, "Creating video codec with codec id: {}", hint.codec);
+    CLog::Log(LOGINFO, "Creating video codec: {}", avcodec_get_name(hint.codec));
     hint.codecOptions |= CODEC_ALLOW_FALLBACK;
     codec = CDVDFactoryCodec::CreateVideoCodec(hint, m_processInfo);
     if (!codec)
@@ -551,8 +551,11 @@ void CVideoPlayerVideo::Process()
 
       bRequestDrop = false;
       iDropDirective = CalcDropRequirement(pts);
-      if ((iDropDirective & DROP_VERYLATE) &&
-           m_bAllowDrop &&
+
+      // Framerate calibration exists to avoid dropping frames during normal playback before we're
+      // confident what the real framerate is. That doesn't apply during trick-play and
+      // DROP_VERYlATE must not be silently disabled.
+      if ((iDropDirective & DROP_VERYLATE) && (m_bAllowDrop || m_speed > DVD_PLAYSPEED_NORMAL) &&
           !bPacketDrop)
       {
         bRequestDrop = true;
@@ -594,6 +597,7 @@ void CVideoPlayerVideo::Process()
         }
 
         m_videoStats.AddSampleBytes(pPacket->iSize);
+        UpdatePlayerInfo();
 
         if (ProcessDecoderOutput(frametime, pts))
         {
@@ -607,6 +611,13 @@ void CVideoPlayerVideo::Process()
       }
     }
   }
+}
+
+void CVideoPlayerVideo::UpdatePlayerInfo()
+{
+  m_processInfo.SetVideoLiveBitRate(GetVideoBitrate());
+  m_processInfo.SetVideoQueueLevel(std::min(99, m_messageQueue.GetLevel()));
+  m_processInfo.SetVideoQueueDataLevel(std::min(99, m_messageQueue.GetLevel(true)));
 }
 
 bool CVideoPlayerVideo::ProcessDecoderOutput(double &frametime, double &pts)
@@ -706,14 +717,14 @@ bool CVideoPlayerVideo::ProcessDecoderOutput(double &frametime, double &pts)
     if (m_picture.stereoMode.empty())
     {
       std::string stereoMode;
-      switch(m_processInfo.GetVideoSettings().m_StereoMode)
+      switch (static_cast<RenderStereoMode>(m_processInfo.GetVideoSettings().m_StereoMode))
       {
-        case RENDER_STEREO_MODE_SPLIT_VERTICAL:
+        case RenderStereoMode::SPLIT_VERTICAL:
           stereoMode = "left_right";
           if (m_processInfo.GetVideoSettings().m_StereoInvert)
             stereoMode = "right_left";
           break;
-        case RENDER_STEREO_MODE_SPLIT_HORIZONTAL:
+        case RenderStereoMode::SPLIT_HORIZONTAL:
           stereoMode = "top_bottom";
           if (m_processInfo.GetVideoSettings().m_StereoInvert)
             stereoMode = "bottom_top";
@@ -796,7 +807,7 @@ void CVideoPlayerVideo::SetSpeed(int speed)
 
 void CVideoPlayerVideo::Flush(bool sync)
 {
-  /* flush using message as this get's called from VideoPlayer thread */
+  /* flush using message as this gets called from VideoPlayer thread */
   /* and any demux packet that has been taken out of queue need to */
   /* be disposed of before we flush */
   SendMessage(std::make_shared<CDVDMsgBool>(CDVDMsg::GENERAL_FLUSH, sync), 1);
@@ -812,7 +823,7 @@ void CVideoPlayerVideo::ProcessOverlays(const VideoPicture* pSource, double pts)
   VecOverlays overlays;
 
   {
-    std::unique_lock<CCriticalSection> lock(*m_pOverlayContainer);
+    std::unique_lock lock(*m_pOverlayContainer);
 
     VecOverlays* pVecOverlays = m_pOverlayContainer->GetOverlays();
     auto it = pVecOverlays->begin();
@@ -932,8 +943,19 @@ CVideoPlayerVideo::EOutputState CVideoPlayerVideo::OutputPicture(const VideoPict
   int buffer = m_renderManager.WaitForBuffer(m_bAbortOutput, maxWaitTime);
   if (buffer < 0)
   {
+    // The render buffer pool can fill up in trick-play FF, with more new pictures decoded than
+    // are taken out at the display rate.
+    // Drop the picture to let the renderer naturally drain the pool and make room for next iteration.
+    // It will receive the most current new picture instead of whatever was decoded first (likely stale)
+    if (m_speed > DVD_PLAYSPEED_NORMAL)
+    {
+      m_droppingStats.AddOutputDropGain(pPicture->pts, 1);
+      return OUTPUT_DROPPED;
+    }
+
     if (m_speed != DVD_PLAYSPEED_PAUSE)
       CLog::Log(LOGWARNING, "{} - timeout waiting for buffer", __FUNCTION__);
+
     return OUTPUT_AGAIN;
   }
 

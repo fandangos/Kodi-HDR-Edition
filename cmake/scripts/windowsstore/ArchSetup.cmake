@@ -11,9 +11,7 @@ endif()
 
 # -------- Host Settings ---------
 
-set(_gentoolset ${CMAKE_GENERATOR_TOOLSET})
-string(REPLACE "host=" "" HOSTTOOLSET ${_gentoolset})
-unset(_gentoolset)
+set(HOSTTOOLSET ${CMAKE_VS_PLATFORM_TOOLSET_HOST_ARCHITECTURE})
 
 # -------- Architecture settings ---------
 
@@ -60,6 +58,8 @@ set(NATIVEPREFIX ${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/tools)
 set(DEPENDS_PATH ${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/win10-${ARCH})
 set(MINGW_LIBS_DIR ${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/mingwlibs/win10-${ARCH})
 
+set(Msys_ROOT "${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/msys64")
+
 # mingw libs
 list(APPEND CMAKE_PREFIX_PATH ${MINGW_LIBS_DIR})
 list(APPEND CMAKE_LIBRARY_PATH ${MINGW_LIBS_DIR}/bin)
@@ -83,7 +83,7 @@ if(NOT SDK_TARGET_ARCH STREQUAL arm)
   list(APPEND ARCH_DEFINES -D__SSE__ -D__SSE2__)
 endif()
 set(SYSTEM_DEFINES -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DHAS_DX -D__STDC_CONSTANT_MACROS
-                   -DTAGLIB_STATIC -DNPT_CONFIG_ENABLE_LOGGING
+                   -DNPT_CONFIG_ENABLE_LOGGING
                    -DPLT_HTTP_DEFAULT_USER_AGENT="UPnP/1.0 DLNADOC/1.50 Kodi"
                    -DPLT_HTTP_DEFAULT_SERVER="UPnP/1.0 DLNADOC/1.50 Kodi"
                    -DUNICODE -D_UNICODE
@@ -111,7 +111,7 @@ set(gtest_force_shared_crt ON CACHE STRING "" FORCE)
 link_directories(${MINGW_LIBS_DIR}/lib
                  ${DEPENDS_PATH}/lib)
 
-list(APPEND DEPLIBS bcrypt.lib d3d11.lib WS2_32.lib dxguid.lib dloadhelper.lib WindowsApp.lib)
+list(APPEND DEPLIBS bcrypt d3d11.lib ws2_32 dxguid.lib dloadhelper.lib WindowsApp.lib)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /WINMD:NO")
 set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} /NODEFAULTLIB:msvcrt /DEBUG:FASTLINK /OPT:NOREF /OPT:NOICF")

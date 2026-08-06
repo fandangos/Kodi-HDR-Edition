@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -10,12 +10,14 @@
 
 #include "DVDOverlayImage.h"
 #include "DVDStreamInfo.h"
+#include "ServiceBroker.h"
 #include "cores/FFmpeg.h"
 #include "cores/VideoPlayer/Interface/DemuxPacket.h"
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "utils/EndianSwap.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 CDVDOverlayCodecFFmpeg::CDVDOverlayCodecFFmpeg() : CDVDOverlayCodec("FFmpeg Subtitle Decoder")
 {
@@ -111,6 +113,9 @@ bool CDVDOverlayCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &optio
     avcodec_free_context(&m_pCodecContext);
     return false;
   }
+
+  if (pCodec->name != nullptr)
+    SetName("ff-" + std::string(pCodec->name));
 
   return true;
 }
@@ -243,9 +248,10 @@ std::shared_ptr<CDVDOverlay> CDVDOverlayCodecFFmpeg::GetOverlay()
       }
     }
 
-    RENDER_STEREO_MODE render_stereo_mode = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
-    if (render_stereo_mode != RENDER_STEREO_MODE_OFF &&
-        render_stereo_mode != RENDER_STEREO_MODE_HARDWAREBASED)
+    RenderStereoMode render_stereo_mode =
+        CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
+    if (render_stereo_mode != RenderStereoMode::OFF &&
+        render_stereo_mode != RenderStereoMode::HARDWAREBASED)
     {
       if (rect.h > m_height / 2)
       {
@@ -271,7 +277,7 @@ std::shared_ptr<CDVDOverlay> CDVDOverlayCodecFFmpeg::GetOverlay()
     overlay->y = rect.y;
     overlay->width = rect.w;
     overlay->height = rect.h;
-    overlay->bForced = rect.flags != 0;
+    overlay->bForced = (rect.flags & AV_SUBTITLE_FLAG_FORCED);
     overlay->source_width = m_width;
     overlay->source_height = m_height;
 

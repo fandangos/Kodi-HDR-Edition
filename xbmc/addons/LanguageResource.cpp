@@ -10,8 +10,8 @@
 #include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "addons/AddonManager.h"
-#include "addons/Skin.h"
 #include "addons/addoninfo/AddonType.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "settings/Settings.h"
@@ -23,7 +23,10 @@ using namespace KODI::MESSAGING;
 
 using KODI::MESSAGING::HELPERS::DialogResponse;
 
-#define LANGUAGE_ADDON_PREFIX   "resource.language."
+namespace
+{
+constexpr const char* LANGUAGE_ADDON_PREFIX = "resource.language.";
+}
 
 namespace ADDON
 {
@@ -70,16 +73,16 @@ CLanguageResource::CLanguageResource(const AddonInfoPtr& addonInfo)
      *   <token>Le</token>
      *   ...
      */
-    for (const auto& values : sorttokensElement->GetValues())
+    for (const auto& [_, addonExtensions] : sorttokensElement->GetValues())
     {
       /* Second loop goes around the row parts, e.g.
        *   separators = "'"
        *   token = Le
        */
-      std::string token = values.second.GetValue("token").asString();
-      std::string separators = values.second.GetValue("token@separators").asString();
+      const std::string token = addonExtensions.GetValue("token").asString();
       if (!token.empty())
       {
+        std::string separators = addonExtensions.GetValue("token@separators").asString();
         if (separators.empty())
           separators = " ._";
 
@@ -97,7 +100,7 @@ bool CLanguageResource::IsInUse() const
 
 void CLanguageResource::OnPostInstall(bool update, bool modal)
 {
-  if (!g_SkinInfo)
+  if (!CServiceBroker::GetGUI())
     return;
 
   if (IsInUse() || (!update && !modal &&
@@ -113,9 +116,8 @@ void CLanguageResource::OnPostInstall(bool update, bool modal)
 
 bool CLanguageResource::IsAllowed(const std::string &file) const
 {
-  return file.empty() ||
-         StringUtils::EqualsNoCase(file.c_str(), "langinfo.xml") ||
-         StringUtils::EqualsNoCase(file.c_str(), "strings.po");
+  return file.empty() || StringUtils::EqualsNoCase(file, "langinfo.xml") ||
+         StringUtils::EqualsNoCase(file, "strings.po");
 }
 
 std::string CLanguageResource::GetAddonId(const std::string& locale)

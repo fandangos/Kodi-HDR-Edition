@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -15,8 +15,9 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIEditControl.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "messaging/helpers/DialogOKHelper.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/lib/Setting.h"
 #include "settings/windows/GUIControlSettings.h"
 #include "utils/StringUtils.h"
@@ -24,7 +25,6 @@
 #include "utils/log.h"
 
 #include <utility>
-
 
 using namespace ADDON;
 using namespace KODI::MESSAGING;
@@ -40,6 +40,27 @@ using namespace KODI::MESSAGING;
 #define SETTING_USERNAME        "username"
 #define SETTING_PASSWORD        "password"
 #define SETTING_REMOTE_PATH     "remotepath"
+
+CGUIDialogNetworkSetup::Protocol::Protocol(bool newSupportPath,
+                                           bool newSupportUsername,
+                                           bool newSupportPassword,
+                                           bool newSupportPort,
+                                           bool newSupportBrowsing,
+                                           int newDefaultPort,
+                                           std::string newType,
+                                           int newLabel,
+                                           std::string newAddonId)
+  : supportPath(newSupportPath),
+    supportUsername(newSupportUsername),
+    supportPassword(newSupportPassword),
+    supportPort(newSupportPort),
+    supportBrowsing(newSupportBrowsing),
+    defaultPort(newDefaultPort),
+    type(newType),
+    label(newLabel),
+    addonId(newAddonId)
+{
+}
 
 CGUIDialogNetworkSetup::CGUIDialogNetworkSetup(void)
     : CGUIDialogSettingsManualBase(WINDOW_DIALOG_NETWORK_SETUP, "DialogSettings.xml")
@@ -224,7 +245,8 @@ void CGUIDialogNetworkSetup::OnServerBrowse()
   CURL url(share.strPath);
   share.strName = url.GetWithoutUserDetails();
   shares.push_back(share);
-  if (CGUIDialogFileBrowser::ShowAndGetDirectory(shares, g_localizeStrings.Get(1015), path))
+  if (CGUIDialogFileBrowser::ShowAndGetDirectory(
+          shares, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1015), path))
   {
     SetPath(path);
     UpdateButtons();
@@ -434,7 +456,7 @@ void CGUIDialogNetworkSetup::UpdateAvailableProtocols()
   m_protocols.clear();
 #ifdef HAS_FILESYSTEM_SMB
   // most popular protocol at the first place
-  m_protocols.emplace_back(Protocol{true, true, true, false, true, 0, "smb", 20171, ""});
+  m_protocols.emplace_back(true, true, true, false, true, 0, "smb", 20171, "");
 #endif
   // protocols from vfs addon next
   if (CServiceBroker::IsAddonInterfaceUp())
@@ -446,9 +468,9 @@ void CGUIDialogNetworkSetup::UpdateAvailableProtocols()
       {
         // only use first protocol
         auto prots = StringUtils::Split(info.type, "|");
-        m_protocols.emplace_back(Protocol{
-            info.supportPath, info.supportUsername, info.supportPassword, info.supportPort,
-            info.supportBrowsing, info.defaultPort, prots.front(), info.label, addon->ID()});
+        m_protocols.emplace_back(info.supportPath, info.supportUsername, info.supportPassword,
+                                 info.supportPort, info.supportBrowsing, info.defaultPort,
+                                 prots.front(), info.label, addon->ID());
       }
     }
   }
@@ -465,6 +487,6 @@ void CGUIDialogNetworkSetup::UpdateAvailableProtocols()
 
   m_protocols.insert(m_protocols.end(), defaults.begin(), defaults.end());
 #ifdef HAS_FILESYSTEM_NFS
-  m_protocols.emplace_back(Protocol{true, false, false, false, true, 0, "nfs", 20259, ""});
+  m_protocols.emplace_back(true, false, false, false, true, 0, "nfs", 20259, "");
 #endif
 }

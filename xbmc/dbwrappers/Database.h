@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,17 +8,18 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
 namespace dbiplus
 {
 class Database;
 class Dataset;
 } // namespace dbiplus
 
-#include <memory>
-#include <string>
-#include <vector>
-
-class DatabaseSettings; // forward
+class DatabaseSettings;
 class CDbUrl;
 class CProfileManager;
 struct SortDescription;
@@ -29,9 +30,9 @@ public:
   class Filter
   {
   public:
-    Filter() : fields("*") {}
-    explicit Filter(const char* w) : fields("*"), where(w) {}
-    explicit Filter(const std::string& w) : fields("*"), where(w) {}
+    Filter();
+    explicit Filter(const char* w) : where(w) {}
+    explicit Filter(const std::string& w) : where(w) {}
 
     void AppendField(const std::string& strField);
     void AppendJoin(const std::string& strJoin);
@@ -39,7 +40,7 @@ public:
     void AppendOrder(const std::string& strOrder);
     void AppendGroup(const std::string& strGroup);
 
-    std::string fields;
+    std::string fields{"*"};
     std::string join;
     std::string where;
     std::string order;
@@ -63,15 +64,15 @@ public:
   class DatasetLayout
   {
   public:
-    DatasetLayout(size_t totalfields);
-    void SetField(int fieldNo, const std::string& strField, bool bOutput = false);
+    explicit DatasetLayout(size_t totalfields);
+    void SetField(int fieldNo, std::string_view strField, bool bOutput = false);
     void AdjustRecordNumbers(int offset);
     bool GetFetch(int fieldno);
     void SetFetch(int fieldno, bool bFetch = true);
     bool GetOutput(int fieldno);
     int GetRecNo(int fieldno);
-    const std::string GetFields();
-    bool HasFilterFields();
+    std::string GetFields() const;
+    bool HasFilterFields() const;
 
   private:
     std::vector<DatasetFieldInfo> m_fields;
@@ -86,8 +87,8 @@ public:
     {
     }
     void AppendJoin(const std::string& strJoin);
-    void AppendWhere(const std::string& strWhere, bool combineWithAnd = true);
-    bool BuildSQL(std::string& strSQL);
+    void AppendWhere(std::string_view strWhere, bool combineWithAnd = true);
+    bool BuildSQL(std::string& strSQL) const;
 
     std::string tablename;
     std::string param;
@@ -95,27 +96,31 @@ public:
     std::string where;
   };
 
-  CDatabase();
-  virtual ~CDatabase(void);
-  bool IsOpen();
+  explicit CDatabase(const std::string& dbType);
+  virtual ~CDatabase();
+
+  bool IsOpen() const;
+  bool Open(const DatabaseSettings& db);
   virtual void Close();
+
+  const std::string& GetType() const { return m_type; }
+
   bool Compress(bool bForce = true);
   void Interrupt();
-
-  bool Open(const DatabaseSettings& db);
 
   void BeginTransaction();
   virtual bool CommitTransaction();
   void RollbackTransaction();
+  bool InTransaction() const;
   void CopyDB(const std::string& latestDb);
   void DropAnalytics();
 
-  std::string PrepareSQL(std::string strStmt, ...) const;
+  std::string PrepareSQL(std::string_view sqlFormat, ...) const;
 
   /*!
    * @brief Get a single value from a table.
    * @remarks The values of the strWhereClause and strOrderBy parameters have to be FormatSQL'ed when used.
-   * @param strTable The table to get the value from.
+   * @param strTable The table to get the value from. Cannot be a complex expression with joins for example.
    * @param strColumn The column to get.
    * @param strWhereClause If set, use this WHERE clause.
    * @param strOrderBy If set, use this ORDER BY clause.
@@ -132,13 +137,12 @@ public:
    \param ds the dataset to use for the query.
    \return the value from the query, empty on failure.
    */
-  std::string GetSingleValue(const std::string& query,
-                             const std::unique_ptr<dbiplus::Dataset>& ds) const;
+  std::string GetSingleValue(const std::string& query, dbiplus::Dataset& ds) const;
 
   /*!
  * @brief Get a single integer value from a table.
  * @remarks The values of the strWhereClause and strOrderBy parameters have to be FormatSQL'ed when used.
- * @param strTable The table to get the value from.
+ * @param strTable The table to get the value from. Cannot be a complex expression with joins for example.
  * @param strColumn The column to get.
  * @param strWhereClause If set, use this WHERE clause.
  * @param strOrderBy If set, use this ORDER BY clause.
@@ -155,8 +159,7 @@ public:
    \param ds the dataset to use for the query.
    \return the value from the query, 0 on failure.
    */
-  int GetSingleValueInt(const std::string& query,
-                        const std::unique_ptr<dbiplus::Dataset>& ds) const;
+  int GetSingleValueInt(const std::string& query, dbiplus::Dataset& ds) const;
 
   /*!
    * @brief Delete values from a table.
@@ -221,7 +224,7 @@ public:
    * @brief Get the number of INSERT queries in the queue.
    * @return The number of queries.
    */
-  size_t GetInsertQueriesCount();
+  size_t GetInsertQueriesCount() const;
 
   /*!
    * @brief Put a DELETE query in the queue.
@@ -240,7 +243,7 @@ public:
    * @brief Get the number of DELETE queries in the queue.
    * @return The number of queries.
    */
-  size_t GetDeleteQueriesCount();
+  size_t GetDeleteQueriesCount() const;
 
   virtual bool GetFilter(CDbUrl& dbUrl, Filter& filter, SortDescription& sorting) { return true; }
   virtual bool BuildSQL(const std::string& strBaseDir,
@@ -255,12 +258,21 @@ public:
                         CDbUrl& dbUrl,
                         SortDescription& sorting);
 
-  bool Connect(const std::string& dbName, const DatabaseSettings& db, bool create);
+  enum class ConnectionState
+  {
+    STATE_ERROR,
+    STATE_DATABASE_NOT_FOUND,
+    STATE_CONNECTED,
+  };
+
+  ConnectionState Connect(const std::string& dbName, const DatabaseSettings& db, bool create);
 
 protected:
   friend class CDatabaseManager;
 
-  void Split(const std::string& strFileNameAndPath, std::string& strPath, std::string& strFileName);
+  void Split(const std::string& strFileNameAndPath,
+             std::string& strPath,
+             std::string& strFileName) const;
 
   virtual bool Open();
 
@@ -296,28 +308,31 @@ protected:
 
   int GetDBVersion();
 
-  bool BuildSQL(const std::string& strQuery, const Filter& filter, std::string& strSQL) const;
+  bool BuildSQL(std::string_view strQuery, const Filter& filter, std::string& strSQL) const;
 
-  bool m_sqlite; ///< \brief whether we use sqlite (defaults to true)
+  bool m_sqlite{true}; ///< \brief whether we use sqlite (defaults to true)
 
   std::unique_ptr<dbiplus::Database> m_pDB;
   std::unique_ptr<dbiplus::Dataset> m_pDS;
   std::unique_ptr<dbiplus::Dataset> m_pDS2;
 
-protected:
   // Construction parameters
   const CProfileManager& m_profileManager;
 
 private:
+  CDatabase() = delete;
+
   void InitSettings(DatabaseSettings& dbSettings);
   void UpdateVersionNumber();
 
-  bool m_bMultiInsert =
-      false; /*!< True if there are any queries in the insert queue, false otherwise */
-  bool m_bMultiDelete =
-      false; /*!< True if there are any queries in the delete queue, false otherwise */
-  unsigned int m_openCount;
+  const std::string m_type;
 
-  bool m_multipleExecute;
+  bool m_bMultiInsert{
+      false}; /*!< True if there are any queries in the insert queue, false otherwise */
+  bool m_bMultiDelete{
+      false}; /*!< True if there are any queries in the delete queue, false otherwise */
+  unsigned int m_openCount{0};
+
+  bool m_multipleExecute{false};
   std::vector<std::string> m_multipleQueries;
 };

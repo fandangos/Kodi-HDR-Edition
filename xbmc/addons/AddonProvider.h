@@ -13,26 +13,25 @@
 #include <memory>
 
 /*
-* CAddonProvider
-* IUnknown implementation to retrieve sub-addons from already active addons
-* See Inputstream.cpp/h for an explaric use case
-*/
+ * Interface to retrieve sub-addons from already active addons
+ * See Inputstream.cpp/h for an explaric use case
+ */
 
 namespace ADDON
 {
 class CAddonInfo;
-typedef std::shared_ptr<CAddonInfo> AddonInfoPtr;
+using AddonInfoPtr = std::shared_ptr<CAddonInfo>;
 
 class IAddonProvider
 {
 public:
   virtual ~IAddonProvider() = default;
-  enum INSTANCE_TYPE
+  enum class InstanceType
   {
-    INSTANCE_INPUTSTREAM,
-    INSTANCE_VIDEOCODEC
+    INPUTSTREAM,
+    VIDEOCODEC
   };
-  virtual void GetAddonInstance(INSTANCE_TYPE instance_type,
+  virtual void GetAddonInstance(InstanceType instance_type,
                                 ADDON::AddonInfoPtr& addonInfo,
                                 KODI_HANDLE& parentInstance) = 0;
 };

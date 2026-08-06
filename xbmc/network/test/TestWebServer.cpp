@@ -10,17 +10,16 @@
 #  include <windows.h>
 #endif
 
-#include <errno.h>
-#include <stdlib.h>
-
-#include <gtest/gtest.h>
+#include "PasswordManager.h"
+#include "ServiceBroker.h"
 #include "URL.h"
 #include "filesystem/CurlFile.h"
 #include "filesystem/File.h"
 #include "interfaces/json-rpc/JSONRPC.h"
+#include "network/DNSNameCache.h"
 #include "network/WebServer.h"
-#include "network/httprequesthandler/HTTPVfsHandler.h"
 #include "network/httprequesthandler/HTTPJsonRpcHandler.h"
+#include "network/httprequesthandler/HTTPVfsHandler.h"
 #include "settings/MediaSourceSettings.h"
 #include "test/TestUtils.h"
 #include "utils/JSONVariantParser.h"
@@ -28,7 +27,11 @@
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 
+#include <errno.h>
 #include <random>
+#include <stdlib.h>
+
+#include <gtest/gtest.h>
 
 using namespace XFILE;
 
@@ -64,12 +67,18 @@ protected:
 protected:
   void SetUp() override
   {
+    CServiceBroker::RegisterDNSNameCache(std::make_shared<CDNSNameCache>());
+
     SetupMediaSources();
 
-    webserver.Start(webserverPort, "", "");
+    webserver.Start(webserverPort, GetServerUsername(), GetServerPassword());
     webserver.RegisterRequestHandler(&m_jsonRpcHandler);
     webserver.RegisterRequestHandler(&m_vfsHandler);
   }
+
+  //! \brief Credentials the test web server requires. Empty means no authentication.
+  virtual std::string GetServerUsername() const { return ""; }
+  virtual std::string GetServerPassword() const { return ""; }
 
   void TearDown() override
   {
@@ -80,6 +89,8 @@ protected:
     webserver.UnregisterRequestHandler(&m_jsonRpcHandler);
 
     TearDownMediaSources();
+
+    CServiceBroker::UnregisterDNSNameCache();
   }
 
   void SetupMediaSources()
@@ -90,7 +101,7 @@ protected:
     source.vecPaths.push_back(sourcePath);
     source.m_allowSharing = true;
     source.m_iDriveType = SourceType::LOCAL;
-    source.m_iLockMode = LockMode::EVERYONE;
+    source.GetLockInfo().SetMode(LockMode::EVERYONE);
     source.m_ignore = true;
 
     CMediaSourceSettings::GetInstance().AddShare("videos", source);
@@ -921,4 +932,128 @@ TEST_F(TestWebServer, CanGetCachedRangedFileWithNewerIfRange)
   curl.SetRequestHeader(MHD_HTTP_HEADER_IF_RANGE, lastModifiedNewer.GetAsRFC1123DateTime());
   ASSERT_TRUE(curl.Get(GetUrlOfTestFile(TEST_FILES_RANGES), result));
   CheckRangesTestFileResponse(curl, result, ranges);
+}
+
+/*!
+ \brief Web server requiring authentication, with the credentials held by the password manager
+ rather than being part of the requested url.
+
+ This is what adding a source with a username/password gives us: sources.xml holds the plain url
+ and passwords.xml holds the credentials, so every request has to pick them up from
+ CPasswordManager. Anything talking to the server directly instead of going through CFile has to
+ apply them itself, which is what these tests cover.
+ */
+class TestWebServerAuth : public TestWebServer
+{
+protected:
+  std::string GetServerUsername() const override { return "kodi"; }
+  std::string GetServerPassword() const override { return "secret"; }
+
+  void SetUp() override
+  {
+    CPasswordManager::GetInstance().Clear();
+    TestWebServer::SetUp();
+
+    // remember the credentials for the server, as saving a source with a username/password does
+    CURL authenticatedUrl{baseUrl};
+    authenticatedUrl.SetUserName(GetServerUsername());
+    authenticatedUrl.SetPassword(GetServerPassword());
+    CPasswordManager::GetInstance().SaveAuthenticatedURL(authenticatedUrl, false);
+  }
+
+  void TearDown() override
+  {
+    CPasswordManager::GetInstance().Clear();
+
+    TestWebServer::TearDown();
+  }
+};
+
+// The static CCurlFile helpers that talk to the server directly and so have to apply the stored
+// credentials themselves. Each is invoked through a uniform bool(const CURL&) wrapper (discarding
+// the header/type output and only reporting success) so the same test can cover all of them.
+bool InvokeGetMimeType(const CURL& url)
+{
+  std::string content;
+  return CCurlFile::GetMimeType(url, content);
+}
+
+bool InvokeGetContentType(const CURL& url)
+{
+  std::string content;
+  return CCurlFile::GetContentType(url, content);
+}
+
+bool InvokeGetHttpHeader(const CURL& url)
+{
+  CHttpHeader headers;
+  return CCurlFile::GetHttpHeader(url, headers);
+}
+
+struct AuthHelperCase
+{
+  const char* name;
+  bool (*invoke)(const CURL& url);
+  bool withCredentials;
+};
+
+class TestWebServerAuthHelper : public TestWebServerAuth,
+                                public testing::WithParamInterface<AuthHelperCase>
+{
+};
+
+// Every helper must succeed when the credentials are known to the password manager and fail when
+// they are not (proving authentication is really being applied, not that the server lets us in).
+TEST_P(TestWebServerAuthHelper, AppliesStoredCredentials)
+{
+  const AuthHelperCase& helper = GetParam();
+
+  // TestWebServerAuth::SetUp() has seeded the credentials; drop them again for the negative cases
+  if (!helper.withCredentials)
+    CPasswordManager::GetInstance().Clear();
+
+  // the url deliberately carries no credentials, they have to come from the password manager
+  const CURL url{GetUrlOfTestFile(TEST_FILES_RANGES)};
+  ASSERT_TRUE(url.GetUserName().empty());
+
+  EXPECT_EQ(helper.withCredentials, helper.invoke(url));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Helpers,
+    TestWebServerAuthHelper,
+    testing::Values(AuthHelperCase{"GetMimeType_WithCredentials", InvokeGetMimeType, true},
+                    AuthHelperCase{"GetMimeType_NoCredentials", InvokeGetMimeType, false},
+                    AuthHelperCase{"GetContentType_WithCredentials", InvokeGetContentType, true},
+                    AuthHelperCase{"GetContentType_NoCredentials", InvokeGetContentType, false},
+                    AuthHelperCase{"GetHttpHeader_WithCredentials", InvokeGetHttpHeader, true},
+                    AuthHelperCase{"GetHttpHeader_NoCredentials", InvokeGetHttpHeader, false}),
+    [](const testing::TestParamInfo<AuthHelperCase>& info) { return info.param.name; });
+
+TEST_F(TestWebServerAuth, GetMimeTypeReturnsTheCorrectType)
+{
+  // the url deliberately carries no credentials, they have to come from the password manager
+  const CURL url{GetUrlOfTestFile(TEST_FILES_RANGES)};
+  ASSERT_TRUE(url.GetUserName().empty());
+
+  std::string mimeType;
+  ASSERT_TRUE(CCurlFile::GetMimeType(url, mimeType));
+  EXPECT_STREQ("text/plain", mimeType.c_str());
+}
+
+TEST_F(TestWebServerAuth, GetContentTypeReturnsTheCorrectType)
+{
+  const CURL url{GetUrlOfTestFile(TEST_FILES_RANGES)};
+  ASSERT_TRUE(url.GetUserName().empty());
+
+  std::string contentType;
+  ASSERT_TRUE(CCurlFile::GetContentType(url, contentType));
+  EXPECT_TRUE(contentType.find("text/plain") != std::string::npos);
+}
+
+TEST_F(TestWebServerAuth, CanStatWithStoredCredentials)
+{
+  // CFile::Stat() has always applied the stored credentials, unlike the CCurlFile helpers above
+  struct __stat64 buffer;
+  ASSERT_EQ(0, CFile::Stat(CURL{GetUrlOfTestFile(TEST_FILES_RANGES)}, &buffer));
 }

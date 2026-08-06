@@ -9,21 +9,21 @@
 
 include(cmake/scripts/common/ModuleHelpers.cmake)
 
-set(MODULE_LC libzip)
+set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC libzip)
 SETUP_BUILD_VARS()
 
-# Check for existing lib
-find_package(libzip CONFIG QUIET
-                    HINTS ${DEPENDS_PATH}/lib
-                    ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
+SETUP_FIND_SPECS()
 
-if(NOT LIBZIP_FOUND OR libzip_VERSION VERSION_LESS ${${MODULE}_VER})
+SEARCH_EXISTING_PACKAGES()
+
+if("${libzip_VERSION}" VERSION_LESS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER})
+    message(STATUS "Building ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}: \(version \"${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}\"\)")
   # Check for dependencies
-  find_package(GnuTLS REQUIRED)
+  find_package(GnuTLS REQUIRED ${SEARCH_QUIET})
+  find_package(ZLIB REQUIRED ${SEARCH_QUIET})
 
   # Eventually we will want Find modules for the following deps
   # bzip2 
-  # ZLIB
 
   set(CMAKE_ARGS -DBUILD_DOC=OFF
                  -DBUILD_EXAMPLES=OFF
@@ -31,59 +31,31 @@ if(NOT LIBZIP_FOUND OR libzip_VERSION VERSION_LESS ${${MODULE}_VER})
                  -DBUILD_SHARED_LIBS=OFF
                  -DBUILD_TOOLS=OFF)
 
-  set(LIBZIP_VERSION ${${MODULE}_VER})
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VERSION ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER})
 
   BUILD_DEP_TARGET()
-else()
-  # we only do this because we use find_package_handle_standard_args for config time output
-  # and it isnt capable of handling TARGETS, so we have to extract the info
-  get_target_property(_ZIP_CONFIGURATIONS libzip::zip IMPORTED_CONFIGURATIONS)
-  foreach(_zip_config IN LISTS _ZIP_CONFIGURATIONS)
-    # Some non standard config (eg None on Debian)
-    # Just set to RELEASE var so select_library_configurations can continue to work its magic
-    string(TOUPPER ${_zip_config} _zip_config_UPPER)
-    if((NOT ${_zip_config_UPPER} STREQUAL "RELEASE") AND
-       (NOT ${_zip_config_UPPER} STREQUAL "DEBUG"))
-      get_target_property(ZIP_LIBRARY_RELEASE libzip::zip IMPORTED_LOCATION_${_zip_config_UPPER})
-    else()
-      get_target_property(ZIP_LIBRARY_${_zip_config_UPPER} libzip::zip IMPORTED_LOCATION_${_zip_config_UPPER})
-    endif()
-  endforeach()
 
-  get_target_property(ZIP_INCLUDE_DIR libzip::zip INTERFACE_INCLUDE_DIRECTORIES)
-  set(LIBZIP_VERSION ${libzip_VERSION})
+  # Todo: Gnutls dependency
+  add_dependencies(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} LIBRARY::ZLIB)
 
-  include(SelectLibraryConfigurations)
-  select_library_configurations(LIBZIP)
-  unset(LIBZIP_LIBRARIES)
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES LIBRARY::ZLIB)
 endif()
 
-include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(LibZip
-                                  REQUIRED_VARS LIBZIP_LIBRARY LIBZIP_INCLUDE_DIR
-                                  VERSION_VAR LIBZIP_VERSION)
-
-if(LIBZIP_FOUND)
+if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
   # cmake target and not building internal
-  if(TARGET libzip::zip AND NOT TARGET libzip)
+  if(TARGET libzip::zip AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
 
     add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS libzip::zip)
 
     # ToDo: When we correctly import dependencies cmake targets for the following
-    # BZip2::BZip2, LibLZMA::LibLZMA, GnuTLS::GnuTLS, Nettle::Nettle,ZLIB::ZLIB
+    # BZip2::BZip2, LibLZMA::LibLZMA, GnuTLS::GnuTLS, Nettle::Nettle
     # For now, we just override 
     set_target_properties(libzip::zip PROPERTIES
-                                      INTERFACE_LINK_LIBRARIES "")
+                                      INTERFACE_LINK_LIBRARIES "LIBRARY::ZLIB")
   else()
-    add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
+    SETUP_BUILD_TARGET()
 
-    set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                     INTERFACE_INCLUDE_DIRECTORIES "${LIBZIP_INCLUDE_DIR}"
-                                                                     IMPORTED_LOCATION "${LIBZIP_LIBRARY}")
-
-    if(TARGET libzip)
-      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} libzip)
-    endif()
+    add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
   endif()
 else()
   if(LibZip_FIND_REQUIRED)

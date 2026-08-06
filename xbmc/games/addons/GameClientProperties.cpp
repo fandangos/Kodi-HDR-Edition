@@ -25,9 +25,10 @@
 #include "filesystem/SpecialProtocol.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
 #include "messaging/helpers/DialogOKHelper.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
@@ -40,7 +41,8 @@ using namespace GAME;
 using namespace XFILE;
 
 CGameClientProperties::CGameClientProperties(const CGameClient& parent, AddonProps_Game& props)
-  : m_parent(parent), m_properties(props)
+  : m_parent(parent),
+    m_properties(props)
 {
 }
 
@@ -281,7 +283,8 @@ bool CGameClientProperties::GetProxyAddons(ADDON::VECADDONS& addons)
   if (!missingDependencies.empty())
   {
     std::string strDependencies = StringUtils::Join(missingDependencies, ", ");
-    std::string dialogText = StringUtils::Format(g_localizeStrings.Get(35223), strDependencies);
+    std::string dialogText = StringUtils::Format(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35223), strDependencies);
 
     // "Failed to play game"
     // "Add-on is incompatible due to unmet dependencies."
@@ -389,7 +392,9 @@ bool CGameClientProperties::InstallDependencies(const std::vector<std::string>& 
     const AddonPtr& addon = installableAddons.at(installedCount);
 
     // Set dialog text
-    const std::string& progressTemplate = g_localizeStrings.Get(24057); // "Installing {0:s}..."
+    const std::string& progressTemplate =
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+            24057); // "Installing {0:s}..."
     const std::string progressText = StringUtils::Format(progressTemplate, addon->Name());
     progressDialog->SetLine(0, CVariant{progressText});
 

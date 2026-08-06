@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003-2018 Team Kodi
+ *  Copyright (C) 2003-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -17,6 +17,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <span>
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -125,35 +126,48 @@ public:
                 float y,
                 KODI::UTILS::COLOR::Color color,
                 KODI::UTILS::COLOR::Color shadowColor,
-                const vecText& text,
+                std::span<const character_t> text,
                 uint32_t alignment,
                 float maxPixelWidth)
   {
-    std::vector<KODI::UTILS::COLOR::Color> colors;
-    colors.push_back(color);
-    DrawText(x, y, colors, shadowColor, text, alignment, maxPixelWidth);
+    DrawText(x, y, std::span(&color, 1), shadowColor, text, alignment, maxPixelWidth);
   };
 
   void DrawText(float x,
                 float y,
-                const std::vector<KODI::UTILS::COLOR::Color>& colors,
+                std::span<const KODI::UTILS::COLOR::Color> colors,
                 KODI::UTILS::COLOR::Color shadowColor,
-                const vecText& text,
+                std::span<const character_t> text,
                 uint32_t alignment,
-                float maxPixelWidth);
+                float maxPixelWidth)
+  {
+    DrawTextInternal(x, y, colors, shadowColor, text, alignment, maxPixelWidth, false);
+  }
 
   void DrawScrollingText(float x,
                          float y,
-                         const std::vector<KODI::UTILS::COLOR::Color>& colors,
+                         std::span<const KODI::UTILS::COLOR::Color> colors,
                          KODI::UTILS::COLOR::Color shadowColor,
-                         const vecText& text,
+                         std::span<const character_t> text,
                          uint32_t alignment,
                          float maxPixelWidth,
                          const CScrollInfo& scrollInfo);
 
-  bool UpdateScrollInfo(const vecText& text, CScrollInfo& scrollInfo);
+  void DrawVScrollingText(float x,
+                          float y,
+                          std::span<const KODI::UTILS::COLOR::Color> colors,
+                          KODI::UTILS::COLOR::Color shadowColor,
+                          std::span<const character_t> text,
+                          uint32_t alignment,
+                          float maxPixelWidth,
+                          bool isScrolling)
+  {
+    DrawTextInternal(x, y, colors, shadowColor, text, alignment, maxPixelWidth, isScrolling);
+  }
 
-  float GetTextWidth(const vecText& text);
+  bool UpdateScrollInfo(std::span<const character_t> text, CScrollInfo& scrollInfo);
+
+  float GetTextWidth(std::span<const character_t> text);
   float GetCharWidth(character_t ch);
   float GetTextHeight(int numLines) const;
   float GetTextBaseLine() const;
@@ -183,4 +197,13 @@ protected:
 private:
   bool ClippedRegionIsEmpty(
       CGraphicContext& context, float x, float y, float width, uint32_t alignment) const;
+
+  void DrawTextInternal(float x,
+                        float y,
+                        std::span<const KODI::UTILS::COLOR::Color> colors,
+                        KODI::UTILS::COLOR::Color shadowColor,
+                        std::span<const character_t> text,
+                        uint32_t alignment,
+                        float maxPixelWidth,
+                        bool isVScrolling);
 };

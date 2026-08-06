@@ -40,7 +40,6 @@
 #include "filesystem/MusicDatabaseDirectory/QueryParams.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
@@ -56,11 +55,14 @@
 #include "playlists/PlayList.h"
 #include "playlists/PlayListFactory.h"
 #include "profiles/ProfileManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
+#include "utils/Artwork.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -119,7 +121,7 @@ bool CGUIWindowMusicBase::OnBack(int actionID)
   - #GUI_MSG_WINDOW_DEINIT\n
    ...the last focused control is saved to m_iLastControl.
   - #GUI_MSG_WINDOW_INIT\n
-   ...the musicdatabase is opend and the music extensions and shares are set.
+   ...the musicdatabase is opened and the music extensions and shares are set.
    The last focused control is set.
   - #GUI_MSG_CLICKED\n
    ... the base class reacts on the following controls:\n
@@ -270,7 +272,7 @@ bool CGUIWindowMusicBase::OnAction(const CAction &action)
   if (action.GetID() == ACTION_SCAN_ITEM)
   {
     int item = m_viewControl.GetSelectedItem();
-    if (item > -1 && m_vecItems->Get(item)->m_bIsFolder)
+    if (item > -1 && m_vecItems->Get(item)->IsFolder())
       OnScan(item);
 
     return true;
@@ -335,9 +337,8 @@ void CGUIWindowMusicBase::OnItemInfo(int iItem)
 
 void CGUIWindowMusicBase::RefreshContent(const std::string& strContent)
 {
-  if ( CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_MUSIC_NAV &&
-    m_vecItems->GetContent() == strContent &&
-    m_vecItems->GetSortMethod() == SortByUserRating)
+  if (CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_MUSIC_NAV &&
+      m_vecItems->GetContent() == strContent && m_vecItems->GetSortMethod() == SortBy::USER_RATING)
     // When music library window is active and showing songs or albums sorted
     // by userrating refresh the list to resort items and show new userrating
     Refresh(true);
@@ -356,7 +357,7 @@ void CGUIWindowMusicBase::RetrieveMusicInfo()
   for (int i = 0; i < m_vecItems->Size(); ++i)
   {
     CFileItemPtr pItem = (*m_vecItems)[i];
-    if (pItem->m_bIsFolder || PLAYLIST::IsPlayList(*pItem) || pItem->IsPicture() ||
+    if (pItem->IsFolder() || PLAYLIST::IsPlayList(*pItem) || pItem->IsPicture() ||
         MUSIC::IsLyrics(*pItem) || VIDEO::IsVideo(*pItem))
       continue;
 
@@ -628,7 +629,7 @@ void CGUIWindowMusicBase::PlayItem(int iItem)
   }
 
   // if its a folder, build a playlist
-  if (pItem->m_bIsFolder && !pItem->IsPlugin())
+  if (pItem->IsFolder() && !pItem->IsPlugin())
   {
     // make a copy so that we can alter the queue state
     CFileItemPtr item(new CFileItem(*m_vecItems->Get(iItem)));
@@ -826,7 +827,7 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
       std::string dirType = MediaTypeArtist;
       if (params.GetAlbumId() > 0)
         dirType = MediaTypeAlbum;
-      std::map<std::string, std::string> artmap;
+      KODI::ART::Artwork artmap;
       for (auto artitem : art)
       {
         std::string artname;
@@ -840,7 +841,7 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
             StringUtils::Replace(artitem.prefix, "albumartist", "artist");
           artname = artitem.prefix + "." + artitem.artType;
         }
-      artmap.insert(std::make_pair(artname, artitem.url));
+        artmap.insert(std::make_pair(artname, artitem.url));
       }
       items.SetArt(artmap);
     }
@@ -853,25 +854,27 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
       const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
       CFileItemPtr newPlaylist(new CFileItem(profileManager->GetUserDataItem("PartyMode.xsp"),false));
-      newPlaylist->SetLabel(g_localizeStrings.Get(16035));
+      newPlaylist->SetLabel(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16035));
       newPlaylist->SetLabelPreformatted(true);
       newPlaylist->SetArt("icon", "DefaultPartyMode.png");
-      newPlaylist->m_bIsFolder = true;
+      newPlaylist->SetFolder(true);
       items.Add(newPlaylist);
 
       newPlaylist = std::make_shared<CFileItem>("newplaylist://", false);
-      newPlaylist->SetLabel(g_localizeStrings.Get(525));
+      newPlaylist->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(525));
       newPlaylist->SetArt("icon", "DefaultAddSource.png");
       newPlaylist->SetLabelPreformatted(true);
-      newPlaylist->SetSpecialSort(SortSpecialOnBottom);
+      newPlaylist->SetSpecialSort(SortSpecial::BOTTOM);
       newPlaylist->SetCanQueue(false);
       items.Add(newPlaylist);
 
       newPlaylist = std::make_shared<CFileItem>("newsmartplaylist://music", false);
-      newPlaylist->SetLabel(g_localizeStrings.Get(21437));
+      newPlaylist->SetLabel(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21437));
       newPlaylist->SetArt("icon", "DefaultAddSource.png");
       newPlaylist->SetLabelPreformatted(true);
-      newPlaylist->SetSpecialSort(SortSpecialOnBottom);
+      newPlaylist->SetSpecialSort(SortSpecial::BOTTOM);
       newPlaylist->SetCanQueue(false);
       items.Add(newPlaylist);
     }
@@ -921,9 +924,11 @@ bool CGUIWindowMusicBase::OnSelect(int iItem)
         // ask the user if they want to play or resume
         CContextButtons choices;
         choices.Add(MUSIC_SELECT_ACTION_PLAY, 208); // 208 = Play
-        choices.Add(MUSIC_SELECT_ACTION_RESUME,
-                    StringUtils::Format(g_localizeStrings.Get(12022), // 12022 = Resume from ...
-                                        (*itemIt)->GetMusicInfoTag()->GetTitle()));
+        choices.Add(
+            MUSIC_SELECT_ACTION_RESUME,
+            StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                                    12022), // 12022 = Resume from ...
+                                (*itemIt)->GetMusicInfoTag()->GetTitle()));
 
         auto choice = CGUIDialogContextMenu::Show(choices);
         if (choice == MUSIC_SELECT_ACTION_RESUME)
@@ -992,7 +997,7 @@ void CGUIWindowMusicBase::OnScan(int iItem, bool bPromptRescan /*= false*/)
   std::string strPath;
   if (iItem < 0 || iItem >= m_vecItems->Size())
     strPath = m_vecItems->GetPath();
-  else if (m_vecItems->Get(iItem)->m_bIsFolder)
+  else if (m_vecItems->Get(iItem)->IsFolder())
     strPath = m_vecItems->Get(iItem)->GetPath();
   else
   { //! @todo MUSICDB - should we allow scanning a single item into the database?
@@ -1040,7 +1045,7 @@ void CGUIWindowMusicBase::OnRemoveSource(int iItem)
   bool bCanceled;
   if (CGUIDialogYesNo::ShowAndGetInput(CVariant{522}, CVariant{20340}, bCanceled, CVariant{""}, CVariant{""}, CGUIDialogYesNo::NO_TIMEOUT))
   {
-    MAPSONGS songs;
+    std::map<std::string, std::vector<CSong>> songs;
     database.RemoveSongsFromPath(m_vecItems->Get(iItem)->GetPath(), songs, false);
     database.CleanupOrphanedItems();
     database.CheckArtistLinksChanged();

@@ -48,12 +48,11 @@ CRPBaseRenderer* CRendererFactoryGuiTexture::CreateRenderer(
 
 RenderBufferPoolVector CRendererFactoryGuiTexture::CreateBufferPools(CRenderContext& context)
 {
-  return
-  {
+  return {
 #if !defined(HAS_DX)
-    std::make_shared<CRenderBufferPoolGuiTexture>(SCALINGMETHOD::NEAREST),
+      std::make_shared<CRenderBufferPoolGuiTexture>(SCALINGMETHOD::NEAREST),
 #endif
-        std::make_shared<CRenderBufferPoolGuiTexture>(SCALINGMETHOD::LINEAR),
+      std::make_shared<CRenderBufferPoolGuiTexture>(SCALINGMETHOD::LINEAR),
   };
 }
 
@@ -66,7 +65,14 @@ CRenderBufferPoolGuiTexture::CRenderBufferPoolGuiTexture(SCALINGMETHOD scalingMe
 
 bool CRenderBufferPoolGuiTexture::IsCompatible(const CRenderVideoSettings& renderSettings) const
 {
-  return renderSettings.GetScalingMethod() == m_scalingMethod;
+  if (renderSettings.GetScalingMethod() != m_scalingMethod)
+    return false;
+
+  // Shaders not supported
+  if (!renderSettings.GetShaderPreset().empty())
+    return false;
+
+  return true;
 }
 
 IRenderBuffer* CRenderBufferPoolGuiTexture::CreateRenderBuffer(void* header /* = nullptr */)
@@ -134,6 +140,7 @@ void CRPRendererGuiTexture::RenderInternal(bool clear, uint8_t alpha)
     auto dxTexture = static_cast<CDXTexture*>(renderBuffer->GetTexture());
     ID3D11ShaderResourceView* shaderRes = dxTexture->GetShaderResource();
     pGUIShader->SetShaderViews(1, &shaderRes);
+    pGUIShader->SetDepth(-1.f);
     pGUIShader->DrawQuad(vertex[0], vertex[1], vertex[2], vertex[3]);
   }
 
@@ -219,7 +226,7 @@ void CRPRendererGuiTexture::RenderInternal(bool clear, uint8_t alpha)
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexVBO);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLubyte) * 4, idx, GL_STATIC_DRAW);
 
-  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, 0);
+  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, nullptr);
 
   glDisableVertexAttribArray(posLoc);
   glDisableVertexAttribArray(tex0Loc);

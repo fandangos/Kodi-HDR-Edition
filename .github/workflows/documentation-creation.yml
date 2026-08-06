@@ -30,13 +30,13 @@ jobs:
              sed -i 's/.*HTML_OUTPUT.*=.*/HTML_OUTPUT = ..\/build\/kodi-base/' ./docs/doxygen/Doxyfile.doxy
 
       - name: Doxygen Action kodi-dev-kit
-        uses: mattnotmitt/doxygen-action@v1.1.0
+        uses: mattnotmitt/doxygen-action@1.12.0
         with:
           doxyfile-path: "./Doxyfile"
           working-directory: "./xbmc/addons/kodi-dev-kit/doxygen"
 
       - name: Doxygen Action Kodi Base
-        uses: mattnotmitt/doxygen-action@v1.1.0
+        uses: mattnotmitt/doxygen-action@1.12.0
         with:
           doxyfile-path: "./Doxyfile.doxy"
           working-directory: "./docs/doxygen"

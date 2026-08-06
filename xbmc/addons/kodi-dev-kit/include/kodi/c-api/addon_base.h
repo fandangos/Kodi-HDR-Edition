@@ -95,7 +95,8 @@
 
 #ifdef _WIN32 // windows
 #if !defined(_SSIZE_T_DEFINED) && !defined(HAVE_SSIZE_T)
-typedef intptr_t ssize_t;
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
 #define _SSIZE_T_DEFINED
 #endif // !_SSIZE_T_DEFINED
 #ifndef SSIZE_MAX
@@ -281,6 +282,7 @@ extern "C"
       struct AddonInstance_Peripheral* peripheral;
       struct AddonInstance_PVR* pvr;
       struct AddonInstance_Screensaver* screensaver;
+      struct AddonInstance_ShaderPreset* shaderpreset;
       struct AddonInstance_VFSEntry* vfs;
       struct AddonInstance_VideoCodec* videocodec;
       struct AddonInstance_Visualization* visualization;

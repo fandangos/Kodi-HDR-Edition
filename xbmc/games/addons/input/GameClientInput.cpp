@@ -253,7 +253,7 @@ void CGameClientInput::ActivateControllers(CControllerHub& hub)
     if (port.GetCompatibleControllers().empty())
       continue;
 
-    port.SetConnected(true);
+    port.SetConnected(port.IsAutoConnect());
     port.SetActiveController(0);
     for (auto& controller : port.GetCompatibleControllers())
       ActivateControllers(controller.GetHub());
@@ -268,7 +268,7 @@ void CGameClientInput::SetControllerLayouts(const ControllerVector& controllers)
   for (const auto& controller : controllers)
   {
     const std::string controllerId = controller->ID();
-    if (m_controllerLayouts.find(controllerId) == m_controllerLayouts.end())
+    if (!m_controllerLayouts.contains(controllerId))
       m_controllerLayouts[controllerId] =
           std::make_unique<CGameClientController>(*this, controller);
   }
@@ -355,7 +355,7 @@ bool CGameClientInput::ConnectController(const std::string& portAddress,
   inputHandlingLock.reset();
 
   {
-    std::unique_lock<CCriticalSection> lock(m_clientAccess);
+    std::unique_lock lock(m_clientAccess);
 
     if (!m_gameClient.Initialized())
       return false;
@@ -431,7 +431,7 @@ bool CGameClientInput::DisconnectControllerRecursive(const std::string& portAddr
   inputHandlingLock.reset();
 
   {
-    std::unique_lock<CCriticalSection> lock(m_clientAccess);
+    std::unique_lock lock(m_clientAccess);
 
     if (!m_gameClient.Initialized())
       return false;
@@ -490,8 +490,7 @@ bool CGameClientInput::HasAgent() const
   return false;
 }
 
-bool CGameClientInput::OpenKeyboard(const ControllerPtr& controller,
-                                    const PERIPHERALS::PeripheralPtr& keyboard)
+bool CGameClientInput::OpenKeyboard(const ControllerPtr& controller)
 {
   using namespace JOYSTICK;
 
@@ -501,13 +500,10 @@ bool CGameClientInput::OpenKeyboard(const ControllerPtr& controller,
     return false;
   }
 
-  if (!keyboard)
-    return false;
-
   bool bSuccess = false;
 
   {
-    std::unique_lock<CCriticalSection> lock(m_clientAccess);
+    std::unique_lock lock(m_clientAccess);
 
     if (m_gameClient.Initialized())
     {
@@ -524,13 +520,29 @@ bool CGameClientInput::OpenKeyboard(const ControllerPtr& controller,
 
   if (bSuccess)
   {
-    m_keyboard =
-        std::make_unique<CGameClientKeyboard>(m_gameClient, controller->ID(), keyboard.get());
-    m_keyboard->SetSource(keyboard);
-    return true;
+    // Update port state
+    std::vector<std::string> keyboardPorts;
+    GetActiveControllerTree().GetKeyboardPorts(keyboardPorts);
+    for (const std::string& keyboardPort : keyboardPorts)
+    {
+      m_portManager->ConnectController(keyboardPort, true, controller->ID());
+      SetChanged();
+    }
+
+    // Open input handler
+    PERIPHERALS::PeripheralVector keyboards;
+    CServiceBroker::GetPeripherals().GetPeripheralsWithFeature(keyboards,
+                                                               PERIPHERALS::FEATURE_KEYBOARD);
+    if (!keyboards.empty())
+    {
+      PERIPHERALS::PeripheralPtr keyboard = std::move(keyboards.at(0));
+      m_keyboard =
+          std::make_unique<CGameClientKeyboard>(m_gameClient, controller->ID(), keyboard.get());
+      m_keyboard->SetSource(std::move(keyboard));
+    }
   }
 
-  return false;
+  return bSuccess;
 }
 
 bool CGameClientInput::IsKeyboardOpen() const
@@ -538,30 +550,46 @@ bool CGameClientInput::IsKeyboardOpen() const
   return static_cast<bool>(m_keyboard);
 }
 
-void CGameClientInput::CloseKeyboard()
+bool CGameClientInput::CloseKeyboard()
 {
+  bool bSuccess = false;
+
   if (m_keyboard)
   {
+    // Reset input handler
     m_keyboard.reset();
 
-    std::unique_lock<CCriticalSection> lock(m_clientAccess);
-
-    if (m_gameClient.Initialized())
     {
-      try
+      std::unique_lock lock(m_clientAccess);
+      if (m_gameClient.Initialized())
       {
-        m_struct.toAddon->EnableKeyboard(&m_struct, false, "");
-      }
-      catch (...)
-      {
-        m_gameClient.LogException("EnableKeyboard()");
+        try
+        {
+          m_struct.toAddon->EnableKeyboard(&m_struct, false, "");
+        }
+        catch (...)
+        {
+          m_gameClient.LogException("EnableKeyboard()");
+        }
       }
     }
+
+    // Update port state
+    std::vector<std::string> keyboardPorts;
+    GetActiveControllerTree().GetKeyboardPorts(keyboardPorts);
+    for (const std::string& keyboardPort : keyboardPorts)
+    {
+      m_portManager->ConnectController(keyboardPort, false);
+      SetChanged();
+    }
+
+    bSuccess = true;
   }
+
+  return bSuccess;
 }
 
-bool CGameClientInput::OpenMouse(const ControllerPtr& controller,
-                                 const PERIPHERALS::PeripheralPtr& mouse)
+bool CGameClientInput::OpenMouse(const ControllerPtr& controller)
 {
   using namespace JOYSTICK;
 
@@ -571,13 +599,10 @@ bool CGameClientInput::OpenMouse(const ControllerPtr& controller,
     return false;
   }
 
-  if (!mouse)
-    return false;
-
   bool bSuccess = false;
 
   {
-    std::unique_lock<CCriticalSection> lock(m_clientAccess);
+    std::unique_lock lock(m_clientAccess);
 
     if (m_gameClient.Initialized())
     {
@@ -594,12 +619,27 @@ bool CGameClientInput::OpenMouse(const ControllerPtr& controller,
 
   if (bSuccess)
   {
-    m_mouse = std::make_unique<CGameClientMouse>(m_gameClient, controller->ID(), mouse.get());
-    m_mouse->SetSource(mouse);
-    return true;
+    // Update port state
+    std::vector<std::string> mousePorts;
+    GetActiveControllerTree().GetMousePorts(mousePorts);
+    for (const std::string& mousePort : mousePorts)
+    {
+      m_portManager->ConnectController(mousePort, true, controller->ID());
+      SetChanged();
+    }
+
+    // Open input handler
+    PERIPHERALS::PeripheralVector mice;
+    CServiceBroker::GetPeripherals().GetPeripheralsWithFeature(mice, PERIPHERALS::FEATURE_MOUSE);
+    if (!mice.empty())
+    {
+      PERIPHERALS::PeripheralPtr mouse = std::move(mice.at(0));
+      m_mouse = std::make_unique<CGameClientMouse>(m_gameClient, controller->ID(), mouse.get());
+      m_mouse->SetSource(std::move(mouse));
+    }
   }
 
-  return false;
+  return bSuccess;
 }
 
 bool CGameClientInput::IsMouseOpen() const
@@ -607,26 +647,43 @@ bool CGameClientInput::IsMouseOpen() const
   return static_cast<bool>(m_mouse);
 }
 
-void CGameClientInput::CloseMouse()
+bool CGameClientInput::CloseMouse()
 {
+  bool bSuccess = false;
+
   if (m_mouse)
   {
+    // Reset input handler
     m_mouse.reset();
 
-    std::unique_lock<CCriticalSection> lock(m_clientAccess);
-
-    if (m_gameClient.Initialized())
     {
-      try
+      std::unique_lock lock(m_clientAccess);
+      if (m_gameClient.Initialized())
       {
-        m_struct.toAddon->EnableMouse(&m_struct, false, "");
-      }
-      catch (...)
-      {
-        m_gameClient.LogException("EnableMouse()");
+        try
+        {
+          m_struct.toAddon->EnableMouse(&m_struct, false, "");
+        }
+        catch (...)
+        {
+          m_gameClient.LogException("EnableMouse()");
+        }
       }
     }
+
+    // Update port state
+    std::vector<std::string> mousePorts;
+    GetActiveControllerTree().GetMousePorts(mousePorts);
+    for (const std::string& mousePort : mousePorts)
+    {
+      m_portManager->ConnectController(mousePort, false);
+      SetChanged();
+    }
+
+    bSuccess = true;
   }
+
+  return bSuccess;
 }
 
 bool CGameClientInput::OpenJoystick(const std::string& portAddress, const ControllerPtr& controller)
@@ -639,7 +696,7 @@ bool CGameClientInput::OpenJoystick(const std::string& portAddress, const Contro
     return false;
   }
 
-  if (m_joysticks.find(portAddress) != m_joysticks.end())
+  if (m_joysticks.contains(portAddress))
   {
     CLog::Log(LOGERROR, "Failed to open port \"{}\", already open", portAddress);
     return false;
@@ -756,7 +813,22 @@ void CGameClientInput::ResetPorts(const PortVec& ports)
   {
     // Reset port
     const CControllerNode& activeController = port.GetActiveController();
-    ConnectController(port.GetAddress(), activeController.GetController());
+
+    switch (port.GetPortType())
+    {
+      case PORT_TYPE::CONTROLLER:
+        ConnectController(port.GetAddress(), activeController.GetController());
+        break;
+      case PORT_TYPE::KEYBOARD:
+        OpenKeyboard(activeController.GetController());
+        break;
+      case PORT_TYPE::MOUSE:
+        OpenMouse(activeController.GetController());
+        break;
+      case PORT_TYPE::UNKNOWN:
+      default:
+        break;
+    }
 
     // Reset child ports
     ResetPorts(activeController.GetHub().GetPorts());

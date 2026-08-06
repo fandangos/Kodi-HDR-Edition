@@ -53,7 +53,7 @@ bool CFTPDirectory::GetDirectory(const CURL& url2, CFileItemList &items)
     CFTPParse parse;
     if (parse.FTPParse(strBuffer))
     {
-      if( parse.getName().length() == 0 )
+      if (parse.getName().empty())
         continue;
 
       if( parse.getFlagtrycwd() == 0 && parse.getFlagtryretr() == 0 )
@@ -83,17 +83,17 @@ bool CFTPDirectory::GetDirectory(const CURL& url2, CFileItemList &items)
 
       CFileItemPtr pItem(new CFileItem(name));
 
-      pItem->m_bIsFolder = parse.getFlagtrycwd() != 0;
+      pItem->SetFolder(parse.getFlagtrycwd() != 0);
       std::string filePath = path + name;
-      if (pItem->m_bIsFolder)
+      if (pItem->IsFolder())
         URIUtils::AddSlashAtEnd(filePath);
 
       /* qualify the url with host and all */
       url.SetFileName(filePath);
       pItem->SetPath(url.Get());
 
-      pItem->m_dwSize = parse.getSize();
-      pItem->m_dateTime=parse.getTime();
+      pItem->SetSize(parse.getSize());
+      pItem->SetDateTime(parse.getTime());
 
       items.Add(pItem);
     }

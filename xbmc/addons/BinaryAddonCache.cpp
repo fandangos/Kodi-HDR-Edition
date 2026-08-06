@@ -18,7 +18,7 @@
 namespace ADDON
 {
 
-const std::vector<AddonType> ADDONS_TO_CACHE = {AddonType::GAMEDLL};
+const std::vector<AddonType> ADDONS_TO_CACHE = {AddonType::GAMEDLL, AddonType::SHADERDLL};
 
 CBinaryAddonCache::~CBinaryAddonCache()
 {
@@ -27,7 +27,29 @@ CBinaryAddonCache::~CBinaryAddonCache()
 
 void CBinaryAddonCache::Init()
 {
-  CServiceBroker::GetAddonMgr().Events().Subscribe(this, &CBinaryAddonCache::OnEvent);
+  CServiceBroker::GetAddonMgr().Events().Subscribe(
+      this,
+      [this](const AddonEvent& event)
+      {
+        if (typeid(event) == typeid(AddonEvents::Enabled) ||
+            typeid(event) == typeid(AddonEvents::Disabled) ||
+            typeid(event) == typeid(AddonEvents::ReInstalled))
+        {
+          for (auto& type : ADDONS_TO_CACHE)
+          {
+            if (CServiceBroker::GetAddonMgr().HasType(event.addonId, type))
+            {
+              Update();
+              break;
+            }
+          }
+        }
+        else if (typeid(event) == typeid(AddonEvents::UnInstalled))
+        {
+          Update();
+        }
+      });
+
   Update();
 }
 
@@ -62,7 +84,7 @@ void CBinaryAddonCache::GetDisabledAddons(VECADDONS& addons, AddonType type)
 
 void CBinaryAddonCache::GetInstalledAddons(VECADDONS& addons, AddonType type)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   auto it = m_addons.find(type);
   if (it != m_addons.end())
     addons = it->second;
@@ -72,44 +94,20 @@ AddonPtr CBinaryAddonCache::GetAddonInstance(const std::string& strId, AddonType
 {
   AddonPtr addon;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   auto it = m_addons.find(type);
   if (it != m_addons.end())
   {
-    VECADDONS& addons = it->second;
-    auto itAddon = std::find_if(addons.begin(), addons.end(),
-      [&strId](const AddonPtr& addon)
-      {
-        return addon->ID() == strId;
-      });
+    const VECADDONS& addons = it->second;
+    const auto itAddon =
+        std::ranges::find_if(addons, [&strId](const AddonPtr& a) { return a->ID() == strId; });
 
     if (itAddon != addons.end())
       addon = *itAddon;
   }
 
   return addon;
-}
-
-void CBinaryAddonCache::OnEvent(const AddonEvent& event)
-{
-  if (typeid(event) == typeid(AddonEvents::Enabled) ||
-      typeid(event) == typeid(AddonEvents::Disabled) ||
-      typeid(event) == typeid(AddonEvents::ReInstalled))
-  {
-    for (auto &type : ADDONS_TO_CACHE)
-    {
-      if (CServiceBroker::GetAddonMgr().HasType(event.addonId, type))
-      {
-        Update();
-        break;
-      }
-    }
-  }
-  else if (typeid(event) == typeid(AddonEvents::UnInstalled))
-  {
-    Update();
-  }
 }
 
 void CBinaryAddonCache::Update()
@@ -125,7 +123,7 @@ void CBinaryAddonCache::Update()
   }
 
   {
-    std::unique_lock<CCriticalSection> lock(m_critSection);
+    std::unique_lock lock(m_critSection);
     m_addons = std::move(addonmap);
   }
 }

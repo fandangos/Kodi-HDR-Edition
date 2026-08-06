@@ -10,20 +10,15 @@
 #   ${APP_NAME_LC}::PulseAudioMainloop - The PulseAudio mainloop library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
+  include(cmake/scripts/common/ModuleHelpers.cmake)
 
-  find_package(PkgConfig QUIET)
+  SETUP_FIND_SPECS()
+
+  find_package(PkgConfig ${SEARCH_QUIET})
   if(PKG_CONFIG_FOUND)
-    if(PulseAudio_FIND_VERSION)
-      if(PulseAudio_FIND_VERSION_EXACT)
-        set(PulseAudio_FIND_SPEC "=${PulseAudio_FIND_VERSION_COMPLETE}")
-      else()
-        set(PulseAudio_FIND_SPEC ">=${PulseAudio_FIND_VERSION_COMPLETE}")
-      endif()
-    endif()
-
-    pkg_check_modules(PC_PULSEAUDIO libpulse${PulseAudio_FIND_SPEC} QUIET)
-    pkg_check_modules(PC_PULSEAUDIO_MAINLOOP libpulse-mainloop-glib${PulseAudio_FIND_SPEC} QUIET)
-    pkg_check_modules(PC_PULSEAUDIO_SIMPLE libpulse-simple${PulseAudio_FIND_SPEC} QUIET)
+    pkg_check_modules(PC_PULSEAUDIO libpulse${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET})
+    pkg_check_modules(PC_PULSEAUDIO_MAINLOOP libpulse-mainloop-glib${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET})
+    pkg_check_modules(PC_PULSEAUDIO_SIMPLE libpulse-simple${PC_${CMAKE_FIND_PACKAGE_NAME}_FIND_SPEC} ${SEARCH_QUIET})
   endif()
 
   find_path(PULSEAUDIO_INCLUDE_DIR NAMES pulse/pulseaudio.h pulse/simple.h
@@ -45,6 +40,10 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
     string(REGEX REPLACE "^#define[\t ]+pa_get_headers_version\\(\\)[\t ]+\\(\"([^\"]+)\"\\).*" "\\1" PULSEAUDIO_VERSION_STRING "${pulseaudio_version_str}")
     unset(pulseaudio_version_str)
   endif()
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(PulseAudio

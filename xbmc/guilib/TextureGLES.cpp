@@ -11,10 +11,12 @@
 #include "ServiceBroker.h"
 #include "guilib/TextureFormats.h"
 #include "guilib/TextureManager.h"
+#include "rendering/GLExtensions.h"
 #include "rendering/RenderSystem.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/GLUtils.h"
+#include "utils/Map.h"
 #include "utils/MemUtils.h"
 #include "utils/log.h"
 
@@ -26,7 +28,7 @@ namespace
 // GLES 2.0 texture formats.
 // Any extension used here is in the core 3.0 profile (except BGRA)
 // format = (unsized) internalFormat (with core 2.0)
-static const std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLES20
+constexpr auto TextureMappingGLES20 = make_map<KD_TEX_FMT, TextureFormat>(
 {
 #if defined(GL_EXT_texture_rg)
   {KD_TEX_FMT_SDR_R8, {GL_RED_EXT}},
@@ -43,7 +45,7 @@ static const std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLES20
   {KD_TEX_FMT_SDR_RGBA8, {GL_RGBA}},
 #endif
 
-#if defined(GL_EXT_texture_format_BGRA8888) || (GL_IMG_texture_format_BGRA8888)
+#if defined(GL_EXT_texture_format_BGRA8888) || defined(GL_IMG_texture_format_BGRA8888)
   {KD_TEX_FMT_SDR_BGRA8, {GL_BGRA_EXT}},
 #endif
 
@@ -57,13 +59,13 @@ static const std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLES20
 #if defined(GL_OES_compressed_ETC1_RGB8_texture)
   {KD_TEX_FMT_ETC1_RGB8, {GL_ETC1_RGB8_OES}},
 #endif
-};
+});
 
 // GLES 3.0 texture formats.
 #if defined(GL_ES_VERSION_3_0)
-std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLES30
+constexpr auto TextureMappingGLES30 = make_map<KD_TEX_FMT, TextureFormat>(
 {
-#if defined(GL_EXT_texture_sRGB_R8) && (GL_EXT_texture_sRGB_RG8) // in gl2ext.h, but spec says >= 3.0
+#if defined(GL_EXT_texture_sRGB_R8) && defined(GL_EXT_texture_sRGB_RG8) // in gl2ext.h, but spec says >= 3.0
   {KD_TEX_FMT_SDR_R8, {GL_R8, GL_SR8_EXT, GL_RED}},
   {KD_TEX_FMT_SDR_RG8, {GL_RG8, GL_SRG8_EXT, GL_RG}},
 #else
@@ -90,13 +92,13 @@ std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLES30
   {KD_TEX_FMT_ETC2_RGB8, {GL_COMPRESSED_RGB8_ETC2, GL_COMPRESSED_SRGB8_ETC2}},
   {KD_TEX_FMT_ETC2_RGB8_A1, {GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2, GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2}},
   {KD_TEX_FMT_ETC2_RGBA8, {GL_COMPRESSED_RGBA8_ETC2_EAC, GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC}},
-};
+});
 #endif // GL_ES_VERSION_3_0
 
 // Common GLES extensions (texture compression)
-static const std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLESExtensions
+constexpr auto TextureMappingGLESExtensions = make_map<KD_TEX_FMT, TextureFormat>(
 {
-#if defined(GL_EXT_texture_compression_s3tc) && (GL_EXT_texture_compression_s3tc_srgb)
+#if defined(GL_EXT_texture_compression_s3tc) && defined(GL_EXT_texture_compression_s3tc_srgb)
   {KD_TEX_FMT_S3TC_RGB8, {GL_COMPRESSED_RGB_S3TC_DXT1_EXT, GL_COMPRESSED_SRGB_S3TC_DXT1_EXT}},
   {KD_TEX_FMT_S3TC_RGB8_A1, {GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT}},
   {KD_TEX_FMT_S3TC_RGB8_A4, {GL_COMPRESSED_RGBA_S3TC_DXT3_EXT, GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT}},
@@ -121,7 +123,7 @@ static const std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLESExtensions
   {KD_TEX_FMT_BPTC_RGBA8, {GL_COMPRESSED_RGBA_BPTC_UNORM_EXT, GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT}},
 #endif
 
-#if defined(GL_KHR_texture_compression_astc_ldr) || (GL_KHR_texture_compression_astc_hdr)
+#if defined(GL_KHR_texture_compression_astc_ldr) || defined(GL_KHR_texture_compression_astc_hdr)
   {KD_TEX_FMT_ASTC_LDR_4x4, {GL_COMPRESSED_RGBA_ASTC_4x4_KHR, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR}},
   {KD_TEX_FMT_ASTC_LDR_5x4, {GL_COMPRESSED_RGBA_ASTC_5x4_KHR, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_5x4_KHR}},
   {KD_TEX_FMT_ASTC_LDR_5x5, {GL_COMPRESSED_RGBA_ASTC_5x5_KHR, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_5x5_KHR}},
@@ -152,9 +154,9 @@ static const std::map<KD_TEX_FMT, TextureFormat> TextureMappingGLESExtensions
   {KD_TEX_FMT_ASTC_HDR_12x10, {GL_COMPRESSED_RGBA_ASTC_12x10_KHR}},
   {KD_TEX_FMT_ASTC_HDR_12x12, {GL_COMPRESSED_RGBA_ASTC_12x12_KHR}},
 #endif
-};
+});
 
-static const std::map<KD_TEX_SWIZ, TextureSwizzle> SwizzleMapGLES
+constexpr auto SwizzleMapGLES = make_map<KD_TEX_SWIZ, TextureSwizzle>(
 {
   {KD_TEX_SWIZ_RGBA, {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA}},
   {KD_TEX_SWIZ_RGB1, {GL_RED, GL_GREEN, GL_BLUE, GL_ONE}},
@@ -166,7 +168,7 @@ static const std::map<KD_TEX_SWIZ, TextureSwizzle> SwizzleMapGLES
   {KD_TEX_SWIZ_111G, {GL_ONE, GL_ONE, GL_ONE, GL_GREEN}},
   {KD_TEX_SWIZ_GGGA, {GL_GREEN, GL_GREEN, GL_GREEN, GL_ALPHA}},
   {KD_TEX_SWIZ_GGGG, {GL_GREEN, GL_GREEN, GL_GREEN, GL_GREEN}},
-};
+});
 // clang-format on
 } // namespace
 
@@ -239,7 +241,7 @@ void CGLESTexture::LoadToGPU()
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 #ifdef GL_TEXTURE_MAX_ANISOTROPY_EXT
-  if (CServiceBroker::GetRenderSystem()->IsExtSupported("GL_EXT_texture_filter_anisotropic"))
+  if (CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_texture_filter_anisotropic))
   {
     int32_t aniso =
         CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiAnisotropicFiltering;
@@ -311,7 +313,8 @@ void CGLESTexture::LoadToGPU()
     return;
   }
 
-  if ((m_textureFormat & KD_TEX_FMT_SDR) || (m_textureFormat & KD_TEX_FMT_HDR))
+  const int formatType = m_textureFormat & KD_TEX_FMT_TYPE_MASK;
+  if (formatType == KD_TEX_FMT_SDR || formatType == KD_TEX_FMT_HDR)
   {
     glTexImage2D(GL_TEXTURE_2D, 0, glesFormat.internalFormat, m_textureWidth, m_textureHeight, 0,
                  glesFormat.format, glesFormat.type, m_pixels);
@@ -404,6 +407,7 @@ void CGLESTexture::SwapBlueRedSwizzle(GLint& component)
 TextureFormat CGLESTexture::GetFormatGLES20(KD_TEX_FMT textureFormat)
 {
   TextureFormat glFormat;
+  const int formatType = textureFormat & KD_TEX_FMT_TYPE_MASK;
 
   // GLES 2.0 does not support swizzling. But for some Kodi formats+swizzles,
   // we can map GLES formats (Luminance, Luminance-Alpha, BGRA). The swizzle
@@ -420,11 +424,11 @@ TextureFormat CGLESTexture::GetFormatGLES20(KD_TEX_FMT textureFormat)
     glFormat.format = glFormat.internalFormat = GL_LUMINANCE_ALPHA;
   }
   else if (m_textureFormat == KD_TEX_FMT_SDR_BGRA8 && m_textureSwizzle == KD_TEX_SWIZ_RGBA &&
-           !CServiceBroker::GetRenderSystem()->IsExtSupported("GL_EXT_texture_format_BGRA8888") &&
-           !CServiceBroker::GetRenderSystem()->IsExtSupported("GL_IMG_texture_format_BGRA8888"))
+           !CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_texture_format_BGRA8888) &&
+           !CGLExtensions::IsExtensionSupported(CGLExtensions::IMG_texture_format_BGRA8888))
   {
 #if defined(GL_APPLE_texture_format_BGRA8888)
-    if (CServiceBroker::GetRenderSystem()->IsExtSupported("GL_APPLE_texture_format_BGRA8888"))
+    if (CGLExtensions::IsExtensionSupported(CGLExtensions::APPLE_texture_format_BGRA8888))
     {
       glFormat.internalFormat = GL_RGBA;
       glFormat.format = GL_BGRA_EXT;
@@ -436,8 +440,8 @@ TextureFormat CGLESTexture::GetFormatGLES20(KD_TEX_FMT textureFormat)
       glFormat.format = glFormat.internalFormat = GL_RGBA;
     }
   }
-  else if (textureFormat & KD_TEX_FMT_SDR || textureFormat & KD_TEX_FMT_HDR ||
-           textureFormat & KD_TEX_FMT_ETC1)
+  else if (formatType == KD_TEX_FMT_SDR || formatType == KD_TEX_FMT_HDR ||
+           formatType == KD_TEX_FMT_ETC1)
   {
     const auto it = TextureMappingGLES20.find(textureFormat);
     if (it != TextureMappingGLES20.cend())
@@ -457,8 +461,10 @@ TextureFormat CGLESTexture::GetFormatGLES20(KD_TEX_FMT textureFormat)
 TextureFormat CGLESTexture::GetFormatGLES30(KD_TEX_FMT textureFormat)
 {
   TextureFormat glFormat;
+  const int formatType = textureFormat & KD_TEX_FMT_TYPE_MASK;
 
-  if (textureFormat & KD_TEX_FMT_SDR || textureFormat & KD_TEX_FMT_HDR)
+  if (formatType == KD_TEX_FMT_SDR || formatType == KD_TEX_FMT_HDR ||
+      formatType == KD_TEX_FMT_ETC1 || formatType == KD_TEX_FMT_ETC2)
   {
 #if defined(GL_ES_VERSION_3_0)
     const auto it = TextureMappingGLES30.find(textureFormat);
@@ -479,4 +485,9 @@ TextureFormat CGLESTexture::GetFormatGLES30(KD_TEX_FMT textureFormat)
   }
 
   return glFormat;
+}
+
+GLuint CGLESTexture::GetTextureID() const
+{
+  return m_texture;
 }

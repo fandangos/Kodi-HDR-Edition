@@ -1,7 +1,7 @@
 /*
  *  Copyright (c) 2002 Frodo
  *      Portions Copyright (c) by the authors of ffmpeg and xvid
- *  Copyright (C) 2002-2018 Team Kodi
+ *  Copyright (C) 2002-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -103,7 +103,7 @@ void CThread::Create(bool bAutoDelete)
   m_StartEvent.Reset();
 
   // lock?
-  //std::unique_lock<CCriticalSection> l(m_CriticalSection);
+  //std::unique_lock l(m_CriticalSection);
 
   std::promise<bool> prom;
   m_future = prom.get_future();
@@ -114,7 +114,7 @@ void CThread::Create(bool bAutoDelete)
     //   is fully initialized. Interestingly, using a std::atomic doesn't
     //   have the appropriate memory barrier behavior to accomplish the
     //   same thing so a full system mutex needs to be used.
-    std::unique_lock<CCriticalSection> blockLambdaTillDone(m_CriticalSection);
+    std::unique_lock blockLambdaTillDone(m_CriticalSection);
     m_thread = new std::thread([](CThread* pThread, std::promise<bool> promise)
     {
       try
@@ -126,8 +126,7 @@ void CThread::Create(bool bAutoDelete)
           // lambda's call stack prior to the thread that kicked off this lambda
           // having it set. Once this lock is released, the CThread::Create function
           // that kicked this off is done so everything should be set.
-          std::unique_lock<CCriticalSection> waitForThreadInternalsToBeSet(
-              pThread->m_CriticalSection);
+          std::unique_lock waitForThreadInternalsToBeSet(pThread->m_CriticalSection);
         }
 
         // This is used in various helper methods like GetCurrentThread so it needs
@@ -198,6 +197,16 @@ bool CThread::SetPriority(const ThreadPriority& priority)
   return m_impl->SetPriority(priority);
 }
 
+bool CThread::SetTask(const ThreadTask& task)
+{
+  return m_impl->SetTask(task);
+}
+
+bool CThread::RevertTask()
+{
+  return m_impl->RevertTask();
+}
+
 bool CThread::IsAutoDelete() const
 {
   return m_bAutoDelete;
@@ -209,7 +218,7 @@ void CThread::StopThread(bool bWait /*= true*/)
 
   m_bStop = true;
   m_StopEvent.Set();
-  std::unique_lock<CCriticalSection> lock(m_CriticalSection);
+  std::unique_lock lock(m_CriticalSection);
   std::thread* lthread = m_thread;
   if (lthread != nullptr && bWait && !IsCurrentThread())
   {
@@ -242,7 +251,7 @@ CThread* CThread::GetCurrentThread()
 
 bool CThread::Join(std::chrono::milliseconds duration)
 {
-  std::unique_lock<CCriticalSection> l(m_CriticalSection);
+  std::unique_lock l(m_CriticalSection);
   std::thread* lthread = m_thread;
   if (lthread != nullptr)
   {

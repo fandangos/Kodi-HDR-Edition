@@ -81,9 +81,9 @@ void CPlayList::Add(const std::shared_ptr<CFileItem>& item, int iPosition, int i
   if (iPosition < 0 || iPosition >= iOldSize)
     iPosition = iOldSize;
   if (iOrder < 0 || iOrder >= iOldSize)
-    item->m_iprogramCount = iOldSize;
+    item->SetProgramCount(iOldSize);
   else
-    item->m_iprogramCount = iOrder;
+    item->SetProgramCount(iOrder);
 
   // increment the playable counter
   item->ClearProperty("unplayable");
@@ -95,7 +95,11 @@ void CPlayList::Add(const std::shared_ptr<CFileItem>& item, int iPosition, int i
   // set 'IsPlayable' property - needed for properly handling plugin:// URLs
   item->SetProperty("IsPlayable", true);
 
-  //CLog::Log(LOGDEBUG,"{} item:({:02}/{:02})[{}]", __FUNCTION__, iPosition, item->m_iprogramCount, item->GetPath());
+  // set 'BasePath' property - needed for properly handling browse for subtitles
+  if (!item->HasProperty("BasePath"))
+    item->SetProperty("BasePath", m_strBasePath);
+
+  //CLog::Log(LOGDEBUG,"{} item:({:02}/{:02})[{}]", __FUNCTION__, iPosition, item->GetProgramCount(), item->GetPath());
   if (iPosition == iOldSize)
     m_vecItems.push_back(item);
   else
@@ -182,10 +186,11 @@ void CPlayList::DecrementOrder(int iOrder)
   while (it != m_vecItems.end())
   {
     CFileItemPtr item = *it;
-    if (item->m_iprogramCount > iOrder)
+    const int programCount{item->GetProgramCount()};
+    if (programCount > iOrder)
     {
-      //CLog::Log(LOGDEBUG,"{} fixing item at order {}", __FUNCTION__, item->m_iprogramCount);
-      item->m_iprogramCount--;
+      //CLog::Log(LOGDEBUG,"{} fixing item at order {}", __FUNCTION__, item->GetProgramCount());
+      item->SetProgramCount(programCount - 1);
     }
     ++it;
   }
@@ -201,10 +206,11 @@ void CPlayList::IncrementOrder(int iPosition, int iOrder)
   while (it != m_vecItems.end())
   {
     CFileItemPtr item = *it;
-    if (item->m_iprogramCount >= iOrder)
+    const int programCount{item->GetProgramCount()};
+    if (programCount >= iOrder)
     {
-      //CLog::Log(LOGDEBUG,"{} fixing item at order {}", __FUNCTION__, item->m_iprogramCount);
-      item->m_iprogramCount++;
+      //CLog::Log(LOGDEBUG,"{} fixing item at order {}", __FUNCTION__, item->GetProgramCount());
+      item->SetProgramCount(programCount + 1);
     }
     ++it;
   }
@@ -278,7 +284,7 @@ struct SSortPlayListItem
 {
   static bool PlaylistSort(const CFileItemPtr &left, const CFileItemPtr &right)
   {
-    return (left->m_iprogramCount < right->m_iprogramCount);
+    return (left->GetProgramCount() < right->GetProgramCount());
   }
 };
 
@@ -305,7 +311,7 @@ void CPlayList::Remove(const std::string& strFileName)
     CFileItemPtr item = *it;
     if (item->GetPath() == strFileName)
     {
-      iOrder = item->m_iprogramCount;
+      iOrder = item->GetProgramCount();
       it = m_vecItems.erase(it);
       AnnounceRemove(position);
       //CLog::Log(LOGDEBUG,"PLAYLIST, removing item at order {}", iPos);
@@ -323,7 +329,7 @@ int CPlayList::FindOrder(int iOrder) const
 {
   for (int i = 0; i < size(); i++)
   {
-    if (m_vecItems[i]->m_iprogramCount == iOrder)
+    if (m_vecItems[i]->GetProgramCount() == iOrder)
       return i;
   }
   return -1;
@@ -335,7 +341,7 @@ void CPlayList::Remove(int position)
   int iOrder = -1;
   if (position >= 0 && position < (int)m_vecItems.size())
   {
-    iOrder = m_vecItems[position]->m_iprogramCount;
+    iOrder = m_vecItems[position]->GetProgramCount();
     m_vecItems.erase(m_vecItems.begin() + position);
   }
   DecrementOrder(iOrder);
@@ -392,8 +398,10 @@ bool CPlayList::Swap(int position1, int position2)
   if (!IsShuffled())
   {
     // swap the ordinals before swapping the items!
-    //CLog::Log(LOGDEBUG,"PLAYLIST swapping items at orders ({}, {})",m_vecItems[position1]->m_iprogramCount,m_vecItems[position2]->m_iprogramCount);
-    std::swap(m_vecItems[position1]->m_iprogramCount, m_vecItems[position2]->m_iprogramCount);
+    //CLog::Log(LOGDEBUG,"PLAYLIST swapping items at orders ({}, {})",m_vecItems[position1]->GetProgramCount(),m_vecItems[position2]->GetProgramCount());
+    const int count1{m_vecItems[position1]->GetProgramCount()};
+    m_vecItems[position1]->SetProgramCount(m_vecItems[position2]->GetProgramCount());
+    m_vecItems[position2]->SetProgramCount(count1);
   }
 
   // swap the items
@@ -479,7 +487,12 @@ bool CPlayList::Expand(int position)
   {
     (*playlist)[i]->SetDynPath((*playlist)[i]->GetPath());
     (*playlist)[i]->SetPath(item->GetDynPath());
-    (*playlist)[i]->SetStartOffset(item->GetStartOffset());
+    // Only propagate parent's start offset if the loaded item doesn't already
+    // have its own (e.g. a CUE sheet offset loaded from the playlist file).
+    if (!(*playlist)[i]->HasProperty("item_start"))
+      (*playlist)[i]->SetStartOffset(item->GetStartOffset());
+    if (!(*playlist)[i]->HasProperty("BasePath"))
+      (*playlist)[i]->SetProperty("BasePath", playlist->m_strBasePath);
   }
 
   if (playlist->size() <= 0)
@@ -496,7 +509,7 @@ void CPlayList::UpdateItem(const CFileItem *item)
 
   for (ivecItems it = m_vecItems.begin(); it != m_vecItems.end(); ++it)
   {
-    CFileItemPtr playlistItem = *it;
+    const CFileItemPtr& playlistItem = *it;
     if (playlistItem->IsSamePath(item))
     {
       std::string temp = playlistItem->GetPath(); // save path, it may have been altered

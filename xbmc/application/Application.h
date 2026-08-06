@@ -28,7 +28,7 @@
 #include <vector>
 
 class CAction;
-class CAppInboundProtocol;
+class CApplicationMessageHandling;
 class CBookmark;
 class CFileItem;
 class CFileItemList;
@@ -86,6 +86,8 @@ class CApplication : public IWindowManagerCallback,
                      public CApplicationPlayerCallback,
                      public CApplicationSettingsHandling
 {
+  friend class CApplicationMessageHandling;
+
 public:
 
   // If playback time of current item is greater than this value, ACTION_PREV_ITEM will seek to start
@@ -104,6 +106,7 @@ public:
   void Render() override;
 
   bool IsInitialized() const { return !m_bInitializing; }
+  void DoneInitializing() { m_bInitializing = false; }
   bool IsStopping() const { return m_bStop; }
 
   bool CreateGUI();
@@ -125,10 +128,7 @@ public:
                                KODI::PLAYLIST::CPlayList& playlist,
                                KODI::PLAYLIST::Id playlistId,
                                int track = 0);
-  bool PlayFile(CFileItem item,
-                const std::string& player,
-                bool bRestart = false,
-                bool forceSelection = false);
+  bool PlayFile(CFileItem item, const std::string& player, bool bRestart = false);
   void StopPlaying();
   void Restart(bool bSamePosition = true);
   void DelayedPlayerRestart();
@@ -168,6 +168,8 @@ public:
 
   bool ExecuteXBMCAction(std::string action, const std::shared_ptr<CGUIListItem>& item = NULL);
 
+  bool WasPlaybackCancelled() const { return m_cancelPlayback; }
+
 #ifdef HAS_OPTICAL_DRIVE
   std::unique_ptr<MEDIA_DETECT::CAutorun> m_Autorun;
 #endif
@@ -199,11 +201,15 @@ protected:
   bool OnSettingsSaving() const override;
   void PlaybackCleanup();
 
+  void SetCurrentFileItem(std::shared_ptr<CFileItem> item) { m_itemCurrentFile = std::move(item); }
+
+  void ResetPlayerEvent() { m_playerEvent.Reset(); }
+
   std::shared_ptr<ANNOUNCEMENT::CAnnouncementManager> m_pAnnouncementManager;
   std::unique_ptr<CGUIComponent> m_pGUI;
   std::unique_ptr<CWinSystemBase> m_pWinSystem;
   std::unique_ptr<ActiveAE::CActiveAE> m_pActiveAE;
-  std::shared_ptr<CAppInboundProtocol> m_pAppPort;
+  std::shared_ptr<CApplicationMessageHandling> m_pMsgHandling;
 
   // timer information
   CStopWatch m_restartPlayerTimer;
@@ -215,13 +221,12 @@ protected:
   bool m_bInitializing = true;
 
   int m_nextPlaylistItem = -1;
+  bool m_cancelPlayback{false};
 
   std::chrono::time_point<std::chrono::steady_clock> m_lastRenderTime;
   bool m_skipGuiRender = false;
 
   std::unique_ptr<MUSIC_INFO::CMusicInfoScanner> m_musicInfoScanner;
-
-  bool PlayStack(CFileItem& item, bool bRestart);
 
   std::unique_ptr<CInertialScrollingHandler> m_pInertialScrollingHandler;
 

@@ -149,8 +149,8 @@ static void ParseItemMRSS(CFileItem* item,
     if(text.empty())
       return;
 
-    if(text.length() > item->m_strTitle.length())
-      item->m_strTitle = text;
+    if (text.length() > item->GetTitle().length())
+      item->SetTitle(text);
   }
   else if(name == "description")
   {
@@ -262,13 +262,12 @@ static void ParseItemRSS(CFileItem* item,
   std::string text = GetValue(item_child);
   if (name == "title")
   {
-    if(text.length() > item->m_strTitle.length())
-      item->m_strTitle = text;
+    if (text.length() > item->GetTitle().length())
+      item->SetTitle(text);
   }
   else if (name == "pubDate")
   {
-    CDateTime pubDate(ParseDate(text));
-    item->m_dateTime = pubDate;
+    item->SetDateTime(ParseDate(text));
   }
   else if (name == "link")
   {
@@ -536,12 +535,12 @@ static void ParseItem(CFileItem* item, tinyxml2::XMLElement* root, const std::st
   {
     item->SetMimeType(best->mime);
     item->SetPath(best->path);
-    item->m_dwSize  = best->size;
+    item->SetSize(best->size);
 
     if(best->duration)
       item->SetProperty("duration", StringUtils::SecondsToTimeString(best->duration));
 
-    /* handling of mimetypes fo directories are sub optimal at best */
+    /* handling of mimetypes for directories are sub optimal at best */
     if(best->mime == "application/rss+xml" && StringUtils::StartsWithNoCase(item->GetPath(), "http://"))
       item->SetPath("rss://" + item->GetPath().substr(7));
 
@@ -550,13 +549,14 @@ static void ParseItem(CFileItem* item, tinyxml2::XMLElement* root, const std::st
 
     if(StringUtils::StartsWithNoCase(item->GetPath(), "rss://")
       || StringUtils::StartsWithNoCase(item->GetPath(), "rsss://"))
-      item->m_bIsFolder = true;
+      item->SetFolder(true);
     else
-      item->m_bIsFolder = false;
+      item->SetFolder(false);
   }
 
-  if(!item->m_strTitle.empty())
-    item->SetLabel(item->m_strTitle);
+  const std::string& title{item->GetTitle()};
+  if (!title.empty())
+    item->SetLabel(title);
 
   if(item->HasVideoInfoTag())
   {
@@ -589,7 +589,7 @@ bool CRSSDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   URIUtils::RemoveSlashAtEnd(strPath);
   std::map<std::string,CDateTime>::iterator it;
   items.SetPath(strPath);
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if ((it=m_cache.find(strPath)) != m_cache.end())
   {
     if (it->second > CDateTime::GetCurrentDateTime() &&
@@ -635,10 +635,14 @@ bool CRSSDirectory::GetDirectory(const CURL& url, CFileItemList &items)
       items.Add(item);
   }
 
-  items.AddSortMethod(SortByNone   , 231, LABEL_MASKS("%L", "%D", "%L", ""));    // FileName, Duration | Foldername, empty
-  items.AddSortMethod(SortByLabel  , 551, LABEL_MASKS("%L", "%D", "%L", ""));    // FileName, Duration | Foldername, empty
-  items.AddSortMethod(SortBySize   , 553, LABEL_MASKS("%L", "%I", "%L", "%I"));  // FileName, Size | Foldername, Size
-  items.AddSortMethod(SortByDate   , 552, LABEL_MASKS("%L", "%J", "%L", "%J"));  // FileName, Date | Foldername, Date
+  items.AddSortMethod(SortBy::NONE, 231,
+                      LABEL_MASKS("%L", "%D", "%L", "")); // FileName, Duration | Foldername, empty
+  items.AddSortMethod(SortBy::LABEL, 551,
+                      LABEL_MASKS("%L", "%D", "%L", "")); // FileName, Duration | Foldername, empty
+  items.AddSortMethod(SortBy::SIZE, 553,
+                      LABEL_MASKS("%L", "%I", "%L", "%I")); // FileName, Size | Foldername, Size
+  items.AddSortMethod(SortBy::DATE, 552,
+                      LABEL_MASKS("%L", "%J", "%L", "%J")); // FileName, Date | Foldername, Date
 
   CDateTime time = CDateTime::GetCurrentDateTime();
   int mins = 60;
@@ -648,7 +652,7 @@ bool CRSSDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   time += CDateTimeSpan(0,0,mins,0);
   items.SetPath(strPath);
   items.Save();
-  std::unique_lock<CCriticalSection> lock2(m_section);
+  std::unique_lock lock2(m_section);
   m_cache.insert(make_pair(strPath,time));
 
   return true;

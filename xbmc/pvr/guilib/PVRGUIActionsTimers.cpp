@@ -16,8 +16,8 @@
 #include "dialogs/GUIDialogYesNo.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
+#include "jobs/JobManager.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "pvr/PVREventLogJob.h"
@@ -33,8 +33,11 @@
 #include "pvr/guilib/PVRGUIActionsParentalControl.h"
 #include "pvr/guilib/PVRGUIActionsPlayback.h"
 #include "pvr/recordings/PVRRecording.h"
+#include "pvr/settings/PVRSettings.h"
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "pvr/timers/PVRTimers.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "threads/IRunnable.h"
 #include "utils/StringUtils.h"
@@ -59,8 +62,10 @@ class AsyncUpdateTimer : private IRunnable
 public:
   AsyncUpdateTimer(const CPVRGUIActionsTimers& guiActions,
                    const std::shared_ptr<CPVRTimerInfoTag>& oldTimer,
-                   const std::shared_ptr<CPVRTimerInfoTag>& newTimer)
-    : m_guiActions(guiActions), m_oldTimer(oldTimer), m_newTimer(newTimer)
+                   const std::shared_ptr<CPVRTimerInfoTag>& changedTimer)
+    : m_guiActions(guiActions),
+      m_oldTimer(oldTimer),
+      m_changedTimer(changedTimer)
   {
   }
 
@@ -76,10 +81,10 @@ private:
   {
     m_success = true;
 
-    if (m_newTimer->GetTimerType() == m_oldTimer->GetTimerType() &&
-        m_newTimer->ClientID() == m_oldTimer->ClientID())
+    if (m_changedTimer->GetTimerType() == m_oldTimer->GetTimerType() &&
+        m_changedTimer->ClientID() == m_oldTimer->ClientID())
     {
-      if (CServiceBroker::GetPVRManager().Timers()->UpdateTimer(m_newTimer))
+      if (CServiceBroker::GetPVRManager().Timers()->UpdateTimer(m_changedTimer))
         return;
 
       HELPERS::ShowOKDialogText(CVariant{257},
@@ -95,10 +100,12 @@ private:
       // and we would end up with one timer missing wrt to the rule defined by the new timer.
       if (m_guiActions.DeleteTimer(m_oldTimer, m_oldTimer->IsRecording(), false))
       {
-        if (m_newTimer->IsTimerRule())
-          m_newTimer->ResetChildState();
+        if (m_changedTimer->IsTimerRule())
+          m_changedTimer->ResetChildState();
 
-        m_success = m_guiActions.AddTimer(m_newTimer);
+        // Flag the changed timer as new so it can be detected as such by the add-on.
+        m_changedTimer->ResetClientIndex();
+        m_success = m_guiActions.AddTimer(m_changedTimer);
         if (!m_success)
         {
           // rollback.
@@ -110,19 +117,21 @@ private:
 
   const CPVRGUIActionsTimers& m_guiActions;
   std::shared_ptr<CPVRTimerInfoTag> m_oldTimer;
-  std::shared_ptr<CPVRTimerInfoTag> m_newTimer;
+  std::shared_ptr<CPVRTimerInfoTag> m_changedTimer;
   bool m_success{false};
 };
 } // unnamed namespace
 
 CPVRGUIActionsTimers::CPVRGUIActionsTimers()
-  : m_settings({CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME,
-                CSettings::SETTING_PVRRECORD_INSTANTRECORDACTION,
-                CSettings::SETTING_PVRREMINDERS_AUTOCLOSEDELAY,
-                CSettings::SETTING_PVRREMINDERS_AUTORECORD,
-                CSettings::SETTING_PVRREMINDERS_AUTOSWITCH})
+  : m_settings(std::make_unique<CPVRSettings>(SettingsContainer(
+        {CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME,
+         CSettings::SETTING_PVRRECORD_INSTANTRECORDACTION,
+         CSettings::SETTING_PVRREMINDERS_AUTOCLOSEDELAY, CSettings::SETTING_PVRREMINDERS_AUTORECORD,
+         CSettings::SETTING_PVRREMINDERS_AUTOSWITCH})))
 {
 }
+
+CPVRGUIActionsTimers::~CPVRGUIActionsTimers() = default;
 
 bool CPVRGUIActionsTimers::ShowTimerSettings(const std::shared_ptr<CPVRTimerInfoTag>& timer) const
 {
@@ -171,7 +180,7 @@ bool CPVRGUIActionsTimers::AddReminder(const CFileItem& item) const
 
 bool CPVRGUIActionsTimers::AddTimer(bool bRadio) const
 {
-  const std::shared_ptr<CPVRTimerInfoTag> newTimer(new CPVRTimerInfoTag(bRadio));
+  const auto newTimer{std::make_shared<CPVRTimerInfoTag>(bRadio)};
   if (ShowTimerSettings(newTimer))
   {
     return AddTimer(newTimer);
@@ -251,7 +260,7 @@ bool CPVRGUIActionsTimers::AddTimer(const CFileItem& item,
 
     // prevent super long recordings for channels without any epg data
     gapDuration = std::min(
-        m_settings.GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME) * 60, gapDuration);
+        m_settings->GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME) * 60, gapDuration);
 
     newTimer = CPVRTimerInfoTag::CreateTimerTag(channel, gapStart, gapDuration);
   }
@@ -275,11 +284,8 @@ bool CPVRGUIActionsTimers::AddTimer(const CFileItem& item,
     }
   }
 
-  if (bShowTimerSettings)
-  {
-    if (!ShowTimerSettings(newTimer))
-      return false;
-  }
+  if (bShowTimerSettings && !ShowTimerSettings(newTimer))
+    return false;
 
   return AddTimer(newTimer);
 }
@@ -341,8 +347,8 @@ public:
   PVRRECORD_INSTANTRECORDACTION Select();
 
 private:
-  int m_iInstantRecordTime;
-  CGUIDialogSelect* m_pDlgSelect; // not owner!
+  const int m_iInstantRecordTime{0};
+  CGUIDialogSelect* m_pDlgSelect{nullptr}; // not owner!
   std::map<PVRRECORD_INSTANTRECORDACTION, int> m_actions;
 };
 
@@ -366,34 +372,39 @@ InstantRecordingActionSelector::InstantRecordingActionSelector(int iInstantRecor
 void InstantRecordingActionSelector::AddAction(PVRRECORD_INSTANTRECORDACTION eAction,
                                                const std::string& title)
 {
-  if (m_actions.find(eAction) == m_actions.end())
+  if (!m_actions.contains(eAction))
   {
     switch (eAction)
     {
       case RECORD_INSTANTRECORDTIME:
-        m_pDlgSelect->Add(
-            StringUtils::Format(g_localizeStrings.Get(19090),
-                                m_iInstantRecordTime)); // Record next <default duration> minutes
+        m_pDlgSelect->Add(StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19090),
+            m_iInstantRecordTime)); // Record next <default duration> minutes
         break;
       case RECORD_30_MINUTES:
-        m_pDlgSelect->Add(
-            StringUtils::Format(g_localizeStrings.Get(19090), 30)); // Record next 30 minutes
+        m_pDlgSelect->Add(StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19090),
+            30)); // Record next 30 minutes
         break;
       case RECORD_60_MINUTES:
-        m_pDlgSelect->Add(
-            StringUtils::Format(g_localizeStrings.Get(19090), 60)); // Record next 60 minutes
+        m_pDlgSelect->Add(StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19090),
+            60)); // Record next 60 minutes
         break;
       case RECORD_120_MINUTES:
-        m_pDlgSelect->Add(
-            StringUtils::Format(g_localizeStrings.Get(19090), 120)); // Record next 120 minutes
+        m_pDlgSelect->Add(StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19090),
+            120)); // Record next 120 minutes
         break;
       case RECORD_CURRENT_SHOW:
-        m_pDlgSelect->Add(StringUtils::Format(g_localizeStrings.Get(19091),
-                                              title)); // Record current show (<title>)
+        m_pDlgSelect->Add(StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19091),
+            title)); // Record current show (<title>)
         break;
       case RECORD_NEXT_SHOW:
-        m_pDlgSelect->Add(StringUtils::Format(g_localizeStrings.Get(19092),
-                                              title)); // Record next show (<title>)
+        m_pDlgSelect->Add(StringUtils::Format(
+            CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19092),
+            title)); // Record next show (<title>)
         break;
       case NONE:
       case ASK:
@@ -421,9 +432,8 @@ PVRRECORD_INSTANTRECORDACTION InstantRecordingActionSelector::Select()
   if (m_pDlgSelect->IsConfirmed())
   {
     int iSelection = m_pDlgSelect->GetSelectedItem();
-    const auto it =
-        std::find_if(m_actions.cbegin(), m_actions.cend(),
-                     [iSelection](const auto& action) { return action.second == iSelection; });
+    const auto it = std::ranges::find_if(m_actions, [iSelection](const auto& action)
+                                         { return action.second == iSelection; });
 
     if (it != m_actions.cend())
       eAction = (*it).first;
@@ -434,7 +444,7 @@ PVRRECORD_INSTANTRECORDACTION InstantRecordingActionSelector::Select()
 
 } // unnamed namespace
 
-bool CPVRGUIActionsTimers::ToggleRecordingOnPlayingChannel()
+bool CPVRGUIActionsTimers::ToggleRecordingOnPlayingChannel() const
 {
   const std::shared_ptr<CPVRChannel> channel =
       CServiceBroker::GetPVRManager().PlaybackState()->GetPlayingChannel();
@@ -446,7 +456,7 @@ bool CPVRGUIActionsTimers::ToggleRecordingOnPlayingChannel()
 }
 
 bool CPVRGUIActionsTimers::SetRecordingOnChannel(const std::shared_ptr<CPVRChannel>& channel,
-                                                 bool bOnOff)
+                                                 bool bOnOff) const
 {
   bool bReturn = false;
 
@@ -465,9 +475,9 @@ bool CPVRGUIActionsTimers::SetRecordingOnChannel(const std::shared_ptr<CPVRChann
     if (bOnOff && !CServiceBroker::GetPVRManager().Timers()->IsRecordingOnChannel(*channel))
     {
       std::shared_ptr<CPVREpgInfoTag> epgTag;
-      int iDuration = m_settings.GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME);
+      int iDuration{m_settings->GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME)};
 
-      int iAction = m_settings.GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDACTION);
+      const int iAction{m_settings->GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDACTION)};
       switch (iAction)
       {
         case RECORD_CURRENT_SHOW:
@@ -482,7 +492,7 @@ bool CPVRGUIActionsTimers::SetRecordingOnChannel(const std::shared_ptr<CPVRChann
         {
           PVRRECORD_INSTANTRECORDACTION ePreselect = RECORD_INSTANTRECORDTIME;
           const int iDurationDefault =
-              m_settings.GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME);
+              m_settings->GetIntValue(CSettings::SETTING_PVRRECORD_INSTANTRECORDTIME);
           InstantRecordingActionSelector selector(iDurationDefault);
           std::shared_ptr<CPVREpgInfoTag> epgTagNext;
 
@@ -502,7 +512,9 @@ bool CPVRGUIActionsTimers::SetRecordingOnChannel(const std::shared_ptr<CPVRChann
 
             // "now"
             const std::string currentTitle =
-                bLocked ? g_localizeStrings.Get(19266) /* Parental locked */ : epgTag->Title();
+                bLocked ? CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                              19266) /* Parental locked */
+                        : epgTag->Title();
             selector.AddAction(RECORD_CURRENT_SHOW, currentTitle);
             ePreselect = RECORD_CURRENT_SHOW;
 
@@ -510,9 +522,10 @@ bool CPVRGUIActionsTimers::SetRecordingOnChannel(const std::shared_ptr<CPVRChann
             epgTagNext = channel->GetEPGNext();
             if (epgTagNext)
             {
-              const std::string nextTitle = bLocked
-                                                ? g_localizeStrings.Get(19266) /* Parental locked */
-                                                : epgTagNext->Title();
+              const std::string nextTitle =
+                  bLocked ? CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                                19266) /* Parental locked */
+                          : epgTagNext->Title();
               selector.AddAction(RECORD_NEXT_SHOW, nextTitle);
 
               // be smart. if current show is almost over, preselect next show.
@@ -656,14 +669,14 @@ bool CPVRGUIActionsTimers::EditTimer(const CFileItem& item) const
     return false;
   }
 
-  // clone the timer.
-  const std::shared_ptr<CPVRTimerInfoTag> newTimer(new CPVRTimerInfoTag);
-  newTimer->UpdateEntry(timer);
+  // Clone the timer so we can track changes.
+  const auto changedTimer{std::make_shared<CPVRTimerInfoTag>()};
+  changedTimer->UpdateEntry(timer);
 
-  if (ShowTimerSettings(newTimer) &&
+  if (ShowTimerSettings(changedTimer) &&
       (!timer->GetTimerType()->IsReadOnly() || timer->GetTimerType()->SupportsEnableDisable()))
   {
-    AsyncUpdateTimer asyncUpdate(*this, timer, newTimer);
+    AsyncUpdateTimer asyncUpdate(*this, timer, changedTimer);
     return asyncUpdate.Execute();
   }
   return false;
@@ -861,15 +874,16 @@ std::string GetAnnouncerText(const std::shared_ptr<const CPVRTimerInfoTag>& time
   std::string text;
   if (timer->IsEpgBased())
   {
-    text = StringUtils::Format(g_localizeStrings.Get(idEpg),
-                               timer->Title(), // tv show title
-                               timer->ChannelName(),
-                               timer->StartAsLocalTime().GetAsLocalizedDateTime(false, false));
+    text = StringUtils::Format(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(idEpg),
+        timer->Title(), // tv show title
+        timer->ChannelName(), timer->StartAsLocalTime().GetAsLocalizedDateTime(false, false));
   }
   else
   {
-    text = StringUtils::Format(g_localizeStrings.Get(idNoEpg), timer->ChannelName(),
-                               timer->StartAsLocalTime().GetAsLocalizedDateTime(false, false));
+    text = StringUtils::Format(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(idNoEpg),
+        timer->ChannelName(), timer->StartAsLocalTime().GetAsLocalizedDateTime(false, false));
   }
   return text;
 }
@@ -888,11 +902,11 @@ void AddEventLogEntry(const std::shared_ptr<const CPVRTimerInfoTag>& timer, int 
   }
   else
   {
-    name = g_sysinfo.GetAppName();
+    name = CSysInfo::GetAppName();
     icon = "special://xbmc/media/icon256x256.png";
   }
 
-  CPVREventLogJob* job = new CPVREventLogJob;
+  auto* job{new CPVREventLogJob};
   job->AddEvent(false, // do not display a toast, only log event
                 EventLevel::Information, // info, no error
                 name, GetAnnouncerText(timer, idEpg, idNoEpg), icon);
@@ -915,12 +929,6 @@ void CPVRGUIActionsTimers::AnnounceReminder(const std::shared_ptr<CPVRTimerInfoT
     return;
   }
 
-  if (CServiceBroker::GetPVRManager().PlaybackState()->IsPlayingChannel(timer->Channel()))
-  {
-    // no need for an announcement. channel in question is already playing.
-    return;
-  }
-
   // show the reminder dialog
   CGUIDialogProgress* dialog =
       CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogProgress>(
@@ -931,30 +939,40 @@ void CPVRGUIActionsTimers::AnnounceReminder(const std::shared_ptr<CPVRTimerInfoT
   dialog->Reset();
 
   dialog->SetHeading(CVariant{19312}); // "PVR reminder"
-  dialog->ShowChoice(0, CVariant{19165}); // "Switch"
+
+  static constexpr int CHOICE_SWITCH{0};
+  static constexpr int CHOICE_RECORD{1};
+  static constexpr int CHOICE_CANCEL{2};
 
   std::string text = GetAnnouncerText(timer, 19307, 19308); // Reminder for ...
 
-  bool bCanRecord = false;
-  const std::shared_ptr<const CPVRClient> client =
-      CServiceBroker::GetPVRManager().GetClient(timer->ClientID());
+  bool autoRecord{false};
+  const std::shared_ptr<const CPVRClient> client{
+      CServiceBroker::GetPVRManager().GetClient(timer->ClientID())};
   if (client && client->GetClientCapabilities().SupportsTimers())
   {
-    bCanRecord = true;
-    dialog->ShowChoice(1, CVariant{264}); // "Record"
-    dialog->ShowChoice(2, CVariant{222}); // "Cancel"
+    dialog->ShowChoice(CHOICE_RECORD, CVariant{264}); // "Record"
+    autoRecord = m_settings->GetBoolValue(CSettings::SETTING_PVRREMINDERS_AUTORECORD);
+    if (autoRecord)
+    {
+      // (Auto-close of this reminder will schedule a recording...)
+      text += "\n\n" + CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19309);
+    }
+  }
 
-    if (m_settings.GetBoolValue(CSettings::SETTING_PVRREMINDERS_AUTORECORD))
-      text += "\n\n" + g_localizeStrings.Get(
-                           19309); // (Auto-close of this reminder will schedule a recording...)
-    else if (m_settings.GetBoolValue(CSettings::SETTING_PVRREMINDERS_AUTOSWITCH))
-      text += "\n\n" + g_localizeStrings.Get(
-                           19331); // (Auto-close of this reminder will switch to channel...)
-  }
-  else
+  bool autoSwitch{false};
+  if (!CServiceBroker::GetPVRManager().PlaybackState()->IsPlayingChannel(timer->Channel()))
   {
-    dialog->ShowChoice(1, CVariant{222}); // "Cancel"
+    dialog->ShowChoice(CHOICE_SWITCH, CVariant{19165}); // "Switch"
+    autoSwitch = m_settings->GetBoolValue(CSettings::SETTING_PVRREMINDERS_AUTOSWITCH);
+    if (autoSwitch)
+    {
+      // (Auto-close of this reminder will switch to channel...)
+      text += "\n\n" + CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19331);
+    }
   }
+
+  dialog->ShowChoice(CHOICE_CANCEL, CVariant{222}); // "Cancel"
 
   dialog->SetText(text);
   dialog->SetPercentage(100);
@@ -965,7 +983,7 @@ void CPVRGUIActionsTimers::AnnounceReminder(const std::shared_ptr<CPVRTimerInfoT
 
   static constexpr int PROGRESS_TIMESLICE_MILLISECS = 50;
 
-  const int iWait = m_settings.GetIntValue(CSettings::SETTING_PVRREMINDERS_AUTOCLOSEDELAY) * 1000;
+  const int iWait{m_settings->GetIntValue(CSettings::SETTING_PVRREMINDERS_AUTOCLOSEDELAY) * 1000};
   int iRemaining = iWait;
   while (iRemaining > 0)
   {
@@ -983,13 +1001,13 @@ void CPVRGUIActionsTimers::AnnounceReminder(const std::shared_ptr<CPVRTimerInfoT
   dialog->Close();
 
   bool bAutoClosed = (iRemaining <= 0);
-  bool bSwitch = (result == 0);
-  bool bRecord = (result == 1);
+  bool bSwitch = (result == CHOICE_SWITCH);
+  bool bRecord = (result == CHOICE_RECORD);
 
   if (bAutoClosed)
   {
-    bRecord = (bCanRecord && m_settings.GetBoolValue(CSettings::SETTING_PVRREMINDERS_AUTORECORD));
-    bSwitch = m_settings.GetBoolValue(CSettings::SETTING_PVRREMINDERS_AUTOSWITCH);
+    bRecord = autoRecord;
+    bSwitch = autoSwitch;
   }
 
   if (bRecord)
@@ -1034,7 +1052,7 @@ void CPVRGUIActionsTimers::AnnounceReminder(const std::shared_ptr<CPVRTimerInfoT
     if (groupMember)
     {
       CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(
-          CFileItem(groupMember), false);
+          CFileItem(groupMember));
 
       if (bAutoClosed)
       {
@@ -1047,17 +1065,30 @@ void CPVRGUIActionsTimers::AnnounceReminder(const std::shared_ptr<CPVRTimerInfoT
 
 void CPVRGUIActionsTimers::AnnounceReminders() const
 {
-  // Prevent multiple yesno dialogs, all on same call stack, due to gui message processing while dialog is open.
+  // Prevent multiple announcer dialogs, all on same call stack (thus no mutex protection needed),
+  // due to GUI message processing while dialog is open.
   if (m_bReminderAnnouncementRunning)
     return;
 
+  const auto playbackState{CServiceBroker::GetPVRManager().PlaybackState()};
+  const auto timers{CServiceBroker::GetPVRManager().Timers()};
+
   m_bReminderAnnouncementRunning = true;
-  std::shared_ptr<CPVRTimerInfoTag> timer =
-      CServiceBroker::GetPVRManager().Timers()->GetNextReminderToAnnnounce();
+  std::shared_ptr<CPVRTimerInfoTag> timer{timers->GetNextReminderToAnnnounce()};
   while (timer)
   {
-    AnnounceReminder(timer);
-    timer = CServiceBroker::GetPVRManager().Timers()->GetNextReminderToAnnnounce();
+    if (playbackState->IsPlayingChannel(timer->Channel()))
+    {
+      // No announcements for currently playing channel, but reschedule
+      // for potential future announcement (e.g. after channel switch).
+      timer->SetState(PVR_TIMER_STATE_SCHEDULED);
+    }
+    else
+    {
+      AnnounceReminder(timer);
+    }
+
+    timer = timers->GetNextReminderToAnnnounce();
   }
   m_bReminderAnnouncementRunning = false;
 }

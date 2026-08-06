@@ -39,7 +39,9 @@ bool ContainsOnlySeparator(const std::string& address,
 } // namespace
 
 CGameClientTopology::CGameClientTopology(GameClientPortVec ports, int playerLimit)
-  : m_ports(std::move(ports)), m_playerLimit(playerLimit), m_controllers(GetControllerTree(m_ports))
+  : m_ports(std::move(ports)),
+    m_playerLimit(playerLimit),
+    m_controllers(GetControllerTree(m_ports))
 {
 }
 
@@ -77,6 +79,7 @@ CPortNode CGameClientTopology::GetPortNode(const GameClientPortPtr& port,
   portNode.SetPortID(port->ID());
   portNode.SetAddress(portAddress);
   portNode.SetForceConnected(port->ForceConnected());
+  portNode.SetAutoConnect(port->AutoConnect());
 
   ControllerNodeVec nodes;
   for (const GameClientDevicePtr& device : port->Devices())

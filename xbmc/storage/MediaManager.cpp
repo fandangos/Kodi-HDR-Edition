@@ -12,7 +12,8 @@
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "guilib/GUIComponent.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/URIUtils.h"
 
 #include <mutex>
@@ -35,17 +36,22 @@
 #include "addons/VFSEntry.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogPlayEject.h"
+#ifdef HAVE_LIBBLURAY
+#include "filesystem/BlurayDiscCache.h"
+#endif
+#include "filesystem/File.h"
+#include "jobs/JobManager.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/FileUtils.h"
-#include "utils/JobManager.h"
 #include "utils/StringUtils.h"
 #include "utils/XBMCTinyXML2.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
+#include "video/VideoDatabase.h"
 
 #include <string>
 #include <vector>
@@ -82,22 +88,35 @@ void CMediaManager::Initialize()
   m_platformStorage->Initialize();
 }
 
-bool CMediaManager::LoadSources()
+void CMediaManager::LoadSources()
 {
   // clear our location list
   m_locations.clear();
 
+  // Add-on sources are always present (and marked as "ignored" when saving XML)
+  LoadAddonSources();
+
+  // No more work to do if mediasources.xml doesn't exist
+  if (!XFILE::CFile::Exists(MEDIA_SOURCES_XML))
+  {
+    CLog::Log(LOGDEBUG, "No media sources file at {}", MEDIA_SOURCES_XML);
+    return;
+  }
+
   // load xml file...
   CXBMCTinyXML2 xmlDoc;
-  if ( !xmlDoc.LoadFile( MEDIA_SOURCES_XML ) )
-    return false;
+  if (!xmlDoc.LoadFile(MEDIA_SOURCES_XML))
+  {
+    CLog::Log(LOGERROR, "Error loading {}, Line {} ({})", MEDIA_SOURCES_XML, xmlDoc.ErrorLineNum(),
+              xmlDoc.ErrorStr());
+    return;
+  }
 
   auto* pRootElement = xmlDoc.RootElement();
   if (!pRootElement || StringUtils::CompareNoCase(pRootElement->Value(), "mediasources") != 0)
   {
-    CLog::Log(LOGERROR, "Error loading {}, Line {} ({})", MEDIA_SOURCES_XML, xmlDoc.ErrorLineNum(),
-              xmlDoc.ErrorStr());
-    return false;
+    CLog::Log(LOGERROR, "Error loading {}, missing root <mediasources> element", MEDIA_SOURCES_XML);
+    return;
   }
 
   // load the <network> block
@@ -117,8 +136,6 @@ bool CMediaManager::LoadSources()
       pLocation = pLocation->NextSiblingElement("location");
     }
   }
-  LoadAddonSources();
-  return true;
 }
 
 bool CMediaManager::SaveSources()
@@ -148,13 +165,13 @@ bool CMediaManager::SaveSources()
 
 void CMediaManager::GetLocalDrives(std::vector<CMediaSource>& localDrives, bool includeQ)
 {
-  std::unique_lock<CCriticalSection> lock(m_CritSecStorageProvider);
+  std::unique_lock lock(m_CritSecStorageProvider);
   m_platformStorage->GetLocalDrives(localDrives);
 }
 
 void CMediaManager::GetRemovableDrives(std::vector<CMediaSource>& removableDrives)
 {
-  std::unique_lock<CCriticalSection> lock(m_CritSecStorageProvider);
+  std::unique_lock lock(m_CritSecStorageProvider);
   if (m_platformStorage)
     m_platformStorage->GetRemovableDrives(removableDrives);
 }
@@ -175,20 +192,21 @@ void CMediaManager::GetNetworkLocations(std::vector<CMediaSource>& locations, bo
     share.m_ignore = true;
 #ifdef HAS_FILESYSTEM_SMB
     share.strPath = "smb://";
-    share.strName = g_localizeStrings.Get(20171);
+    share.strName = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20171);
     locations.push_back(share);
 #endif
 
 #ifdef HAS_FILESYSTEM_NFS
     share.strPath = "nfs://";
-    share.strName = g_localizeStrings.Get(20259);
+    share.strName = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20259);
     locations.push_back(share);
 #endif// HAS_FILESYSTEM_NFS
 
 #ifdef HAS_UPNP
     if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_SERVICES_UPNP))
     {
-      const std::string& strDevices = g_localizeStrings.Get(33040); //"% Devices"
+      const std::string& strDevices =
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33040); //"% Devices"
       share.strPath = "upnp://";
       share.strName = StringUtils::Format(strDevices, "UPnP"); //"UPnP Devices"
       locations.push_back(share);
@@ -197,7 +215,7 @@ void CMediaManager::GetNetworkLocations(std::vector<CMediaSource>& locations, bo
 
 #ifdef HAS_ZEROCONF
     share.strPath = "zeroconf://";
-    share.strName = g_localizeStrings.Get(20262);
+    share.strName = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20262);
     locations.push_back(share);
 #endif
 
@@ -209,9 +227,12 @@ void CMediaManager::GetNetworkLocations(std::vector<CMediaSource>& locations, bo
         if (!info.type.empty() && info.supportBrowsing)
         {
           share.strPath = info.type + "://";
-          share.strName = g_localizeStrings.GetAddonString(addon->ID(), info.label);
+          share.strName =
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().GetAddonString(
+                  addon->ID(), info.label);
           if (share.strName.empty())
-            share.strName = g_localizeStrings.Get(info.label);
+            share.strName =
+                CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(info.label);
           locations.push_back(share);
         }
       }
@@ -285,27 +306,33 @@ CMediaSource CMediaManager::GetRootAddonTypeSource(const std::string& type) cons
 {
   if (type == "programs" || type == "myprograms")
   {
-    return ComputeRootAddonTypeSource("executable", g_localizeStrings.Get(1043),
-                                      "DefaultAddonProgram.png");
+    return ComputeRootAddonTypeSource(
+        "executable", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1043),
+        "DefaultAddonProgram.png");
   }
   else if (type == "video" || type == "videos")
   {
-    return ComputeRootAddonTypeSource("video", g_localizeStrings.Get(1037),
-                                      "DefaultAddonVideo.png");
+    return ComputeRootAddonTypeSource(
+        "video", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1037),
+        "DefaultAddonVideo.png");
   }
   else if (type == "music")
   {
-    return ComputeRootAddonTypeSource("audio", g_localizeStrings.Get(1038),
-                                      "DefaultAddonMusic.png");
+    return ComputeRootAddonTypeSource(
+        "audio", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1038),
+        "DefaultAddonMusic.png");
   }
   else if (type == "pictures")
   {
-    return ComputeRootAddonTypeSource("image", g_localizeStrings.Get(1039),
-                                      "DefaultAddonPicture.png");
+    return ComputeRootAddonTypeSource(
+        "image", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1039),
+        "DefaultAddonPicture.png");
   }
   else if (type == "games")
   {
-    return ComputeRootAddonTypeSource("game", g_localizeStrings.Get(35049), "DefaultAddonGame.png");
+    return ComputeRootAddonTypeSource(
+        "game", CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35049),
+        "DefaultAddonGame.png");
   }
   else
   {
@@ -368,7 +395,7 @@ void CMediaManager::RemoveAutoSource(const CMediaSource &share)
 
 std::string CMediaManager::TranslateDevicePath(const std::string& devicePath, bool bReturnAsDevice)
 {
-  std::unique_lock<CCriticalSection> waitLock(m_muAutoSource);
+  std::unique_lock waitLock(m_muAutoSource);
   std::string strDevice = devicePath;
   // fallback for cdda://local/ and empty devicePath
 #ifdef HAS_OPTICAL_DRIVE
@@ -399,7 +426,7 @@ bool CMediaManager::IsDiscInDrive(const std::string& devicePath)
 
   std::string strDevice = TranslateDevicePath(devicePath, false);
   std::map<std::string,CCdInfo*>::iterator it;
-  std::unique_lock<CCriticalSection> waitLock(m_muAutoSource);
+  std::unique_lock waitLock(m_muAutoSource);
   it = m_mapCdInfo.find(strDevice);
   if(it != m_mapCdInfo.end())
     return true;
@@ -474,7 +501,7 @@ CCdInfo* CMediaManager::GetCdInfo(const std::string& devicePath)
   std::string strDevice = TranslateDevicePath(devicePath, false);
   std::map<std::string,CCdInfo*>::iterator it;
   {
-    std::unique_lock<CCriticalSection> waitLock(m_muAutoSource);
+    std::unique_lock waitLock(m_muAutoSource);
     it = m_mapCdInfo.find(strDevice);
     if(it != m_mapCdInfo.end())
       return it->second;
@@ -485,7 +512,7 @@ CCdInfo* CMediaManager::GetCdInfo(const std::string& devicePath)
   pCdInfo = cdio.GetCdInfo((char*)strDevice.c_str());
   if(pCdInfo!=NULL)
   {
-    std::unique_lock<CCriticalSection> waitLock(m_muAutoSource);
+    std::unique_lock waitLock(m_muAutoSource);
     m_mapCdInfo.insert(std::pair<std::string,CCdInfo*>(strDevice,pCdInfo));
   }
 
@@ -503,7 +530,7 @@ bool CMediaManager::RemoveCdInfo(const std::string& devicePath)
   std::string strDevice = TranslateDevicePath(devicePath, false);
 
   std::map<std::string,CCdInfo*>::iterator it;
-  std::unique_lock<CCriticalSection> waitLock(m_muAutoSource);
+  std::unique_lock waitLock(m_muAutoSource);
   it = m_mapCdInfo.find(strDevice);
   if(it != m_mapCdInfo.end())
   {
@@ -595,11 +622,52 @@ std::string CMediaManager::GetDiskUniqueId(const std::string& devicePath)
     return "";
   }
 
-  std::string strID = StringUtils::Format("removable://{}_{}", info.name, info.serial);
+  std::string strID{StringUtils::Format("removable://{}_{}", info.name, info.serial)};
+  if (info.type == UTILS::DISCS::DiscType::BLURAY)
+  {
+    CURL url("bluray://");
+    url.SetHostName(strID);
+    url.SetFileName(URIUtils::AddFileToFolder("BDMV", "index.bdmv"));
+    strID = url.Get();
+  }
   CLog::Log(LOGDEBUG, "GetDiskUniqueId: Got ID {} for disc with path {}", strID,
             CURL::GetRedacted(mediaPath));
 
   return strID;
+}
+
+bool CMediaManager::HasMediaBlurayPlaylist(const std::string& devicePath)
+{
+#ifdef HAVE_LIBBLURAY
+  // When the disc node is displayed, this gets called by the GUI via SYSTEM_MEDIA_BLURAY_PLAYLIST
+  // in CSystemCGUIInfo at every refresh - so cache result until eject.
+  if (m_hasBlurayPlaylist != HasBlurayPlaylist::UNKNOWN)
+    return m_hasBlurayPlaylist == HasBlurayPlaylist::YES;
+
+  const std::string mediaPath{TranslateDevicePath(devicePath)};
+  UTILS::DISCS::DiscInfo info{GetDiscInfo(mediaPath)};
+  if (!info.empty() && info.type == UTILS::DISCS::DiscType::BLURAY)
+  {
+    const std::string blurayPath{GetDiskUniqueId()};
+    CVideoDatabase db;
+    if (db.Open())
+    {
+      const std::string path{db.GetRemovableBlurayPath(blurayPath)};
+      db.Close();
+      m_hasBlurayPlaylist = path.empty() ? HasBlurayPlaylist::NO : HasBlurayPlaylist::YES;
+      return !path.empty();
+    }
+  }
+  m_hasBlurayPlaylist = HasBlurayPlaylist::NO;
+#endif
+  return false;
+}
+
+void CMediaManager::ResetBlurayPlaylistStatus()
+{
+#ifdef HAVE_LIBBLURAY
+  m_hasBlurayPlaylist = HasBlurayPlaylist::UNKNOWN;
+#endif
 }
 
 std::string CMediaManager::GetDiscPath()
@@ -608,7 +676,7 @@ std::string CMediaManager::GetDiscPath()
   return CServiceBroker::GetMediaManager().TranslateDevicePath("");
 #else
 
-  std::unique_lock<CCriticalSection> lock(m_CritSecStorageProvider);
+  std::unique_lock lock(m_CritSecStorageProvider);
   std::vector<CMediaSource> drives;
   m_platformStorage->GetRemovableDrives(drives);
   for(unsigned i = 0; i < drives.size(); ++i)
@@ -630,13 +698,16 @@ std::shared_ptr<IDiscDriveHandler> CMediaManager::GetDiscDriveHandler()
 
 void CMediaManager::SetHasOpticalDrive(bool bstatus)
 {
-  std::unique_lock<CCriticalSection> waitLock(m_muAutoSource);
+  std::unique_lock waitLock(m_muAutoSource);
   m_bhasoptical = bstatus;
 }
 
 bool CMediaManager::Eject(const std::string& mountpath)
 {
-  std::unique_lock<CCriticalSection> lock(m_CritSecStorageProvider);
+  std::unique_lock lock(m_CritSecStorageProvider);
+#ifdef HAVE_LIBBLURAY
+  m_hasBlurayPlaylist = HasBlurayPlaylist::UNKNOWN;
+#endif
   return m_platformStorage->Eject(mountpath);
 }
 
@@ -645,6 +716,9 @@ void CMediaManager::EjectTray( const bool bEject, const char cDriveLetter )
 #ifdef HAS_OPTICAL_DRIVE
   if (m_platformDiscDriveHander)
   {
+#ifdef HAVE_LIBBLURAY
+    m_hasBlurayPlaylist = HasBlurayPlaylist::UNKNOWN;
+#endif
     m_platformDiscDriveHander->EjectDriveTray(TranslateDevicePath(""));
   }
 #endif
@@ -655,6 +729,9 @@ void CMediaManager::CloseTray(const char cDriveLetter)
 #ifdef HAS_OPTICAL_DRIVE
   if (m_platformDiscDriveHander)
   {
+#ifdef HAVE_LIBBLURAY
+    m_hasBlurayPlaylist = HasBlurayPlaylist::UNKNOWN;
+#endif
     m_platformDiscDriveHander->ToggleDriveTray(TranslateDevicePath(""));
   }
 #endif
@@ -665,6 +742,9 @@ void CMediaManager::ToggleTray(const char cDriveLetter)
 #ifdef HAS_OPTICAL_DRIVE
   if (m_platformDiscDriveHander)
   {
+#ifdef HAVE_LIBBLURAY
+    m_hasBlurayPlaylist = HasBlurayPlaylist::UNKNOWN;
+#endif
     m_platformDiscDriveHander->ToggleDriveTray(TranslateDevicePath(""));
   }
 #endif
@@ -672,7 +752,7 @@ void CMediaManager::ToggleTray(const char cDriveLetter)
 
 void CMediaManager::ProcessEvents()
 {
-  std::unique_lock<CCriticalSection> lock(m_CritSecStorageProvider);
+  std::unique_lock lock(m_CritSecStorageProvider);
   if (m_platformStorage->PumpDriveChangeEvents(this))
   {
 #if defined(HAS_OPTICAL_DRIVE) && defined(TARGET_DARWIN_OSX)
@@ -691,7 +771,7 @@ void CMediaManager::ProcessEvents()
 
 std::vector<std::string> CMediaManager::GetDiskUsage()
 {
-  std::unique_lock<CCriticalSection> lock(m_CritSecStorageProvider);
+  std::unique_lock lock(m_CritSecStorageProvider);
   return m_platformStorage->GetDiskUsage();
 }
 
@@ -726,22 +806,27 @@ void CMediaManager::OnStorageAdded(const MEDIA_DETECT::STORAGE::StorageDevice& d
   }
   else
   {
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(13021),
-                                          device.label, TOAST_DISPLAY_TIME, false);
+    CGUIDialogKaiToast::QueueNotification(
+        CGUIDialogKaiToast::Info,
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13021), device.label,
+        TOAST_DISPLAY_TIME, false);
   }
 #endif
 }
 
 void CMediaManager::OnStorageSafelyRemoved(const MEDIA_DETECT::STORAGE::StorageDevice& device)
 {
-  CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, g_localizeStrings.Get(13023),
-                                        device.label, TOAST_DISPLAY_TIME, false);
+  CGUIDialogKaiToast::QueueNotification(
+      CGUIDialogKaiToast::Info,
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13023), device.label,
+      TOAST_DISPLAY_TIME, false);
 }
 
 void CMediaManager::OnStorageUnsafelyRemoved(const MEDIA_DETECT::STORAGE::StorageDevice& device)
 {
-  CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(13022),
-                                        device.label);
+  CGUIDialogKaiToast::QueueNotification(
+      CGUIDialogKaiToast::Warning,
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13022), device.label);
 }
 
 UTILS::DISCS::DiscInfo CMediaManager::GetDiscInfo(const std::string& mediaPath)
@@ -783,6 +868,10 @@ void CMediaManager::RemoveDiscInfo(const std::string& devicePath)
   auto it = m_mapDiscInfo.find(strDevice);
   if (it != m_mapDiscInfo.end())
     m_mapDiscInfo.erase(it);
+
+#ifdef HAVE_LIBBLURAY
+  CServiceBroker::GetBlurayDiscCache()->ClearDisc(strDevice);
+#endif
 }
 
 bool CMediaManager::playStubFile(const CFileItem& item)
@@ -791,8 +880,8 @@ bool CMediaManager::playStubFile(const CFileItem& item)
   std::string strLine1, strLine2;
 
   // use generic message by default
-  strLine1 = g_localizeStrings.Get(435).c_str();
-  strLine2 = g_localizeStrings.Get(436).c_str();
+  strLine1 = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(435).c_str();
+  strLine2 = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(436).c_str();
 
   CXBMCTinyXML2 discStubXML;
   if (discStubXML.LoadFile(item.GetPath()))

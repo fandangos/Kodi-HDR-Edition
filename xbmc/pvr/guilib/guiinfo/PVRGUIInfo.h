@@ -9,6 +9,7 @@
 #pragma once
 
 #include "guilib/guiinfo/GUIInfoProvider.h"
+#include "powermanagement/PowerState.h"
 #include "pvr/PVRDescrambleInfo.h"
 #include "pvr/PVRSignalStatus.h"
 #include "pvr/addons/PVRClients.h"
@@ -23,24 +24,16 @@
 
 class CFileItem;
 
-namespace KODI
-{
-namespace GUILIB
-{
-namespace GUIINFO
+namespace KODI::GUILIB::GUIINFO
 {
 class CGUIInfo;
 }
-} // namespace GUILIB
-} // namespace KODI
 
 namespace PVR
 {
-enum class PVREvent;
-struct PVRChannelNumberInputChangedEvent;
-struct PVRPreviewAndPlayerShowInfoChangedEvent;
-
-class CPVRGUIInfo : public KODI::GUILIB::GUIINFO::CGUIInfoProvider, private CThread
+class CPVRGUIInfo : public KODI::GUILIB::GUIINFO::CGUIInfoProvider,
+                    private CThread,
+                    public CPowerState
 {
 public:
   CPVRGUIInfo();
@@ -50,22 +43,14 @@ public:
   void Stop();
 
   /*!
-   * @brief CEventStream callback for PVR events.
-   * @param event The event.
+   * @brief Propagate event on system sleep
    */
-  void Notify(const PVREvent& event);
+  void OnSleep() override;
 
   /*!
-   * @brief CEventStream callback for channel number input changes.
-   * @param event The event.
+   * @brief Propagate event on system wake
    */
-  void Notify(const PVRChannelNumberInputChangedEvent& event);
-
-  /*!
-   * @brief CEventStream callback for channel preview and player show info changes.
-   * @param event The event.
-   */
-  void Notify(const PVRPreviewAndPlayerShowInfoChangedEvent& event);
+  void OnWake() override;
 
   // KODI::GUILIB::GUIINFO::IGUIInfoProvider implementation
   bool InitCurrentItem(CFileItem* item) override;
@@ -90,8 +75,8 @@ public:
 
 private:
   void ResetProperties();
-  void ClearQualityInfo(CPVRSignalStatus& qualityInfo);
-  void ClearDescrambleInfo(CPVRDescrambleInfo& descrambleInfo);
+  void ClearQualityInfo(CPVRSignalStatus& qualityInfo) const;
+  void ClearDescrambleInfo(CPVRDescrambleInfo& descrambleInfo) const;
 
   void Process() override;
 
@@ -127,9 +112,7 @@ private:
   bool GetListItemAndPlayerBool(const CFileItem* item,
                                 const KODI::GUILIB::GUIINFO::CGUIInfo& info,
                                 bool& bValue) const;
-  bool GetPVRBool(const CFileItem* item,
-                  const KODI::GUILIB::GUIINFO::CGUIInfo& info,
-                  bool& bValue) const;
+  bool GetPVRBool(const KODI::GUILIB::GUIINFO::CGUIInfo& info, bool& bValue) const;
   bool GetRadioRDSBool(const CFileItem* item,
                        const KODI::GUILIB::GUIINFO::CGUIInfo& info,
                        bool& bValue) const;
@@ -202,7 +185,7 @@ private:
 
   CPVRSignalStatus m_qualityInfo; /*!< stream quality information */
   CPVRDescrambleInfo m_descrambleInfo; /*!< stream descramble information */
-  std::vector<SBackend> m_backendProperties;
+  std::vector<SBackendProperties> m_backendProperties;
 
   std::string m_channelNumberInput;
   bool m_previewAndPlayerShowInfo{false};
@@ -216,7 +199,5 @@ private:
    * information.
    */
   mutable std::atomic<bool> m_updateBackendCacheRequested;
-
-  bool m_bRegistered;
 };
 } // namespace PVR

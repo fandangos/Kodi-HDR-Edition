@@ -138,9 +138,7 @@ bool CPlayListXML::Load( const std::string& strFileName )
 
        if ( !lockpass.empty() )
        {
-         newItem->m_strLockCode = lockpass;
-         newItem->m_iHasLock = LOCK_STATE_LOCKED;
-         newItem->m_iLockMode = LockMode::NUMERIC;
+         newItem->GetLockInfo().Set(LockMode::NUMERIC, lockpass, LOCK_STATE_LOCKED);
        }
 
        Add(newItem);
@@ -157,7 +155,8 @@ bool CPlayListXML::Load( const std::string& strFileName )
 
 void CPlayListXML::Save(const std::string& strFileName) const
 {
-  if (!m_vecItems.size()) return ;
+  if (m_vecItems.empty())
+    return;
   std::string strPlaylist = CUtil::MakeLegalPath(strFileName);
   CFile file;
   if (!file.OpenForWrite(strPlaylist, true))
@@ -186,8 +185,9 @@ void CPlayListXML::Save(const std::string& strFileName) const
       write += StringUtils::Format("    <channel>{}</channel>",
                                    item->GetProperty("remotechannel").asString());
 
-    if (item->m_iHasLock > LOCK_STATE_NO_LOCK)
-      write += StringUtils::Format("    <lockpassword>{}<lockpassword>", item->m_strLockCode);
+    if (item->GetLockInfo().GetState() > LOCK_STATE_NO_LOCK)
+      write +=
+          StringUtils::Format("    <lockpassword>{}<lockpassword>", item->GetLockInfo().GetCode());
 
     write += StringUtils::Format("  </stream>\n\n" );
   }

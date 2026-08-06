@@ -42,7 +42,7 @@ void SetupRarOptions(CFileItem& item, const std::string& path)
   std::string opts = url.GetOptions();
   if (opts.find("flags") != std::string::npos)
     return;
-  if (opts.size())
+  if (!opts.empty())
     opts += "&flags=8";
   else
     opts = "?flags=8";
@@ -51,7 +51,7 @@ void SetupRarOptions(CFileItem& item, const std::string& path)
     item.GetVideoInfoTag()->m_strFileNameAndPath = url.Get();
   else
     item.SetPath(url.Get());
-  g_directoryCache.ClearDirectory(url.GetWithoutFilename());
+  g_directoryCache.ClearDirectory(CURL(url.GetWithoutFilename()));
 }
 } // namespace
 

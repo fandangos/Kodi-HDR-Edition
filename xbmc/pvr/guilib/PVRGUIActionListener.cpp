@@ -32,6 +32,8 @@
 #include "pvr/guilib/PVRGUIActionsDatabase.h"
 #include "pvr/guilib/PVRGUIActionsPlayback.h"
 #include "pvr/guilib/PVRGUIActionsTimers.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
@@ -54,7 +56,8 @@ CPVRGUIActionListener::CPVRGUIActionListener()
        CSettings::SETTING_PVRMANAGER_CLIENTPRIORITIES, CSettings::SETTING_PVRMANAGER_CHANNELMANAGER,
        CSettings::SETTING_PVRMANAGER_GROUPMANAGER, CSettings::SETTING_PVRMANAGER_CHANNELSCAN,
        CSettings::SETTING_PVRMENU_SEARCHICONS, CSettings::SETTING_PVRCLIENT_MENUHOOK,
-       CSettings::SETTING_EPG_PAST_DAYSTODISPLAY, CSettings::SETTING_EPG_FUTURE_DAYSTODISPLAY});
+       CSettings::SETTING_EPG_PAST_DAYSTODISPLAY, CSettings::SETTING_EPG_FUTURE_DAYSTODISPLAY,
+       CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME});
 }
 
 CPVRGUIActionListener::~CPVRGUIActionListener()
@@ -67,26 +70,25 @@ CPVRGUIActionListener::~CPVRGUIActionListener()
 
 void CPVRGUIActionListener::Init(CPVRManager& mgr)
 {
-  mgr.Events().Subscribe(this, &CPVRGUIActionListener::OnPVRManagerEvent);
+  mgr.Events().Subscribe(this,
+                         [](const PVREvent& event)
+                         {
+                           if (event == PVREvent::AnnounceReminder)
+                           {
+                             if (g_application.IsInitialized())
+                             {
+                               // if GUI is ready, dispatch to GUI thread and handle the action there
+                               CServiceBroker::GetAppMessenger()->PostMsg(
+                                   TMSG_GUI_ACTION, WINDOW_INVALID, -1,
+                                   static_cast<void*>(new CAction(ACTION_PVR_ANNOUNCE_REMINDERS)));
+                             }
+                           }
+                         });
 }
 
 void CPVRGUIActionListener::Deinit(CPVRManager& mgr)
 {
   mgr.Events().Unsubscribe(this);
-}
-
-void CPVRGUIActionListener::OnPVRManagerEvent(const PVREvent& event)
-{
-  if (event == PVREvent::AnnounceReminder)
-  {
-    if (g_application.IsInitialized())
-    {
-      // if GUI is ready, dispatch to GUI thread and handle the action there
-      CServiceBroker::GetAppMessenger()->PostMsg(
-          TMSG_GUI_ACTION, WINDOW_INVALID, -1,
-          static_cast<void*>(new CAction(ACTION_PVR_ANNOUNCE_REMINDERS)));
-    }
-  }
 }
 
 ChannelSwitchMode CPVRGUIActionListener::GetChannelSwitchMode(int iAction)
@@ -118,17 +120,19 @@ bool CPVRGUIActionListener::OnAction(const CAction& action)
         case ACTION_PVR_PLAY:
           if (!bIsPlayingPVR)
             CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(
-                PlaybackTypeAny);
+                PlaybackType::TYPE_ANY);
           break;
         case ACTION_PVR_PLAY_TV:
           if (!bIsPlayingPVR || g_application.CurrentFileItem().GetPVRChannelInfoTag()->IsRadio())
             CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(
-                PlaybackTypeTV);
+                PlaybackType::TYPE_TV);
           break;
         case ACTION_PVR_PLAY_RADIO:
           if (!bIsPlayingPVR || !g_application.CurrentFileItem().GetPVRChannelInfoTag()->IsRadio())
             CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(
-                PlaybackTypeRadio);
+                PlaybackType::TYPE_RADIO);
+          break;
+        default:
           break;
       }
       return true;
@@ -280,8 +284,8 @@ bool CPVRGUIActionListener::OnAction(const CAction& action)
       if (!bIsPlayingPVR)
         return false;
 
-      int iChannelNumber = static_cast<int>(action.GetAmount(0));
-      int iSubChannelNumber = static_cast<int>(action.GetAmount(1));
+      const auto iChannelNumber{static_cast<int>(action.GetAmount(0))};
+      const auto iSubChannelNumber{static_cast<int>(action.GetAmount(1))};
 
       const std::shared_ptr<const CPVRPlaybackState> playbackState =
           CServiceBroker::GetPVRManager().PlaybackState();
@@ -294,7 +298,7 @@ bool CPVRGUIActionListener::OnAction(const CAction& action)
         return false;
 
       CServiceBroker::GetPVRManager().Get<PVR::GUI::Playback>().SwitchToChannel(
-          CFileItem(groupMember), false);
+          CFileItem(groupMember));
       return true;
     }
 
@@ -309,6 +313,9 @@ bool CPVRGUIActionListener::OnAction(const CAction& action)
       CServiceBroker::GetPVRManager().Get<PVR::GUI::Timers>().AnnounceReminders();
       return true;
     }
+
+    default:
+      break;
   }
   return false;
 }
@@ -414,6 +421,17 @@ void CPVRGUIActionListener::OnSettingAction(const std::shared_ptr<const CSetting
     const std::vector<std::string> params{"addons://default_binary_addons_source/kodi.pvrclient",
                                           "return"};
     CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_ADDON_BROWSER, params);
+  }
+  else if (settingId == CSettings::SETTING_PVRPOWERMANAGEMENT_DAILYWAKEUPTIME)
+  {
+    const auto settings{CServiceBroker::GetSettingsComponent()->GetSettings()};
+    std::string waketime{settings->GetString(settingId)};
+    if (CGUIDialogNumeric::ShowAndGetSeconds(
+            waketime, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+                          19248))) // Daily wakeup time (HH:MM:SS)
+    {
+      settings->SetString(settingId, waketime);
+    }
   }
 }
 

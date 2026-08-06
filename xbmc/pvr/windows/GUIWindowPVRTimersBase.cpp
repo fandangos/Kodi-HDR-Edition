@@ -14,13 +14,14 @@
 #include "ServiceBroker.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIMessage.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "pvr/PVRManager.h"
 #include "pvr/guilib/PVRGUIActionsTimers.h"
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "pvr/timers/PVRTimersPath.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/URIUtils.h"
@@ -29,6 +30,14 @@
 #include <string>
 
 using namespace PVR;
+
+namespace
+{
+// Numeric values are part of the Skinning API. Do not change.
+constexpr unsigned int CONTROL_BTNHIDEDISABLEDTIMERS = 8;
+constexpr unsigned int CONTROL_LABEL_HEADER1 = 29;
+
+} // unnamed namespace
 
 CGUIWindowPVRTimersBase::CGUIWindowPVRTimersBase(bool bRadio, int id, const std::string& xmlFile)
   : CGUIWindowPVRBase(bRadio, id, xmlFile)
@@ -58,9 +67,10 @@ void CGUIWindowPVRTimersBase::OnPrepareFileItems(CFileItemList& items)
   if (path.IsValid() && path.IsTimersRoot())
   {
     const auto item = std::make_shared<CFileItem>(CPVRTimersPath::PATH_ADDTIMER, false);
-    item->SetLabel(g_localizeStrings.Get(19026)); // "Add timer..."
+    item->SetLabel(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(19026)); // "Add timer..."
     item->SetLabelPreformatted(true);
-    item->SetSpecialSort(SortSpecialOnTop);
+    item->SetSpecialSort(SortSpecial::TOP);
     item->SetArt("icon", "DefaultTVShows.png");
 
     items.AddFront(item, 0);
@@ -127,7 +137,7 @@ bool CGUIWindowPVRTimersBase::OnMessage(CGUIMessage& message)
             case ACTION_MOUSE_LEFT_CLICK:
             {
               CFileItemPtr item(m_vecItems->Get(iItem));
-              if (item->m_bIsFolder && (message.GetParam1() != ACTION_SHOW_INFO))
+              if (item->IsFolder() && (message.GetParam1() != ACTION_SHOW_INFO))
               {
                 m_currentFileItem = item;
                 bReturn = false; // folders are handled by base class
@@ -167,15 +177,17 @@ bool CGUIWindowPVRTimersBase::OnMessage(CGUIMessage& message)
     {
       switch (static_cast<PVREvent>(message.GetParam1()))
       {
-        case PVREvent::CurrentItem:
-        case PVREvent::Epg:
-        case PVREvent::EpgActiveItem:
-        case PVREvent::EpgContainer:
-        case PVREvent::Timers:
+        using enum PVREvent;
+
+        case CurrentItem:
+        case Epg:
+        case EpgActiveItem:
+        case EpgContainer:
+        case Timers:
           SetInvalid();
           break;
 
-        case PVREvent::TimersInvalidated:
+        case TimersInvalidated:
           Refresh(true);
           break;
 
@@ -184,12 +196,14 @@ bool CGUIWindowPVRTimersBase::OnMessage(CGUIMessage& message)
       }
       break;
     }
+    default:
+      break;
   }
 
   return bReturn || CGUIWindowPVRBase::OnMessage(message);
 }
 
-bool CGUIWindowPVRTimersBase::ActionShowTimer(const CFileItem& item)
+bool CGUIWindowPVRTimersBase::ActionShowTimer(const CFileItem& item) const
 {
   bool bReturn = false;
 
@@ -197,7 +211,7 @@ bool CGUIWindowPVRTimersBase::ActionShowTimer(const CFileItem& item)
      create a new timer and open settings dialog, otherwise
      open settings for selected timer entry */
   if (URIUtils::PathEquals(item.GetPath(), CPVRTimersPath::PATH_ADDTIMER))
-    bReturn = CServiceBroker::GetPVRManager().Get<PVR::GUI::Timers>().AddTimer(m_bRadio);
+    bReturn = CServiceBroker::GetPVRManager().Get<PVR::GUI::Timers>().AddTimer(IsRadio());
   else
     bReturn = CServiceBroker::GetPVRManager().Get<PVR::GUI::Timers>().EditTimer(item);
 

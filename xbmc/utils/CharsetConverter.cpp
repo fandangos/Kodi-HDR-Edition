@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -9,8 +9,10 @@
 #include "CharsetConverter.h"
 
 #include "LangInfo.h"
-#include "guilib/LocalizeStrings.h"
+#include "ServiceBroker.h"
 #include "log.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
 #include "settings/lib/SettingDefinitions.h"
@@ -160,7 +162,7 @@ CConverterType::CConverterType(const CConverterType& other) : CCriticalSection()
 
 CConverterType::~CConverterType()
 {
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
   if (m_iconv != NO_ICONV)
     iconv_close(m_iconv);
   lock.unlock(); // ensure unlocking before final destruction
@@ -191,7 +193,7 @@ iconv_t CConverterType::GetConverter(std::unique_lock<CCriticalSection>& convert
 
 void CConverterType::Reset(void)
 {
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
   if (m_iconv != NO_ICONV)
   {
     iconv_close(m_iconv);
@@ -207,7 +209,7 @@ void CConverterType::Reset(void)
 
 void CConverterType::ReinitTo(const std::string& sourceCharset, const std::string& targetCharset, unsigned int targetSingleCharMaxLen /*= 1*/)
 {
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
   if (sourceCharset != m_sourceCharset || targetCharset != m_targetCharset)
   {
     if (m_iconv != NO_ICONV)
@@ -489,7 +491,7 @@ bool CCharsetConverter::CInnerConverter::logicalToVisualBiDi(
   size_t lineStart = 0;
 
   // libfribidi is not threadsafe, so make sure we make it so
-  std::unique_lock<CCriticalSection> lock(m_critSectionFriBiDi);
+  std::unique_lock lock(m_critSectionFriBiDi);
   do
   {
     size_t lineEnd = stringSrc.find('\n', lineStart);
@@ -941,13 +943,16 @@ bool CCharsetConverter::utf8IsRTLBidiDirection(const std::string& utf8String)
 
 void CCharsetConverter::SettingOptionsCharsetsFiller(const SettingConstPtr& setting,
                                                      std::vector<StringSettingOption>& list,
-                                                     std::string& current,
-                                                     void* data)
+                                                     std::string& current)
 {
   std::vector<std::string> vecCharsets = g_charsetConverter.getCharsetLabels();
   sort(vecCharsets.begin(), vecCharsets.end(), sortstringbyname());
 
-  list.emplace_back(g_localizeStrings.Get(13278), "DEFAULT"); // "Default"
-  for (int i = 0; i < (int) vecCharsets.size(); ++i)
-    list.emplace_back(vecCharsets[i], g_charsetConverter.getCharsetNameByLabel(vecCharsets[i]));
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13278),
+                    "DEFAULT"); // "Default"
+  for (auto& label : vecCharsets)
+  {
+    std::string name = g_charsetConverter.getCharsetNameByLabel(label);
+    list.emplace_back(std::move(label), std::move(name));
+  }
 }

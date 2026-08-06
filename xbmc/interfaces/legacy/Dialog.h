@@ -24,6 +24,9 @@ namespace XBMCAddon
 {
 namespace xbmcgui
 {
+#ifndef SWIG
+// These constants are exposed to Python via SWIG_CONSTANT in ModuleXbmcgui.h.
+// Excluded from SWIG processing here to avoid Warning 302 redefinition.
 constexpr int INPUT_ALPHANUM{0};
 constexpr int INPUT_NUMERIC{1};
 constexpr int INPUT_DATE{2};
@@ -33,6 +36,7 @@ constexpr int INPUT_PASSWORD{5};
 
 constexpr int PASSWORD_VERIFY{1};
 constexpr int ALPHANUM_HIDE_INPUT{2};
+#endif
 
     ///
     /// \defgroup python_Dialog Dialog
@@ -108,7 +112,7 @@ constexpr int ALPHANUM_HIDE_INPUT{2};
       /// **Yes / no / custom dialog**
       ///
       /// The YesNoCustom dialog can be used to inform the user about questions and
-      /// get the answer. The dialog provides a third button appart from yes and no.
+      /// get the answer. The dialog provides a third button apart from yes and no.
       /// Button labels are fully customizable.
       ///
       /// @param heading        string or unicode - dialog heading.

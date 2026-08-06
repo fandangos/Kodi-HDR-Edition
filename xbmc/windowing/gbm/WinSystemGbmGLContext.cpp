@@ -10,11 +10,13 @@
 
 #include "OptionalsReg.h"
 #include "cores/RetroPlayer/process/gbm/RPProcessInfoGbm.h"
-#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererDMA.h"
+#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererDMAOpenGL.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererOpenGL.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
+#include "cores/VideoPlayer/Process/gbm/ProcessInfoGBM.h"
 #include "cores/VideoPlayer/VideoRenderers/LinuxRendererGL.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderFactory.h"
+#include "rendering/gl/GuiCompositeShaderGL.h"
 #include "rendering/gl/ScreenshotSurfaceGL.h"
 #include "utils/BufferObjectFactory.h"
 #include "utils/DMAHeapBufferObject.h"
@@ -34,8 +36,9 @@ using namespace KODI::WINDOWING::GBM;
 using namespace std::chrono_literals;
 
 CWinSystemGbmGLContext::CWinSystemGbmGLContext()
-: CWinSystemGbmEGLContext(EGL_PLATFORM_GBM_MESA, "EGL_MESA_platform_gbm")
-{}
+  : CWinSystemGbmEGLContext(EGL_PLATFORM_GBM_MESA, "EGL_MESA_platform_gbm")
+{
+}
 
 void CWinSystemGbmGLContext::Register()
 {
@@ -52,8 +55,9 @@ bool CWinSystemGbmGLContext::InitWindowSystem()
   VIDEOPLAYER::CRendererFactory::ClearRenderer();
   CDVDFactoryCodec::ClearHWAccels();
   CLinuxRendererGL::Register();
+  VIDEOPLAYER::CProcessInfoGBM::Register();
   RETRO::CRPProcessInfoGbm::Register();
-  RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryDMA);
+  RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryDMAOpenGL);
   RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryOpenGL);
 
   if (!CWinSystemGbmEGLContext::InitWindowSystemEGL(EGL_OPENGL_BIT, EGL_OPENGL_API))
@@ -88,10 +92,11 @@ bool CWinSystemGbmGLContext::InitWindowSystem()
   return true;
 }
 
-bool CWinSystemGbmGLContext::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays)
+bool CWinSystemGbmGLContext::SetFullScreen(bool fullScreen,
+                                           RESOLUTION_INFO& res,
+                                           bool blankOtherDisplays)
 {
-  if (res.iWidth != m_nWidth ||
-      res.iHeight != m_nHeight)
+  if (res.iWidth != m_nWidth || res.iHeight != m_nHeight)
   {
     CLog::Log(LOGDEBUG, "CWinSystemGbmGLContext::{} - resolution changed, creating a new window",
               __FUNCTION__);
@@ -117,10 +122,11 @@ void CWinSystemGbmGLContext::PresentRender(bool rendered, bool videoLayer)
 
   if (rendered || videoLayer)
   {
+    bool async = !videoLayer && m_eglFence;
     if (rendered)
     {
 #if defined(EGL_ANDROID_native_fence_sync) && defined(EGL_KHR_fence_sync)
-      if (m_eglFence)
+      if (async)
       {
         int fd = m_DRM->TakeOutFenceFd();
         if (fd != -1)
@@ -140,7 +146,7 @@ void CWinSystemGbmGLContext::PresentRender(bool rendered, bool videoLayer)
       }
 
 #if defined(EGL_ANDROID_native_fence_sync) && defined(EGL_KHR_fence_sync)
-      if (m_eglFence)
+      if (async)
       {
         int fd = m_eglFence->FlushFence();
         m_DRM->SetInFenceFd(fd);
@@ -149,22 +155,23 @@ void CWinSystemGbmGLContext::PresentRender(bool rendered, bool videoLayer)
       }
 #endif
     }
-    CWinSystemGbm::FlipPage(rendered, videoLayer, static_cast<bool>(m_eglFence));
 
-    if (m_dispReset && m_dispResetTimer.IsTimePast())
-    {
-      CLog::Log(LOGDEBUG, "CWinSystemGbmGLContext::{} - Sending display reset to all clients",
-                __FUNCTION__);
-      m_dispReset = false;
-      std::unique_lock<CCriticalSection> lock(m_resourceSection);
-
-      for (auto resource : m_resources)
-        resource->OnResetDisplay();
-    }
+    CWinSystemGbm::FlipPage(rendered, videoLayer, async);
   }
   else
   {
     KODI::TIME::Sleep(10ms);
+  }
+
+  if (m_dispReset && m_dispResetTimer.IsTimePast())
+  {
+    CLog::Log(LOGDEBUG, "CWinSystemGbmGLContext::{} - Sending display reset to all clients",
+              __FUNCTION__);
+    m_dispReset = false;
+    std::unique_lock lock(m_resourceSection);
+
+    for (auto resource : m_resources)
+      resource->OnResetDisplay();
   }
 }
 
@@ -174,9 +181,10 @@ bool CWinSystemGbmGLContext::CreateContext()
   const EGLint glMinor = 2;
 
   CEGLAttributesVec contextAttribs;
-  contextAttribs.Add({{EGL_CONTEXT_MAJOR_VERSION_KHR, glMajor},
-                      {EGL_CONTEXT_MINOR_VERSION_KHR, glMinor},
-                      {EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR}});
+  contextAttribs.Add(
+      {{EGL_CONTEXT_MAJOR_VERSION_KHR, glMajor},
+       {EGL_CONTEXT_MINOR_VERSION_KHR, glMinor},
+       {EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR}});
 
   if (!m_eglContext.CreateContext(contextAttribs))
   {
@@ -190,9 +198,211 @@ bool CWinSystemGbmGLContext::CreateContext()
     }
     else
     {
-      CLog::Log(LOGWARNING, "Your OpenGL drivers do not support OpenGL {}.{} core profile. Kodi will run in compatibility mode, but performance may suffer.", glMajor, glMinor);
+      CLog::Log(LOGWARNING,
+                "Your OpenGL drivers do not support OpenGL {}.{} core profile. Kodi will run in "
+                "compatibility mode, but performance may suffer.",
+                glMajor, glMinor);
     }
   }
 
   return true;
+}
+
+bool CWinSystemGbmGLContext::SetGuiCompositing(int colorTransfer)
+{
+  // TODO: add CreateLUTs(colorTransfer) support to GL composite shader to match
+  // GLES (WinSystemGbmGLESContext). Currently GL only handles PQ via pow shader;
+  // HLG and LUT-based PQ are not yet implemented.
+  m_guiCompositing = (colorTransfer != 0);
+
+  if (m_guiCompositing)
+  {
+    if (!m_compositeShader)
+    {
+      std::string defines;
+      if (UseLimitedColor())
+        defines += "#define KODI_LIMITED_RANGE 1\n";
+      m_compositeShader = std::make_unique<CGuiCompositeShaderGL>(defines);
+      if (!m_compositeShader->CompileAndLink())
+      {
+        CLog::Log(LOGERROR, "CWinSystemGbmGLContext: failed to compile GUI composite shader");
+        m_compositeShader.reset();
+        m_guiCompositing = false;
+      }
+    }
+  }
+  else
+  {
+    m_guiFbo.Cleanup();
+    m_guiFboWidth = 0;
+    m_guiFboHeight = 0;
+    m_compositeShader.reset();
+  }
+
+  return m_guiCompositing;
+}
+
+bool CWinSystemGbmGLContext::BeginGuiComposite(bool guiWillRender)
+{
+  if (!m_guiCompositing)
+    return false;
+
+  m_guiWillRender = guiWillRender;
+
+  int width = m_nWidth;
+  int height = m_nHeight;
+
+  if (!m_guiFbo.IsValid() || m_guiFboWidth != width || m_guiFboHeight != height)
+  {
+    m_guiFbo.Cleanup();
+
+    if (!m_guiFbo.Initialize())
+    {
+      CLog::Log(LOGERROR, "CWinSystemGbmGLContext: failed to initialize GUI FBO");
+      return false;
+    }
+
+    if (!m_guiFbo.CreateAndBindToTexture(GL_TEXTURE_2D, width, height, GL_RGBA))
+    {
+      CLog::Log(LOGERROR, "CWinSystemGbmGLContext: failed to create GUI FBO texture {}x{}", width,
+                height);
+      m_guiFbo.Cleanup();
+      return false;
+    }
+
+    if (GetEnabledFrontToBackRendering() && !m_guiFbo.AttachDepthBuffer(width, height))
+    {
+      CLog::Log(LOGERROR, "CWinSystemGbmGLContext: failed to attach depth buffer to GUI FBO {}x{}",
+                width, height);
+      m_guiFbo.Cleanup();
+      return false;
+    }
+
+    m_guiFboWidth = width;
+    m_guiFboHeight = height;
+    m_guiFboClean = false; // fresh FBO is undefined, force a clear
+    CLog::Log(LOGDEBUG, "CWinSystemGbmGLContext: created GUI FBO {}x{}", width, height);
+  }
+
+  // When GUI render is being skipped, leave the FBO bind/clear out: nothing
+  // will draw into it this frame. The FBO's prior sRGB GUI content is
+  // implicitly preserved across the skipped frame as a side effect.
+  //! @todo The preserved sRGB FBO is currently not leveraged: D2P reuses the
+  //! post-PQ GUI plane back buffer directly via display HW, and single-plane
+  //! never reaches !guiWillRender (the dirty-driven skip is gated on
+  //! IsRenderingVideoLayer). Future single-plane "gate, don't move" work
+  //! lets the GUI walk skip while CompositeGui still runs each video frame,
+  //! re-using this cached sRGB FBO as the composite source.
+  if (!guiWillRender)
+    return true;
+
+  if (!m_guiFbo.BeginRender())
+    return false;
+
+  // Clear only when the FBO holds stale content; idle frames are already clean.
+  if (!m_guiFboClean)
+  {
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    m_guiFboClean = true;
+  }
+
+  return true;
+}
+
+void CWinSystemGbmGLContext::EndGuiComposite()
+{
+  if (m_guiWillRender)
+    m_guiFbo.EndRender();
+
+  // When the GUI render is skipped this frame, Flip(hasRendered=false, ...)
+  // will skip eglSwapBuffers and the back-buffer contents never reach the
+  // screen. Clearing it is pure waste. Single-plane never reaches
+  // !m_guiWillRender, so the D2P gate is the only path that triggers.
+  const bool isD2P = m_DRM && m_DRM->GetVideoPlane() != nullptr && m_DRM->GetGuiPlane() != nullptr;
+  if (isD2P && !m_guiWillRender)
+    return;
+
+  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+}
+
+// CompositeGui is the last GL operation in the frame (called just before EndRender).
+// GL state (blend mode, active texture, vertex arrays) is not restored afterward;
+// the next frame's rendering sets its own state.
+void CWinSystemGbmGLContext::CompositeGui()
+{
+  if (!m_guiFbo.IsValid() || !m_guiFbo.IsBound() || !m_compositeShader)
+    return;
+
+  // Only update m_guiFboClean when GUI render fired this frame; otherwise the
+  // FBO is in the same state as the previous frame and the flag stays as-is.
+  if (m_guiWillRender)
+  {
+    const bool guiEmpty = (GetGUIElementCount() == 0);
+    m_guiFboClean = guiEmpty;
+    if (guiEmpty)
+      return;
+  }
+  else if (m_guiFboClean)
+  {
+    return;
+  }
+
+  // D2P with no new render: the cached PQ frame is already in the GUI plane
+  // back buffer from the prior composite. Skip the shader pass entirely; Flip
+  // will skip eglSwapBuffers too (hasRendered==false), and the display HW keeps
+  // scanning out the cached frame while the video plane updates independently.
+  if (!m_guiWillRender && m_DRM && m_DRM->GetVideoPlane() != nullptr &&
+      m_DRM->GetGuiPlane() != nullptr)
+    return;
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, m_guiFbo.Texture());
+
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  // set up orthographic projection (screen coords, Y-down)
+  float w = static_cast<float>(m_guiFboWidth);
+  float h = static_cast<float>(m_guiFboHeight);
+
+  GLfloat proj[16] = {2.0f / w, 0, 0, 0, 0, -2.0f / h, 0, 0, 0, 0, -1, 0, -1.0f, 1.0f, 0, 1};
+
+  m_compositeShader->SetProjection(proj);
+  m_compositeShader->SetSdrPeak(203.0f / 10000.0f);
+  m_compositeShader->Enable();
+
+  GLint posLoc = m_compositeShader->GetPosLoc();
+  GLint texLoc = m_compositeShader->GetTexLoc();
+
+  GLfloat vert[4][2] = {{0, 0}, {w, 0}, {w, h}, {0, h}};
+  GLfloat tex[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+  GLubyte idx[4] = {0, 1, 3, 2};
+
+  GLuint vbo[3];
+  glGenBuffers(3, vbo);
+
+  glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vert), vert, GL_STREAM_DRAW);
+  glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+  glEnableVertexAttribArray(posLoc);
+
+  glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(tex), tex, GL_STREAM_DRAW);
+  glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+  glEnableVertexAttribArray(texLoc);
+
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo[2]);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(idx), idx, GL_STREAM_DRAW);
+
+  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, 0);
+
+  glDisableVertexAttribArray(posLoc);
+  glDisableVertexAttribArray(texLoc);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+  glDeleteBuffers(3, vbo);
+
+  m_compositeShader->Disable();
 }

@@ -90,7 +90,7 @@ class Scraper():
     def __init__(self, action, key, artist, album, url, nfo, settings):
         # parse path settings
         self.parse_settings(settings)
-        # this is just for backward compitability with xml based scrapers https://github.com/xbmc/xbmc/pull/11632
+        # this is just for backward compatibility with xml based scrapers https://github.com/xbmc/xbmc/pull/11632
         if action == 'resolveid':
             # return the result
             result = self.resolve_mbid(key)
@@ -375,7 +375,8 @@ class Scraper():
             for thumblist in thumbs:
                 for item in thumblist:
                     thumbnails.append(item)
-            # the order for extra art does not matter
+            # extra art from most accurate sources first
+            extras.reverse()
             extraart = []
             for extralist in extras:
                 for item in extralist:

@@ -9,16 +9,22 @@
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
-  find_path(MYSQLCLIENT_INCLUDE_DIR NAMES mysql/mysql.h mysql/server/mysql.h)
+  find_path(MYSQLCLIENT_INCLUDE_DIR NAMES mysql/mysql.h mysql/server/mysql.h
+                                    HINTS ${DEPENDS_PATH}/include)
   find_library(MYSQLCLIENT_LIBRARY NAMES mysqlclient libmysql
+                                   HINTS ${DEPENDS_PATH}/lib
                                    PATH_SUFFIXES mysql
-                                   ${${CORE_PLATFORM_LC}_SEARCH_CONFIG})
+                                   ${${CORE_SYSTEM_NAME}_SEARCH_CONFIG})
 
   if(MYSQLCLIENT_INCLUDE_DIR AND EXISTS "${MYSQLCLIENT_INCLUDE_DIR}/mysql/mysql_version.h")
     file(STRINGS "${MYSQLCLIENT_INCLUDE_DIR}/mysql/mysql_version.h" mysql_version_str REGEX "^#define[\t ]+LIBMYSQL_VERSION[\t ]+\".*\".*")
     string(REGEX REPLACE "^#define[\t ]+LIBMYSQL_VERSION[\t ]+\"([^\"]+)\".*" "\\1" MYSQLCLIENT_VERSION_STRING "${mysql_version_str}")
     unset(mysql_version_str)
   endif()
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(MySqlClient

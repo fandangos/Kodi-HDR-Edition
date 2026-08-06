@@ -60,6 +60,9 @@ void CGUIComponent::Deinit()
 
   if (m_pWindowManager)
     m_pWindowManager->DeInitialize();
+
+  // Now safe to release skin - all windows deinitialized
+  m_skinInfo.reset();
 }
 
 CGUIWindowManager& CGUIComponent::GetWindowManager()
@@ -92,6 +95,11 @@ CGUIInfoManager &CGUIComponent::GetInfoManager()
   return *m_guiInfoManager;
 }
 
+const CGUIInfoManager& CGUIComponent::GetInfoManager() const
+{
+  return *m_guiInfoManager;
+}
+
 CGUIColorManager &CGUIComponent::GetColorManager()
 {
   return *m_guiColorManager;
@@ -100,6 +108,21 @@ CGUIColorManager &CGUIComponent::GetColorManager()
 CGUIAudioManager &CGUIComponent::GetAudioManager()
 {
   return *m_guiAudioManager;
+}
+
+std::shared_ptr<ADDON::CSkinInfo> CGUIComponent::GetSkinInfo()
+{
+  return m_skinInfo;
+}
+
+void CGUIComponent::SetSkinInfo(std::shared_ptr<ADDON::CSkinInfo> skin)
+{
+  m_skinInfo = std::move(skin);
+}
+
+void CGUIComponent::UnloadSkin()
+{
+  m_skinInfo.reset();
 }
 
 bool CGUIComponent::ConfirmDelete(const std::string& path)

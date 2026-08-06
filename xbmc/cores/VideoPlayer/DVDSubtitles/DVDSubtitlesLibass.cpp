@@ -21,6 +21,7 @@
 #include "utils/FontUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "utils/XBMCTinyXML2.h"
 #include "utils/log.h"
 
 #include <algorithm>
@@ -92,10 +93,82 @@ void CDVDSubtitlesLibass::Configure()
   ass_set_margins(m_renderer, 0, 0, 0, 0);
   ass_set_use_margins(m_renderer, 0);
 
-  // Libass uses system font provider (like fontconfig) by default in some
-  // platforms (e.g. linux/windows), on some other systems like android the
-  // font provider is currenlty not supported, then an user can add his
-  // additionals fonts only by using the user fonts folder.
+  int fontProvider = ASS_FONTPROVIDER_AUTODETECT;
+  std::string fontconfigPath; // Keep string alive for lifetime of fontconfigConfig pointer
+  const char* fontconfigConfig = nullptr;
+
+#if defined(TARGET_ANDROID)
+  // Libass uses system font provider (like fontconfig) by default on some platforms (e.g. Linux/Windows),
+  // but on Android the font provider is currently not supported by libass.
+  // Workaround: Use fontconfig with a custom configuration pointing to Android system fonts,
+  // enabling automatic font fallback for subtitles with non-Latin scripts.
+  // This is a temporary workaround until libass implements native Android font provider support.
+  fontProvider = ASS_FONTPROVIDER_FONTCONFIG;
+
+  // Write fontconfig configuration to temp directory
+  fontconfigPath = CSpecialProtocol::TranslatePath("special://temp/fonts.conf");
+
+  if (!XFILE::CFile::Exists(fontconfigPath))
+  {
+    // Create fontconfig cache directory
+    const std::string fontconfigCacheDir =
+        CSpecialProtocol::TranslatePath("special://temp/fontconfig");
+    if (!XFILE::CDirectory::Exists(fontconfigCacheDir))
+      XFILE::CDirectory::Create(fontconfigCacheDir);
+
+    // Create fontconfig configuration using XML library
+    CXBMCTinyXML2 xmlDoc;
+    xmlDoc.InsertEndChild(xmlDoc.NewDeclaration("xml version=\"1.0\""));
+    xmlDoc.InsertEndChild(xmlDoc.NewUnknown("DOCTYPE fontconfig SYSTEM \"fonts.dtd\""));
+
+    tinyxml2::XMLElement* eRoot = xmlDoc.NewElement("fontconfig");
+    xmlDoc.InsertEndChild(eRoot);
+
+    auto addRootChildText = [&](const char* name, const std::string& value)
+    {
+      tinyxml2::XMLElement* elem = xmlDoc.NewElement(name);
+      elem->SetText(value.c_str());
+      eRoot->InsertEndChild(elem);
+    };
+
+    // Add Android system font directories
+    // Note: USER and SYSTEM dirs are handled by ass_set_fonts_dir below
+    const std::vector<std::string> fontDirs = {
+        "/system/fonts", // AOSP standard
+        "/product/fonts", // AOSP vendor-specific
+        "/system_ext/fonts" // OEM-specific (may not exist on all devices)
+    };
+
+    for (const auto& dir : fontDirs)
+    {
+      if (XFILE::CDirectory::Exists(dir))
+        addRootChildText("dir", dir);
+    }
+
+    addRootChildText("cachedir", fontconfigCacheDir);
+
+    if (xmlDoc.SaveFile(fontconfigPath))
+    {
+      fontconfigConfig = fontconfigPath.c_str();
+      CLog::Log(LOGINFO, "CDVDSubtitlesLibass: Created fontconfig configuration at {}",
+                fontconfigPath);
+    }
+    else
+    {
+      CLog::LogF(LOGERROR, "Failed to create fontconfig configuration, falling back to "
+                           "ASS_FONTPROVIDER_AUTODETECT");
+      fontProvider = ASS_FONTPROVIDER_AUTODETECT;
+      fontconfigConfig = nullptr;
+    }
+  }
+  else
+  {
+    fontconfigConfig = fontconfigPath.c_str();
+  }
+#endif
+
+  // Set additional fonts directory for libass to scan. This provides font lookup
+  // on platforms without a font provider, and supplements fontconfig on platforms that use it.
   ass_set_fonts_dir(m_library, CSpecialProtocol::TranslatePath(FONT::FONTPATH::USER).c_str());
 
   // Load additional fonts into Libass memory
@@ -118,7 +191,7 @@ void CDVDSubtitlesLibass::Configure()
   }
   for (const auto& item : items)
   {
-    if (item->m_bIsFolder)
+    if (item->IsFolder())
       continue;
     const std::string filepath = item->GetPath();
     const std::string fileName = item->GetLabel();
@@ -148,7 +221,7 @@ void CDVDSubtitlesLibass::Configure()
   }
 
   ass_set_fonts(m_renderer, FONT::FONTPATH::GetSystemFontPath(FONT::FONT_DEFAULT_FILENAME).c_str(),
-                m_defaultFontFamilyName.c_str(), ASS_FONTPROVIDER_AUTODETECT, nullptr, 1);
+                m_defaultFontFamilyName.c_str(), fontProvider, fontconfigConfig, 1);
 
   // Extract font must be set before loading ASS/SSA data,
   // after that cannot be changed
@@ -157,7 +230,7 @@ void CDVDSubtitlesLibass::Configure()
 
 bool CDVDSubtitlesLibass::DecodeHeader(char* data, int size)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library || !data)
     return false;
 
@@ -170,7 +243,7 @@ bool CDVDSubtitlesLibass::DecodeHeader(char* data, int size)
 
 bool CDVDSubtitlesLibass::DecodeDemuxPkt(const char* data, int size, double start, double duration)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_track)
   {
     CLog::Log(LOGERROR, "{} - No SSA header found.", __FUNCTION__);
@@ -185,7 +258,7 @@ bool CDVDSubtitlesLibass::DecodeDemuxPkt(const char* data, int size, double star
 
 bool CDVDSubtitlesLibass::CreateTrack()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library)
   {
     CLog::Log(LOGERROR, "{} - Failed to create ASS track, library not initialized.", __FUNCTION__);
@@ -216,7 +289,7 @@ bool CDVDSubtitlesLibass::CreateTrack()
 
 bool CDVDSubtitlesLibass::CreateStyle()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library)
   {
     CLog::Log(LOGERROR, "{} - Failed to create ASS style, library not initialized.", __FUNCTION__);
@@ -235,7 +308,7 @@ bool CDVDSubtitlesLibass::CreateStyle()
 
 bool CDVDSubtitlesLibass::CreateTrack(char* buf, size_t size)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library)
   {
     CLog::Log(LOGERROR, "{} - No ASS library struct (m_library)", __FUNCTION__);
@@ -257,7 +330,7 @@ ASS_Image* CDVDSubtitlesLibass::RenderImage(double pts,
                                             const std::shared_ptr<struct style>& subStyle,
                                             int* changes)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_renderer || !m_track)
   {
     CLog::Log(LOGERROR, "{} - ASS renderer/ASS track not initialized.", __FUNCTION__);
@@ -334,7 +407,8 @@ ASS_Image* CDVDSubtitlesLibass::RenderImage(double pts,
   return ass_render_frame(m_renderer, m_track, DVD_TIME_TO_MSEC(pts), changes);
 }
 
-void CDVDSubtitlesLibass::ApplyStyle(const std::shared_ptr<struct style>& subStyle, renderOpts opts)
+void CDVDSubtitlesLibass::ApplyStyle(const std::shared_ptr<struct style>& subStyle,
+                                     const renderOpts& opts)
 {
   CLog::Log(LOGDEBUG, "{} - Start setting up the LibAss style", __FUNCTION__);
 
@@ -603,7 +677,7 @@ void CDVDSubtitlesLibass::ConfigureAssOverride(const std::shared_ptr<struct styl
 
 ASS_Event* CDVDSubtitlesLibass::GetEvents()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_track)
   {
     CLog::Log(LOGERROR, "{} -  Missing ASS structs (m_track)", __FUNCTION__);
@@ -614,7 +688,7 @@ ASS_Event* CDVDSubtitlesLibass::GetEvents()
 
 int CDVDSubtitlesLibass::GetNrOfEvents() const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_track)
     return 0;
   return m_track->n_events;
@@ -638,7 +712,7 @@ int CDVDSubtitlesLibass::AddEvent(const char* text,
     return ASS_NO_ID;
   }
 
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library || !m_track)
   {
     CLog::Log(LOGERROR, "{} - Missing ASS structs (m_library or m_track)", __FUNCTION__);
@@ -669,7 +743,7 @@ int CDVDSubtitlesLibass::AddEvent(const char* text,
 
 void CDVDSubtitlesLibass::AppendTextToEvent(int eventId, const char* text)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (eventId == ASS_NO_ID || text == NULL || text[0] == '\0')
     return;
   if (!m_track)
@@ -701,7 +775,7 @@ void CDVDSubtitlesLibass::AppendTextToEvent(int eventId, const char* text)
 
 void CDVDSubtitlesLibass::ChangeEventStopTime(int eventId, double stopTime)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (eventId == ASS_NO_ID)
     return;
   if (!m_track)
@@ -725,7 +799,7 @@ void CDVDSubtitlesLibass::ChangeEventStopTime(int eventId, double stopTime)
 
 void CDVDSubtitlesLibass::FlushEvents()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library || !m_track)
   {
     CLog::Log(LOGERROR, "{} - Missing ASS structs (m_library or m_track)", __FUNCTION__);
@@ -737,7 +811,7 @@ void CDVDSubtitlesLibass::FlushEvents()
 
 int CDVDSubtitlesLibass::DeleteEvents(int nEvents, int threshold)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!m_library || !m_track)
   {
     CLog::Log(LOGERROR, "{} - Missing ASS structs (m_library or m_track)", __FUNCTION__);

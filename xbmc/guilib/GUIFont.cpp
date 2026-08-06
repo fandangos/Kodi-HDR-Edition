@@ -9,10 +9,12 @@
 #include "GUIFont.h"
 
 #include "GUIFontTTF.h"
+#include "ServiceBroker.h"
 #include "utils/CharsetConverter.h"
 #include "utils/MathUtils.h"
 #include "utils/TimeUtils.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <mutex>
 
@@ -85,13 +87,14 @@ std::string& CGUIFont::GetFontName()
   return m_strFontName;
 }
 
-void CGUIFont::DrawText(float x,
-                        float y,
-                        const std::vector<KODI::UTILS::COLOR::Color>& colors,
-                        KODI::UTILS::COLOR::Color shadowColor,
-                        const vecText& text,
-                        uint32_t alignment,
-                        float maxPixelWidth)
+void CGUIFont::DrawTextInternal(float x,
+                                float y,
+                                std::span<const KODI::UTILS::COLOR::Color> colors,
+                                KODI::UTILS::COLOR::Color shadowColor,
+                                std::span<const character_t> text,
+                                uint32_t alignment,
+                                float maxPixelWidth,
+                                bool isVScrolling)
 {
   CWinSystemBase* const winSystem = CServiceBroker::GetWinSystem();
   if (!m_font || !winSystem)
@@ -118,15 +121,16 @@ void CGUIFont::DrawText(float x,
     for (const auto& renderColor : renderColors)
       shadowColors.emplace_back((renderColor & 0xff000000) != 0 ? shadowColor : 0);
     m_font->DrawTextInternal(context, x + 1, y + 1, shadowColors, text, alignment, maxPixelWidth,
-                             false);
+                             false, isVScrolling);
   }
-  m_font->DrawTextInternal(context, x, y, renderColors, text, alignment, maxPixelWidth, false);
+  m_font->DrawTextInternal(context, x, y, renderColors, text, alignment, maxPixelWidth, false,
+                           isVScrolling);
 
   if (clip)
     context.RestoreClipRegion();
 }
 
-bool CGUIFont::UpdateScrollInfo(const vecText& text, CScrollInfo& scrollInfo)
+bool CGUIFont::UpdateScrollInfo(std::span<const character_t> text, CScrollInfo& scrollInfo)
 {
   CWinSystemBase* const winSystem = CServiceBroker::GetWinSystem();
   if (!winSystem)
@@ -152,9 +156,7 @@ bool CGUIFont::UpdateScrollInfo(const vecText& text, CScrollInfo& scrollInfo)
 
   CScrollInfo old(scrollInfo);
 
-  // move along by the appropriate scroll amount
-  float scrollAmount =
-      fabs(scrollInfo.GetPixelsPerFrame() * winSystem->GetGfxContext().GetGUIScaleX());
+  float scrollAmount = fabs(scrollInfo.GetPixelsPerFrame());
 
   if (!scrollInfo.m_widthValid)
   {
@@ -179,9 +181,9 @@ bool CGUIFont::UpdateScrollInfo(const vecText& text, CScrollInfo& scrollInfo)
 
 void CGUIFont::DrawScrollingText(float x,
                                  float y,
-                                 const std::vector<KODI::UTILS::COLOR::Color>& colors,
+                                 std::span<const KODI::UTILS::COLOR::Color> colors,
                                  KODI::UTILS::COLOR::Color shadowColor,
-                                 const vecText& text,
+                                 std::span<const character_t> text,
                                  uint32_t alignment,
                                  float maxWidth,
                                  const CScrollInfo& scrollInfo)
@@ -195,7 +197,7 @@ void CGUIFont::DrawScrollingText(float x,
   if (!shadowColor)
     shadowColor = m_shadowColor;
 
-  if (!text.size() || ClippedRegionIsEmpty(context, x, y, maxWidth, alignment))
+  if (text.empty() || ClippedRegionIsEmpty(context, x, y, maxWidth, alignment))
     return; // nothing to render
 
   if (!scrollInfo.m_widthValid)
@@ -235,17 +237,17 @@ void CGUIFont::DrawScrollingText(float x,
     for (float dx = -offset; dx < maxWidth; dx += scrollInfo.m_totalWidth)
     {
       m_font->DrawTextInternal(context, x + 1, y + 1, shadowColors, text, alignment, textPixelWidth,
-                               scroll, dx);
+                               scroll, false, dx);
       m_font->DrawTextInternal(context, x + scrollInfo.m_textWidth + 1, y + 1, shadowColors,
-                               scrollInfo.m_suffix, alignment, suffixPixelWidth, scroll, dx);
+                               scrollInfo.m_suffix, alignment, suffixPixelWidth, scroll, false, dx);
     }
   }
   for (float dx = -offset; dx < maxWidth; dx += scrollInfo.m_totalWidth)
   {
     m_font->DrawTextInternal(context, x, y, renderColors, text, alignment, textPixelWidth, scroll,
-                             dx);
+                             false, dx);
     m_font->DrawTextInternal(context, x + scrollInfo.m_textWidth, y, renderColors,
-                             scrollInfo.m_suffix, alignment, suffixPixelWidth, scroll, dx);
+                             scrollInfo.m_suffix, alignment, suffixPixelWidth, scroll, false, dx);
   }
 
   context.RestoreClipRegion();
@@ -262,7 +264,7 @@ bool CGUIFont::ClippedRegionIsEmpty(
   return !context.SetClipRegion(x, y, width, m_font->GetTextHeight(1, 2) * context.GetGUIScaleY());
 }
 
-float CGUIFont::GetTextWidth(const vecText& text)
+float CGUIFont::GetTextWidth(std::span<const character_t> text)
 {
   CWinSystemBase* const winSystem = CServiceBroker::GetWinSystem();
   if (!m_font || !winSystem)
@@ -270,7 +272,7 @@ float CGUIFont::GetTextWidth(const vecText& text)
 
   CGraphicContext& context = winSystem->GetGfxContext();
 
-  std::unique_lock<CCriticalSection> lock(context);
+  std::unique_lock lock(context);
   return m_font->GetTextWidthInternal(text) * context.GetGUIScaleX();
 }
 
@@ -282,7 +284,7 @@ float CGUIFont::GetCharWidth(character_t ch)
 
   CGraphicContext& context = winSystem->GetGfxContext();
 
-  std::unique_lock<CCriticalSection> lock(context);
+  std::unique_lock lock(context);
   return m_font->GetCharWidthInternal(ch) * context.GetGUIScaleX();
 }
 

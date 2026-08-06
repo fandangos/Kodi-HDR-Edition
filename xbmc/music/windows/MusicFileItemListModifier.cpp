@@ -12,9 +12,10 @@
 #include "FileItemList.h"
 #include "ServiceBroker.h"
 #include "filesystem/MusicDatabaseDirectory/DirectoryNode.h"
-#include "guilib/LocalizeStrings.h"
 #include "music/MusicDbUrl.h"
 #include "music/MusicFileItemClassify.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -79,7 +80,8 @@ void CMusicFileItemListModifier::AddQueuingFolder(CFileItemList& items)
   switch (nodeChildType)
   {
     case NodeType::ARTIST:
-      pItem = std::make_shared<CFileItem>(g_localizeStrings.Get(15103)); // "All Artists"
+      pItem = std::make_shared<CFileItem>(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(15103)); // "All Artists"
       musicUrl.AppendPath("-1/");
       pItem->SetPath(musicUrl.ToString());
       break;
@@ -89,14 +91,16 @@ void CMusicFileItemListModifier::AddQueuingFolder(CFileItemList& items)
     case NodeType::ALBUM_RECENTLY_PLAYED:
     case NodeType::ALBUM_RECENTLY_ADDED:
     case NodeType::ALBUM_TOP100:
-      pItem = std::make_shared<CFileItem>(g_localizeStrings.Get(15102)); // "All Albums"
+      pItem = std::make_shared<CFileItem>(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(15102)); // "All Albums"
       musicUrl.AppendPath("-1/");
       pItem->SetPath(musicUrl.ToString());
       break;
 
     //  Disc node
     case NodeType::DISC:
-      pItem = std::make_shared<CFileItem>(g_localizeStrings.Get(38075)); // "All Discs"
+      pItem = std::make_shared<CFileItem>(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(38075)); // "All Discs"
       musicUrl.AppendPath("-1/");
       pItem->SetPath(musicUrl.ToString());
       break;
@@ -107,11 +111,13 @@ void CMusicFileItemListModifier::AddQueuingFolder(CFileItemList& items)
 
   if (pItem)
   {
-    pItem->m_bIsFolder = true;
-    pItem->SetSpecialSort(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bMusicLibraryAllItemsOnBottom ? SortSpecialOnBottom : SortSpecialOnTop);
+    pItem->SetFolder(true);
+    const auto advSettings = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings();
+    pItem->SetSpecialSort(advSettings->m_bMusicLibraryAllItemsOnBottom ? SortSpecial::BOTTOM
+                                                                       : SortSpecial::TOP);
     pItem->SetCanQueue(false);
     pItem->SetLabelPreformatted(true);
-    if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bMusicLibraryAllItemsOnBottom)
+    if (advSettings->m_bMusicLibraryAllItemsOnBottom)
       items.Add(pItem);
     else
       items.AddFront(pItem, (items.Size() > 0 && items[0]->IsParentFolder()) ? 1 : 0);

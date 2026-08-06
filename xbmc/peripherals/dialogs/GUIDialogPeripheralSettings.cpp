@@ -13,7 +13,9 @@
 #include "addons/Skin.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "games/controllers/Controller.h"
+#include "games/controllers/ControllerLayout.h"
 #include "games/controllers/ControllerManager.h"
+#include "games/controllers/guicontrols/GUIGameController.h"
 #include "guilib/GUIMessage.h"
 #include "peripherals/Peripherals.h"
 #include "settings/SettingAddon.h"
@@ -28,8 +30,13 @@
 using namespace KODI;
 using namespace PERIPHERALS;
 
-// Settings for peripherals
+namespace
+{
+constexpr const int CONTROL_ID_PERIPHERAL_ICON = 100;
+
+// Setting that holds the controller profile of a peripheral
 constexpr std::string_view SETTING_APPEARANCE = "appearance";
+} // namespace
 
 CGUIDialogPeripheralSettings::CGUIDialogPeripheralSettings()
   : CGUIDialogSettingsManualBase(WINDOW_DIALOG_PERIPHERAL_SETTINGS, "DialogSettings.xml"),
@@ -42,7 +49,7 @@ CGUIDialogPeripheralSettings::~CGUIDialogPeripheralSettings()
   if (m_item != NULL)
     delete m_item;
 
-  m_settingsMap.clear();
+  m_changedValues.clear();
 }
 
 bool CGUIDialogPeripheralSettings::OnMessage(CGUIMessage& message)
@@ -55,6 +62,16 @@ bool CGUIDialogPeripheralSettings::OnMessage(CGUIMessage& message)
   }
 
   return CGUIDialogSettingsManualBase::OnMessage(message);
+}
+
+void CGUIDialogPeripheralSettings::OnDeinitWindow(int nextWindowID)
+{
+  // discard any values that weren't applied by confirming the dialog
+  m_changedValues.clear();
+  m_resetRequested = false;
+
+  UpdateIcon({});
+  CGUIDialogSettingsManualBase::OnDeinitWindow(nextWindowID);
 }
 
 void CGUIDialogPeripheralSettings::RegisterPeripheralManager(CPeripherals& manager)
@@ -85,43 +102,35 @@ void CGUIDialogPeripheralSettings::OnSettingChanged(const std::shared_ptr<const 
 
   CGUIDialogSettingsManualBase::OnSettingChanged(setting);
 
-  const std::string& settingId = setting->GetId();
-
-  // we need to copy the new value of the setting from the copy to the
-  // original setting
-  std::map<std::string, std::shared_ptr<CSetting>>::iterator itSetting =
-      m_settingsMap.find(settingId);
-  if (itSetting == m_settingsMap.end())
+  // ignore the values that are set while the controls are being created
+  if (m_initialising)
     return;
 
-  itSetting->second->FromString(setting->ToString());
+  const std::string& settingId = setting->GetId();
 
   // Get peripheral associated with this setting
   PeripheralPtr peripheral;
   if (m_item != nullptr)
     peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
 
-  if (!peripheral)
+  if (!peripheral || !peripheral->HasSetting(settingId))
     return;
 
+  // Remember the new value. It is applied to the peripheral when the dialog is confirmed, so
+  // that changes don't take effect while the user is still making them
+  m_changedValues[settingId] = setting->ToString();
+
+  // Refresh peripheral icon to show the selected appearance
   if (settingId == SETTING_APPEARANCE)
-  {
-    // Get the controller profile of the new appearance
-    GAME::ControllerPtr controller;
+    UpdateIcon(CServiceBroker::GetGameControllerManager().GetController(setting->ToString()));
+}
 
-    if (setting->GetType() == SettingType::String)
-    {
-      std::shared_ptr<const CSettingString> settingString =
-          std::static_pointer_cast<const CSettingString>(setting);
-      const std::string& addonId = settingString->GetValue();
-
-      if (m_manager != nullptr)
-        controller = m_manager->GetControllerProfiles().GetController(addonId);
-    }
-
-    if (controller)
-      peripheral->SetControllerProfile(controller);
-  }
+void CGUIDialogPeripheralSettings::UpdateIcon(const GAME::ControllerPtr& controller)
+{
+  GAME::CGUIGameController* control =
+      dynamic_cast<GAME::CGUIGameController*>(GetControl(CONTROL_ID_PERIPHERAL_ICON));
+  if (control != nullptr)
+    control->SetFileName(controller ? controller->Layout().ImagePath() : "");
 }
 
 bool CGUIDialogPeripheralSettings::Save()
@@ -133,9 +142,31 @@ bool CGUIDialogPeripheralSettings::Save()
   if (!peripheral)
     return true;
 
+  // A reset was confirmed in this dialog, so let the peripheral reset itself now that the
+  // dialog is confirmed too. This covers what resetting means beyond the values shown here,
+  // such as a joystick's button map. The changed values are applied on top, so a setting
+  // edited after the reset still wins
+  if (m_resetRequested)
+    peripheral->ResetDefaultSettings();
+
+  // Apply the changed values. CPeripheral keeps track of the settings that actually changed, and
+  // notifies the peripheral of those changes when they are persisted
+  for (const auto& [settingId, value] : m_changedValues)
+    peripheral->SetSetting(settingId, value);
+
+  m_changedValues.clear();
+  m_resetRequested = false;
+
   peripheral->PersistSettings();
 
   return true;
+}
+
+void CGUIDialogPeripheralSettings::OnCancel()
+{
+  // discard the changed values
+  m_changedValues.clear();
+  m_resetRequested = false;
 }
 
 void CGUIDialogPeripheralSettings::OnResetSettings()
@@ -150,11 +181,17 @@ void CGUIDialogPeripheralSettings::OnResetSettings()
   if (!CGUIDialogYesNo::ShowAndGetInput(CVariant{10041}, CVariant{10042}))
     return;
 
-  // reset the settings in the peripheral
-  peripheral->ResetDefaultSettings();
+  // Buffer the defaults like any other change made in this dialog: they are shown in the
+  // controls straight away, but only reach the peripheral once the dialog itself is
+  // confirmed, and are discarded if it isn't. Confirming this prompt says which values to
+  // put in the dialog, not that the dialog is done.
+  m_pendingDefaults = CServiceBroker::GetPeripherals().GetDefaultSettingsFromMapping(*peripheral);
+  m_resetRequested = true;
 
-  // re-create all settings and their controls
+  // re-create all settings and their controls, so they show the defaults
   SetupView();
+
+  m_pendingDefaults.clear();
 }
 
 void CGUIDialogPeripheralSettings::SetupView()
@@ -165,6 +202,18 @@ void CGUIDialogPeripheralSettings::SetupView()
   SET_CONTROL_LABEL(CONTROL_SETTINGS_OKAY_BUTTON, 186);
   SET_CONTROL_LABEL(CONTROL_SETTINGS_CANCEL_BUTTON, 222);
   SET_CONTROL_LABEL(CONTROL_SETTINGS_CUSTOM_BUTTON, 409);
+
+  // Set peripheral icon
+  GAME::ControllerPtr controller;
+
+  if (m_item != nullptr)
+  {
+    PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
+    if (peripheral)
+      controller = peripheral->ControllerProfile();
+  }
+
+  UpdateIcon(controller);
 }
 
 void CGUIDialogPeripheralSettings::InitializeSettings()
@@ -176,7 +225,8 @@ void CGUIDialogPeripheralSettings::InitializeSettings()
   }
 
   m_initialising = true;
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  const bool usePopup = skin && skin->HasSkinFile("DialogSlider.xml");
 
   PeripheralPtr peripheral = CServiceBroker::GetPeripherals().GetByPath(m_item->GetPath());
   if (!peripheral)
@@ -186,7 +236,7 @@ void CGUIDialogPeripheralSettings::InitializeSettings()
     return;
   }
 
-  m_settingsMap.clear();
+  m_changedValues.clear();
   CGUIDialogSettingsManualBase::InitializeSettings();
 
   const std::shared_ptr<CSettingCategory> category = AddCategory("peripheralsettings", -1);
@@ -298,9 +348,16 @@ void CGUIDialogPeripheralSettings::InitializeSettings()
 
     if (settingCopy != NULL && settingCopy->GetControl() != NULL)
     {
+      // Seed the control with the default the user asked to reset to, and remember it as a
+      // change so that confirming the dialog applies it through the usual path. Done here
+      // rather than by resetting the peripheral, which would take effect before the dialog
+      // is confirmed.
+      const auto itDefault = m_pendingDefaults.find(settingCopy->GetId());
+      if (itDefault != m_pendingDefaults.end() && settingCopy->FromString(itDefault->second))
+        m_changedValues[settingCopy->GetId()] = itDefault->second;
+
       settingCopy->SetLevel(SettingLevel::Basic);
       group->AddSetting(settingCopy);
-      m_settingsMap.insert(std::make_pair(setting->GetId(), setting));
     }
   }
 

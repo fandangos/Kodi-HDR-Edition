@@ -103,7 +103,7 @@ std::map<std::string, std::string> decodeDMAP(const char *buffer, unsigned int s
 
 void CAirTunesServer::ResetMetadata()
 {
-  std::unique_lock<CCriticalSection> lock(m_metadataLock);
+  std::unique_lock lock(m_metadataLock);
 
   XFILE::CFile::Delete(TMP_COVERART_PATH_JPG);
   XFILE::CFile::Delete(TMP_COVERART_PATH_PNG);
@@ -117,16 +117,16 @@ void CAirTunesServer::ResetMetadata()
 
 void CAirTunesServer::RefreshMetadata()
 {
-  std::unique_lock<CCriticalSection> lock(m_metadataLock);
+  std::unique_lock lock(m_metadataLock);
   MUSIC_INFO::CMusicInfoTag tag;
   CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
   if (infoMgr.GetCurrentSongTag())
     tag = *infoMgr.GetCurrentSongTag();
-  if (m_metadata[0].length())
+  if (!m_metadata[0].empty())
     tag.SetAlbum(m_metadata[0]);//album
-  if (m_metadata[1].length())
+  if (!m_metadata[1].empty())
     tag.SetTitle(m_metadata[1]);//title
-  if (m_metadata[2].length())
+  if (!m_metadata[2].empty())
     tag.SetArtist(m_metadata[2]);//artist
 
   CServiceBroker::GetAppMessenger()->PostMsg(TMSG_UPDATE_CURRENT_ITEM, 1, -1,
@@ -141,7 +141,7 @@ void CAirTunesServer::RefreshCoverArt(const char *outputFilename/* = NULL*/)
     coverArtFile = std::string(outputFilename);
 
   CGUIInfoManager& infoMgr = CServiceBroker::GetGUI()->GetInfoManager();
-  std::unique_lock<CCriticalSection> lock(m_metadataLock);
+  std::unique_lock lock(m_metadataLock);
   //reset to empty before setting the new one
   //else it won't get refreshed because the name didn't change
   infoMgr.SetCurrentAlbumThumb("");
@@ -156,13 +156,13 @@ void CAirTunesServer::SetMetadataFromBuffer(const char *buffer, unsigned int siz
 {
 
   std::map<std::string, std::string> metadata = decodeDMAP(buffer, size);
-  std::unique_lock<CCriticalSection> lock(m_metadataLock);
+  std::unique_lock lock(m_metadataLock);
 
-  if(metadata["asal"].length())
+  if (!metadata["asal"].empty())
     m_metadata[0] = metadata["asal"];//album
-  if(metadata["minm"].length())
+  if (!metadata["minm"].empty())
     m_metadata[1] = metadata["minm"];//title
-  if(metadata["asar"].length())
+  if (!metadata["asar"].empty())
     m_metadata[2] = metadata["asar"];//artist
 
   RefreshMetadata();
@@ -179,21 +179,21 @@ void CAirTunesServer::Announce(ANNOUNCEMENT::AnnouncementFlag flag,
     {
       RefreshMetadata();
       RefreshCoverArt();
-      std::unique_lock<CCriticalSection> lock(m_dacpLock);
+      std::unique_lock lock(m_dacpLock);
       if (m_pDACP)
         m_pDACP->Play();
     }
 
     if (message == "OnStop" && m_streamStarted)
     {
-      std::unique_lock<CCriticalSection> lock(m_dacpLock);
+      std::unique_lock lock(m_dacpLock);
       if (m_pDACP)
         m_pDACP->Stop();
     }
 
     if (message == "OnPause" && m_streamStarted)
     {
-      std::unique_lock<CCriticalSection> lock(m_dacpLock);
+      std::unique_lock lock(m_dacpLock);
       if (m_pDACP)
         m_pDACP->Pause();
     }
@@ -215,7 +215,7 @@ bool CAirTunesServer::OnAction(const CAction &action)
     case ACTION_VOLUME_DOWN:
     case ACTION_MUTE:
     {
-      std::unique_lock<CCriticalSection> lock(m_actionQueueLock);
+      std::unique_lock lock(m_actionQueueLock);
       m_actionQueue.push_back(action);
       m_processActions.Set();
     }
@@ -234,14 +234,14 @@ void CAirTunesServer::Process()
     m_processActions.Wait(1000ms); // timeout for being able to stop
     std::list<CAction> currentActions;
     {
-      std::unique_lock<CCriticalSection> lock(m_actionQueueLock); // copy and clear the source queue
+      std::unique_lock lock(m_actionQueueLock); // copy and clear the source queue
       currentActions.insert(currentActions.begin(), m_actionQueue.begin(), m_actionQueue.end());
       m_actionQueue.clear();
     }
 
     for (const auto& currentAction : currentActions)
     {
-      std::unique_lock<CCriticalSection> lock(m_dacpLock);
+      std::unique_lock lock(m_dacpLock);
       if (m_pDACP)
       {
         switch(currentAction.GetID())
@@ -299,7 +299,7 @@ void CAirTunesServer::SetCoverArtFromBuffer(const char *buffer, unsigned int siz
   if(!size)
     return;
 
-  std::unique_lock<CCriticalSection> lock(m_metadataLock);
+  std::unique_lock lock(m_metadataLock);
 
   if (IsJPEG(buffer, size))
     tmpFilename = TMP_COVERART_PATH_JPG;
@@ -317,7 +317,7 @@ void CAirTunesServer::SetCoverArtFromBuffer(const char *buffer, unsigned int siz
 
 void CAirTunesServer::FreeDACPRemote()
 {
-  std::unique_lock<CCriticalSection> lock(m_dacpLock);
+  std::unique_lock lock(m_dacpLock);
   if (m_pDACP)
     delete m_pDACP;
   m_pDACP = NULL;
@@ -473,7 +473,7 @@ void CAirTunesServer::SetupRemoteControl()
         {
           // resolve the service and save it
           CZeroconfBrowser::GetInstance()->ResolveService(service);
-          std::unique_lock<CCriticalSection> lock(m_dacpLock);
+          std::unique_lock lock(m_dacpLock);
           // recheck with lock hold
           if (m_pDACP == NULL)
           {

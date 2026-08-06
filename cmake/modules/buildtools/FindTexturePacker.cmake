@@ -3,8 +3,10 @@
 # -----------------
 # Finds the TexturePacker
 #
-# If WITH_TEXTUREPACKER is defined and points to a directory,
-# this path will be used to search for the Texturepacker binary
+# If WITH_TEXTUREPACKER is defined, it will be used as the location of an
+# existing TexturePacker binary to execute during the build. Useful when
+# cross-compiling. The file must exist and be executable at configure time. A
+# newly-built binary is installed alongside Kodi regardless.
 #
 #
 # This will define the following (imported) targets::
@@ -34,10 +36,13 @@ if(NOT TARGET TexturePacker::TexturePacker::Executable)
   else()
     if(WITH_TEXTUREPACKER)
       get_filename_component(_tppath ${WITH_TEXTUREPACKER} ABSOLUTE)
-      get_filename_component(_tppath ${_tppath} DIRECTORY)
-      find_program(TEXTUREPACKER_EXECUTABLE NAMES "${APP_NAME_LC}-TexturePacker" TexturePacker
-                                          HINTS ${_tppath})
-
+      if(NOT IS_DIRECTORY ${_tppath})
+        get_filename_component(_tppath ${_tppath} DIRECTORY)
+      endif()
+      find_program(TEXTUREPACKER_EXECUTABLE
+                   NAMES "${APP_NAME_LC}-TexturePacker" TexturePacker
+                   HINTS ${_tppath}
+                   NO_DEFAULT_PATH)
       # Use external TexturePacker executable if found
       if(TEXTUREPACKER_EXECUTABLE)
         add_executable(TexturePacker::TexturePacker::Executable IMPORTED GLOBAL)
@@ -45,10 +50,7 @@ if(NOT TARGET TexturePacker::TexturePacker::Executable)
                                           IMPORTED_LOCATION "${TEXTUREPACKER_EXECUTABLE}")
         message(STATUS "Found external TexturePacker: ${TEXTUREPACKER_EXECUTABLE}")
       else()
-        # Warn about external TexturePacker supplied but not fail fatally
-        # because we might have internal TexturePacker executable built
-        # and unset TEXTUREPACKER_EXECUTABLE variable
-        message(WARNING "Could not find '${APP_NAME_LC}-TexturePacker' or 'TexturePacker' executable in ${_tppath} supplied by -DWITH_TEXTUREPACKER. Make sure the executable file name matches these names!")
+        message(FATAL_ERROR "Could not find '${APP_NAME_LC}-TexturePacker' or 'TexturePacker' executable in ${_tppath} supplied by -DWITH_TEXTUREPACKER. Make sure the executable file name matches these names!")
       endif()
     endif()
 
@@ -69,9 +71,57 @@ if(NOT TARGET TexturePacker::TexturePacker::Executable)
 
     # Build and install internal TexturePacker if needed
     if (INTERNAL_TEXTUREPACKER_EXECUTABLE OR INTERNAL_TEXTUREPACKER_INSTALLABLE)
-      set(KODI_SOURCE_DIR ${CMAKE_SOURCE_DIR})
-      add_subdirectory(${CMAKE_SOURCE_DIR}/tools/depends/native/TexturePacker/src build/texturepacker)
-      unset(KODI_SOURCE_DIR)
+      set(CMAKE_ARGS "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} $<$<CONFIG:Debug>:${CMAKE_C_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_C_FLAGS_RELEASE}>"
+                     "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} $<$<CONFIG:Debug>:${CMAKE_CXX_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_CXX_FLAGS_RELEASE}>"
+                     "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS} $<$<CONFIG:Debug>:${CMAKE_EXE_LINKER_FLAGS_DEBUG}> $<$<CONFIG:Release>:${CMAKE_EXE_LINKER_FLAGS_RELEASE}>"
+                     "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+                     "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+                     "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+                     "-DCMAKE_AR=${CMAKE_AR}"
+                     "-DCMAKE_LINKER=${CMAKE_LINKER}"
+                     "-DCMAKE_NM=${CMAKE_NM}"
+                     "-DCMAKE_STRIP=${CMAKE_STRIP}"
+                     "-DCMAKE_OBJDUMP=${CMAKE_OBJDUMP}"
+                     "-DCMAKE_RANLIB=${CMAKE_RANLIB}"
+                     "-DDEPENDS_PATH=${DEPENDS_PATH}"
+                     -DKODI_SOURCE_DIR=${CMAKE_SOURCE_DIR})
+
+      # Create a list with an alternate separator e.g. pipe symbol
+      string(REPLACE ";" "|" string_ARCH_DEFINES "${ARCH_DEFINES}")
+
+      list(APPEND CMAKE_ARGS -DARCH_DEFINES=${string_ARCH_DEFINES})
+      if(ENABLE_CLANGTIDY)
+        string(REPLACE ";" "|" string_CMAKE_CXX_CLANG_TIDY "${CMAKE_CXX_CLANG_TIDY}")
+        list(APPEND CMAKE_ARGS "-DCMAKE_CXX_CLANG_TIDY=${string_CMAKE_CXX_CLANG_TIDY}")
+      else()
+        list(APPEND CMAKE_ARGS -UCMAKE_CXX_CLANG_TIDY)
+      endif()
+      if(ENABLE_CPPCHECK)
+        list(APPEND CMAKE_ARGS "-DCMAKE_CXX_CPPCHECK:FILEPATH=${CMAKE_CXX_CPPCHECK}")
+      else()
+        list(APPEND CMAKE_ARGS -UCMAKE_CXX_CPPCHECK)
+      endif()
+      if(ENABLE_INCLUDEWHATYOUUSE)
+        list(APPEND CMAKE_ARGS "-DCMAKE_CXX_INCLUDE_WHAT_YOU_USE:FILEPATH=${CMAKE_CXX_INCLUDE_WHAT_YOU_USE}")
+      else()
+        list(APPEND CMAKE_ARGS -UCMAKE_CXX_INCLUDE_WHAT_YOU_USE)
+      endif()
+
+      externalproject_add(buildtexturepacker
+                          SOURCE_DIR ${CMAKE_SOURCE_DIR}/tools/depends/native/TexturePacker/src
+                          PREFIX ${CORE_BUILD_DIR}/build-texturepacker
+                          LIST_SEPARATOR |
+                          INSTALL_COMMAND ""
+                          CMAKE_ARGS ${CMAKE_ARGS}
+                          BUILD_ALWAYS ON
+                          BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/build-texturepacker/src/buildtexturepacker-build/TexturePacker)
+
+      add_executable(TexturePacker IMPORTED)
+      set_target_properties(TexturePacker PROPERTIES
+                                          IMPORTED_LOCATION "${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/build-texturepacker/src/buildtexturepacker-build/TexturePacker")
+
+      add_dependencies(TexturePacker buildtexturepacker)
+
       message(STATUS "Building internal TexturePacker")
     endif()
 

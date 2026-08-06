@@ -8,7 +8,7 @@
 
 #include "Key.h"
 
-#include "KeyIDs.h"
+#include "input/keymaps/keyboard/KeyIDs.h"
 
 CKey::CKey(void)
 {
@@ -45,7 +45,7 @@ CKey::CKey(uint32_t buttonCode, unsigned int held)
 }
 
 CKey::CKey(uint32_t keycode,
-           uint8_t vkey,
+           uint16_t vkey,
            wchar_t unicode,
            char ascii,
            uint32_t modifiers,
@@ -53,6 +53,7 @@ CKey::CKey(uint32_t keycode,
            unsigned int held)
 {
   Reset();
+  vkey &= KEY_VKEY_MASK;
   if (vkey) // FIXME: This needs cleaning up - should we always use the unicode key where available?
     m_buttonCode = vkey | KEY_VKEY;
   else
@@ -81,7 +82,7 @@ void CKey::Reset()
   m_rightThumbX = 0.0f;
   m_rightThumbY = 0.0f;
   m_repeat = 0.0f;
-  m_fromService = false;
+  m_fromEventServer = false;
   m_buttonCode = KEY_INVALID;
   m_keycode = 0;
   m_vkey = 0;
@@ -103,7 +104,7 @@ CKey& CKey::operator=(const CKey& key)
   m_rightThumbX = key.m_rightThumbX;
   m_rightThumbY = key.m_rightThumbY;
   m_repeat = key.m_repeat;
-  m_fromService = key.m_fromService;
+  m_fromEventServer = key.m_fromEventServer;
   m_buttonCode = key.m_buttonCode;
   m_keycode = key.m_keycode;
   m_vkey = key.m_vkey;
@@ -171,10 +172,7 @@ float CKey::GetRepeat() const
   return m_repeat;
 }
 
-void CKey::SetFromService(bool fromService)
+void CKey::SetFromEventServer(bool fromEventServer)
 {
-  if (fromService && (m_buttonCode & KEY_VKEY))
-    m_unicode = m_buttonCode - KEY_VKEY;
-
-  m_fromService = fromService;
+  m_fromEventServer = fromEventServer;
 }

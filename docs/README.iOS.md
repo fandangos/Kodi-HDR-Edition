@@ -119,6 +119,9 @@ make -j$(getconf _NPROCESSORS_ONLN)
 ./configure --host=aarch64-apple-darwin --with-platform=ios --with-sdk=11.0
 ```
 
+> [!NOTE]  
+> `--with-platform=ios-simulator` targets the iOS Simulator instead of device hardware (`iphonesimulator` SDK rather than `iphoneos`).
+
 ### 4.1. Advanced Configure Options
 
 
@@ -302,14 +305,14 @@ ls -l /Users/Shared/xbmc-depends
 **Start Xcode, open the Kodi project file** (`kodi.xcodeproj`) located in `$HOME/kodi-build` and hit `Build`.
 
 > [!WARNING]  
-> If you have selected a specific iOS SDK Version in step 4 then you might need to adapt the active target to use the same iOS SDK version, otherwise build will fail. Be sure to select a device configuration. Building for simulator is not supported.
+> If you have selected a specific iOS SDK Version in step 4 then you might need to adapt the active target to use the same iOS SDK version, otherwise build will fail. Be sure to select a device configuration matching what you configured.
 
 **Alternatively**, you can also build via Xcode from the command-line with `xcodebuild`:
 
 Build Kodi:
 ```
 cd $HOME/kodi-build
-xcodebuild -config "Debug" -jobs $(getconf _NPROCESSORS_ONLN)
+xcodebuild -config "Debug"
 ```
 
 > [!TIP]
@@ -318,19 +321,40 @@ xcodebuild -config "Debug" -jobs $(getconf _NPROCESSORS_ONLN)
 **[back to top](#table-of-contents)** | **[back to section top](#6-build-kodi)**
 
 ## 7. Package
-CMake generates a target called `deb` which will package Kodi ready for distribution. After Kodi has been built, the target can be triggered by selecting it in Xcode active scheme or manually running
+CMake generates CPack-backed `deb` and `ipa` targets for distribution packages. The `deb` target creates a package for jailbroken devices. The `ipa` target creates an unsigned IPA archive with the app bundle under `Payload/`.
+
+After Kodi has been built, either target can be triggered by selecting it in Xcode active scheme or manually running:
 
 ```
 cd $HOME/kodi-build
 xcodebuild -target deb
 ```
 
-**Alternatively**
+```
+cd $HOME/kodi-build
+xcodebuild -target ipa
+```
+
+To build both packages in one command:
+
+```
+cd $HOME/kodi-build
+xcodebuild -target deb -target ipa
+```
+
+**Alternatively**, use CMake to trigger the generated targets:
 
 ```
 cd $HOME/kodi-build
 /Users/Shared/xbmc-depends/x86_64-darwin17.5.0-native/bin/cmake --build . --target "deb" --config "Debug"
 ```
+
+```
+cd $HOME/kodi-build
+/Users/Shared/xbmc-depends/x86_64-darwin17.5.0-native/bin/cmake --build . --target "ipa" --config "Debug"
+```
+
+The generated packages are written to `$HOME/kodi-build/tools/darwin/packaging/darwin_embedded`.
 
 **[back to top](#table-of-contents)**
 
@@ -339,6 +363,8 @@ On jailbroken devices the resulting deb file can be copied to the iOS device via
 ```
 dpkg -i <name of the deb file>
 ```
+
+The unsigned IPA can be used as input for a signing tool or signing workflow before installing on a non-jailbroken device.
 
 If you are a developer with an official Apple code signing identity you can deploy Kodi via Xcode to work on it on non-jailbroken devices. For this to work you need to alter the Xcode project by setting your codesign identity. Just select the *iPhone Developer* shortcut.
 It's also important that you select the signing on all 4 spots in the project settings. After the last buildstep, our support script will do a full sign of all binaries and bundle them with the given identity, including all the `*.viz`, `*.pvr`, `*.so`, etc. files Xcode doesn't know anything about. This should allow you to deploy Kodi to all non-jailbroken devices the same way you deploy normal apps to.
@@ -362,4 +388,3 @@ From Xcode7 on this approach is also available for non paying app developers (Ap
 Gestures can be adapted in **[system/keymaps/touchscreen.xml](https://github.com/xbmc/xbmc/blob/master/system/keymaps/touchscreen.xml)**.
 
 **[back to top](#table-of-contents)**
-

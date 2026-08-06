@@ -9,14 +9,13 @@
 #include "PlatformDarwinOSX.h"
 
 #include "Util.h"
+#include "filesystem/SpecialProtocol.h"
 
 #if defined(HAS_GL)
 #include "windowing/osx/OpenGL/WinSystemOSXGL.h"
 #endif
 
-#if defined(HAS_XBMCHELPER)
-#include "platform/darwin/osx/XBMCHelper.h"
-#endif
+#include "platform/darwin/DarwinUtils.h"
 #include "platform/darwin/osx/powermanagement/CocoaPowerSyscall.h"
 
 #include <stdlib.h>
@@ -40,6 +39,8 @@ bool CPlatformDarwinOSX::InitStageOne()
 
   std::string install_path(CUtil::GetHomePath());
   setenv("KODI_HOME", install_path.c_str(), 0);
+  setenv("AACS_HOME", CSpecialProtocol::TranslatePath("special://home").c_str(), 1);
+  setenv("LIBBLURAY_CP", (CDarwinUtils::GetJavaCPPath() + "/").c_str(), 1);
 
   install_path += "/tools/darwin/runtime/preflight";
   system(install_path.c_str());
@@ -49,10 +50,5 @@ bool CPlatformDarwinOSX::InitStageOne()
 
 bool CPlatformDarwinOSX::InitStageTwo()
 {
-  // Configure and possible manually start the helper.
-#if defined(HAS_XBMCHELPER)
-  XBMCHelper::GetInstance().Configure();
-#endif
-
   return true;
 }

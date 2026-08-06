@@ -9,20 +9,20 @@ endif()
 
 # -------- Host Settings ---------
 
-set(_gentoolset ${CMAKE_GENERATOR_TOOLSET})
-string(REPLACE "host=" "" HOSTTOOLSET "${_gentoolset}")
-unset(_gentoolset)
+set(HOSTTOOLSET ${CMAKE_VS_PLATFORM_TOOLSET_HOST_ARCHITECTURE})
 
 # -------- Architecture settings ---------
 
-if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+if(CMAKE_GENERATOR_PLATFORM STREQUAL arm64)
+  set(ARCH arm64)
+  set(SDK_TARGET_ARCH arm64)
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
   set(ARCH win32)
   set(SDK_TARGET_ARCH x86)
 elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(ARCH x64)
   set(SDK_TARGET_ARCH x64)
 endif()
-
 
 # -------- Paths (mainly for find_package) ---------
 
@@ -42,6 +42,8 @@ set(NATIVEPREFIX ${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/tools)
 set(DEPENDS_PATH ${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/${ARCH})
 set(MINGW_LIBS_DIR ${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/mingwlibs/${ARCH})
 
+set(Msys_ROOT "${CMAKE_SOURCE_DIR}/${DEPS_FOLDER_RELATIVE}/msys64")
+
 # mingw libs
 list(APPEND CMAKE_PREFIX_PATH ${MINGW_LIBS_DIR})
 list(APPEND CMAKE_LIBRARY_PATH ${MINGW_LIBS_DIR}/bin)
@@ -55,9 +57,15 @@ endif()
 # Allow to use UTF-8 strings in the source code, disable MSVC charset conversion
 add_options(CXX ALL_BUILDS "/utf-8")
 add_options(CXX ALL_BUILDS "/wd\"4996\"")
-set(ARCH_DEFINES -D_WINDOWS -DTARGET_WINDOWS -DTARGET_WINDOWS_DESKTOP -D__SSE__ -D__SSE2__)
+set(ARCH_DEFINES -D_WINDOWS -DTARGET_WINDOWS -DTARGET_WINDOWS_DESKTOP)
+
+# Do not add SSE flags for ARM64
+if(NOT CMAKE_GENERATOR_PLATFORM STREQUAL arm64)
+  list(APPEND ARCH_DEFINES -D__SSE__ -D__SSE2__)
+endif()
+
 set(SYSTEM_DEFINES -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DHAS_DX -D__STDC_CONSTANT_MACROS
-                   -DTAGLIB_STATIC -DNPT_CONFIG_ENABLE_LOGGING
+                   -DNPT_CONFIG_ENABLE_LOGGING
                    -DPLT_HTTP_DEFAULT_USER_AGENT="UPnP/1.0 DLNADOC/1.50 Kodi"
                    -DPLT_HTTP_DEFAULT_SERVER="UPnP/1.0 DLNADOC/1.50 Kodi"
                    -DUNICODE -D_UNICODE
@@ -92,11 +100,13 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SAFESEH:NO")
 link_directories(${DEPENDS_PATH}/lib)
 
 # Additional libraries
-# runtimeobject.lib provides the WinRT activation entrypoints (RoGetActivationFactory and
+# RuntimeObject.lib provides the WinRT activation entrypoints (RoGetActivationFactory and
 # friends) pulled in by the C++/WinRT based sinks, eg Sinks/windows/AESinkFactoryWinRT.cpp
+# version.lib, crypt32.lib and Comctl32.lib are DSPlayer's: the DirectShow filters and the
+# madVR interop need them.
 list(APPEND DEPLIBS bcrypt.lib d3d11.lib DInput8.lib DSound.lib winmm.lib Mpr.lib Iphlpapi.lib WS2_32.lib
                     PowrProf.lib setupapi.lib Shlwapi.lib dwmapi.lib dxguid.lib DelayImp.lib version.lib
-                    crypt32.lib Comctl32.lib runtimeobject.lib)
+                    crypt32.lib Comctl32.lib RuntimeObject.lib)
 
 # NODEFAULTLIB option
 set(_nodefaultlibs_RELEASE libcmtd)

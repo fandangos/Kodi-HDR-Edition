@@ -22,7 +22,7 @@ public:
   CGUIWindowPVRChannelsBase(bool bRadio, int id, const std::string& xmlFile);
   ~CGUIWindowPVRChannelsBase() override;
 
-  std::string GetRootPath() const override;
+  std::string GetRootPath() override;
   bool OnMessage(CGUIMessage& message) override;
   void GetContextButtons(int itemNumber, CContextButtons& buttons) override;
   bool OnContextButton(int itemNumber, CONTEXT_BUTTON button) override;
@@ -40,11 +40,10 @@ protected:
 private:
   bool OnContextButtonManage(const CFileItemPtr& item, CONTEXT_BUTTON button);
 
-  void ShowChannelManager();
-  void ShowGroupManager();
-  void UpdateEpg(const CFileItemPtr& item);
+  void ShowChannelManager() const;
+  void ShowGroupManager() const;
+  void UpdateEpg(const std::shared_ptr<CFileItem>& item) const;
 
-protected:
   bool m_bShowHiddenChannels = false;
 };
 

@@ -44,7 +44,7 @@
 #include "video/VideoFileItemClassify.h"
 #include "video/VideoUtils.h"
 #include "video/guilib/VideoGUIUtils.h"
-#include "video/guilib/VideoSelectActionProcessor.h"
+#include "video/guilib/VideoPlayActionProcessor.h"
 
 #include <math.h>
 
@@ -426,7 +426,23 @@ static int PlayDVD(const std::vector<std::string>& params)
   bool restart = false;
   if (!params.empty() && StringUtils::EqualsNoCase(params[0], "restart"))
     restart = true;
-  MEDIA_DETECT::CAutorun::PlayDisc(CServiceBroker::GetMediaManager().GetDiscPath(), true, restart);
+  MEDIA_DETECT::PlayDiscOptions options(
+      {.bypassSettings = true, .startFromBeginning = restart, .forceSelection = false});
+  MEDIA_DETECT::CAutorun::PlayDisc(CServiceBroker::GetMediaManager().GetDiscPath(), options);
+#endif
+
+  return 0;
+}
+
+/*! \brief Play currently inserted Bluray, allowing the user to choose the playlist.
+ *  \param params Not used here (but needed for builtin interface).
+ */
+static int PlayPlaylist(const std::vector<std::string>& /*params*/)
+{
+#ifdef HAS_OPTICAL_DRIVE
+  MEDIA_DETECT::PlayDiscOptions options(
+      {.bypassSettings = true, .startFromBeginning = false, .forceSelection = true});
+  MEDIA_DETECT::CAutorun::PlayDisc(CServiceBroker::GetMediaManager().GetDiscPath(), options);
 #endif
 
   return 0;
@@ -437,7 +453,8 @@ namespace
 void GetItemsForPlayList(const std::shared_ptr<CFileItem>& item, CFileItemList& queuedItems)
 {
   if (VIDEO::UTILS::IsItemPlayable(*item))
-    VIDEO::UTILS::GetItemsForPlayList(item, queuedItems);
+    VIDEO::UTILS::GetItemsForPlayList(item, queuedItems,
+                                      ContentUtils::PlayMode::CHECK_AUTO_PLAY_NEXT_ITEM);
   else if (MUSIC_UTILS::IsItemPlayable(*item))
     MUSIC_UTILS::GetItemsForPlayList(item, queuedItems);
 }
@@ -500,7 +517,7 @@ int PlayOrQueueMedia(const std::vector<std::string>& params,
   for (unsigned int i = 1 ; i < params.size() ; i++)
   {
     if (StringUtils::EqualsNoCase(params[i], "isdir"))
-      item.m_bIsFolder = true;
+      item.SetFolder(true);
     else if (params[i] == "1") // set fullscreen or windowed
       CMediaSettings::GetInstance().SetMediaStartWindowed(true);
     else if (StringUtils::EqualsNoCase(params[i], "resume"))
@@ -538,13 +555,13 @@ int PlayOrQueueMedia(const std::vector<std::string>& params,
     }
   }
 
-  if (!item.m_bIsFolder && item.IsPlugin())
+  if (!item.IsFolder() && item.IsPlugin())
     item.SetProperty("IsPlayable", true);
 
-  if (askToResume)
+  if (forcePlay && askToResume)
   {
     const VIDEO::GUILIB::Action action =
-        VIDEO::GUILIB::CVideoSelectActionProcessor::ChoosePlayOrResume(item);
+        VIDEO::GUILIB::CVideoPlayActionProcessor::ChoosePlayOrResume(item);
     if (action == VIDEO::GUILIB::ACTION_RESUME)
     {
       item.SetStartOffset(STARTOFFSET_RESUME);
@@ -555,9 +572,8 @@ int PlayOrQueueMedia(const std::vector<std::string>& params,
       return false;
     }
   }
-  item.SetProperty("check_resume", false);
 
-  if (!forcePlay /* queue */ || item.m_bIsFolder || PLAYLIST::IsPlayList(item))
+  if (!forcePlay /* queue */ || item.IsFolder() || PLAYLIST::IsPlayList(item))
   {
     CFileItemList items;
     GetItemsForPlayList(std::make_shared<CFileItem>(item), items);
@@ -892,6 +908,7 @@ CBuiltins::CommandMap CPlayerBuiltins::GetOperations() const
   return {
            {"playdisc",            {"Plays the inserted disc, like CD, DVD or Blu-ray, in the disc drive.", 0, PlayDVD}},
            {"playdvd",             {"Plays the inserted disc, like CD, DVD or Blu-ray, in the disc drive.", 0, PlayDVD}},
+           {"playplaylist",        {"Plays a playlist on the Blu-ray in the disc drive.", 0, PlayPlaylist}},
            {"playlist.clear",      {"Clear the current playlist", 0, ClearPlaylist}},
            {"playlist.playoffset", {"Start playing from a particular offset in the playlist", 1, PlayOffset}},
            {"playercontrol",       {"Control the music or video player", 1, PlayerControl}},

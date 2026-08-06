@@ -58,7 +58,7 @@ public:
    */
   bool NeedsPolling(void) const
   {
-    std::unique_lock<CCriticalSection> lock(m_critSection);
+    std::unique_lock lock(m_critSection);
     return m_bNeedsPolling;
   }
 
@@ -75,6 +75,11 @@ public:
   {
     return false;
   }
+
+  /*!
+   * \brief Get the appearance of a peripheral, if known
+   */
+  virtual std::string GetAppearance(const CPeripheral& peripheral) const { return ""; }
 
   /*!
    * @brief Get the instance of the peripheral at the given location.

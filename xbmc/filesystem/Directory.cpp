@@ -19,13 +19,13 @@
 #include "commons/Exception.h"
 #include "dialogs/GUIDialogBusy.h"
 #include "guilib/GUIWindowManager.h"
+#include "jobs/Job.h"
+#include "jobs/JobManager.h"
 #include "messaging/ApplicationMessenger.h"
 #include "music/MusicFileItemClassify.h"
 #include "playlists/PlayListFileItemClassify.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/Job.h"
-#include "utils/JobManager.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 #include "video/VideoFileItemClassify.h"
@@ -172,29 +172,26 @@ bool CDirectory::GetDirectory(const CURL& url,
       return false;
 
     // check our cache for this path
-    if (g_directoryCache.GetDirectory(realURL.Get(), items, (hints.flags & DIR_FLAG_READ_CACHE) == DIR_FLAG_READ_CACHE))
+    if (g_directoryCache.GetDirectory(realURL, items,
+                                      (hints.flags & DIR_FLAG_READ_CACHE) == DIR_FLAG_READ_CACHE))
       items.SetURL(url);
     else
     {
       // need to clear the cache (in case the directory fetch fails)
       // and (re)fetch the folder
       if (!(hints.flags & DIR_FLAG_BYPASS_CACHE))
-        g_directoryCache.ClearDirectory(realURL.Get());
+        g_directoryCache.ClearDirectory(realURL);
 
       pDirectory->SetFlags(hints.flags);
+      items.SetURL(url);
 
       bool result = false;
       CURL authUrl = realURL;
 
       while (!result)
       {
-        const std::string pathToUrl(url.Get());
-
         // don't change auth if it's set explicitly
-        if (CPasswordManager::GetInstance().IsURLSupported(authUrl) && authUrl.GetUserName().empty())
-          CPasswordManager::GetInstance().AuthenticateURL(authUrl);
-
-        items.SetURL(url);
+        authUrl = URIUtils::AddCredentials(std::move(authUrl));
         result = pDirectory->GetDirectory(authUrl, items);
 
         if (!result)
@@ -254,7 +251,7 @@ bool CDirectory::GetDirectory(const CURL& url,
 
       // cache the directory, if necessary
       if (!(hints.flags & DIR_FLAG_BYPASS_CACHE))
-        g_directoryCache.SetDirectory(realURL.Get(), items, pDirectory->GetCacheType(url));
+        g_directoryCache.SetDirectory(realURL, items, pDirectory->GetCacheType(url));
     }
 
     // now filter for allowed files
@@ -264,7 +261,7 @@ bool CDirectory::GetDirectory(const CURL& url,
       for (int i = 0; i < items.Size(); ++i)
       {
         CFileItemPtr item = items[i];
-        if (!item->m_bIsFolder && !pDirectory->IsAllowed(item->GetURL()))
+        if (!item->IsFolder() && !pDirectory->IsAllowed(item->GetURL()))
         {
           items.Remove(i);
           i--; // don't confuse loop
@@ -328,14 +325,14 @@ bool CDirectory::EnumerateDirectory(
   // process all files
   for (const auto& item : items)
   {
-    if (!item->m_bIsFolder)
+    if (!item->IsFolder())
       callback(item);
   }
 
   // process all directories
   for (const auto& item : items)
   {
-    if (item->m_bIsFolder && filter(item))
+    if (item->IsFolder() && filter(item))
     {
       if (!fileOnly)
         callback(item);
@@ -358,15 +355,11 @@ bool CDirectory::Create(const CURL& url)
 {
   try
   {
-    CURL realURL = URIUtils::SubstitutePath(url);
+    CURL authURL = URIUtils::AddCredentials(URIUtils::SubstitutePath(url));
 
-    if (CPasswordManager::GetInstance().IsURLSupported(realURL) && realURL.GetUserName().empty())
-      CPasswordManager::GetInstance().AuthenticateURL(realURL);
-
-    std::unique_ptr<IDirectory> pDirectory(CDirectoryFactory::Create(realURL));
-    if (pDirectory)
-      if(pDirectory->Create(realURL))
-        return true;
+    std::unique_ptr<IDirectory> pDirectory(CDirectoryFactory::Create(authURL));
+    if (pDirectory && pDirectory->Create(authURL))
+      return true;
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
   catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
@@ -390,18 +383,17 @@ bool CDirectory::Exists(const CURL& url, bool bUseCache /* = true */)
       bool bPathInCache;
       std::string realPath(realURL.Get());
       URIUtils::AddSlashAtEnd(realPath);
-      if (g_directoryCache.FileExists(realPath, bPathInCache))
+      if (g_directoryCache.FileExists(CURL(realPath), bPathInCache))
         return true;
       if (bPathInCache)
         return false;
     }
 
-    if (CPasswordManager::GetInstance().IsURLSupported(realURL) && realURL.GetUserName().empty())
-      CPasswordManager::GetInstance().AuthenticateURL(realURL);
+    CURL authURL = URIUtils::AddCredentials(std::move(realURL));
+    std::unique_ptr<IDirectory> pDirectory(CDirectoryFactory::Create(authURL));
 
-    std::unique_ptr<IDirectory> pDirectory(CDirectoryFactory::Create(realURL));
     if (pDirectory)
-      return pDirectory->Exists(realURL);
+      return pDirectory->Exists(authURL);
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
   catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
@@ -425,15 +417,14 @@ bool CDirectory::Remove(const CURL& url)
   try
   {
     CURL realURL = URIUtils::SubstitutePath(url);
-    CURL authUrl = realURL;
-    if (CPasswordManager::GetInstance().IsURLSupported(authUrl) && authUrl.GetUserName().empty())
-      CPasswordManager::GetInstance().AuthenticateURL(authUrl);
-
     std::unique_ptr<IDirectory> pDirectory(CDirectoryFactory::Create(realURL));
+
+    CURL authUrl = URIUtils::AddCredentials(realURL);
+
     if (pDirectory)
       if(pDirectory->Remove(authUrl))
       {
-        g_directoryCache.ClearFile(realURL.Get());
+        g_directoryCache.ClearFile(realURL);
         return true;
       }
   }
@@ -448,15 +439,14 @@ bool CDirectory::RemoveRecursive(const CURL& url)
   try
   {
     CURL realURL = URIUtils::SubstitutePath(url);
-    CURL authUrl = realURL;
-    if (CPasswordManager::GetInstance().IsURLSupported(authUrl) && authUrl.GetUserName().empty())
-      CPasswordManager::GetInstance().AuthenticateURL(authUrl);
-
     std::unique_ptr<IDirectory> pDirectory(CDirectoryFactory::Create(realURL));
+
+    CURL authUrl = URIUtils::AddCredentials(realURL);
+
     if (pDirectory)
       if(pDirectory->RemoveRecursive(authUrl))
       {
-        g_directoryCache.ClearFile(realURL.Get());
+        g_directoryCache.ClearFile(realURL);
         return true;
       }
   }
@@ -474,17 +464,16 @@ void CDirectory::FilterFileDirectories(CFileItemList &items, const std::string &
     CFileItemPtr pItem=items[i];
     auto mode =
         expandImages && pItem->IsDiscImage() ? FileFolderType::ONBROWSE : FileFolderType::ALWAYS;
-    if (!pItem->m_bIsFolder && pItem->IsFileFolder(mode))
+    if (!pItem->IsFolder() && pItem->IsFileFolder(mode))
     {
       std::unique_ptr<IFileDirectory> pDirectory(CFileDirectoryFactory::Create(pItem->GetURL(),pItem.get(),mask));
       if (pDirectory)
-        pItem->m_bIsFolder = true;
-      else
-        if (pItem->m_bIsFolder)
-        {
-          items.Remove(i);
-          i--; // don't confuse loop
-        }
+        pItem->SetFolder(true);
+      else if (pItem->IsFolder())
+      {
+        items.Remove(i);
+        i--; // don't confuse loop
+      }
     }
   }
 }

@@ -12,14 +12,15 @@
 #include "GUIKeyboardFactory.h"
 #include "GUIUserMessages.h"
 #include "GUIWindowManager.h"
-#include "LocalizeStrings.h"
 #include "ServiceBroker.h"
 #include "XBDateTime.h"
 #include "dialogs/GUIDialogNumeric.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
-#include "input/keyboard/KeyIDs.h"
 #include "input/keyboard/XBMC_vkeys.h"
+#include "input/keymaps/keyboard/KeyIDs.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/CharsetConverter.h"
 #include "utils/ColorUtils.h"
 #include "utils/Digest.h"
@@ -80,7 +81,7 @@ void CGUIEditControl::DefaultConstructor()
   m_textOffset = 0;
   m_cursorPos = 0;
   m_cursorBlink = 0;
-  m_inputHeading = g_localizeStrings.Get(16028);
+  m_inputHeading = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16028);
   m_inputType = INPUT_TYPE_TEXT;
   m_smsLastKey = 0;
   m_smsKeyIndex = 0;
@@ -169,10 +170,10 @@ bool CGUIEditControl::OnAction(const CAction &action)
       OnPasteClipboard();
       return true;
     }
-    else if (action.GetID() >= KEY_VKEY && action.GetID() < KEY_UNICODE && m_edit.empty())
+    else if (action.GetID() >= KEY_VKEY && action.GetID() <= KEY_VKEY_MAX && m_edit.empty())
     {
       // input from the keyboard (vkey, not ascii)
-      unsigned char b = action.GetID() & 0xFF;
+      uint16_t b = action.GetID() - KEY_VKEY;
       if (b == XBMCVK_HOME)
       {
         m_cursorPos = 0;
@@ -335,7 +336,8 @@ void CGUIEditControl::OnClick()
       textChanged = CGUIDialogNumeric::ShowAndGetNumber(utf8, m_inputHeading);
       break;
     case INPUT_TYPE_SECONDS:
-      textChanged = CGUIDialogNumeric::ShowAndGetSeconds(utf8, g_localizeStrings.Get(21420));
+      textChanged = CGUIDialogNumeric::ShowAndGetSeconds(
+          utf8, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21420));
       break;
     case INPUT_TYPE_TIME:
     {
@@ -343,7 +345,10 @@ void CGUIEditControl::OnClick()
       dateTime.SetFromDBTime(utf8);
       KODI::TIME::SystemTime time;
       dateTime.GetAsSystemTime(time);
-      if (CGUIDialogNumeric::ShowAndGetTime(time, !m_inputHeading.empty() ? m_inputHeading : g_localizeStrings.Get(21420)))
+      if (CGUIDialogNumeric::ShowAndGetTime(
+              time, !m_inputHeading.empty()
+                        ? m_inputHeading
+                        : CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21420)))
       {
         dateTime = CDateTime(time);
         utf8 = dateTime.GetAsLocalizedTime("", false);
@@ -353,13 +358,17 @@ void CGUIEditControl::OnClick()
     }
     case INPUT_TYPE_DATE:
     {
-      CDateTime dateTime;
-      dateTime.SetFromDBDate(utf8);
-      if (dateTime < CDateTime(2000,1, 1, 0, 0, 0))
-        dateTime = CDateTime(2000, 1, 1, 0, 0, 0);
       KODI::TIME::SystemTime date;
-      dateTime.GetAsSystemTime(date);
-      if (CGUIDialogNumeric::ShowAndGetDate(date, !m_inputHeading.empty() ? m_inputHeading : g_localizeStrings.Get(21420)))
+      CDateTime dateTime;
+      if (dateTime.SetFromDBDate(utf8))
+        dateTime.GetAsSystemTime(date);
+      else
+        KODI::TIME::GetLocalTime(&date);
+
+      if (CGUIDialogNumeric::ShowAndGetDate(
+              date, !m_inputHeading.empty()
+                        ? m_inputHeading
+                        : CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21420)))
       {
         dateTime = CDateTime(date);
         utf8 = dateTime.GetAsDBDate();
@@ -419,8 +428,9 @@ void CGUIEditControl::SetInputType(CGUIEditControl::INPUT_TYPE type, const CVari
   if (heading.isString())
     m_inputHeading = heading.asString();
   else if (heading.isInteger() && heading.asInteger())
-    m_inputHeading = g_localizeStrings.Get(static_cast<uint32_t>(heading.asInteger()));
-  //! @todo Verify the current input string?
+    m_inputHeading = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        static_cast<uint32_t>(heading.asInteger()));
+  ValidateInput();
 }
 
 void CGUIEditControl::RecalcRightLabelPosition()
@@ -741,7 +751,7 @@ void CGUIEditControl::OnPasteClipboard()
   g_charsetConverter.utf8ToW(utf8_text, unicode_text, false);
 
   // Insert the pasted text at the current cursor position.
-  if (unicode_text.length() > 0)
+  if (!unicode_text.empty())
   {
     std::wstring left_end = m_text2.substr(0, m_cursorPos);
     std::wstring right_end = m_text2.substr(m_cursorPos);

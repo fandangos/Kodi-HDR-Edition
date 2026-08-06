@@ -95,14 +95,14 @@ bool CFileCache::Open(const CURL& url)
 {
   Close();
 
-  std::unique_lock<CCriticalSection> lock(m_sync);
+  std::unique_lock lock(m_sync);
 
   m_sourcePath = url.GetRedacted();
 
   CLog::Log(LOGDEBUG, "CFileCache::{} - <{}> opening", __FUNCTION__, m_sourcePath);
 
   // Opening the source file.
-  // The READ_NO_CACHE and READ_NO_BUFFER flags are required to avoid create other intances of
+  // The READ_NO_CACHE and READ_NO_BUFFER flags are required to avoid create other instances of
   // FileCache or StreamBuffer since CFile::Open is called again in loop
   if (!m_source.Open(url.Get(), READ_NO_CACHE | READ_TRUNCATED | READ_NO_BUFFER))
   {
@@ -468,7 +468,7 @@ int CFileCache::Stat(const CURL& url, struct __stat64* buffer)
 
 ssize_t CFileCache::Read(void* lpBuf, size_t uiBufSize)
 {
-  std::unique_lock<CCriticalSection> lock(m_sync);
+  std::unique_lock lock(m_sync);
   if (!m_pCache)
   {
     CLog::Log(LOGERROR, "CFileCache::{} - <{}> sanity failed. no cache strategy!", __FUNCTION__,
@@ -515,7 +515,7 @@ retry:
 
 int64_t CFileCache::Seek(int64_t iFilePosition, int iWhence)
 {
-  std::unique_lock<CCriticalSection> lock(m_sync);
+  std::unique_lock lock(m_sync);
 
   if (!m_pCache)
   {
@@ -579,7 +579,7 @@ void CFileCache::Close()
 {
   StopThread();
 
-  std::unique_lock<CCriticalSection> lock(m_sync);
+  std::unique_lock lock(m_sync);
   if (m_pCache)
     m_pCache->Close();
 

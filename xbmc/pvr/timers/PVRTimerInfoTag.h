@@ -9,13 +9,11 @@
 #pragma once
 
 #include "XBDateTime.h"
-#include "addons/kodi-dev-kit/include/kodi/c-api/addon-instance/pvr/pvr_general.h" // PVR_SETTING_TYPE
+#include "pvr/settings/PVRCustomProperty.h"
 #include "pvr/timers/PVRTimerType.h"
 #include "threads/CriticalSection.h"
 #include "utils/ISerializable.h"
-#include "utils/Variant.h"
 
-#include <map>
 #include <memory>
 #include <string>
 
@@ -46,7 +44,6 @@ public:
                    unsigned int iClientId);
 
   bool operator==(const CPVRTimerInfoTag& right) const;
-  bool operator!=(const CPVRTimerInfoTag& right) const;
 
   // ISerializable implementation
   void Serialize(CVariant& value) const override;
@@ -151,6 +148,11 @@ public:
   void ResetChildState();
 
   /*!
+   * @brief reset the client index of this timer.
+   */
+  void ResetClientIndex();
+
+  /*!
    * @brief Whether this timer is active.
    * @return True if this timer is active, false otherwise.
    */
@@ -194,7 +196,7 @@ public:
    * @brief Gets the type of this timer.
    * @return the timer type or NULL if this tag has no timer type.
    */
-  const std::shared_ptr<CPVRTimerType> GetTimerType() const { return m_timerType; }
+  std::shared_ptr<CPVRTimerType> GetTimerType() const { return m_timerType; }
 
   /*!
    * @brief Sets the type of this timer.
@@ -259,7 +261,7 @@ public:
 
   /*!
    * @brief The index for the parent of this timer, as given by the client. Timers scheduled by a
-   * timer rule will have a parant index != PVR_TIMER_NO_PARENT.
+   * timer rule will have a parent index != PVR_TIMER_NO_PARENT.
    * @return The client index or PVR_TIMER_NO_PARENT if the timer has no parent.
    */
   int ParentClientIndex() const { return m_iParentClientIndex; }
@@ -409,20 +411,6 @@ public:
   void SetFirstDayFromLocalTime(const CDateTime& firstDay);
 
   /*!
-   * @brief Helper function to convert a given CDateTime containing data as UTC to local time.
-   * @param utc A CDateTime instance carrying data as UTC.
-   * @return A CDateTime instance carrying data as local time.
-   */
-  static CDateTime ConvertUTCToLocalTime(const CDateTime& utc);
-
-  /*!
-   * @brief Helper function to convert a given CDateTime containing data as local time to UTC.
-   * @param local A CDateTime instance carrying data as local time.
-   * @return A CDateTime instance carrying data as UTC.
-   */
-  static CDateTime ConvertLocalTimeToUTC(const CDateTime& local);
-
-  /*!
    * @brief Get the duration of this timer in seconds, excluding padding times.
    * @return The duration.
    */
@@ -516,29 +504,10 @@ public:
   int RecordingGroup() const { return m_iRecordingGroup; }
 
   /*!
-   * @brief custom property detail: type, value
-   */
-  struct CustomPropDetails
-  {
-    PVR_SETTING_TYPE type{PVR_SETTING_TYPE::INTEGER};
-    CVariant value;
-
-    bool operator==(const CustomPropDetails& right) const
-    {
-      return type == right.type && value == right.value;
-    }
-  };
-
-  /*!
-   * @brief custom properties map: <prop id, details>
-   */
-  using CustomPropsMap = std::map<unsigned int, CustomPropDetails>;
-
-  /*!
    * @brief Get custom properties for this tag.
    * @return The list of properties or an empty list if none present.
    */
-  const CustomPropsMap& GetCustomProperties() const { return m_customProps; }
+  const CustomPropertiesMap& GetCustomProperties() const { return m_customProps; }
 
   /*!
    * @brief Get the UID of the epg event associated with this timer tag, if any.
@@ -565,7 +534,7 @@ public:
    * the backend.
    * @return True on success, false otherwise.
    */
-  bool UpdateOnClient();
+  bool UpdateOnClient() const;
 
   /*!
    * @brief Persist this timer in the local database.
@@ -676,7 +645,7 @@ private:
   mutable unsigned int
       m_iEpgUid; /*!< id of epg event associated with this timer, EPG_TAG_INVALID_UID if none. */
   std::string m_strSeriesLink; /*!< series link */
-  CustomPropsMap m_customProps; /*!< the map with custom properties supplied by the client. */
+  CustomPropertiesMap m_customProps; /*!< the map with custom properties supplied by the client. */
 
   CDateTime m_StartTime; /*!< start time */
   CDateTime m_StopTime; /*!< stop time */

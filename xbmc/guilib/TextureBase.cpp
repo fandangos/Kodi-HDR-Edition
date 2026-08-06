@@ -16,6 +16,7 @@
 #include "utils/log.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -61,10 +62,16 @@ void CTextureBase::Allocate(uint32_t width, uint32_t height, XB_FMT format)
   if (size == 0)
     return;
 
-  m_pixels = static_cast<unsigned char*>(KODI::MEMORY::AlignedMalloc(size, 32));
+  // Allocate extra padding bytes beyond the texture data. SIMD-optimized scaling
+  // filters (e.g. ffmpeg sws_scale with AVX2/SSE) can write a few bytes past the
+  // end of the output buffer. Without padding this corrupts adjacent heap metadata.
+  // See also CPicture::CacheTexture which adds equivalent padding for sws_scale.
+  constexpr size_t simdPadding{32};
+  m_pixels = static_cast<unsigned char*>(KODI::MEMORY::AlignedMalloc(size + simdPadding, 32));
 
   if (m_pixels == nullptr)
-    CLog::Log(LOGERROR, "{} - Could not allocate {} bytes. Out of memory.", __FUNCTION__, size);
+    CLog::Log(LOGERROR, "{} - Could not allocate {} bytes. Out of memory.", __FUNCTION__,
+              size + simdPadding);
 }
 
 uint32_t CTextureBase::PadPow2(uint32_t x)
@@ -401,6 +408,8 @@ void CTextureBase::SetKDFormat(XB_FMT xbFMT)
 
 bool CTextureBase::ConvertToLegacy(uint32_t width, uint32_t height, uint8_t* src)
 {
+  // Covers only the swizzles TexturePacker emits today; SwizzleMap also lists RGB1/GGG1/111G/
+  // GGGA/GGGG, which fall through to a hard upload failure below if TexturePacker ever emits them.
   if (m_textureFormat == KD_TEX_FMT_SDR_BGRA8 && m_textureSwizzle == KD_TEX_SWIZ_RGBA)
   {
     m_format = XB_FMT_A8R8G8B8;
@@ -411,15 +420,22 @@ bool CTextureBase::ConvertToLegacy(uint32_t width, uint32_t height, uint8_t* src
   {
     if (m_textureSwizzle != KD_TEX_SWIZ_111R && m_textureSwizzle != KD_TEX_SWIZ_RRR1 &&
         m_textureSwizzle != KD_TEX_SWIZ_RRRR)
+    {
+      assert(false && "TexturePacker is not expected to emit this R8 swizzle; add a case here");
       return false;
+    }
   }
   else if (m_textureFormat == KD_TEX_FMT_SDR_RG8)
   {
     if (m_textureSwizzle != KD_TEX_SWIZ_RRRG)
+    {
+      assert(false && "TexturePacker is not expected to emit this RG8 swizzle; add a case here");
       return false;
+    }
   }
   else
   {
+    assert(false && "TexturePacker is not expected to emit this format/swizzle; add a case here");
     return false;
   }
 

@@ -9,20 +9,15 @@
 #pragma once
 
 #include "Resolution.h"
-#include "rendering/RenderSystem.h"
+#include "rendering/RenderSystemTypes.h"
 #include "threads/CriticalSection.h"
 #include "utils/ColorUtils.h"
 #include "utils/Geometry.h" // for CRect/CPoint
 #include "utils/TransformMatrix.h" // for the members m_guiTransform etc.
 
-#include <map>
 #include <stack>
 #include <string>
 #include <vector>
-
-// required by clients
-#include "ServiceBroker.h"
-#include "WinSystem.h"
 
 #define D3DPRESENTFLAG_INTERLACED   1
 #define D3DPRESENTFLAG_WIDESCREEN   2
@@ -130,7 +125,7 @@ public:
   void ResetDepth() { m_layer = 2; }
   /*! \brief Reserve layers for the caller to use
    \param addLayers number of layers needed
-   \returns uint32_t returns the absolute layer hight
+   \returns uint32_t returns the absolute layer height
    */
   uint32_t GetDepth(uint32_t addLayers = 2);
 
@@ -159,10 +154,10 @@ public:
   void SetOrigin(float x, float y);
   void RestoreOrigin();
   void SetCameraPosition(const CPoint &camera);
-  void SetStereoView(RENDER_STEREO_VIEW view);
-  RENDER_STEREO_VIEW GetStereoView()  { return m_stereoView; }
-  void SetStereoMode(RENDER_STEREO_MODE mode) { m_nextStereoMode = mode; }
-  RENDER_STEREO_MODE GetStereoMode()  { return m_stereoMode; }
+  void SetStereoView(RenderStereoView view);
+  RenderStereoView GetStereoView() { return m_stereoView; }
+  void SetStereoMode(RenderStereoMode mode) { m_nextStereoMode = mode; }
+  RenderStereoMode GetStereoMode() { return m_stereoMode; }
   void RestoreCameraPosition();
   void SetStereoFactor(float factor);
   void RestoreStereoFactor();
@@ -273,10 +268,10 @@ protected:
 
   UITransform m_guiTransform;
   UITransform m_finalTransform;
-  std::stack<UITransform> m_transforms;
-  RENDER_STEREO_VIEW m_stereoView = RENDER_STEREO_VIEW_OFF;
-  RENDER_STEREO_MODE m_stereoMode = RENDER_STEREO_MODE_OFF;
-  RENDER_STEREO_MODE m_nextStereoMode = RENDER_STEREO_MODE_OFF;
+  std::stack<UITransform, std::vector<UITransform>> m_transforms;
+  RenderStereoView m_stereoView = RenderStereoView::OFF;
+  RenderStereoMode m_stereoMode = RenderStereoMode::OFF;
+  RenderStereoMode m_nextStereoMode = RenderStereoMode::OFF;
 
   bool m_isTransferPQ{false};
   RENDER_ORDER m_renderOrder{RENDER_ORDER_ALL_BACK_TO_FRONT};

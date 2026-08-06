@@ -7,15 +7,15 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2023-12-04 09:42+0000\n"
-"Last-Translator: Christian Gade <gade@kodi.tv>\n"
+"PO-Revision-Date: 2025-10-02 20:29+0000\n"
+"Last-Translator: Elvis Gallegos <elvis.gallegos@gmail.com>\n"
 "Language-Team: Catalan (Spain) <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/ca_es/>\n"
 "Language: ca_es\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.2.1\n"
+"X-Generator: Weblate 5.13.3\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -133,8 +133,8 @@ msgid "Choose rating to display for media items"
 msgstr "Trieu la puntuació a mostrar per als elements multimèdia"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "No s'ha trobat cap preferit. Podeu afegir qualsevol element des de les vistes dels mitjans a aquesta llista mitjançant el menú contextual."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr "No s'han trobat preferits. Podeu afegir elements des del menú contextual de contingut multimèdia i altres vistes."
 
 msgctxt "#31026"
 msgid "Timeshift"
@@ -221,9 +221,25 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "Elimina el grup"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr ""
+
 msgctxt "#31048"
 msgid "Available"
 msgstr "Disponible"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr ""
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr ""
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr ""
 
 msgctxt "#31052"
 msgid "filtered"
@@ -313,6 +329,11 @@ msgctxt "#31080"
 msgid "Ends at"
 msgstr "Acaba a les"
 
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr ""
+
 msgctxt "#31082"
 msgid "Lyrics add-on"
 msgstr "Complement de lletres"
@@ -394,6 +415,11 @@ msgctxt "#31107"
 msgid "WideList"
 msgstr "Llista ampla"
 
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr ""
+
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
 msgid "Video streams"
@@ -454,6 +480,10 @@ msgstr "Programes de TV no vists"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "Mateix director"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr ""
 
 msgctxt "#31125"
 msgid "Press up for actor info"
@@ -556,8 +586,8 @@ msgid "Categories"
 msgstr "Categories"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "Seleccioneu un paquet de fanart de gènere"
+msgid "Choose genre fanart pack"
+msgstr "Trieu el paquet de fanart de gènere"
 
 msgctxt "#31150"
 msgid "Origin"
@@ -680,6 +710,26 @@ msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
 msgstr ""
 
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr "Trieu el paquet d'icones meteorològiques"
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr ""
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr ""
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr ""
+
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
@@ -745,6 +795,29 @@ msgstr "Sistema"
 msgctxt "#31612"
 msgid "channels"
 msgstr ""
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr ""
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr ""
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr ""
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "No s'ha trobat cap preferit. Podeu afegir qualsevol element des de les vistes dels mitjans a aquesta llista mitjançant el menú contextual."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "Seleccioneu un paquet de fanart de gènere"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

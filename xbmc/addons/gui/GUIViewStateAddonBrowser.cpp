@@ -25,29 +25,29 @@ CGUIViewStateAddonBrowser::CGUIViewStateAddonBrowser(const CFileItemList& items)
 {
   if (URIUtils::PathEquals(items.GetPath(), "addons://"))
   {
-    AddSortMethod(SortByNone, 551, LABEL_MASKS("%F", "", "%L", ""));
-    SetSortMethod(SortByNone);
+    AddSortMethod(SortBy::NONE, 551, LABEL_MASKS("%F", "", "%L", ""));
+    SetSortMethod(SortBy::NONE);
   }
   else if (URIUtils::PathEquals(items.GetPath(), "addons://recently_updated/", true))
   {
-    AddSortMethod(SortByLastUpdated, 12014, LABEL_MASKS("%L", "%v", "%L", "%v"),
-                  SortAttributeIgnoreFolders, SortOrderDescending);
+    AddSortMethod(SortBy::LAST_UPDATED, 12014, LABEL_MASKS("%L", "%v", "%L", "%v"),
+                  SortAttributeIgnoreFolders, SortOrder::DESCENDING);
   }
   else
   {
-    AddSortMethod(SortByLabel, SortAttributeIgnoreFolders, 551,
+    AddSortMethod(SortBy::LABEL, SortAttributeIgnoreFolders, 551,
                   LABEL_MASKS("%L", "%s", "%L", "%s"));
 
     if (StringUtils::StartsWith(items.GetPath(), "addons://sources/"))
-      AddSortMethod(SortByLastUsed, 12012, LABEL_MASKS("%L", "%u", "%L", "%u"),
-                    SortAttributeIgnoreFolders, SortOrderDescending); //Label, Last used
+      AddSortMethod(SortBy::LAST_USED, 12012, LABEL_MASKS("%L", "%u", "%L", "%u"),
+                    SortAttributeIgnoreFolders, SortOrder::DESCENDING); //Label, Last used
 
     if (StringUtils::StartsWith(items.GetPath(), "addons://user/") &&
         items.GetContent() == "addons")
-      AddSortMethod(SortByInstallDate, 12013, LABEL_MASKS("%L", "%i", "%L", "%i"),
-                    SortAttributeIgnoreFolders, SortOrderDescending);
+      AddSortMethod(SortBy::INSTALL_DATE, 12013, LABEL_MASKS("%L", "%i", "%L", "%i"),
+                    SortAttributeIgnoreFolders, SortOrder::DESCENDING);
 
-    SetSortMethod(SortByLabel);
+    SetSortMethod(SortBy::LABEL);
   }
   SetViewAsControl(DEFAULT_VIEW_AUTO);
 

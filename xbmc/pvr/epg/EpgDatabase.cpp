@@ -8,6 +8,7 @@
 
 #include "EpgDatabase.h"
 
+#include "DatabaseTypes.h"
 #include "ServiceBroker.h"
 #include "dbwrappers/dataset.h"
 #include "pvr/epg/Epg.h"
@@ -19,23 +20,30 @@
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace dbiplus;
 using namespace PVR;
 
+CPVREpgDatabase::CPVREpgDatabase() : CDatabase(KODI::DATABASE::TYPE_EPG)
+{
+}
+
 bool CPVREpgDatabase::Open()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
-  return CDatabase::Open(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_databaseEpg);
+  std::unique_lock lock(m_critSection);
+  return CDatabase::Open(
+      CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_databaseEpg);
 }
 
 void CPVREpgDatabase::Close()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   CDatabase::Close();
 }
 
@@ -55,15 +63,13 @@ void CPVREpgDatabase::CreateTables()
 
   CLog::LogFC(LOGDEBUG, LOGEPG, "Creating table 'epg'");
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
-  m_pDS->exec(
-      "CREATE TABLE epg ("
-        "idEpg           integer primary key, "
-        "sName           varchar(64),"
-        "sScraperName    varchar(32)"
-      ")"
-  );
+  m_pDS->exec("CREATE TABLE epg ("
+              "idEpg           integer primary key, "
+              "sName           varchar(64),"
+              "sScraperName    varchar(32)"
+              ")");
 
   CLog::LogFC(LOGDEBUG, LOGEPG, "Creating table 'epgtags'");
   m_pDS->exec("CREATE TABLE epgtags ("
@@ -102,10 +108,9 @@ void CPVREpgDatabase::CreateTables()
 
   CLog::LogFC(LOGDEBUG, LOGEPG, "Creating table 'lastepgscan'");
   m_pDS->exec("CREATE TABLE lastepgscan ("
-        "idEpg integer primary key, "
-        "sLastScan varchar(20)"
-      ")"
-  );
+              "idEpg integer primary key, "
+              "sLastScan varchar(20)"
+              ")");
 
   CLog::LogFC(LOGDEBUG, LOGEPG, "Creating table 'savedsearches'");
   m_pDS->exec("CREATE TABLE savedsearches ("
@@ -141,14 +146,14 @@ void CPVREpgDatabase::CreateAnalytics()
 {
   CLog::LogFC(LOGDEBUG, LOGEPG, "Creating EPG database indices");
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   m_pDS->exec("CREATE UNIQUE INDEX idx_epg_idEpg_iStartTime on epgtags(idEpg, iStartTime desc);");
   m_pDS->exec("CREATE INDEX idx_epg_iEndTime on epgtags(iEndTime);");
 }
 
 void CPVREpgDatabase::UpdateTables(int iVersion)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   if (iVersion < 5)
     m_pDS->exec("ALTER TABLE epgtags ADD sGenre varchar(128);");
 
@@ -180,112 +185,105 @@ void CPVREpgDatabase::UpdateTables(int iVersion)
     const bool isMySQL = StringUtils::EqualsNoCase(
         CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_databaseEpg.type, "mysql");
 
-    m_pDS->exec(
-        "CREATE TABLE epgtags_new ("
-        "idBroadcast     integer primary key, "
-        "iBroadcastUid   integer, "
-        "idEpg           integer, "
-        "sTitle          varchar(128), "
-        "sPlotOutline    text, "
-        "sPlot           text, "
-        "sOriginalTitle  varchar(128), "
-        "sCast           varchar(255), "
-        "sDirector       varchar(255), "
-        "sWriter         varchar(255), "
-        "iYear           integer, "
-        "sIMDBNumber     varchar(50), "
-        "sIconPath       varchar(255), "
-        "iStartTime      integer, "
-        "iEndTime        integer, "
-        "iGenreType      integer, "
-        "iGenreSubType   integer, "
-        "sGenre          varchar(128), "
-        "sFirstAired     varchar(32), "
-        "iParentalRating integer, "
-        "iStarRating     integer, "
-        "iSeriesId       integer, "
-        "iEpisodeId      integer, "
-        "iEpisodePart    integer, "
-        "sEpisodeName    varchar(128), "
-        "iFlags          integer, "
-        "sSeriesLink     varchar(255)"
-        ")"
-    );
+    m_pDS->exec("CREATE TABLE epgtags_new ("
+                "idBroadcast     integer primary key, "
+                "iBroadcastUid   integer, "
+                "idEpg           integer, "
+                "sTitle          varchar(128), "
+                "sPlotOutline    text, "
+                "sPlot           text, "
+                "sOriginalTitle  varchar(128), "
+                "sCast           varchar(255), "
+                "sDirector       varchar(255), "
+                "sWriter         varchar(255), "
+                "iYear           integer, "
+                "sIMDBNumber     varchar(50), "
+                "sIconPath       varchar(255), "
+                "iStartTime      integer, "
+                "iEndTime        integer, "
+                "iGenreType      integer, "
+                "iGenreSubType   integer, "
+                "sGenre          varchar(128), "
+                "sFirstAired     varchar(32), "
+                "iParentalRating integer, "
+                "iStarRating     integer, "
+                "iSeriesId       integer, "
+                "iEpisodeId      integer, "
+                "iEpisodePart    integer, "
+                "sEpisodeName    varchar(128), "
+                "iFlags          integer, "
+                "sSeriesLink     varchar(255)"
+                ")");
 
-    m_pDS->exec(
-        "INSERT INTO epgtags_new ("
-        "idBroadcast, "
-        "iBroadcastUid, "
-        "idEpg, "
-        "sTitle, "
-        "sPlotOutline, "
-        "sPlot, "
-        "sOriginalTitle, "
-        "sCast, "
-        "sDirector, "
-        "sWriter, "
-        "iYear, "
-        "sIMDBNumber, "
-        "sIconPath, "
-        "iStartTime, "
-        "iEndTime, "
-        "iGenreType, "
-        "iGenreSubType, "
-        "sGenre, "
-        "sFirstAired, "
-        "iParentalRating, "
-        "iStarRating, "
-        "iSeriesId, "
-        "iEpisodeId, "
-        "iEpisodePart, "
-        "sEpisodeName, "
-        "iFlags, "
-        "sSeriesLink"
-        ") "
-        "SELECT "
-        "idBroadcast, "
-        "iBroadcastUid, "
-        "idEpg, "
-        "sTitle, "
-        "sPlotOutline, "
-        "sPlot, "
-        "sOriginalTitle, "
-        "sCast, "
-        "sDirector, "
-        "sWriter, "
-        "iYear, "
-        "sIMDBNumber, "
-        "sIconPath, "
-        "iStartTime, "
-        "iEndTime, "
-        "iGenreType, "
-        "iGenreSubType, "
-        "sGenre, "
-        "'' AS sFirstAired, "
-        "iParentalRating, "
-        "iStarRating, "
-        "iSeriesId, "
-        "iEpisodeId, "
-        "iEpisodePart, "
-        "sEpisodeName, "
-        "iFlags, "
-        "sSeriesLink "
-        "FROM epgtags"
-    );
+    m_pDS->exec("INSERT INTO epgtags_new ("
+                "idBroadcast, "
+                "iBroadcastUid, "
+                "idEpg, "
+                "sTitle, "
+                "sPlotOutline, "
+                "sPlot, "
+                "sOriginalTitle, "
+                "sCast, "
+                "sDirector, "
+                "sWriter, "
+                "iYear, "
+                "sIMDBNumber, "
+                "sIconPath, "
+                "iStartTime, "
+                "iEndTime, "
+                "iGenreType, "
+                "iGenreSubType, "
+                "sGenre, "
+                "sFirstAired, "
+                "iParentalRating, "
+                "iStarRating, "
+                "iSeriesId, "
+                "iEpisodeId, "
+                "iEpisodePart, "
+                "sEpisodeName, "
+                "iFlags, "
+                "sSeriesLink"
+                ") "
+                "SELECT "
+                "idBroadcast, "
+                "iBroadcastUid, "
+                "idEpg, "
+                "sTitle, "
+                "sPlotOutline, "
+                "sPlot, "
+                "sOriginalTitle, "
+                "sCast, "
+                "sDirector, "
+                "sWriter, "
+                "iYear, "
+                "sIMDBNumber, "
+                "sIconPath, "
+                "iStartTime, "
+                "iEndTime, "
+                "iGenreType, "
+                "iGenreSubType, "
+                "sGenre, "
+                "'' AS sFirstAired, "
+                "iParentalRating, "
+                "iStarRating, "
+                "iSeriesId, "
+                "iEpisodeId, "
+                "iEpisodePart, "
+                "sEpisodeName, "
+                "iFlags, "
+                "sSeriesLink "
+                "FROM epgtags");
 
     if (isMySQL)
       m_pDS->exec(
-        "UPDATE epgtags_new INNER JOIN epgtags ON epgtags_new.idBroadcast = epgtags.idBroadcast "
-        "SET epgtags_new.sFirstAired = DATE(FROM_UNIXTIME(epgtags.iFirstAired)) "
-        "WHERE epgtags.iFirstAired > 0"
-      );
+          "UPDATE epgtags_new INNER JOIN epgtags ON epgtags_new.idBroadcast = epgtags.idBroadcast "
+          "SET epgtags_new.sFirstAired = DATE(FROM_UNIXTIME(epgtags.iFirstAired)) "
+          "WHERE epgtags.iFirstAired > 0");
     else
-      m_pDS->exec(
-        "UPDATE epgtags_new SET sFirstAired = "
-        "COALESCE((SELECT STRFTIME('%Y-%m-%d', iFirstAired, 'UNIXEPOCH') "
-        "FROM epgtags WHERE epgtags.idBroadcast = epgtags_new.idBroadcast "
-        "AND epgtags.iFirstAired > 0), '')"
-      );
+      m_pDS->exec("UPDATE epgtags_new SET sFirstAired = "
+                  "COALESCE((SELECT STRFTIME('%Y-%m-%d', iFirstAired, 'UNIXEPOCH') "
+                  "FROM epgtags WHERE epgtags.idBroadcast = epgtags_new.idBroadcast "
+                  "AND epgtags.iFirstAired > 0), '')");
 
     m_pDS->exec("DROP TABLE epgtags");
     m_pDS->exec("ALTER TABLE epgtags_new RENAME TO epgtags");
@@ -361,7 +359,7 @@ bool CPVREpgDatabase::DeleteEpg()
   bool bReturn(false);
   CLog::LogFC(LOGDEBUG, LOGEPG, "Deleting all EPG data from the database");
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   bReturn = DeleteValues("epg") || bReturn;
   bReturn = DeleteValues("epgtags") || bReturn;
@@ -381,7 +379,7 @@ bool CPVREpgDatabase::QueueDeleteEpgQuery(const CPVREpg& table)
 
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(PrepareSQL("idEpg = %u", table.EpgID()));
 
   std::string strQuery;
@@ -399,7 +397,7 @@ bool CPVREpgDatabase::QueueDeleteTagQuery(const CPVREpgInfoTag& tag)
 
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(PrepareSQL("idBroadcast = %u", tag.DatabaseID()));
 
   std::string strQuery;
@@ -411,7 +409,7 @@ std::vector<std::shared_ptr<CPVREpg>> CPVREpgDatabase::GetAll()
 {
   std::vector<std::shared_ptr<CPVREpg>> result;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   std::string strQuery = PrepareSQL("SELECT idEpg, sName, sScraperName FROM epg;");
   if (ResultQuery(strQuery))
   {
@@ -437,26 +435,24 @@ std::vector<std::shared_ptr<CPVREpg>> CPVREpgDatabase::GetAll()
   return result;
 }
 
-std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::CreateEpgTag(
-    const std::unique_ptr<dbiplus::Dataset>& pDS) const
+std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::CreateEpgTag(dbiplus::Dataset& ds) const
 {
-  if (!pDS->eof())
+  if (!ds.eof())
   {
-    std::shared_ptr<CPVREpgInfoTag> newTag(
-        new CPVREpgInfoTag(m_pDS->fv("idEpg").get_asInt(), m_pDS->fv("sIconPath").get_asString(),
-                           m_pDS->fv("sParentalRatingIcon").get_asString()));
+    std::shared_ptr<CPVREpgInfoTag> newTag{std::make_shared<CPVREpgInfoTag>(
+        m_pDS->fv("idEpg").get_asInt(), m_pDS->fv("sIconPath").get_asString(),
+        m_pDS->fv("sParentalRatingIcon").get_asString())};
 
-    time_t iStartTime;
-    iStartTime = static_cast<time_t>(m_pDS->fv("iStartTime").get_asInt());
+    auto iStartTime{static_cast<time_t>(m_pDS->fv("iStartTime").get_asInt())};
     const CDateTime startTime(iStartTime);
     newTag->m_startTime = startTime;
 
-    time_t iEndTime = static_cast<time_t>(m_pDS->fv("iEndTime").get_asInt());
+    auto iEndTime{static_cast<time_t>(m_pDS->fv("iEndTime").get_asInt())};
     const CDateTime endTime(iEndTime);
     newTag->m_endTime = endTime;
 
     const std::string sFirstAired = m_pDS->fv("sFirstAired").get_asString();
-    if (sFirstAired.length() > 0)
+    if (!sFirstAired.empty())
       newTag->m_firstAired.SetFromW3CDate(sFirstAired);
 
     int iBroadcastUID = m_pDS->fv("iBroadcastUid").get_asInt();
@@ -468,9 +464,9 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::CreateEpgTag(
     newTag->m_strPlotOutline = m_pDS->fv("sPlotOutline").get_asString();
     newTag->m_strPlot = m_pDS->fv("sPlot").get_asString();
     newTag->m_strOriginalTitle = m_pDS->fv("sOriginalTitle").get_asString();
-    newTag->m_cast = newTag->Tokenize(m_pDS->fv("sCast").get_asString());
-    newTag->m_directors = newTag->Tokenize(m_pDS->fv("sDirector").get_asString());
-    newTag->m_writers = newTag->Tokenize(m_pDS->fv("sWriter").get_asString());
+    newTag->m_cast = CPVREpgInfoTag::Tokenize(m_pDS->fv("sCast").get_asString());
+    newTag->m_directors = CPVREpgInfoTag::Tokenize(m_pDS->fv("sDirector").get_asString());
+    newTag->m_writers = CPVREpgInfoTag::Tokenize(m_pDS->fv("sWriter").get_asString());
     newTag->m_iYear = m_pDS->fv("iYear").get_asInt();
     newTag->m_strIMDBNumber = m_pDS->fv("sIMDBNumber").get_asString();
     newTag->m_parentalRating = m_pDS->fv("iParentalRating").get_asInt();
@@ -495,7 +491,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::CreateEpgTag(
 
 bool CPVREpgDatabase::HasTags(int iEpgID) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT iStartTime FROM epgtags WHERE idEpg = %u LIMIT 1;", iEpgID);
   std::string strValue = GetSingleValue(strQuery);
@@ -504,7 +500,7 @@ bool CPVREpgDatabase::HasTags(int iEpgID) const
 
 CDateTime CPVREpgDatabase::GetLastEndTime(int iEpgID) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT MAX(iEndTime) FROM epgtags WHERE idEpg = %u;", iEpgID);
   std::string strValue = GetSingleValue(strQuery);
@@ -519,7 +515,7 @@ std::pair<CDateTime, CDateTime> CPVREpgDatabase::GetFirstAndLastEPGDate() const
   CDateTime first;
   CDateTime last;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   // 1st query: get min start time
   std::string strQuery = PrepareSQL("SELECT MIN(iStartTime) FROM epgtags;");
@@ -543,7 +539,7 @@ CDateTime CPVREpgDatabase::GetMinStartTime(int iEpgID, const CDateTime& minStart
   time_t t;
   minStart.GetAsTime(t);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery = PrepareSQL("SELECT MIN(iStartTime) "
                                           "FROM epgtags "
                                           "WHERE idEpg = %u AND iStartTime > %u;",
@@ -560,7 +556,7 @@ CDateTime CPVREpgDatabase::GetMaxEndTime(int iEpgID, const CDateTime& maxEnd) co
   time_t t;
   maxEnd.GetAsTime(t);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery = PrepareSQL("SELECT MAX(iEndTime) "
                                           "FROM epgtags "
                                           "WHERE idEpg = %u AND iEndTime <= %u;",
@@ -582,7 +578,7 @@ public:
 
   bool HasSearchTerm() const { return !m_fragments.empty(); }
 
-  std::string ToSQL(const std::string& strFieldName) const
+  std::string ToSQL(std::string_view strFieldName) const
   {
     std::string result = "(";
 
@@ -702,7 +698,7 @@ private:
 std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTags(
     const PVREpgSearchData& searchData) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   std::string strQuery = PrepareSQL("SELECT * FROM epgtags");
 
@@ -762,8 +758,9 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTags(
 
   if (searchData.m_bIgnoreFinishedBroadcasts)
   {
-    const time_t minEnd = std::time(nullptr); // now
-    filter.AppendWhere(PrepareSQL("iEndTime > %u", static_cast<unsigned int>(minEnd)));
+    const auto now{std::chrono::system_clock::now()};
+    filter.AppendWhere(PrepareSQL(
+        "iEndTime > %u", static_cast<unsigned int>(std::chrono::system_clock::to_time_t(now))));
   }
 
   /////////////////////////////////////////////////////////////////////////////////////////////
@@ -772,8 +769,9 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTags(
 
   if (searchData.m_bIgnoreFutureBroadcasts)
   {
-    const time_t maxStart = std::time(nullptr); // now
-    filter.AppendWhere(PrepareSQL("iStartTime < %u", static_cast<unsigned int>(maxStart)));
+    const auto now{std::chrono::system_clock::now()};
+    filter.AppendWhere(PrepareSQL(
+        "iStartTime < %u", static_cast<unsigned int>(std::chrono::system_clock::to_time_t(now))));
   }
 
   /////////////////////////////////////////////////////////////////////////////////////////////
@@ -829,7 +827,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTags(
         std::vector<std::shared_ptr<CPVREpgInfoTag>> tags;
         while (!m_pDS->eof())
         {
-          tags.emplace_back(CreateEpgTag(m_pDS));
+          tags.emplace_back(CreateEpgTag(*m_pDS));
           m_pDS->next();
         }
         m_pDS->close();
@@ -848,7 +846,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTags(
 std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByUniqueBroadcastID(
     int iEpgID, unsigned int iUniqueBroadcastId) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery = PrepareSQL("SELECT * "
                                           "FROM epgtags "
                                           "WHERE idEpg = %u AND iBroadcastUid = %u;",
@@ -858,7 +856,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByUniqueBroadcastID(
   {
     try
     {
-      std::shared_ptr<CPVREpgInfoTag> tag = CreateEpgTag(m_pDS);
+      const std::shared_ptr<CPVREpgInfoTag> tag{CreateEpgTag(*m_pDS)};
       m_pDS->close();
       return tag;
     }
@@ -875,7 +873,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByUniqueBroadcastID(
 std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByDatabaseID(int iEpgID,
                                                                        int iDatabaseId) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery = PrepareSQL("SELECT * "
                                           "FROM epgtags "
                                           "WHERE idEpg = %u AND idBroadcast = %u;",
@@ -885,7 +883,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByDatabaseID(int iEpgI
   {
     try
     {
-      std::shared_ptr<CPVREpgInfoTag> tag = CreateEpgTag(m_pDS);
+      const std::shared_ptr<CPVREpgInfoTag> tag{CreateEpgTag(*m_pDS)};
       m_pDS->close();
       return tag;
     }
@@ -905,7 +903,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByStartTime(
   time_t start;
   startTime.GetAsTime(start);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery = PrepareSQL("SELECT * "
                                           "FROM epgtags "
                                           "WHERE idEpg = %u AND iStartTime = %u;",
@@ -915,7 +913,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByStartTime(
   {
     try
     {
-      std::shared_ptr<CPVREpgInfoTag> tag = CreateEpgTag(m_pDS);
+      const std::shared_ptr<CPVREpgInfoTag> tag{CreateEpgTag(*m_pDS)};
       m_pDS->close();
       return tag;
     }
@@ -935,7 +933,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByMinStartTime(
   time_t minStart;
   minStartTime.GetAsTime(minStart);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * "
                  "FROM epgtags "
@@ -946,7 +944,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByMinStartTime(
   {
     try
     {
-      std::shared_ptr<CPVREpgInfoTag> tag = CreateEpgTag(m_pDS);
+      const std::shared_ptr<CPVREpgInfoTag> tag{CreateEpgTag(*m_pDS)};
       m_pDS->close();
       return tag;
     }
@@ -966,7 +964,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByMaxEndTime(
   time_t maxEnd;
   maxEndTime.GetAsTime(maxEnd);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * "
                  "FROM epgtags "
@@ -977,7 +975,7 @@ std::shared_ptr<CPVREpgInfoTag> CPVREpgDatabase::GetEpgTagByMaxEndTime(
   {
     try
     {
-      std::shared_ptr<CPVREpgInfoTag> tag = CreateEpgTag(m_pDS);
+      const std::shared_ptr<CPVREpgInfoTag> tag{CreateEpgTag(*m_pDS)};
       m_pDS->close();
       return tag;
     }
@@ -1000,7 +998,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTagsByMinSta
   time_t maxEnd;
   maxEndTime.GetAsTime(maxEnd);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * "
                  "FROM epgtags "
@@ -1014,7 +1012,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTagsByMinSta
       std::vector<std::shared_ptr<CPVREpgInfoTag>> tags;
       while (!m_pDS->eof())
       {
-        tags.emplace_back(CreateEpgTag(m_pDS));
+        tags.emplace_back(CreateEpgTag(*m_pDS));
         m_pDS->next();
       }
       m_pDS->close();
@@ -1040,7 +1038,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTagsByMinEnd
   time_t maxStart;
   maxStartTime.GetAsTime(maxStart);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * "
                  "FROM epgtags "
@@ -1054,7 +1052,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetEpgTagsByMinEnd
       std::vector<std::shared_ptr<CPVREpgInfoTag>> tags;
       while (!m_pDS->eof())
       {
-        tags.emplace_back(CreateEpgTag(m_pDS));
+        tags.emplace_back(CreateEpgTag(*m_pDS));
         m_pDS->next();
       }
       m_pDS->close();
@@ -1083,7 +1081,7 @@ bool CPVREpgDatabase::QueueDeleteEpgTagsByMinEndMaxStartTimeQuery(int iEpgID,
 
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(PrepareSQL("idEpg = %u AND iEndTime >= %u AND iStartTime <= %u", iEpgID,
                                 static_cast<unsigned int>(minEnd),
                                 static_cast<unsigned int>(maxStart)));
@@ -1097,7 +1095,7 @@ bool CPVREpgDatabase::QueueDeleteEpgTagsByMinEndMaxStartTimeQuery(int iEpgID,
 
 std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetAllEpgTags(int iEpgID) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * FROM epgtags WHERE idEpg = %u ORDER BY iStartTime;", iEpgID);
   if (ResultQuery(strQuery))
@@ -1107,7 +1105,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetAllEpgTags(int 
       std::vector<std::shared_ptr<CPVREpgInfoTag>> tags;
       while (!m_pDS->eof())
       {
-        tags.emplace_back(CreateEpgTag(m_pDS));
+        tags.emplace_back(CreateEpgTag(*m_pDS));
         m_pDS->next();
       }
       m_pDS->close();
@@ -1123,7 +1121,7 @@ std::vector<std::shared_ptr<CPVREpgInfoTag>> CPVREpgDatabase::GetAllEpgTags(int 
 
 bool CPVREpgDatabase::GetAllIconPaths(int iEpgID, std::vector<std::string>& paths) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT sIconPath FROM epgtags WHERE idEpg = %u;", iEpgID);
   if (ResultQuery(strQuery))
@@ -1149,7 +1147,7 @@ bool CPVREpgDatabase::GetAllIconPaths(int iEpgID, std::vector<std::string>& path
 bool CPVREpgDatabase::GetAllParentalRatingIconPaths(int iEpgID,
                                                     std::vector<std::string>& paths) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT sParentalRatingIcon FROM epgtags WHERE idEpg = %u;", iEpgID);
   if (ResultQuery(strQuery))
@@ -1176,7 +1174,7 @@ bool CPVREpgDatabase::GetLastEpgScanTime(int iEpgId, CDateTime* lastScan) const
 {
   bool bReturn = false;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   std::string strWhereClause = PrepareSQL("idEpg = %u", iEpgId);
   std::string strValue = GetSingleValue("lastepgscan", "sLastScan", strWhereClause);
 
@@ -1195,9 +1193,9 @@ bool CPVREpgDatabase::GetLastEpgScanTime(int iEpgId, CDateTime* lastScan) const
 
 bool CPVREpgDatabase::QueuePersistLastEpgScanTimeQuery(int iEpgId, const CDateTime& lastScanTime)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   std::string strQuery = PrepareSQL("REPLACE INTO lastepgscan(idEpg, sLastScan) VALUES (%u, '%s');",
-      iEpgId, lastScanTime.GetAsDBDateTime().c_str());
+                                    iEpgId, lastScanTime.GetAsDBDateTime().c_str());
 
   return QueueInsertQuery(strQuery);
 }
@@ -1212,7 +1210,7 @@ bool CPVREpgDatabase::QueueDeleteLastEpgScanTimeQuery(const CPVREpg& table)
 
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(PrepareSQL("idEpg = %u", table.EpgID()));
 
   std::string strQuery;
@@ -1227,7 +1225,7 @@ int CPVREpgDatabase::Persist(const CPVREpg& epg, bool bQueueWrite)
   int iReturn = -1;
   std::string strQuery;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   if (epg.EpgID() > 0)
     strQuery = PrepareSQL("REPLACE INTO epg (idEpg, sName, sScraperName) "
                           "VALUES (%u, '%s', '%s');",
@@ -1258,7 +1256,7 @@ bool CPVREpgDatabase::DeleteEpgTags(int iEpgId, const CDateTime& maxEndTime)
 
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(
       PrepareSQL("idEpg = %u AND iEndTime < %u", iEpgId, static_cast<unsigned int>(iMaxEndTime)));
   return DeleteValues("epgtags", filter);
@@ -1268,7 +1266,7 @@ bool CPVREpgDatabase::DeleteEpgTags(int iEpgId)
 {
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(PrepareSQL("idEpg = %u", iEpgId));
   return DeleteValues("epgtags", filter);
 }
@@ -1277,7 +1275,7 @@ bool CPVREpgDatabase::QueueDeleteEpgTags(int iEpgId)
 {
   Filter filter;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   filter.AppendWhere(PrepareSQL("idEpg = %u", iEpgId));
 
   std::string strQuery;
@@ -1293,8 +1291,10 @@ bool CPVREpgDatabase::QueuePersistQuery(const CPVREpgInfoTag& tag)
     return false;
   }
 
-  time_t iStartTime, iEndTime;
+  time_t iStartTime{0};
   tag.StartAsUTC().GetAsTime(iStartTime);
+
+  time_t iEndTime{0};
   tag.EndAsUTC().GetAsTime(iEndTime);
 
   std::string sFirstAired;
@@ -1304,7 +1304,7 @@ bool CPVREpgDatabase::QueuePersistQuery(const CPVREpgInfoTag& tag)
   int iBroadcastId = tag.DatabaseID();
   std::string strQuery;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   if (iBroadcastId < 0)
   {
@@ -1320,9 +1320,10 @@ bool CPVREpgDatabase::QueuePersistQuery(const CPVREpgInfoTag& tag)
         "'%s', '%s', %i, %i, %i, %i, %i, '%s', %i, '%s', '%s', %i, '%s', '%s', '%s');",
         tag.EpgID(), static_cast<unsigned int>(iStartTime), static_cast<unsigned int>(iEndTime),
         tag.Title().c_str(), tag.PlotOutline().c_str(), tag.Plot().c_str(),
-        tag.OriginalTitle().c_str(), tag.DeTokenize(tag.Cast()).c_str(),
-        tag.DeTokenize(tag.Directors()).c_str(), tag.DeTokenize(tag.Writers()).c_str(), tag.Year(),
-        tag.IMDBNumber().c_str(), tag.ClientIconPath().c_str(), tag.GenreType(), tag.GenreSubType(),
+        tag.OriginalTitle().c_str(), CPVREpgInfoTag::DeTokenize(tag.Cast()).c_str(),
+        CPVREpgInfoTag::DeTokenize(tag.Directors()).c_str(),
+        CPVREpgInfoTag::DeTokenize(tag.Writers()).c_str(), tag.Year(), tag.IMDBNumber().c_str(),
+        tag.ClientIconPath().c_str(), tag.GenreType(), tag.GenreSubType(),
         tag.GenreDescription().c_str(), sFirstAired.c_str(), tag.ParentalRating(), tag.StarRating(),
         tag.SeriesNumber(), tag.EpisodeNumber(), tag.EpisodePart(), tag.EpisodeName().c_str(),
         tag.Flags(), tag.SeriesLink().c_str(), tag.ParentalRatingCode().c_str(),
@@ -1343,9 +1344,10 @@ bool CPVREpgDatabase::QueuePersistQuery(const CPVREpgInfoTag& tag)
         "'%s', '%s', %i, %i, %i, %i, %i, '%s', %i, '%s', '%s', %i, %i, '%s', '%s', '%s');",
         tag.EpgID(), static_cast<unsigned int>(iStartTime), static_cast<unsigned int>(iEndTime),
         tag.Title().c_str(), tag.PlotOutline().c_str(), tag.Plot().c_str(),
-        tag.OriginalTitle().c_str(), tag.DeTokenize(tag.Cast()).c_str(),
-        tag.DeTokenize(tag.Directors()).c_str(), tag.DeTokenize(tag.Writers()).c_str(), tag.Year(),
-        tag.IMDBNumber().c_str(), tag.ClientIconPath().c_str(), tag.GenreType(), tag.GenreSubType(),
+        tag.OriginalTitle().c_str(), CPVREpgInfoTag::DeTokenize(tag.Cast()).c_str(),
+        CPVREpgInfoTag::DeTokenize(tag.Directors()).c_str(),
+        CPVREpgInfoTag::DeTokenize(tag.Writers()).c_str(), tag.Year(), tag.IMDBNumber().c_str(),
+        tag.ClientIconPath().c_str(), tag.GenreType(), tag.GenreSubType(),
         tag.GenreDescription().c_str(), sFirstAired.c_str(), tag.ParentalRating(), tag.StarRating(),
         tag.SeriesNumber(), tag.EpisodeNumber(), tag.EpisodePart(), tag.EpisodeName().c_str(),
         tag.Flags(), tag.SeriesLink().c_str(), tag.ParentalRatingCode().c_str(),
@@ -1359,7 +1361,7 @@ bool CPVREpgDatabase::QueuePersistQuery(const CPVREpgInfoTag& tag)
 
 int CPVREpgDatabase::GetLastEPGId() const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   std::string strQuery = PrepareSQL("SELECT MAX(idEpg) FROM epg");
   std::string strValue = GetSingleValue(strQuery);
   if (!strValue.empty())
@@ -1370,9 +1372,9 @@ int CPVREpgDatabase::GetLastEPGId() const
 /********** Saved searches methods **********/
 
 std::shared_ptr<CPVREpgSearchFilter> CPVREpgDatabase::CreateEpgSearchFilter(
-    bool bRadio, const std::unique_ptr<dbiplus::Dataset>& pDS) const
+    bool bRadio, dbiplus::Dataset& ds) const
 {
-  if (!pDS->eof())
+  if (!ds.eof())
   {
     auto newSearch = std::make_shared<CPVREpgSearchFilter>(bRadio);
 
@@ -1424,7 +1426,7 @@ std::vector<std::shared_ptr<CPVREpgSearchFilter>> CPVREpgDatabase::GetSavedSearc
 {
   std::vector<std::shared_ptr<CPVREpgSearchFilter>> result;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * FROM savedsearches WHERE bIsRadio = %u", bRadio);
   if (ResultQuery(strQuery))
@@ -1433,7 +1435,7 @@ std::vector<std::shared_ptr<CPVREpgSearchFilter>> CPVREpgDatabase::GetSavedSearc
     {
       while (!m_pDS->eof())
       {
-        result.emplace_back(CreateEpgSearchFilter(bRadio, m_pDS));
+        result.emplace_back(CreateEpgSearchFilter(bRadio, *m_pDS));
         m_pDS->next();
       }
       m_pDS->close();
@@ -1448,7 +1450,7 @@ std::vector<std::shared_ptr<CPVREpgSearchFilter>> CPVREpgDatabase::GetSavedSearc
 
 std::shared_ptr<CPVREpgSearchFilter> CPVREpgDatabase::GetSavedSearchById(bool bRadio, int iId) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::string strQuery =
       PrepareSQL("SELECT * FROM savedsearches WHERE bIsRadio = %u AND idSearch = %u;", bRadio, iId);
 
@@ -1456,7 +1458,7 @@ std::shared_ptr<CPVREpgSearchFilter> CPVREpgDatabase::GetSavedSearchById(bool bR
   {
     try
     {
-      std::shared_ptr<CPVREpgSearchFilter> filter = CreateEpgSearchFilter(bRadio, m_pDS);
+      const std::shared_ptr<CPVREpgSearchFilter> filter{CreateEpgSearchFilter(bRadio, *m_pDS)};
       m_pDS->close();
       return filter;
     }
@@ -1471,7 +1473,7 @@ std::shared_ptr<CPVREpgSearchFilter> CPVREpgDatabase::GetSavedSearchById(bool bR
 
 bool CPVREpgDatabase::Persist(CPVREpgSearchFilter& epgSearch)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   // Insert a new entry if this is a new search, replace the existing otherwise
   std::string strQuery;
@@ -1557,7 +1559,7 @@ bool CPVREpgDatabase::UpdateSavedSearchLastExecuted(const CPVREpgSearchFilter& e
   if (epgSearch.GetDatabaseId() == PVR_EPG_SEARCH_INVALID_DATABASE_ID)
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   const std::string strQuery = PrepareSQL(
       "UPDATE savedsearches SET sLastExecutedDateTime = '%s' WHERE idSearch = %i",
@@ -1573,7 +1575,7 @@ bool CPVREpgDatabase::Delete(const CPVREpgSearchFilter& epgSearch)
   CLog::LogFC(LOGDEBUG, LOGEPG, "Deleting saved search '{}' from the database",
               epgSearch.GetTitle());
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   Filter filter;
   filter.AppendWhere(PrepareSQL("idSearch = '%i'", epgSearch.GetDatabaseId()));
@@ -1585,6 +1587,6 @@ bool CPVREpgDatabase::DeleteSavedSearches()
 {
   CLog::LogFC(LOGDEBUG, LOGEPG, "Deleting all saved searches from the database");
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   return DeleteValues("savedsearches");
 }

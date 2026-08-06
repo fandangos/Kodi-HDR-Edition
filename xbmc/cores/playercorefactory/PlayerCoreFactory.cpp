@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -11,13 +11,15 @@
 #include "FileItem.h"
 #include "PlayerCoreConfig.h"
 #include "PlayerSelectionRule.h"
+#include "ServiceBroker.h"
 #include "URL.h"
 #include "cores/IPlayerCallback.h"
 #include "cores/VideoPlayer/Interface/InputStreamConstants.h"
 #include "dialogs/GUIDialogContextMenu.h"
-#include "guilib/LocalizeStrings.h"
 #include "music/MusicFileItemClassify.h"
 #include "profiles/ProfileManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -30,6 +32,7 @@
 
 #include <mutex>
 #include <sstream>
+#include <utility>
 
 #define PLAYERCOREFACTORY_XML "playercorefactory.xml"
 
@@ -59,7 +62,7 @@ void CPlayerCoreFactory::OnSettingsLoaded()
 std::shared_ptr<IPlayer> CPlayerCoreFactory::CreatePlayer(const std::string& nameId,
                                                           IPlayerCallback& callback) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   size_t idx = GetPlayerIndex(nameId);
 
   if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
@@ -70,25 +73,25 @@ std::shared_ptr<IPlayer> CPlayerCoreFactory::CreatePlayer(const std::string& nam
 
 void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   players.clear();
   for (auto& conf : m_vecPlayerConfigs)
   {
-    if (conf->m_bPlaysAudio || conf->m_bPlaysVideo)
+    if (conf->m_bPlaysAudio || conf->m_bPlaysVideo || conf->m_bPlaysGame)
       players.emplace_back(conf->m_name);
   }
 }
 
 void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players, const bool audio, const bool video) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: for video={}, audio={}", video, audio);
 
   for (auto& conf : m_vecPlayerConfigs)
   {
     if (audio == conf->m_bPlaysAudio && video == conf->m_bPlaysVideo)
     {
-      if (std::find(players.begin(), players.end(), conf->m_name) != players.end())
+      if (std::ranges::find(players, conf->m_name) != players.end())
         continue;
 
       CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding player: {}", conf->m_name);
@@ -147,15 +150,16 @@ void CPlayerCoreFactory::GetPlayers(const CFileItem& item, std::vector<std::stri
       (defaultInputstreamPlayerOverride == ForcedPlayer::NONE &&
        (VIDEO::IsVideo(item) || (!MUSIC::IsAudio(item) && !item.IsGame()))))
   {
-    int idx = GetPlayerIndex("videodefaultplayer");
+    const int idx = GetPlayerIndex("videodefaultplayer");
     if (idx > -1)
     {
-      const std::string videoDefault = GetPlayerName(idx);
-      if (std::find(players.cbegin(), players.cend(), videoDefault) == players.cend())
+      // non-const for move
+      std::string videoDefault = GetPlayerName(idx);
+      if (std::ranges::find(players, videoDefault) == players.cend())
       {
-        players.emplace_back(videoDefault);
         CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding videodefaultplayer ({})",
                   videoDefault);
+        players.push_back(std::move(videoDefault));
       }
     }
     GetPlayers(players, false, true);  // Video-only players
@@ -167,15 +171,16 @@ void CPlayerCoreFactory::GetPlayers(const CFileItem& item, std::vector<std::stri
   if (defaultInputstreamPlayerOverride == ForcedPlayer::AUDIO_DEFAULT ||
       (defaultInputstreamPlayerOverride == ForcedPlayer::NONE && MUSIC::IsAudio(item)))
   {
-    int idx = GetPlayerIndex("audiodefaultplayer");
+    const int idx = GetPlayerIndex("audiodefaultplayer");
     if (idx > -1)
     {
-      const std::string audioDefault = GetPlayerName(idx);
-      if (std::find(players.cbegin(), players.cend(), audioDefault) == players.cend())
+      // non-const for move
+      std::string audioDefault = GetPlayerName(idx);
+      if (std::ranges::find(players, audioDefault) == players.cend())
       {
-        players.emplace_back(audioDefault);
         CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding audiodefaultplayer ({})",
                   audioDefault);
+        players.push_back(std::move(audioDefault));
       }
     }
     GetPlayers(players, true, false); // Audio-only players
@@ -184,8 +189,8 @@ void CPlayerCoreFactory::GetPlayers(const CFileItem& item, std::vector<std::stri
 
   if (item.IsGame())
   {
-    CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: adding retroplayer");
-    players.emplace_back("RetroPlayer");
+    CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: forcing retroplayer");
+    players = {"RetroPlayer"};
   }
 
   CLog::Log(LOGDEBUG, "CPlayerCoreFactory::GetPlayers: added {0} players", players.size());
@@ -193,7 +198,7 @@ void CPlayerCoreFactory::GetPlayers(const CFileItem& item, std::vector<std::stri
 
 int CPlayerCoreFactory::GetPlayerIndex(const std::string& strCoreName) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (!strCoreName.empty())
   {
     // Dereference "*default*player" aliases
@@ -218,7 +223,7 @@ int CPlayerCoreFactory::GetPlayerIndex(const std::string& strCoreName) const
 
 std::string CPlayerCoreFactory::GetPlayerName(size_t idx) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
     return "";
 
@@ -227,7 +232,7 @@ std::string CPlayerCoreFactory::GetPlayerName(size_t idx) const
 
 void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players, std::string &type) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   for (auto& config : m_vecPlayerConfigs)
   {
     if (config->m_type != type)
@@ -238,7 +243,7 @@ void CPlayerCoreFactory::GetPlayers(std::vector<std::string>&players, std::strin
 
 void CPlayerCoreFactory::GetRemotePlayers(std::vector<std::string>&players) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   for (auto& config : m_vecPlayerConfigs)
   {
     if (config->m_type != "remote")
@@ -249,7 +254,7 @@ void CPlayerCoreFactory::GetRemotePlayers(std::vector<std::string>&players) cons
 
 std::string CPlayerCoreFactory::GetPlayerType(const std::string& player) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   size_t idx = GetPlayerIndex(player);
 
   if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
@@ -270,7 +275,7 @@ bool CPlayerCoreFactory::IsRemotePlayer(const std::string& player) const
 
 bool CPlayerCoreFactory::PlaysAudio(const std::string& player) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   size_t idx = GetPlayerIndex(player);
 
   if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
@@ -281,7 +286,7 @@ bool CPlayerCoreFactory::PlaysAudio(const std::string& player) const
 
 bool CPlayerCoreFactory::PlaysVideo(const std::string& player) const
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   size_t idx = GetPlayerIndex(player);
 
   if (m_vecPlayerConfigs.empty() || idx > m_vecPlayerConfigs.size())
@@ -305,12 +310,12 @@ std::string CPlayerCoreFactory::GetDefaultPlayer(const CFileItem& item) const
 std::string CPlayerCoreFactory::SelectPlayerDialog(const std::vector<std::string>&players, float posX, float posY) const
 {
   CContextButtons choices;
-  if (players.size())
+  if (!players.empty())
   {
     //Add default player
     std::string strCaption = players[0];
     strCaption += " (";
-    strCaption += g_localizeStrings.Get(13278);
+    strCaption += CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13278);
     strCaption += ")";
     choices.Add(0, strCaption);
 
@@ -334,7 +339,7 @@ std::string CPlayerCoreFactory::SelectPlayerDialog(float posX, float posY) const
 
 bool CPlayerCoreFactory::LoadConfiguration(const std::string &file, bool clear)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   CLog::Log(LOGINFO, "Loading player core factory settings from {}.", file);
   if (!CFileUtils::Exists(file))
@@ -382,6 +387,7 @@ bool CPlayerCoreFactory::LoadConfiguration(const std::string &file, bool clear)
     m_vecPlayerConfigs.emplace_back(std::move(paplayer));
 
     auto retroPlayer = std::make_unique<CPlayerCoreConfig>("RetroPlayer", "game", nullptr);
+    retroPlayer->m_bPlaysGame = true;
     m_vecPlayerConfigs.emplace_back(std::move(retroPlayer));
   }
 
@@ -468,7 +474,7 @@ bool CPlayerCoreFactory::LoadConfiguration(const std::string &file, bool clear)
 
 void CPlayerCoreFactory::OnPlayerDiscovered(const std::string& id, const std::string& name)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   for (auto& playerConfig : m_vecPlayerConfigs)
   {
     if (playerConfig->GetId() == id)
@@ -497,7 +503,7 @@ void CPlayerCoreFactory::OnPlayerDiscovered(const std::string& id, const std::st
 
 void CPlayerCoreFactory::OnPlayerRemoved(const std::string& id)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   for (auto& playerConfig : m_vecPlayerConfigs)
   {
     if (playerConfig->GetId() == id)

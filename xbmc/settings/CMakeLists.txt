@@ -39,12 +39,14 @@ set(HEADERS AdvancedSettings.h
             SettingPath.h
             Settings.h
             SettingsBase.h
+            SettingsContainer.h
             SettingsValueFlatJsonSerializer.h
             SettingsValueXmlSerializer.h
             SettingUtils.h
             SkinSettings.h
             SettingsComponent.h
-            SubtitlesSettings.h)
+            SubtitlesSettings.h
+            VideoVersionsSettings.h)
 
 if(TARGET ${APP_NAME_LC}::Bluray)
   list(APPEND SOURCES DiscSettings.cpp)

@@ -124,10 +124,10 @@ struct SupportedConversionsArgs
   SupportedConversionsArgs() = default;
 
   SupportedConversionsArgs(const VideoPicture& picture, bool isHdrOutput)
+    : m_colorPrimaries(picture.color_primaries),
+      m_colorSpace(picture.color_space),
+      m_colorTransfer(picture.color_transfer)
   {
-    m_colorPrimaries = picture.color_primaries;
-    m_colorSpace = picture.color_space;
-    m_colorTransfer = picture.color_transfer;
     m_fullRange = picture.color_range == 1;
     m_hdrOutput = isHdrOutput;
   }
@@ -161,12 +161,12 @@ struct DXGIColorSpaceArgs
   AVChromaLocation chroma_location = AVCHROMA_LOC_UNSPECIFIED;
 
   DXGIColorSpaceArgs(const VideoPicture& picture)
+    : primaries(picture.color_primaries),
+      color_space(picture.color_space),
+      color_transfer(picture.color_transfer),
+      chroma_location(picture.chroma_position)
   {
-    primaries = picture.color_primaries;
-    color_space = picture.color_space;
-    color_transfer = picture.color_transfer;
     full_range = picture.color_range == 1;
-    chroma_location = picture.chroma_position;
   }
 
   DXGIColorSpaceArgs(AVColorPrimaries primaries,
@@ -195,14 +195,14 @@ public:
   // ID3DResource overrides
   void OnCreateDevice() override
   {
-    std::unique_lock<CCriticalSection> lock(m_section);
-    if (m_width > 0 && m_height > 0)
+    std::unique_lock lock(m_section);
+    if (m_width > 0 && m_height > 0 && m_input_dxgi_format != DXGI_FORMAT_UNKNOWN)
       OpenEnumerator();
   }
 
   void OnDestroyDevice(bool) override
   {
-    std::unique_lock<CCriticalSection> lock(m_section);
+    std::unique_lock lock(m_section);
     UnInit();
   }
 
@@ -214,7 +214,7 @@ public:
    * \param outputFormat the output format
    * \param outputCS the output color space
    * \return true when the conversion is supported, false when it is not
-   * or the API used to validate is not availe (Windows < 10)
+   * or the API used to validate is not available (Windows < 10)
   */
   bool CheckConversion(DXGI_FORMAT inputFormat,
                        DXGI_COLOR_SPACE_TYPE inputCS,
@@ -331,7 +331,7 @@ protected:
   ProcessorConversions LogAndListConversions(const DXGIColorSpaceArgs& inputArgs,
                                              const DXGIColorSpaceArgs& outputArgs) const;
   /*!
-   * \brief Suggest chroma siting derived from source charateristics.
+   * \brief Suggest chroma siting derived from source characteristics.
    * Has limited functionality at this time and supports values that make sense for dxgi
    * \param args description of the sourcce
    * \return suggested chroma siting.

@@ -37,7 +37,9 @@ constexpr unsigned int MAPPING_COOLDOWN_MS = 50;
 CButtonMapping::CButtonMapping(IButtonMapper* buttonMapper,
                                IButtonMap* buttonMap,
                                KEYMAP::IKeymap* keymap)
-  : m_buttonMapper(buttonMapper), m_buttonMap(buttonMap), m_keymap(keymap)
+  : m_buttonMapper(buttonMapper),
+    m_buttonMap(buttonMap),
+    m_keymap(keymap)
 {
   assert(m_buttonMapper != nullptr);
   assert(m_buttonMap != nullptr);
@@ -133,7 +135,7 @@ bool CButtonMapping::OnPosition(int x, int y)
   if (!m_buttonMapper->AcceptsPrimitive(PRIMITIVE_TYPE::RELATIVE_POINTER))
     return false;
 
-  return GetPointer().OnMotion(x, y);
+  return GetPointer().OnPosition(x, y);
 }
 
 bool CButtonMapping::OnButtonPress(MOUSE::BUTTON_ID button)
@@ -263,8 +265,7 @@ CAxisDetector& CButtonMapping::GetAxis(
 
     PERIPHERALS::CPeripherals& peripheralManager = CServiceBroker::GetPeripherals();
 
-    const PERIPHERALS::PeripheralPtr peripheral =
-        peripheralManager.GetPeripheralAtLocation(peripheralLocation);
+    const PERIPHERALS::PeripheralPtr peripheral = peripheralManager.GetByPath(peripheralLocation);
 
     if (peripheral &&
         peripheral->GetBusType() == PERIPHERALS::PeripheralBusType::PERIPHERAL_BUS_GCCONTROLLER)

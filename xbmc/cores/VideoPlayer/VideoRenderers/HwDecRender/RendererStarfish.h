@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "cores/VideoPlayer/Buffers/VideoBufferStarfish.h"
 #include "cores/VideoPlayer/VideoRenderers/LinuxRendererGLES.h"
 
 class CRendererStarfish : public CBaseRenderer
@@ -37,7 +38,6 @@ public:
   void Update() override;
   void RenderUpdate(
       int index, int index2, bool clear, unsigned int flags, unsigned int alpha) override;
-  bool RenderCapture(int index, CRenderCapture* capture) override;
   bool ConfigChanged(const VideoPicture& picture) override;
 
 protected:
@@ -48,5 +48,5 @@ private:
   CRect m_exportedSourceRect;
   CRect m_exportedDestRect;
   bool m_configured{false};
-  long m_acbId{0};
+  CStarfishVideoBuffer* m_videoBuffer{nullptr};
 };

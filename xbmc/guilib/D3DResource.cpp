@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -12,6 +12,7 @@
 #include "filesystem/File.h"
 #include "rendering/dx/DeviceResources.h"
 #include "rendering/dx/RenderContext.h"
+#include "utils/URIUtils.h"
 #include "utils/log.h"
 
 #include <d3dcompiler.h>
@@ -166,19 +167,9 @@ void ID3DResource::Unregister()
 
 CD3DTexture::CD3DTexture()
 {
-  m_width = 0;
-  m_height = 0;
-  m_mipLevels = 0;
-  m_usage = D3D11_USAGE_DEFAULT;
-  m_format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  m_texture = nullptr;
   m_renderTargets[0] = nullptr;
   m_renderTargets[1] = nullptr;
   m_data = nullptr;
-  m_pitch = 0;
-  m_bindFlags = 0;
-  m_cpuFlags = 0;
-  m_viewIdx = 0;
   m_views.clear();
 }
 
@@ -446,7 +437,7 @@ void CD3DTexture::SaveTexture()
     ComPtr<ID3D11Texture2D> texture = nullptr;
     if (textureDesc.Usage != D3D11_USAGE_STAGING || 0 == (textureDesc.CPUAccessFlags & D3D11_CPU_ACCESS_READ))
     {
-      // create texture which can be readed by CPU - D3D11_USAGE_STAGING
+      // create texture which can be read by CPU - D3D11_USAGE_STAGING
       CD3D11_TEXTURE2D_DESC stagingDesc(textureDesc);
       stagingDesc.Usage = D3D11_USAGE_STAGING;
       stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -560,7 +551,8 @@ void CD3DTexture::DrawQuad(const CPoint points[4],
                            KODI::UTILS::COLOR::Color color,
                            CD3DTexture* texture,
                            const CRect* texCoords,
-                           SHADER_METHOD options)
+                           SHADER_METHOD options,
+                           float depth)
 {
   unsigned numViews = 0;
   ID3D11ShaderResourceView* views = nullptr;
@@ -571,23 +563,23 @@ void CD3DTexture::DrawQuad(const CPoint points[4],
     views = texture->GetShaderResource();
   }
 
-  DrawQuad(points, color, numViews, &views, texCoords, options);
+  DrawQuad(points, color, numViews, &views, texCoords, options, depth);
 }
 
 void CD3DTexture::DrawQuad(const CRect& rect,
                            KODI::UTILS::COLOR::Color color,
                            CD3DTexture* texture,
                            const CRect* texCoords,
-                           SHADER_METHOD options)
+                           SHADER_METHOD options,
+                           float depth)
 {
-  CPoint points[] =
-  {
-    { rect.x1, rect.y1 },
-    { rect.x2, rect.y1 },
-    { rect.x2, rect.y2 },
-    { rect.x1, rect.y2 },
+  CPoint points[] = {
+      {rect.x1, rect.y1},
+      {rect.x2, rect.y1},
+      {rect.x2, rect.y2},
+      {rect.x1, rect.y2},
   };
-  DrawQuad(points, color, texture, texCoords, options);
+  DrawQuad(points, color, texture, texCoords, options, depth);
 }
 
 void CD3DTexture::DrawQuad(const CPoint points[4],
@@ -595,24 +587,28 @@ void CD3DTexture::DrawQuad(const CPoint points[4],
                            unsigned numViews,
                            ID3D11ShaderResourceView** view,
                            const CRect* texCoords,
-                           SHADER_METHOD options)
+                           SHADER_METHOD options,
+                           float depth)
 {
   XMFLOAT4 xcolor;
   CD3DHelper::XMStoreColor(&xcolor, color);
   CRect coords = texCoords ? *texCoords : CRect(0.0f, 0.0f, 1.0f, 1.0f);
 
+  // clang-format off
   Vertex verts[4] = {
     { XMFLOAT3(points[0].x, points[0].y, 0), xcolor, XMFLOAT2(coords.x1, coords.y1), XMFLOAT2(0.0f, 0.0f) },
     { XMFLOAT3(points[1].x, points[1].y, 0), xcolor, XMFLOAT2(coords.x2, coords.y1), XMFLOAT2(0.0f, 0.0f) },
     { XMFLOAT3(points[2].x, points[2].y, 0), xcolor, XMFLOAT2(coords.x2, coords.y2), XMFLOAT2(0.0f, 0.0f) },
     { XMFLOAT3(points[3].x, points[3].y, 0), xcolor, XMFLOAT2(coords.x1, coords.y2), XMFLOAT2(0.0f, 0.0f) },
   };
+  // clang-format on
 
   CGUIShaderDX* pGUIShader = DX::Windowing()->GetGUIShader();
 
   pGUIShader->Begin(view && numViews > 0 ? options : SHADER_METHOD_RENDER_DEFAULT);
   if (view && numViews > 0)
     pGUIShader->SetShaderViews(numViews, view);
+  pGUIShader->SetDepth(depth);
   pGUIShader->DrawQuad(verts[0], verts[1], verts[2], verts[3]);
 }
 
@@ -621,23 +617,21 @@ void CD3DTexture::DrawQuad(const CRect& rect,
                            unsigned numViews,
                            ID3D11ShaderResourceView** view,
                            const CRect* texCoords,
-                           SHADER_METHOD options)
+                           SHADER_METHOD options,
+                           float depth)
 {
-  CPoint points[] =
-  {
-    { rect.x1, rect.y1 },
-    { rect.x2, rect.y1 },
-    { rect.x2, rect.y2 },
-    { rect.x1, rect.y2 },
+  CPoint points[] = {
+      {rect.x1, rect.y1},
+      {rect.x2, rect.y1},
+      {rect.x2, rect.y2},
+      {rect.x1, rect.y2},
   };
-  DrawQuad(points, color, numViews, view, texCoords, options);
+  DrawQuad(points, color, numViews, view, texCoords, options, depth);
 }
 
 CD3DEffect::CD3DEffect()
 {
-  m_effect = nullptr;
-  m_techniquie = nullptr;
-  m_currentPass = nullptr;
+  m_includePaths.insert("special://xbmc/system/shaders/");
 }
 
 CD3DEffect::~CD3DEffect()
@@ -681,15 +675,37 @@ void CD3DEffect::OnCreateDevice()
 HRESULT CD3DEffect::Open(D3D_INCLUDE_TYPE IncludeType, LPCSTR pFileName, LPCVOID pParentData, LPCVOID* ppData, UINT* pBytes)
 {
   XFILE::CFile includeFile;
+  bool found = false;
+  std::string fileName;
 
-  std::string fileName("special://xbmc/system/shaders/");
-  fileName.append(pFileName);
-
-  if (!includeFile.Open(fileName))
+  for (const auto& includePath : m_includePaths)
   {
-    CLog::LogF(LOGERROR, "Could not open 3DLUT file: {}", fileName);
+    fileName = includePath;
+    std::string includeURL;
+    if (URIUtils::IsURL(includePath))
+    {
+      const auto endOfURL = includePath.find(":") + 3; // include "://"
+      includeURL = includePath.substr(0, endOfURL);
+      fileName = fileName.substr(endOfURL);
+    }
+
+    fileName = URIUtils::CanonicalizePath(URIUtils::AddFileToFolder(fileName, pFileName));
+    fileName.insert(0, includeURL);
+
+    if (includeFile.Open(fileName))
+    {
+      found = true;
+      break;
+    }
+    includeFile.Close();
+  }
+  if (!found)
+  {
+    CLog::LogF(LOGERROR, "Could not open include file: {}", fileName);
     return E_FAIL;
   }
+
+  m_includePaths.insert(URIUtils::GetBasePath(fileName));
 
   int64_t length = includeFile.GetLength();
   void *pData = malloc(length);
@@ -743,11 +759,16 @@ bool CD3DEffect::SetTechnique(LPCSTR handle)
 
 bool CD3DEffect::SetTexture(LPCSTR handle, CD3DTexture &texture)
 {
+  return SetTexture(handle, texture.GetShaderResource());
+}
+
+bool CD3DEffect::SetTexture(LPCSTR handle, ID3D11ShaderResourceView* resourceView)
+{
   if (m_effect)
   {
     ID3DX11EffectShaderResourceVariable* var = m_effect->GetVariableByName(handle)->AsShaderResource();
     if (var->IsValid())
-      return SUCCEEDED(var->SetResource(texture.GetShaderResource()));
+      return SUCCEEDED(var->SetResource(resourceView));
   }
   return false;
 }
@@ -784,6 +805,11 @@ bool CD3DEffect::SetScalar(LPCSTR handle, float value)
   }
 
   return false;
+}
+
+void CD3DEffect::AddIncludePath(const std::string& includePath)
+{
+  m_includePaths.insert(includePath);
 }
 
 bool CD3DEffect::Begin(UINT *passes, DWORD flags)
@@ -861,6 +887,9 @@ bool CD3DEffect::CreateEffect()
   //dwShaderFlags |= D3DCOMPILE_DEBUG;
   // Disable optimizations to further improve shader debugging
   //dwShaderFlags |= D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+  dwShaderFlags |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY;
+  dwShaderFlags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 #endif
 
   hr = D3DX11CompileEffectFromMemory(m_effectString.c_str(), m_effectString.length(), "", &definemacros[0], this,
@@ -882,11 +911,6 @@ bool CD3DEffect::CreateEffect()
 
 CD3DBuffer::CD3DBuffer()
 {
-  m_length = 0;
-  m_stride = 0;
-  m_usage  = D3D11_USAGE_DEFAULT;
-  m_format = DXGI_FORMAT_UNKNOWN;
-  m_buffer = nullptr;
   m_data   = nullptr;
 }
 
@@ -1022,10 +1046,7 @@ bool CD3DBuffer::CreateBuffer(const void* pData)
 /****************************************************/
 CD3DVertexShader::CD3DVertexShader()
 {
-  m_VS = nullptr;
   m_vertexLayout = nullptr;
-  m_VSBuffer = nullptr;
-  m_inputLayout = nullptr;
   m_vertexLayoutSize = 0;
   m_inited = false;
 }
@@ -1187,8 +1208,6 @@ void CD3DVertexShader::OnDestroyDevice(bool fatal)
 /****************************************************/
 CD3DPixelShader::CD3DPixelShader()
 {
-  m_PS = nullptr;
-  m_PSBuffer = nullptr;
   m_inited = false;
 }
 
@@ -1293,7 +1312,7 @@ void CD3DPixelShader::UnbindShader()
 
   ComPtr<ID3D11DeviceContext> pContext = DX::DeviceResources::Get()->GetD3DContext();
   pContext->IASetInputLayout(nullptr);
-  pContext->VSSetShader(nullptr, nullptr, 0);
+  pContext->PSSetShader(nullptr, nullptr, 0);
 }
 
 void CD3DPixelShader::OnCreateDevice()

@@ -105,7 +105,7 @@ bool CPartyModeManager::Enable(PartyModeContext context /*= PARTYMODECONTEXT_MUS
     CMusicDatabase db;
     if (db.Open())
     {
-      std::set<std::string> playlists;
+      std::set<std::string, std::less<>> playlists;
       if (playlistLoaded)
       {
         playlist.SetType("songs");
@@ -139,7 +139,7 @@ bool CPartyModeManager::Enable(PartyModeContext context /*= PARTYMODECONTEXT_MUS
     CVideoDatabase db;
     if (db.Open())
     {
-      std::set<std::string> playlists;
+      std::set<std::string, std::less<>> playlists;
       if (playlistLoaded)
       {
         playlist.SetType("musicvideos");
@@ -333,13 +333,13 @@ bool CPartyModeManager::AddRandomSongs()
       sqlWhereMusic.back() = ')'; // replace the last comma with closing bracket
       // Apply random sort (and limit) at db query for efficiency
       SortDescription SortDescription;
-      SortDescription.sortBy = SortByRandom;
+      SortDescription.sortBy = SortBy::RANDOM;
       SortDescription.limitEnd = QUEUE_DEPTH;
       CMusicDatabase database;
       if (database.Open())
       {
-        database.GetSongsFullByWhere("musicdb://songs/", CDatabase::Filter(sqlWhereMusic),
-          items, SortDescription, true);
+        database.GetSongsFullByWhere("musicdb://songs/", items, SortDescription,
+                                     CDatabase::Filter(sqlWhereMusic), true);
 
         // Get artist and album properties for songs
         for (auto& item : items)

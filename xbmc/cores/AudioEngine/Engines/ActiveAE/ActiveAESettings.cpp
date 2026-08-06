@@ -12,7 +12,8 @@
 #include "ServiceBroker.h"
 #include "cores/AudioEngine/Engines/ActiveAE/ActiveAE.h"
 #include "cores/AudioEngine/Interfaces/AE.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/SettingDefinitions.h"
@@ -30,32 +31,31 @@ CActiveAESettings::CActiveAESettings(CActiveAE &ae) : m_audioEngine(ae)
 {
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
 
-  std::unique_lock<CCriticalSection> lock(m_cs);
+  std::unique_lock lock(m_cs);
   m_instance = this;
 
-  std::set<std::string> settingSet;
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_CONFIG);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_SAMPLERATE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_CHANNELS);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_PROCESSQUALITY);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_ATEMPOTHRESHOLD);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_GUISOUNDMODE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_STEREOUPMIX);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_AC3PASSTHROUGH);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_AC3TRANSCODE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_EAC3PASSTHROUGH);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_DTSPASSTHROUGH);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_TRUEHDPASSTHROUGH);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_DTSHDPASSTHROUGH);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_AUDIODEVICE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGHDEVICE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_STREAMSILENCE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_STREAMNOISE);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_MIXSUBLEVEL);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_MAINTAINORIGINALVOLUME);
-  settingSet.insert(CSettings::SETTING_AUDIOOUTPUT_DTSHDCOREFALLBACK);
-  settings->GetSettingsManager()->RegisterCallback(this, settingSet);
+  settings->GetSettingsManager()->RegisterCallback(
+      this, {CSettings::SETTING_AUDIOOUTPUT_CONFIG,
+             CSettings::SETTING_AUDIOOUTPUT_SAMPLERATE,
+             CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH,
+             CSettings::SETTING_AUDIOOUTPUT_CHANNELS,
+             CSettings::SETTING_AUDIOOUTPUT_PROCESSQUALITY,
+             CSettings::SETTING_AUDIOOUTPUT_ATEMPOTHRESHOLD,
+             CSettings::SETTING_AUDIOOUTPUT_GUISOUNDMODE,
+             CSettings::SETTING_AUDIOOUTPUT_STEREOUPMIX,
+             CSettings::SETTING_AUDIOOUTPUT_AC3PASSTHROUGH,
+             CSettings::SETTING_AUDIOOUTPUT_AC3TRANSCODE,
+             CSettings::SETTING_AUDIOOUTPUT_EAC3PASSTHROUGH,
+             CSettings::SETTING_AUDIOOUTPUT_DTSPASSTHROUGH,
+             CSettings::SETTING_AUDIOOUTPUT_TRUEHDPASSTHROUGH,
+             CSettings::SETTING_AUDIOOUTPUT_DTSHDPASSTHROUGH,
+             CSettings::SETTING_AUDIOOUTPUT_AUDIODEVICE,
+             CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGHDEVICE,
+             CSettings::SETTING_AUDIOOUTPUT_STREAMSILENCE,
+             CSettings::SETTING_AUDIOOUTPUT_STREAMNOISE,
+             CSettings::SETTING_AUDIOOUTPUT_MIXSUBLEVEL,
+             CSettings::SETTING_AUDIOOUTPUT_MAINTAINORIGINALVOLUME,
+             CSettings::SETTING_AUDIOOUTPUT_DTSHDCOREFALLBACK});
 
   settings->GetSettingsManager()->RegisterSettingOptionsFiller("aequalitylevels", SettingOptionsAudioQualityLevelsFiller);
   settings->GetSettingsManager()->RegisterSettingOptionsFiller("audiodevices", SettingOptionsAudioDevicesFiller);
@@ -67,7 +67,7 @@ CActiveAESettings::~CActiveAESettings()
 {
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
 
-  std::unique_lock<CCriticalSection> lock(m_cs);
+  std::unique_lock lock(m_cs);
   settings->GetSettingsManager()->UnregisterSettingOptionsFiller("aequalitylevels");
   settings->GetSettingsManager()->UnregisterSettingOptionsFiller("audiodevices");
   settings->GetSettingsManager()->UnregisterSettingOptionsFiller("audiodevicespassthrough");
@@ -78,78 +78,78 @@ CActiveAESettings::~CActiveAESettings()
 
 void CActiveAESettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
-  std::unique_lock<CCriticalSection> lock(m_cs);
+  std::unique_lock lock(m_cs);
   m_instance->m_audioEngine.OnSettingsChange();
 }
 
 void CActiveAESettings::SettingOptionsAudioDevicesFiller(const SettingConstPtr& setting,
                                                          std::vector<StringSettingOption>& list,
-                                                         std::string& current,
-                                                         void* data)
+                                                         std::string& current)
 {
   SettingOptionsAudioDevicesFillerGeneral(setting, list, current, false);
 }
 
 void CActiveAESettings::SettingOptionsAudioDevicesPassthroughFiller(
-    const SettingConstPtr& setting,
-    std::vector<StringSettingOption>& list,
-    std::string& current,
-    void* data)
+    const SettingConstPtr& setting, std::vector<StringSettingOption>& list, std::string& current)
 {
   SettingOptionsAudioDevicesFillerGeneral(setting, list, current, true);
 }
 
 void CActiveAESettings::SettingOptionsAudioQualityLevelsFiller(
-    const SettingConstPtr& setting,
-    std::vector<IntegerSettingOption>& list,
-    int& current,
-    void* data)
+    const SettingConstPtr& /*setting*/, std::vector<IntegerSettingOption>& list, int& /*current*/)
 {
-  std::unique_lock<CCriticalSection> lock(m_instance->m_cs);
+  std::unique_lock lock(m_instance->m_cs);
 
   if (m_instance->m_audioEngine.SupportsQualityLevel(AE_QUALITY_LOW))
-    list.emplace_back(g_localizeStrings.Get(13506), AE_QUALITY_LOW);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13506),
+                      AE_QUALITY_LOW);
   if (m_instance->m_audioEngine.SupportsQualityLevel(AE_QUALITY_MID))
-    list.emplace_back(g_localizeStrings.Get(13507), AE_QUALITY_MID);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13507),
+                      AE_QUALITY_MID);
   if (m_instance->m_audioEngine.SupportsQualityLevel(AE_QUALITY_HIGH))
-    list.emplace_back(g_localizeStrings.Get(13508), AE_QUALITY_HIGH);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13508),
+                      AE_QUALITY_HIGH);
   if (m_instance->m_audioEngine.SupportsQualityLevel(AE_QUALITY_REALLYHIGH))
-    list.emplace_back(g_localizeStrings.Get(13509), AE_QUALITY_REALLYHIGH);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13509),
+                      AE_QUALITY_REALLYHIGH);
   if (m_instance->m_audioEngine.SupportsQualityLevel(AE_QUALITY_GPU))
-    list.emplace_back(g_localizeStrings.Get(38010), AE_QUALITY_GPU);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(38010),
+                      AE_QUALITY_GPU);
 }
 
 void CActiveAESettings::SettingOptionsAudioStreamsilenceFiller(
-    const SettingConstPtr& setting,
-    std::vector<IntegerSettingOption>& list,
-    int& current,
-    void* data)
+    const SettingConstPtr& /*setting*/, std::vector<IntegerSettingOption>& list, int& /*current*/)
 {
-  std::unique_lock<CCriticalSection> lock(m_instance->m_cs);
+  std::unique_lock lock(m_instance->m_cs);
 
-  list.emplace_back(g_localizeStrings.Get(20422),
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20422),
                     XbmcThreads::EndTime<std::chrono::minutes>::Max().count());
-  list.emplace_back(g_localizeStrings.Get(13551), 0);
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13551), 0);
 
   if (m_instance->m_audioEngine.SupportsSilenceTimeout())
   {
-    list.emplace_back(StringUtils::Format(g_localizeStrings.Get(13554), 1), 1);
+    list.emplace_back(
+        StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13554),
+                            1),
+        1);
     for (int i = 2; i <= 10; i++)
     {
-      list.emplace_back(StringUtils::Format(g_localizeStrings.Get(13555), i), i);
+      list.emplace_back(
+          StringUtils::Format(
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13555), i),
+          i);
     }
   }
 }
 
 bool CActiveAESettings::IsSettingVisible(const std::string& condition,
                                          const std::string& value,
-                                         const SettingConstPtr& setting,
-                                         void* data)
+                                         const SettingConstPtr& setting)
 {
   if (setting == NULL || value.empty())
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_instance->m_cs);
+  std::unique_lock lock(m_instance->m_cs);
   if (!m_instance)
     return false;
 
@@ -165,7 +165,7 @@ void CActiveAESettings::SettingOptionsAudioDevicesFillerGeneral(
   current = std::static_pointer_cast<const CSettingString>(setting)->GetValue();
   std::string firstDevice;
 
-  std::unique_lock<CCriticalSection> lock(m_instance->m_cs);
+  std::unique_lock lock(m_instance->m_cs);
 
   bool foundValue = false;
   AEDeviceList sinkList;

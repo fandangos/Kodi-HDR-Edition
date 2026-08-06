@@ -10,11 +10,13 @@
 
 #include "GUILargeTextureManager.h"
 #include "GUITextureCallbackManager.h"
+#include "ServiceBroker.h"
 #include "Texture.h"
 #include "TextureManager.h"
 #include "utils/MathUtils.h"
 #include "utils/StringUtils.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <stdexcept>
 
@@ -167,7 +169,15 @@ bool CGUITexture::Process(unsigned int currentTime)
     changed |= CalculateSize();
 
   if (m_isAllocated)
-    changed |= !ReadyToRender();
+  {
+    // Only report change on ready state transition, not every frame while loading
+    const bool ready = ReadyToRender();
+    if (ready != m_lastReadyState)
+    {
+      m_lastReadyState = ready;
+      changed = true;
+    }
+  }
 
   return changed;
 }
@@ -413,6 +423,10 @@ bool CGUITexture::AllocResources()
 
   CalculateSize();
 
+  // Set scaling method of the loaded textures
+  m_texture.SetScalingMethod(m_scalingMethod);
+  m_diffuse.SetScalingMethod(m_diffuseScalingMethod);
+
   // call our implementation
   Allocate();
 
@@ -543,6 +557,7 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
   Free();
 
   m_isAllocated = NO;
+  m_lastReadyState.reset(); // reset for next allocation cycle
 }
 
 void CGUITexture::DynamicResourceAlloc(bool allocateDynamically)
@@ -752,6 +767,20 @@ bool CGUITexture::SetFileName(const std::string& filename)
 void CGUITexture::SetUseCache(const bool useCache)
 {
   m_use_cache = useCache;
+}
+
+void CGUITexture::SetScalingMethod(TEXTURE_SCALING scalingMethod)
+{
+  m_scalingMethod = scalingMethod;
+
+  m_texture.SetScalingMethod(m_scalingMethod);
+}
+
+void CGUITexture::SetDiffuseScalingMethod(TEXTURE_SCALING scalingMethod)
+{
+  m_diffuseScalingMethod = scalingMethod;
+
+  m_diffuse.SetScalingMethod(m_diffuseScalingMethod);
 }
 
 int CGUITexture::GetOrientation() const

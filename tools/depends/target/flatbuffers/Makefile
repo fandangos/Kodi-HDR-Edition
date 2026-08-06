@@ -7,7 +7,7 @@ ifeq ($(PLATFORM),)
 	ROOT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 	PLATFORM = native
 	TARBALLS_LOCATION = $(ROOT_DIR)
-	BASE_URL := http://mirrors.kodi.tv/build-deps/sources
+	BASE_URL ?= https://mirrors.kodi.tv/build-deps/sources
 	RETRIEVE_TOOL := curl
 	RETRIEVE_TOOL_FLAGS := -LsS --create-dirs --retry 10 --retry-connrefused -o
 	ARCHIVE_TOOL := tar
@@ -39,7 +39,7 @@ include ../../download-files.include
 
 all: .installed-$(PLATFORM)
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 ifeq ($(PREFIX),)
 	@echo
 	@echo "ERROR: please set PREFIX to the kodi install path e.g. make PREFIX=/usr/local"
@@ -49,14 +49,15 @@ endif
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 	mkdir -p $(BUILDDIR)
 	cd $(BUILDDIR); $(CMAKE) $(CMAKE_OPTIONS) ..
+	touch $@
 
-.installed-$(PLATFORM): $(PLATFORM)
+.installed-$(PLATFORM): .configured-$(PLATFORM)
 	$(MAKE) -C $(BUILDDIR) install
 	touch $@
 
 clean:
 	$(MAKE) -C $(BUILDDIR) clean
-	rm -f .installed-$(PLATFORM)
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean:
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

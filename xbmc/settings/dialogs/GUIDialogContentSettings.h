@@ -28,8 +28,8 @@ public:
   // specialization of CGUIWindow
   bool HasListItems() const override { return true; }
 
-  CONTENT_TYPE GetContent() const { return m_content; }
-  void SetContent(CONTENT_TYPE content);
+  ADDON::ContentType GetContent() const { return m_content; }
+  void SetContent(ADDON::ContentType content);
   void ResetContent();
 
   const ADDON::ScraperPtr& GetScraper() const { return m_scraper; }
@@ -43,15 +43,13 @@ public:
   bool GetNoUpdating() const { return m_noUpdating; }
   bool GetUseAllExternalAudio() const { return m_allExternalAudio; }
 
-  static bool Show(ADDON::ScraperPtr& scraper, CONTENT_TYPE content = CONTENT_NONE);
+  static bool Show(ADDON::ScraperPtr& scraper,
+                   ADDON::ContentType content = ADDON::ContentType::NONE);
   static bool Show(ADDON::ScraperPtr& scraper,
                    KODI::VIDEO::SScanSettings& settings,
-                   CONTENT_TYPE content = CONTENT_NONE);
+                   ADDON::ContentType content = ADDON::ContentType::NONE);
 
 protected:
-  // specializations of CGUIWindow
-  void OnInitWindow() override;
-
   // implementations of ISettingCallback
   void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
   void OnSettingAction(const std::shared_ptr<const CSetting>& setting) override;
@@ -73,11 +71,11 @@ private:
   /*!
   * @brief The currently selected content type
   */
-  CONTENT_TYPE m_content = CONTENT_NONE;
+  ADDON::ContentType m_content{ADDON::ContentType::NONE};
   /*!
   * @brief The selected content type at dialog creation
   */
-  CONTENT_TYPE m_originalContent = CONTENT_NONE;
+  ADDON::ContentType m_originalContent{ADDON::ContentType::NONE};
   /*!
   * @brief The currently selected scraper
   */

@@ -10,6 +10,7 @@
 
 #include "GUIControlFactory.h"
 #include "GUIInfoManager.h"
+#include "ServiceBroker.h"
 #include "guilib/GUIComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
@@ -45,7 +46,7 @@ CGUIStaticItem::CGUIStaticItem(const TiXmlElement *item, int parentID) : CFileIt
     m_info.emplace_back(thumb, "thumb");
   if (!icon.IsConstant())
     m_info.emplace_back(icon, "icon");
-  m_iprogramCount = id ? atoi(id) : 0;
+  SetProgramCount(id ? std::atoi(id) : 0);
   // add any properties
   const TiXmlElement *property = item->FirstChildElement("property");
   while (property)

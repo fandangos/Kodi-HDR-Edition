@@ -26,17 +26,22 @@
 
 #include <memory>
 
+extern "C"
+{
+#include <libavcodec/defs.h>
+}
+
 CInputStreamProvider::CInputStreamProvider(const ADDON::AddonInfoPtr& addonInfo,
                                            KODI_HANDLE parentInstance)
   : m_addonInfo(addonInfo), m_parentInstance(parentInstance)
 {
 }
 
-void CInputStreamProvider::GetAddonInstance(INSTANCE_TYPE instance_type,
+void CInputStreamProvider::GetAddonInstance(InstanceType instance_type,
                                             ADDON::AddonInfoPtr& addonInfo,
                                             KODI_HANDLE& parentInstance)
 {
-  if (instance_type == ADDON::IAddonProvider::INSTANCE_VIDEOCODEC)
+  if (instance_type == ADDON::IAddonProvider::InstanceType::VIDEOCODEC)
   {
     addonInfo = m_addonInfo;
     parentInstance = m_parentInstance;
@@ -80,10 +85,10 @@ bool CInputStreamAddon::Supports(const AddonInfoPtr& addonInfo, const CFileItem&
   CVariant oldAddonProp = fileitem.GetProperty("inputstreamaddon");
   if (!oldAddonProp.isNull())
   {
-    CLog::Log(LOGERROR,
-              "CInputStreamAddon::{} - 'inputstreamaddon' has been deprecated, "
-              "please use `#KODIPROP:inputstream={}` instead",
-              __func__, oldAddonProp.asString());
+    CLog::LogF(
+        LOGERROR,
+        "'inputstreamaddon' has been deprecated, please use `#KODIPROP:inputstream={}` instead",
+        oldAddonProp.asString());
   }
 
   // check if a specific inputstream addon is requested
@@ -169,10 +174,8 @@ bool CInputStreamAddon::Open()
 
     if (props.m_nCountInfoValues >= STREAM_MAX_PROPERTY_COUNT)
     {
-      CLog::Log(LOGERROR,
-                "CInputStreamAddon::{} - Hit max count of stream properties, "
-                "have {}, actual count: {}",
-                __func__, STREAM_MAX_PROPERTY_COUNT, propsMap.size());
+      CLog::LogF(LOGERROR, "Hit max count of stream properties, have {}, actual count: {}",
+                 STREAM_MAX_PROPERTY_COUNT, propsMap.size());
       break;
     }
   }
@@ -303,7 +306,7 @@ bool CInputStreamAddon::GetTimes(Times &times)
   if (!m_ifc.inputstream->toAddon->get_times)
     return false;
 
-  INPUTSTREAM_TIMES i_times;
+  INPUTSTREAM_TIMES i_times{};
 
   if (m_ifc.inputstream->toAddon->get_times(m_ifc.inputstream, &i_times))
   {
@@ -444,6 +447,19 @@ KODI_HANDLE CInputStreamAddon::cb_get_stream_transfer(KODI_HANDLE handle,
     videoStream->colorTransferCharacteristic =
         static_cast<AVColorTransferCharacteristic>(stream->m_colorTransferCharacteristic);
 
+    // Determine the HDR type
+    if (stream->m_codecFourCC == MKTAG('d', 'v', 'h', '1') ||
+        stream->m_codecFourCC == MKTAG('d', 'v', 'h', 'e'))
+      videoStream->hdr_type = StreamHdrType::HDR_TYPE_DOLBYVISION;
+    else if (videoStream->colorTransferCharacteristic == AVCOL_TRC_SMPTE2084)
+    {
+      videoStream->hdr_type = StreamHdrType::HDR_TYPE_HDR10;
+    }
+    else if (videoStream->colorTransferCharacteristic == AVCOL_TRC_ARIB_STD_B67)
+      videoStream->hdr_type = StreamHdrType::HDR_TYPE_HLG;
+    else
+      videoStream->hdr_type = StreamHdrType::HDR_TYPE_NONE;
+
     if (stream->m_masteringMetadata)
     {
       videoStream->masteringMetaData = std::make_shared<AVMasteringDisplayMetadata>();
@@ -478,6 +494,22 @@ KODI_HANDLE CInputStreamAddon::cb_get_stream_transfer(KODI_HANDLE handle,
           static_cast<unsigned>(stream->m_contentLightMetadata->max_cll);
       videoStream->contentLightMetaData->MaxFALL =
           static_cast<unsigned>(stream->m_contentLightMetadata->max_fall);
+    }
+    //@}
+
+    // Dolby Vision DVCC metadata mapping
+    if (stream->m_dvccMetadata)
+    {
+      videoStream->dovi.dv_version_major = stream->m_dvccMetadata->m_dvVersionMajor;
+      videoStream->dovi.dv_version_minor = stream->m_dvccMetadata->m_dvVersionMinor;
+      videoStream->dovi.dv_profile = stream->m_dvccMetadata->m_dvProfile;
+      videoStream->dovi.dv_level = stream->m_dvccMetadata->m_dvLevel;
+      videoStream->dovi.rpu_present_flag = stream->m_dvccMetadata->m_rpuPresentFlag;
+      videoStream->dovi.el_present_flag = stream->m_dvccMetadata->m_elPresentFlag;
+      videoStream->dovi.bl_present_flag = stream->m_dvccMetadata->m_blPresentFlag;
+      videoStream->dovi.dv_bl_signal_compatibility_id =
+          stream->m_dvccMetadata->m_dvBlSignalCompatibilityId;
+      videoStream->dovi.dv_md_compression = stream->m_dvccMetadata->m_dvMdCompression;
     }
     //@}
 
@@ -546,10 +578,10 @@ KODI_HANDLE CInputStreamAddon::cb_get_stream_transfer(KODI_HANDLE handle,
     demuxStream->cryptoSession = std::make_shared<DemuxCryptoSession>(
         map[stream->m_cryptoSession.keySystem], stream->m_cryptoSession.sessionId,
         stream->m_cryptoSession.flags);
-
-    if ((stream->m_features & INPUTSTREAM_FEATURE_DECODE) != 0)
-      demuxStream->externalInterfaces = thisClass->m_subAddonProvider;
   }
+
+  if ((stream->m_features & INPUTSTREAM_FEATURE_DECODE) != 0)
+    demuxStream->externalInterfaces = thisClass->m_subAddonProvider;
 
   // Tie the lifetime of the stream to the CInputStreamAddon
   thisClass->m_streams.emplace_back(demuxStream);
@@ -672,12 +704,13 @@ void CInputStreamAddon::GetChapterName(std::string& name, int ch)
   }
 }
 
-int64_t CInputStreamAddon::GetChapterPos(int ch)
+std::chrono::milliseconds CInputStreamAddon::GetChapterPos(int ch)
 {
+  //! @todo add API for ms precision
   if (m_ifc.inputstream->toAddon->get_chapter_pos)
-    return m_ifc.inputstream->toAddon->get_chapter_pos(m_ifc.inputstream, ch);
+    return std::chrono::seconds{m_ifc.inputstream->toAddon->get_chapter_pos(m_ifc.inputstream, ch)};
 
-  return 0;
+  return std::chrono::milliseconds{0};
 }
 
 bool CInputStreamAddon::SeekChapter(int ch)
@@ -693,35 +726,35 @@ int CInputStreamAddon::ConvertVideoCodecProfile(STREAMCODEC_PROFILE profile)
   switch (profile)
   {
   case H264CodecProfileBaseline:
-    return FF_PROFILE_H264_BASELINE;
+    return AV_PROFILE_H264_BASELINE;
   case H264CodecProfileMain:
-    return FF_PROFILE_H264_MAIN;
+    return AV_PROFILE_H264_MAIN;
   case H264CodecProfileExtended:
-    return FF_PROFILE_H264_EXTENDED;
+    return AV_PROFILE_H264_EXTENDED;
   case H264CodecProfileHigh:
-    return FF_PROFILE_H264_HIGH;
+    return AV_PROFILE_H264_HIGH;
   case H264CodecProfileHigh10:
-    return FF_PROFILE_H264_HIGH_10;
+    return AV_PROFILE_H264_HIGH_10;
   case H264CodecProfileHigh422:
-    return FF_PROFILE_H264_HIGH_422;
+    return AV_PROFILE_H264_HIGH_422;
   case H264CodecProfileHigh444Predictive:
-    return FF_PROFILE_H264_HIGH_444_PREDICTIVE;
+    return AV_PROFILE_H264_HIGH_444_PREDICTIVE;
   case VP9CodecProfile0:
-    return FF_PROFILE_VP9_0;
+    return AV_PROFILE_VP9_0;
   case VP9CodecProfile1:
-    return FF_PROFILE_VP9_1;
+    return AV_PROFILE_VP9_1;
   case VP9CodecProfile2:
-    return FF_PROFILE_VP9_2;
+    return AV_PROFILE_VP9_2;
   case VP9CodecProfile3:
-    return FF_PROFILE_VP9_3;
+    return AV_PROFILE_VP9_3;
   case AV1CodecProfileMain:
-    return FF_PROFILE_AV1_MAIN;
+    return AV_PROFILE_AV1_MAIN;
   case AV1CodecProfileHigh:
-    return FF_PROFILE_AV1_HIGH;
+    return AV_PROFILE_AV1_HIGH;
   case AV1CodecProfileProfessional:
-    return FF_PROFILE_AV1_PROFESSIONAL;
+    return AV_PROFILE_AV1_PROFESSIONAL;
   default:
-    return FF_PROFILE_UNKNOWN;
+    return AV_PROFILE_UNKNOWN;
   }
 }
 
@@ -730,45 +763,45 @@ int CInputStreamAddon::ConvertAudioCodecProfile(STREAMCODEC_PROFILE profile)
   switch (profile)
   {
     case AACCodecProfileMAIN:
-      return FF_PROFILE_AAC_MAIN;
+      return AV_PROFILE_AAC_MAIN;
     case AACCodecProfileLOW:
-      return FF_PROFILE_AAC_LOW;
+      return AV_PROFILE_AAC_LOW;
     case AACCodecProfileSSR:
-      return FF_PROFILE_AAC_SSR;
+      return AV_PROFILE_AAC_SSR;
     case AACCodecProfileLTP:
-      return FF_PROFILE_AAC_LTP;
+      return AV_PROFILE_AAC_LTP;
     case AACCodecProfileHE:
-      return FF_PROFILE_AAC_HE;
+      return AV_PROFILE_AAC_HE;
     case AACCodecProfileHEV2:
-      return FF_PROFILE_AAC_HE_V2;
+      return AV_PROFILE_AAC_HE_V2;
     case AACCodecProfileLD:
-      return FF_PROFILE_AAC_LD;
+      return AV_PROFILE_AAC_LD;
     case AACCodecProfileELD:
-      return FF_PROFILE_AAC_ELD;
+      return AV_PROFILE_AAC_ELD;
     case MPEG2AACCodecProfileLOW:
-      return FF_PROFILE_MPEG2_AAC_LOW;
+      return AV_PROFILE_MPEG2_AAC_LOW;
     case MPEG2AACCodecProfileHE:
-      return FF_PROFILE_MPEG2_AAC_HE;
+      return AV_PROFILE_MPEG2_AAC_HE;
     case DTSCodecProfile:
-      return FF_PROFILE_DTS;
+      return AV_PROFILE_DTS;
     case DTSCodecProfileES:
-      return FF_PROFILE_DTS_ES;
+      return AV_PROFILE_DTS_ES;
     case DTSCodecProfile9624:
-      return FF_PROFILE_DTS_96_24;
+      return AV_PROFILE_DTS_96_24;
     case DTSCodecProfileHDHRA:
-      return FF_PROFILE_DTS_HD_HRA;
+      return AV_PROFILE_DTS_HD_HRA;
     case DTSCodecProfileHDMA:
-      return FF_PROFILE_DTS_HD_MA;
+      return AV_PROFILE_DTS_HD_MA;
     case DTSCodecProfileHDExpress:
-      return FF_PROFILE_DTS_EXPRESS;
+      return AV_PROFILE_DTS_EXPRESS;
     case DTSCodecProfileHDMAX:
-      return FF_PROFILE_DTS_HD_MA_X;
+      return AV_PROFILE_DTS_HD_MA_X;
     case DTSCodecProfileHDMAIMAX:
-      return FF_PROFILE_DTS_HD_MA_X_IMAX;
+      return AV_PROFILE_DTS_HD_MA_X_IMAX;
     case DDPlusCodecProfileAtmos:
-      return FF_PROFILE_EAC3_DDP_ATMOS;
+      return AV_PROFILE_EAC3_DDP_ATMOS;
     default:
-      return FF_PROFILE_UNKNOWN;
+      return AV_PROFILE_UNKNOWN;
   }
 }
 

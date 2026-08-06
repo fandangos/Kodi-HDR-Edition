@@ -25,7 +25,11 @@ namespace PVR
 struct GridItem
 {
   GridItem(const std::shared_ptr<CFileItem>& _item, float _width, int _startBlock, int _endBlock)
-    : item(_item), originWidth(_width), width(_width), startBlock(_startBlock), endBlock(_endBlock)
+    : item(_item),
+      originWidth(_width),
+      width(_width),
+      startBlock(_startBlock),
+      endBlock(_endBlock)
   {
   }
 
@@ -46,21 +50,19 @@ class CPVREpgInfoTag;
 class CGUIEPGGridContainerModel
 {
 public:
-  static constexpr int MINSPERBLOCK = 5; // minutes
-
-  CGUIEPGGridContainerModel() = default;
+  explicit CGUIEPGGridContainerModel(unsigned int minutesPerBlock);
   virtual ~CGUIEPGGridContainerModel() = default;
 
-  void Initialize(const std::unique_ptr<CFileItemList>& items,
+  void Initialize(const CFileItemList& items,
                   const CDateTime& gridStart,
                   const CDateTime& gridEnd,
                   int iFirstChannel,
                   int iChannelsPerPage,
                   int iFirstBlock,
                   int iBlocksPerPage,
-                  int iRulerUnit,
+                  int blocksPerRulerItem,
                   float fBlockSize);
-  void SetInvalid();
+  void SetInvalid() const;
 
   static const int INVALID_INDEX = -1;
   void FindChannelAndBlockIndex(int channelUid,
@@ -112,6 +114,8 @@ public:
   std::unique_ptr<CFileItemList> GetCurrentTimeLineItems(int firstChannel, int numChannels) const;
 
 private:
+  CGUIEPGGridContainerModel() = delete;
+
   GridItem* GetGridItemPtr(int iChannel, int iBlock) const;
   std::shared_ptr<CFileItem> CreateGapItem(int iChannel) const;
   std::shared_ptr<CFileItem> GetItem(int iChannel, int iBlock) const;
@@ -130,7 +134,7 @@ private:
   using EpgTagsMap = std::unordered_map<int, EpgTags>;
 
   std::shared_ptr<CFileItem> CreateEpgTags(int iChannel, int iBlock) const;
-  std::shared_ptr<CFileItem> GetEpgTags(EpgTagsMap::iterator& itEpg,
+  std::shared_ptr<CFileItem> GetEpgTags(const EpgTagsMap::iterator& itEpg,
                                         int iChannel,
                                         int iBlock) const;
   std::shared_ptr<CFileItem> GetEpgTagsBefore(EpgTags& epgTags, int iChannel, int iBlock) const;
@@ -148,10 +152,7 @@ private:
   {
     GridCoordinates(int _channel, int _block) : channel(_channel), block(_block) {}
 
-    bool operator==(const GridCoordinates& other) const
-    {
-      return (channel == other.channel && block == other.block);
-    }
+    bool operator==(const GridCoordinates& other) const = default;
 
     int channel = 0;
     int block = 0;
@@ -168,6 +169,7 @@ private:
   mutable std::unordered_map<GridCoordinates, GridItem, GridCoordinatesHash> m_gridIndex;
 
   int m_blocks = 0;
+  const unsigned int m_minutesPerBlock{0};
   float m_fBlockSize = 0.0f;
 
   int m_firstActiveChannel = 0;

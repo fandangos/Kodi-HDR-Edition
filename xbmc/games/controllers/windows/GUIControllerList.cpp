@@ -12,6 +12,7 @@
 #include "GUIControllerWindow.h"
 #include "GUIFeatureList.h"
 #include "ServiceBroker.h"
+#include "addons/AddonEvents.h"
 #include "addons/AddonManager.h"
 #include "dialogs/GUIDialogYesNo.h"
 #include "games/GameServices.h"
@@ -60,7 +61,25 @@ bool CGUIControllerList::Initialize(void)
   if (m_controllerButton)
     m_controllerButton->SetVisible(false);
 
-  CServiceBroker::GetAddonMgr().Events().Subscribe(this, &CGUIControllerList::OnEvent);
+  CServiceBroker::GetAddonMgr().Events().Subscribe(
+      this,
+      [this](const ADDON::AddonEvent& event)
+      {
+        if (typeid(event) == typeid(ADDON::AddonEvents::Enabled) || // also called on install,
+            typeid(event) == typeid(ADDON::AddonEvents::Disabled) || // not called on uninstall
+            typeid(event) == typeid(ADDON::AddonEvents::ReInstalled) ||
+            typeid(event) == typeid(ADDON::AddonEvents::UnInstalled))
+        {
+          CGUIMessage msg(GUI_MSG_REFRESH_LIST, m_guiWindow->GetID(), CONTROL_CONTROLLER_LIST);
+
+          // Focus installed add-on
+          if (typeid(event) == typeid(ADDON::AddonEvents::Enabled) ||
+              typeid(event) == typeid(ADDON::AddonEvents::ReInstalled))
+            msg.SetStringParam(event.addonId);
+
+          CServiceBroker::GetAppMessenger()->SendGUIMessage(msg, m_guiWindow->GetID());
+        }
+      });
   Refresh("");
 
   return m_controllerList != nullptr && m_controllerButton != nullptr;
@@ -160,24 +179,6 @@ void CGUIControllerList::ResetController(void)
   }
 }
 
-void CGUIControllerList::OnEvent(const ADDON::AddonEvent& event)
-{
-  if (typeid(event) == typeid(ADDON::AddonEvents::Enabled) || // also called on install,
-      typeid(event) == typeid(ADDON::AddonEvents::Disabled) || // not called on uninstall
-      typeid(event) == typeid(ADDON::AddonEvents::ReInstalled) ||
-      typeid(event) == typeid(ADDON::AddonEvents::UnInstalled))
-  {
-    CGUIMessage msg(GUI_MSG_REFRESH_LIST, m_guiWindow->GetID(), CONTROL_CONTROLLER_LIST);
-
-    // Focus installed add-on
-    if (typeid(event) == typeid(ADDON::AddonEvents::Enabled) ||
-        typeid(event) == typeid(ADDON::AddonEvents::ReInstalled))
-      msg.SetStringParam(event.addonId);
-
-    CServiceBroker::GetAppMessenger()->SendGUIMessage(msg, m_guiWindow->GetID());
-  }
-}
-
 bool CGUIControllerList::RefreshControllers(void)
 {
   // Get current controllers
@@ -200,7 +201,7 @@ bool CGUIControllerList::RefreshControllers(void)
     auto ControllerNotAccepted = [&controllers](const ControllerPtr& controller)
     { return !controllers.IsControllerAccepted(controller->ID()); };
 
-    if (!std::all_of(newControllers.begin(), newControllers.end(), ControllerNotAccepted))
+    if (!std::ranges::all_of(newControllers, ControllerNotAccepted))
       newControllers.erase(
           std::remove_if(newControllers.begin(), newControllers.end(), ControllerNotAccepted),
           newControllers.end());
@@ -215,10 +216,10 @@ bool CGUIControllerList::RefreshControllers(void)
 
   auto GetControllerID = [](const ControllerPtr& controller) { return controller->ID(); };
 
-  std::transform(m_controllers.begin(), m_controllers.end(),
-                 std::inserter(oldControllerIds, oldControllerIds.begin()), GetControllerID);
-  std::transform(newControllers.begin(), newControllers.end(),
-                 std::inserter(newControllerIds, newControllerIds.begin()), GetControllerID);
+  std::ranges::transform(m_controllers, std::inserter(oldControllerIds, oldControllerIds.begin()),
+                         GetControllerID);
+  std::ranges::transform(newControllers, std::inserter(newControllerIds, newControllerIds.begin()),
+                         GetControllerID);
 
   const bool bChanged = (oldControllerIds != newControllerIds);
   if (bChanged)

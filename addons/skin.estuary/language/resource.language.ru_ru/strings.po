@@ -5,17 +5,17 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: KODI Main\n"
-"Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
+"Report-Msgid-Bugs-To: translations@kodi.tv\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2024-08-09 14:17+0000\n"
-"Last-Translator: Alexey <signfinder@gmail.com>\n"
+"PO-Revision-Date: 2026-05-27 03:16+0000\n"
+"Last-Translator: Andrei Stepanov <adem4ik@gmail.com>\n"
 "Language-Team: Russian <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/ru_ru/>\n"
 "Language: ru_ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n%100>=11 && n%100<=14)? 2 : 3);\n"
-"X-Generator: Weblate 5.6.2\n"
+"X-Generator: Weblate 2026.5\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -23,11 +23,11 @@ msgstr "Обложка Estuary от phil65 (стандартная обложк�
 
 msgctxt "Addon Description"
 msgid "Estuary is the default skin for Kodi 17.0 and above. It attempts to be easy for first time Kodi users to understand and use."
-msgstr "Estuary — это стандартная обложка Kodi, начиная с версии 17.0. Простая и понятная в использовании для новых пользователей Kodi."
+msgstr "Estuary — стандартная обложка Kodi, начиная с версии 17.0. Простая и понятная в использовании для новых пользователей Kodi."
 
 msgctxt "Addon Disclaimer"
 msgid "Estuary is the default skin for Kodi, removing it may cause issues"
-msgstr "Estuary — это стандартная обложка Kodi, и ее удаление может привести к возникновению проблем"
+msgstr "Estuary — стандартная обложка Kodi, ее удаление может привести к возникновению проблем"
 
 msgctxt "#31000"
 msgid "Now playing"
@@ -39,7 +39,7 @@ msgstr "Поиск…"
 
 msgctxt "#31002"
 msgid "Show media fanart as background"
-msgstr "Отображать фанарт медиафайлов в качестве фона"
+msgstr "Отображать фан-арт медиафайлов в качестве фона"
 
 msgctxt "#31003"
 msgid "Cinema mode"
@@ -67,7 +67,7 @@ msgstr "Включить виджеты категорий"
 
 msgctxt "#31009"
 msgid "Download icons"
-msgstr "Загрузить значки"
+msgstr "Скачать значки"
 
 msgctxt "#31010"
 msgid "In progress movies"
@@ -97,16 +97,16 @@ msgstr "Недавние записи"
 #. home screen channel widget: recently played tv channels. (please note that in some non-english languages #31018 and #31016 might not be equal)
 msgctxt "#31016"
 msgid "Recently played channels"
-msgstr "Недавно проигранные каналы"
+msgstr "Недавно просмотренные каналы"
 
 msgctxt "#31017"
 msgid "Rated"
-msgstr "Оценённый"
+msgstr "Оценено"
 
 #. home screen channel widget: recently played radio channels. (please note that in some non-english languages #31018 and #31016 might not be equal)
 msgctxt "#31018"
 msgid "Recently played channels"
-msgstr "Недавно проигранные каналы"
+msgstr "Недавно просмотренные каналы"
 
 msgctxt "#31019"
 msgid "Forecast"
@@ -122,7 +122,7 @@ msgstr "Другие параметры"
 
 msgctxt "#31022"
 msgid "Sort by"
-msgstr "Порядок"
+msgstr "Сортировать по"
 
 msgctxt "#31023"
 msgid "Viewtype"
@@ -130,15 +130,15 @@ msgstr "Вид"
 
 msgctxt "#31024"
 msgid "Choose rating to display for media items"
-msgstr "Выбрать рейтинг для показа мультимедийных элементов"
+msgstr "Выбрать рейтинг для отображения медиафайлов"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "Список избранного пуст. Вы можете добавить сюда любые медиаданные с помощью контекстного меню."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr "Избранное не найдено. Вы можете добавлять элементы из медиатеки и других мест через контекстное меню."
 
 msgctxt "#31026"
 msgid "Timeshift"
-msgstr "Таймшифт"
+msgstr "Сдвиг по времени"
 
 msgctxt "#31027"
 msgid "Next aired"
@@ -146,7 +146,7 @@ msgstr "Следующий эфир"
 
 msgctxt "#31028"
 msgid "Show fanart"
-msgstr "Показать фанарт"
+msgstr "Показать фан-арт"
 
 msgctxt "#31029"
 msgid "Last logged in"
@@ -179,7 +179,7 @@ msgstr "Страницы"
 
 msgctxt "#31036"
 msgid "items"
-msgstr "Объекты"
+msgstr "объекты"
 
 msgctxt "#31037"
 msgid "Selected track"
@@ -221,9 +221,25 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "Удалить группу"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr "Формат названия фильма"
+
 msgctxt "#31048"
 msgid "Available"
 msgstr "Доступно"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr "Оригинальное название"
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr "Оригинальное название (локализованное название)"
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr "Локализованное название (оригинальное название)"
 
 msgctxt "#31052"
 msgid "filtered"
@@ -239,7 +255,7 @@ msgstr "Нажмите [B]Влево[/B], чтобы сделать шаг на�
 
 msgctxt "#31055"
 msgid "Press [B]Right[/B] to frame advance"
-msgstr "Нажмите [B]Вправо[/B], чтобы перейти на кадр вперёд"
+msgstr "Нажмите [B]Вправо[/B], чтобы перейти к следующему кадру"
 
 msgctxt "#31056"
 msgid "Go to playlist"
@@ -251,15 +267,15 @@ msgstr "Показывать экран входа при запуске"
 
 msgctxt "#31058"
 msgid "Automatic Login on startup"
-msgstr "Автоматическая авторизация при запуске"
+msgstr "Автоматический вход при запуске"
 
 msgctxt "#31061"
 msgid "Main menu items"
-msgstr "Элементы главного меню"
+msgstr "Объекты главного меню"
 
 msgctxt "#31062"
 msgid "Choose weather fanart pack"
-msgstr "Выбрать набор фанарта погоды"
+msgstr "Выбрать набор фан-арта погоды"
 
 msgctxt "#31063"
 msgid "Sections"
@@ -283,7 +299,7 @@ msgstr "Выбор предустановок"
 
 msgctxt "#31069"
 msgid "Last Updated"
-msgstr "Последнее обновление"
+msgstr "Обновлено"
 
 msgctxt "#31071"
 msgid "by"
@@ -291,7 +307,7 @@ msgstr "от"
 
 msgctxt "#31072"
 msgid "Power Options"
-msgstr "Настройки питания"
+msgstr "Параметры питания"
 
 msgctxt "#31073"
 msgid "Total length"
@@ -313,13 +329,18 @@ msgctxt "#31080"
 msgid "Ends at"
 msgstr "Закончится в"
 
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr "Трансляция"
+
 msgctxt "#31082"
 msgid "Lyrics add-on"
 msgstr "Дополнение текстов песен"
 
 msgctxt "#31083"
 msgid "Lyrics add-on settings"
-msgstr "Настройка дополнения текстов песен"
+msgstr "Настройки дополнения текстов песен"
 
 msgctxt "#31084"
 msgid "Visualisation settings"
@@ -335,11 +356,11 @@ msgstr "Видео меню"
 
 msgctxt "#31093"
 msgid "Show weather info in top bar"
-msgstr "Показывать сведения о погоде на верхней панели"
+msgstr "Показывать погоду на верхней панели"
 
 msgctxt "#31095"
 msgid "Use slide animations"
-msgstr "Использовать скользящую анимацию"
+msgstr "Использовать анимацию слайдов"
 
 msgctxt "#31096"
 msgid "Local subtitle available"
@@ -356,12 +377,12 @@ msgstr "Выберите профиль пользователя Kodi,[CR]что
 #. viewtype name
 msgctxt "#31099"
 msgid "IconWall"
-msgstr "Значки"
+msgstr "Стена значков"
 
 #. viewtype name
 msgctxt "#31100"
 msgid "Shift"
-msgstr "Shift"
+msgstr "Сдвиг"
 
 #. viewtype name
 msgctxt "#31101"
@@ -379,7 +400,7 @@ msgstr "Введите текст здесь..."
 
 msgctxt "#31104"
 msgid "Your library is currently empty. In order to populate it with your personal media, enter \"Files\" section, add a media source and configure it. After the source has been added and indexed you will be able to browse your library."
-msgstr "Ваша медиатека пуста. Чтобы заполнить её вашими медиафайлами, войдите в раздел \"Файлы\", добавьте источник медиа и настройте его. После того как источник будет добавлен и проиндексирован, вы сможете просматривать вашу медиатеку."
+msgstr "Ваша медиатека пуста. Чтобы заполнить её вашими медиафайлами, войдите в раздел \"Файлы\", добавьте источник медиа и настройте его. После добавления и индексации источника вы сможете просматривать вашу медиатеку."
 
 msgctxt "#31105"
 msgid "Add video sources and set the appropriate content type in order to populate your video libraries."
@@ -394,10 +415,15 @@ msgctxt "#31107"
 msgid "WideList"
 msgstr "Широкий список"
 
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr "Список Медиа"
+
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
 msgid "Video streams"
-msgstr ""
+msgstr "Видео потоки"
 
 msgctxt "#31110"
 msgid "Enter files section"
@@ -409,7 +435,7 @@ msgstr "Просмотр Ваших фотографий или их загру�
 
 msgctxt "#31112"
 msgid "Audio streams"
-msgstr ""
+msgstr "Аудио потоки"
 
 msgctxt "#31113"
 msgid "Search local library"
@@ -421,7 +447,7 @@ msgstr "Искать в YouTube"
 
 msgctxt "#31115"
 msgid "Subtitles streams"
-msgstr ""
+msgstr "Потоки субтитров"
 
 msgctxt "#31116"
 msgid "Remove this main menu item"
@@ -429,7 +455,7 @@ msgstr "Убрать этот элемент главного меню"
 
 msgctxt "#31117"
 msgid "Edit nodes"
-msgstr "Изменить разделы"
+msgstr "Редактировать узлы"
 
 msgctxt "#31118"
 msgid "Enter add-on browser"
@@ -441,7 +467,7 @@ msgstr "У вас еще нет каких-либо установленных �
 
 msgctxt "#31120"
 msgid "You did not set up a weather provider yet. In order to view weather information, choose a weather provider and set up your location."
-msgstr "Вы еще не выбрали поставщика погоды. Для того чтобы просматривать информацию о погоде, выберите его и укажите свое местоположение."
+msgstr "Вы еще не выбрали поставщика погоды. Для того, чтобы просматривать информацию о погоде, выберите его и укажите свое местоположение."
 
 msgctxt "#31121"
 msgid "Set weather provider"
@@ -454,6 +480,10 @@ msgstr "Непросмотренные сериалы"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "Тот же режиссёр"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr "Подробности о медиа"
 
 msgctxt "#31125"
 msgid "Press up for actor info"
@@ -473,15 +503,15 @@ msgstr "Участники"
 
 msgctxt "#31129"
 msgid "General settings applying to all areas of the skin."
-msgstr "Общие параметры, применяемые во всех местах обложки."
+msgstr "Общие настройки, применяемые во всех местах обложки."
 
 msgctxt "#31130"
 msgid "Main menu-related settings: Configure the home screen to your likings."
-msgstr "Основные настройки меню: Настройка главного экрана в соответствии с Вашими предпочтениями."
+msgstr "Настройки главного меню: настройте домашний экран по своему вкусу."
 
 msgctxt "#31131"
 msgid "Choose skin fanart pack"
-msgstr "Выбрать набор фанарта обложки"
+msgstr "Выбрать набор фан-арта обложки"
 
 msgctxt "#31132"
 msgid "Select Program"
@@ -489,7 +519,7 @@ msgstr "Выбрать программу"
 
 msgctxt "#31133"
 msgid "Select Resolution"
-msgstr "Выберите разрешение"
+msgstr "Выбрать разрешение"
 
 msgctxt "#31134"
 msgid "Remaining"
@@ -497,7 +527,7 @@ msgstr "Осталось"
 
 msgctxt "#31135"
 msgid "Binary"
-msgstr "Бинарный"
+msgstr "Двоичный"
 
 msgctxt "#31136"
 msgid "Click here to see latest changes..."
@@ -506,7 +536,7 @@ msgstr "Нажмите сюда, чтобы увидеть последние и
 #. Label to show PVR info page
 msgctxt "#31137"
 msgid "PVR"
-msgstr "PVR"
+msgstr "Запись эфира"
 
 #. Label to show player info page
 msgctxt "#31138"
@@ -516,7 +546,7 @@ msgstr "Проигрыватель"
 #. Label to show video decoder name
 msgctxt "#31139"
 msgid "Video decoder"
-msgstr "Видеодекодер"
+msgstr "Видео декодер"
 
 #. Label to show the video pixel format
 msgctxt "#31140"
@@ -533,7 +563,7 @@ msgstr "Скорость воспроизведения"
 
 msgctxt "#31143"
 msgid "You did not set up PVR yet. In order to use PVR, choose a PVR client addon and configure it. Please visit http://kodi.wiki/view/PVR to learn more."
-msgstr "Функции PVR не настроены. Для использования PVR выберите соответствующий клиент и настройте его. Посетите http://kodi.wiki/view/PVR для получения дополнительной информации."
+msgstr "Функции записи эфира не настроены. Для записи эфира выберите соответствующий клиент и настройте его. Посетите http://kodi.wiki/view/PVR для получения дополнительной информации."
 
 msgctxt "#31144"
 msgid "Enter add-on browser"
@@ -556,8 +586,8 @@ msgid "Categories"
 msgstr "Категории"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "Выбрать набор фанарта жанров"
+msgid "Choose genre fanart pack"
+msgstr "Выберите жанр фан-арта"
 
 msgctxt "#31150"
 msgid "Origin"
@@ -565,11 +595,11 @@ msgstr "Источник"
 
 msgctxt "#31151"
 msgid "Unwatched music videos"
-msgstr "Непросмотренные муз. клипы"
+msgstr "Непросмотренные музыкальные клипы"
 
 msgctxt "#31152"
 msgid "Random music videos"
-msgstr "Случайные муз. клипы"
+msgstr "Случайные музыкальные клипы"
 
 msgctxt "#31153"
 msgid "You do not have any add-ons of this type installed. Enter the add-on browser to download add-ons created by our community."
@@ -581,11 +611,11 @@ msgstr "Нажмите ОК для переключения местополож
 
 msgctxt "#31155"
 msgid "No bookmarks created yet."
-msgstr "Нет закладок."
+msgstr "Закладки пока не созданы."
 
 msgctxt "#31156"
 msgid "Choose background pattern"
-msgstr "Выберите фон"
+msgstr "Выбрать фоновый узор"
 
 msgctxt "#31157"
 msgid "Edit categories"
@@ -593,15 +623,15 @@ msgstr "Изменить категории"
 
 msgctxt "#31158"
 msgid "Touch mode"
-msgstr "Режим касания"
+msgstr "Сенсорный режим"
 
 msgctxt "#31159"
 msgid "Artwork"
-msgstr "Картинки"
+msgstr "Иллюстрации"
 
 msgctxt "#31160"
 msgid "Show media flags"
-msgstr "Флаги сведений"
+msgstr "Показывать медиа флаги"
 
 msgctxt "#31161"
 msgid "Numeric pad"
@@ -609,11 +639,11 @@ msgstr "Цифровая клавиатура"
 
 msgctxt "#31162"
 msgid "Play your personal games or download one of the many game add-ons from the official repository."
-msgstr "Играйте в свои игры или загрузите игровые дополнения из официального репозитория."
+msgstr "Играйте в свои игры или скачивайте игровые дополнения из официального репозитория."
 
 msgctxt "#31163"
 msgid "Show Fanart background"
-msgstr "Показывать фанарт в фоне"
+msgstr "Показывать фан-арт в фоне"
 
 #. Choose profile identifier
 msgctxt "#31164"
@@ -643,7 +673,7 @@ msgstr "Показывать постеры вместо миниатюр для
 #. Description label for skin settings area
 msgctxt "#31169"
 msgid "Artwork related settings."
-msgstr "Параметры, относящиеся к иллюстрациям."
+msgstr "Настройки, относящиеся к иллюстрациям."
 
 #. Label for OSD settings category
 msgctxt "#31170"
@@ -668,23 +698,43 @@ msgstr "Время автозакрытия экранного меню виде
 #. Setting to control what happens when clicking a music album on the home screen
 msgctxt "#31174"
 msgid "Default select action for albums on the home screen"
-msgstr "Выбор действия по умолчанию для альбомов на главном экране"
+msgstr "Действие по умолчанию для выбора альбомов на домашнем экране"
 
 #. Setting to control what happens when clicking a TV show on the home screen
 msgctxt "#31175"
 msgid "Default select action for TV shows on the home screen"
-msgstr "Выбор действия по умолчанию для ТВ-передач на главном экране"
+msgstr "Действие по умолчанию для выбора сериалов на домашнем экране"
 
 #. Setting to control what happens when clicking a movie set on the home screen
 msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
-msgstr "Выбор действия по умолчанию для киноциклов на главном экране"
+msgstr "Действие по умолчанию для выбора киноциклов на домашнем экране"
+
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr "Выберите набор значков для погоды"
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr "Информация об игроке"
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr "Кэш игрока"
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr "Аудио декодер"
 
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
 msgid "Video codec"
-msgstr "Видеокодек"
+msgstr "Видео кодек"
 
 #. Label to show the video resolution
 msgctxt "#31601"
@@ -704,12 +754,12 @@ msgstr "Битрейт видео"
 #. Label to show the audio codec name
 msgctxt "#31604"
 msgid "Audio codec"
-msgstr "Аудиокодек"
+msgstr "Аудио кодек"
 
 #. Label to show the number of audio channels
 msgctxt "#31605"
 msgid "Audio channels"
-msgstr "Аудиоканалы"
+msgstr "Аудио каналы"
 
 #. Label to show the audio bitrate
 msgctxt "#31606"
@@ -729,7 +779,7 @@ msgstr "Скорость отрисовки системы"
 #. Label to show the system CPU usage
 msgctxt "#31609"
 msgid "System CPU usage"
-msgstr "Использование ЦП системы"
+msgstr "Использование ЦПУ системы"
 
 #. Label to show the media (metadata) info page
 msgctxt "#31610"
@@ -744,7 +794,30 @@ msgstr "Система"
 #. Audio channels
 msgctxt "#31612"
 msgid "channels"
-msgstr ""
+msgstr "каналы"
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr "Декодер субтитров"
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr "Кодек субтитров"
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr "Язык субтитров"
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "Избранное не найдено. Вы можете добавить сюда любые медиаданные с помощью контекстного меню."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "Выбрать набор фанарта жанров"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

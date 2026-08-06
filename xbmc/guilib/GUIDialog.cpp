@@ -14,10 +14,10 @@
 #include "GUIWindowManager.h"
 #include "ServiceBroker.h"
 #include "input/actions/Action.h"
-#include "input/actions/ActionIDs.h"
 #include "messaging/ApplicationMessenger.h"
 #include "threads/SingleLock.h"
 #include "utils/TimeUtils.h"
+#include "windowing/WinSystem.h"
 
 CGUIDialog::CGUIDialog(int id, const std::string &xmlFile, DialogModalityType modalityType /* = DialogModalityType::MODAL */)
     : CGUIWindow(id, xmlFile)
@@ -44,7 +44,7 @@ void CGUIDialog::OnWindowLoaded()
   CGUIWindow::OnWindowLoaded();
 
   // Clip labels to extents
-  if (m_children.size())
+  if (!m_children.empty())
   {
     CGUIControl* pBase = m_children[0];
 

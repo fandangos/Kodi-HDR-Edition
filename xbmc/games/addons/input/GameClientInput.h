@@ -84,14 +84,14 @@ public:
   void CloseJoysticks(PERIPHERALS::EventLockHandlePtr& inputHandlingLock);
 
   // Keyboard functions
-  bool OpenKeyboard(const ControllerPtr& controller, const PERIPHERALS::PeripheralPtr& keyboard);
+  bool OpenKeyboard(const ControllerPtr& controller);
   bool IsKeyboardOpen() const;
-  void CloseKeyboard();
+  bool CloseKeyboard();
 
   // Mouse functions
-  bool OpenMouse(const ControllerPtr& controller, const PERIPHERALS::PeripheralPtr& mouse);
+  bool OpenMouse(const ControllerPtr& controller);
   bool IsMouseOpen() const;
-  void CloseMouse();
+  bool CloseMouse();
 
   // Agent functions
   bool HasAgent() const;
@@ -131,7 +131,7 @@ private:
   /*!
    * \brief Map of port address to joystick handler
    *
-   * The port address is a string that identifies the adress of the port.
+   * The port address is a string that identifies the address of the port.
    *
    * The joystick handler connects to joystick input of the game client.
    *

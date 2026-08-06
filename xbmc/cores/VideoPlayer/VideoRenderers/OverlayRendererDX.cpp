@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -42,14 +42,14 @@ static bool LoadTexture(int width, int height, int stride
 {
   if (!texture->Create(width, height, 1, D3D11_USAGE_IMMUTABLE, format, pixels, stride))
   {
-    CLog::Log(LOGERROR, "{} - failed to allocate texture.", __FUNCTION__);
+    CLog::LogF(LOGERROR, "failed to allocate texture.");
     return false;
   }
 
   D3D11_TEXTURE2D_DESC desc = {};
   if (!texture->GetDesc(&desc))
   {
-    CLog::Log(LOGERROR, "{} - failed to get texture description.", __FUNCTION__);
+    CLog::LogF(LOGERROR, "failed to get texture description.");
     texture->Release();
     return false;
   }
@@ -141,7 +141,7 @@ COverlayQuadsDX::COverlayQuadsDX(ASS_Image* images, float width, float height)
   if (!m_vertex.Create(D3D11_BIND_VERTEX_BUFFER, 6 * m_count, sizeof(Vertex), DXGI_FORMAT_UNKNOWN,
                        D3D11_USAGE_IMMUTABLE, vt))
   {
-    CLog::Log(LOGERROR, "{} - failed to create vertex buffer", __FUNCTION__);
+    CLog::LogF(LOGERROR, "failed to create vertex buffer");
     m_texture.Release();
   }
 
@@ -164,11 +164,15 @@ void COverlayQuadsDX::Render(SRenderState &state)
   ID3D11DeviceContext* pContext = DX::DeviceResources::Get()->GetD3DContext();
   CGUIShaderDX* pGUIShader = DX::Windowing()->GetGUIShader();
 
-  XMMATRIX world, view, proj;
-  pGUIShader->GetWVP(world, view, proj);
+  if (pGUIShader == nullptr)
+    return;
 
-  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_SPLIT_HORIZONTAL
-   || CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_SPLIT_VERTICAL)
+  const XMMATRIX world = pGUIShader->GetWorld();
+
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+          RenderStereoMode::SPLIT_HORIZONTAL ||
+      CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+          RenderStereoMode::SPLIT_VERTICAL)
   {
     CRect rect;
     DX::Windowing()->GetViewPort(rect);
@@ -177,8 +181,8 @@ void COverlayQuadsDX::Render(SRenderState &state)
                                   static_cast<int>(rect.Height()));
   }
 
-  XMMATRIX trans = XMMatrixTranslation(state.x, state.y, 0.0f);
-  XMMATRIX scale = XMMatrixScaling(state.width, state.height, 1.0f);
+  const XMMATRIX trans = XMMatrixTranslation(state.x, state.y, 0.0f);
+  const XMMATRIX scale = XMMatrixScaling(state.width, state.height, 1.0f);
 
   pGUIShader->SetWorld(XMMatrixMultiply(XMMatrixMultiply(world, scale), trans));
 
@@ -191,13 +195,14 @@ void COverlayQuadsDX::Render(SRenderState &state)
   pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
   DX::Windowing()->SetAlphaBlendEnable(true);
+  pGUIShader->SetDepth(-1.f);
   pGUIShader->Begin(SHADER_METHOD_RENDER_FONT);
 
   pGUIShader->SetShaderViews(1, m_texture.GetAddressOfSRV());
   pGUIShader->Draw(m_count * 6, 0);
 
   // restoring transformation
-  pGUIShader->SetWVP(world, view, proj);
+  pGUIShader->SetWorld(world);
   pGUIShader->RestoreBuffers();
 }
 
@@ -316,7 +321,7 @@ void COverlayImageDX::Load(const uint32_t* rgba, int width, int height, int stri
 
   if (!m_vertex.Create(D3D11_BIND_VERTEX_BUFFER, 4, sizeof(Vertex), DXGI_FORMAT_UNKNOWN, D3D11_USAGE_IMMUTABLE, vt))
   {
-    CLog::Log(LOGERROR, "{} - failed to create vertex buffer", __FUNCTION__);
+    CLog::LogF(LOGERROR, "failed to create vertex buffer");
     m_texture.Release();
   }
 }
@@ -330,11 +335,15 @@ void COverlayImageDX::Render(SRenderState &state)
   ID3D11DeviceContext* pContext = DX::DeviceResources::Get()->GetD3DContext();
   CGUIShaderDX* pGUIShader = DX::Windowing()->GetGUIShader();
 
-  XMMATRIX world, view, proj;
-  pGUIShader->GetWVP(world, view, proj);
+  if (pGUIShader == nullptr)
+    return;
 
-  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_SPLIT_HORIZONTAL
-   || CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_SPLIT_VERTICAL)
+  const XMMATRIX world = pGUIShader->GetWorld();
+
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+          RenderStereoMode::SPLIT_HORIZONTAL ||
+      CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+          RenderStereoMode::SPLIT_VERTICAL)
   {
     CRect rect;
     DX::Windowing()->GetViewPort(rect);
@@ -356,6 +365,7 @@ void COverlayImageDX::Render(SRenderState &state)
   pContext->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
   pContext->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
+  pGUIShader->SetDepth(-1.f);
   pGUIShader->Begin(SHADER_METHOD_RENDER_TEXTURE_NOBLEND);
   DX::Windowing()->SetAlphaBlendEnable(true);
 
@@ -363,6 +373,6 @@ void COverlayImageDX::Render(SRenderState &state)
   pGUIShader->Draw(4, 0);
 
   // restoring transformation
-  pGUIShader->SetWVP(world, view, proj);
+  pGUIShader->SetWorld(world);
   pGUIShader->RestoreBuffers();
 }

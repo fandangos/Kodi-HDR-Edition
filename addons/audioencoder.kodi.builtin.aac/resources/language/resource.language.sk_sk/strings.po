@@ -7,15 +7,15 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: translations@kodi.tv\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2022-06-08 13:40+0000\n"
-"Last-Translator: Christian Gade <gade@kodi.tv>\n"
+"PO-Revision-Date: 2026-05-12 08:16+0000\n"
+"Last-Translator: Patrik Špaňo <patrik.spano@gmail.com>\n"
 "Language-Team: Slovak <https://kodi.weblate.cloud/projects/kodi-core/audioencoder-kodi-builtin-aac/sk_sk/>\n"
 "Language: sk_sk\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
-"X-Generator: Weblate 4.12.2\n"
+"X-Generator: Weblate 5.17.1\n"
 
 msgctxt "Addon Summary"
 msgid "AAC Audio Encoder"
@@ -29,7 +29,7 @@ msgstr "AAC je sada kodekov navrhnutých tak, aby poskytovali lepšiu kompresiu 
 #: resources/settings.xml
 msgctxt "#30000"
 msgid "Bitrate"
-msgstr "Dátový tok"
+msgstr "Bitrate"
 
 #. Description of setting with label #30000 "Bitrate"
 #: resources/settings.xml

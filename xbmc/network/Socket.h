@@ -186,11 +186,7 @@ namespace SOCKETS
   class CPosixUDPSocket : public CUDPSocket
   {
   public:
-    CPosixUDPSocket()
-      {
-        m_iSock = INVALID_SOCKET;
-        m_ipv6Socket = false;
-      }
+    CPosixUDPSocket() = default;
 
     bool Bind(bool localOnly, int port, int range=0) override;
     bool Connect() override { return false; }
@@ -206,13 +202,13 @@ namespace SOCKETS
     void Close() override;
 
   protected:
-    SOCKET m_iSock;
+    SOCKET m_iSock{INVALID_SOCKET};
     CAddress m_addr;
 
   private:
     bool CheckIPv6(int port, int range);
 
-    bool m_ipv6Socket;
+    bool m_ipv6Socket{false};
   };
 
   /**********************************************************************/

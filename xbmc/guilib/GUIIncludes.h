@@ -8,16 +8,20 @@
 
 #pragma once
 
+#include "SkinMapManager.h"
 #include "interfaces/info/InfoBool.h"
 
+#include <functional>
 #include <map>
-#include <set>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <tinyxml.h>
+
 // forward definitions
-class TiXmlElement;
 namespace INFO
 {
   class CSkinVariableString;
@@ -30,12 +34,12 @@ public:
   ~CGUIIncludes();
 
   /*!
-   \brief Clear all include components (defaults, constants, variables, expressions and includes)
+   \brief Clear all include components (defaults, constants, variables, expressions, includes and maps)
   */
   void Clear();
 
   /*!
-   \brief Load all include components(defaults, constants, variables, expressions and includes)
+   \brief Load all include components (defaults, constants, variables, expressions, includes and maps)
    from the main entrypoint \code{file}. Flattens nested expressions and expressions in variable
    conditions after loading all other included files.
 
@@ -61,6 +65,14 @@ public:
    */
   const INFO::CSkinVariableString* CreateSkinVariable(const std::string& name, int context);
 
+  /*!
+   \brief Look up a value in a skin-defined map.
+   \param mapName  the skin-defined map name
+   \param key      the raw infolabel value to look up
+   \return mapped display string, or \p key unchanged if no mapping exists
+  */
+  std::string LookupSkinMap(std::string_view mapName, std::string_view key) const;
+
 private:
   enum ResolveParamsResult
   {
@@ -70,7 +82,7 @@ private:
   };
 
   /*!
-   \brief Load all include components (defaults, constants, variables, expressions and includes)
+   \brief Load all include components (defaults, constants, variables, expressions, includes and maps)
    from the given \code{file}.
 
    \param file the file to load
@@ -85,6 +97,12 @@ private:
   void LoadVariables(const TiXmlElement *node);
   void LoadConstants(const TiXmlElement *node);
   void LoadExpressions(const TiXmlElement *node);
+
+  /*!
+   \brief Load all <map> elements from the given XML node.
+   \param node the root element of an includes file
+  */
+  void LoadMaps(const TiXmlElement* node);
 
   /*!
    \brief Resolve all expressions containing other expressions to a single evaluatable expression.
@@ -119,15 +137,23 @@ private:
   std::string ResolveExpressions(const std::string &expression) const;
 
   std::vector<std::string> m_files;
-  std::map<std::string, std::pair<TiXmlElement, Params>> m_includes;
-  std::map<std::string, TiXmlElement> m_defaults;
-  std::map<std::string, TiXmlElement> m_skinvariables;
-  std::map<std::string, std::string> m_constants;
-  std::map<std::string, std::string> m_expressions;
 
-  std::set<std::string> m_constantAttributes;
-  std::set<std::string> m_constantNodes;
+  struct StringHash
+  {
+    using is_transparent = void; // Enables heterogeneous operations.
+    std::size_t operator()(std::string_view sv) const
+    {
+      std::hash<std::string_view> hasher;
+      return hasher(sv);
+    }
+  };
 
-  std::set<std::string> m_expressionAttributes;
-  std::set<std::string> m_expressionNodes;
+  std::unordered_map<std::string, std::pair<TiXmlElement, Params>, StringHash, std::equal_to<>>
+      m_includes;
+  std::unordered_map<std::string, TiXmlElement, StringHash, std::equal_to<>> m_defaults;
+  std::unordered_map<std::string, TiXmlElement, StringHash, std::equal_to<>> m_skinvariables;
+  std::unordered_map<std::string, std::string, StringHash, std::equal_to<>> m_constants;
+  std::unordered_map<std::string, std::string, StringHash, std::equal_to<>> m_expressions;
+
+  KODI::GUILIB::CSkinMapManager m_skinMapManager;
 };

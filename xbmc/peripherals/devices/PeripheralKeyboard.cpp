@@ -60,7 +60,7 @@ bool CPeripheralKeyboard::InitialiseFeature(const PeripheralFeature feature)
 void CPeripheralKeyboard::RegisterKeyboardDriverHandler(
     KODI::KEYBOARD::IKeyboardDriverHandler* handler, bool bPromiscuous)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   KeyboardHandle handle{handler, bPromiscuous};
   m_keyboardHandlers.insert(m_keyboardHandlers.begin(), handle);
@@ -69,7 +69,7 @@ void CPeripheralKeyboard::RegisterKeyboardDriverHandler(
 void CPeripheralKeyboard::UnregisterKeyboardDriverHandler(
     KODI::KEYBOARD::IKeyboardDriverHandler* handler)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   auto it =
       std::find_if(m_keyboardHandlers.begin(), m_keyboardHandlers.end(),
@@ -77,6 +77,15 @@ void CPeripheralKeyboard::UnregisterKeyboardDriverHandler(
 
   if (it != m_keyboardHandlers.end())
     m_keyboardHandlers.erase(it);
+}
+
+void CPeripheralKeyboard::SetLastActive(const CDateTime& lastActive)
+{
+  // Update state
+  m_lastActive = lastActive;
+
+  // Update ancestor
+  CPeripheral::SetLastActive(lastActive);
 }
 
 GAME::ControllerPtr CPeripheralKeyboard::ControllerProfile() const
@@ -89,9 +98,10 @@ GAME::ControllerPtr CPeripheralKeyboard::ControllerProfile() const
 
 bool CPeripheralKeyboard::OnKeyPress(const CKey& key)
 {
-  m_lastActive = CDateTime::GetCurrentDateTime();
+  std::unique_lock lock(m_mutex);
 
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  // Update state
+  SetLastActive(CDateTime::GetCurrentDateTime());
 
   bool bHandled = false;
 
@@ -118,7 +128,7 @@ bool CPeripheralKeyboard::OnKeyPress(const CKey& key)
 
 void CPeripheralKeyboard::OnKeyRelease(const CKey& key)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   for (const KeyboardHandle& handle : m_keyboardHandlers)
     handle.handler->OnKeyRelease(key);

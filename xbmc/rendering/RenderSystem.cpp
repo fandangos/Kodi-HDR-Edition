@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,26 +8,48 @@
 
 #include "RenderSystem.h"
 
+#include "ServiceBroker.h"
 #include "Util.h"
 #include "guilib/GUIFontManager.h"
 #include "guilib/GUIImage.h"
 #include "guilib/GUILabelControl.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "windowing/WinSystem.h"
 
 #include <memory>
 
+unsigned int CRenderSystemBase::m_GUIElementCount = 0;
+
 CRenderSystemBase::CRenderSystemBase()
 {
-  m_bRenderCreated = false;
-  m_bVSync = true;
-  m_maxTextureSize = 2048;
-  m_RenderVersionMajor = 0;
-  m_RenderVersionMinor = 0;
-  m_minDXTPitch = 0;
+  OnAdvancedSettingsLoaded();
+
+  const auto advSettings{CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()};
+
+  m_settingsCallbackHandle =
+      advSettings->RegisterSettingsLoadedCallback([this]() { OnAdvancedSettingsLoaded(); });
 }
 
-CRenderSystemBase::~CRenderSystemBase() = default;
+void CRenderSystemBase::OnAdvancedSettingsLoaded()
+{
+  const auto advSettings{CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()};
+
+  std::unique_lock lock(m_settingsSection);
+
+  m_showSplashImage = advSettings->m_splashImage;
+  m_guiFrontToBackRendering = advSettings->m_guiFrontToBackRendering;
+  m_guiGeometryClear =
+      advSettings->m_guiGeometryClear ? ClearFunction::GEOMETRY : ClearFunction::FIXED_FUNCTION;
+}
+
+CRenderSystemBase::~CRenderSystemBase()
+{
+  const auto advSettings{CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()};
+
+  if (m_settingsCallbackHandle.has_value() && advSettings != nullptr)
+    advSettings->UnregisterSettingsLoadedCallback(m_settingsCallbackHandle.value());
+}
 
 void CRenderSystemBase::GetRenderVersion(unsigned int& major, unsigned int& minor) const
 {
@@ -43,14 +65,14 @@ bool CRenderSystemBase::SupportsNPOT(bool dxt) const
   return true;
 }
 
-bool CRenderSystemBase::SupportsStereo(RENDER_STEREO_MODE mode) const
+bool CRenderSystemBase::SupportsStereo(RenderStereoMode mode) const
 {
   switch(mode)
   {
-    case RENDER_STEREO_MODE_OFF:
-    case RENDER_STEREO_MODE_SPLIT_HORIZONTAL:
-    case RENDER_STEREO_MODE_SPLIT_VERTICAL:
-    case RENDER_STEREO_MODE_MONO:
+    case RenderStereoMode::OFF:
+    case RenderStereoMode::SPLIT_HORIZONTAL:
+    case RenderStereoMode::SPLIT_VERTICAL:
+    case RenderStereoMode::MONO:
       return true;
     default:
       return false;
@@ -59,7 +81,7 @@ bool CRenderSystemBase::SupportsStereo(RENDER_STEREO_MODE mode) const
 
 void CRenderSystemBase::ShowSplash(const std::string& message)
 {
-  if (!CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_splashImage && !(m_splashImage || !message.empty()))
+  if (!GetShowSplashImage() && !(m_splashImage || !message.empty()))
     return;
 
   if (!m_splashImage)
@@ -89,7 +111,8 @@ void CRenderSystemBase::ShowSplash(const std::string& message)
   {
     if (!m_splashMessageLayout)
     {
-      auto messageFont = g_fontManager.LoadTTF("__splash__", "arial.ttf", 0xFFFFFFFF, 0, 20, FONT_STYLE_NORMAL, false, 1.0f, 1.0f, &res);
+      auto messageFont = g_fontManager.LoadTTF("__splash__", "arial.ttf", 0xFFFFFFFF, 0, 40,
+                                               FONT_STYLE_NORMAL, false, 1.0f, 1.0f, &res);
       if (messageFont)
         m_splashMessageLayout = std::make_unique<CGUITextLayout>(messageFont, true, .0f);
     }
@@ -113,3 +136,20 @@ void CRenderSystemBase::ShowSplash(const std::string& message)
   CServiceBroker::GetWinSystem()->GetGfxContext().Flip(true, false);
 }
 
+bool CRenderSystemBase::GetShowSplashImage()
+{
+  std::unique_lock lock(m_settingsSection);
+  return m_showSplashImage;
+}
+
+bool CRenderSystemBase::GetEnabledFrontToBackRendering()
+{
+  std::unique_lock lock(m_settingsSection);
+  return m_guiFrontToBackRendering;
+}
+
+ClearFunction CRenderSystemBase::GetClearFunction()
+{
+  std::unique_lock lock(m_settingsSection);
+  return m_guiGeometryClear;
+}

@@ -44,7 +44,9 @@ public:
    */
   void RefreshFavourites();
 
-  struct FavouritesUpdated { };
+  struct FavouritesUpdated
+  {
+  };
 
   CEventStream<FavouritesUpdated>& Events() { return m_events; }
 
@@ -56,7 +58,7 @@ private:
   CFavouritesService& operator=(CFavouritesService&&) = delete;
 
   void OnUpdated();
-  bool Persist();
+  bool Persist() const;
 
   void CleanupTargetsCache(const CFileItem& item);
 

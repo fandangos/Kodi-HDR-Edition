@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -13,6 +13,7 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "InfoScanner.h"
+#include "URL.h"
 #include "addons/Scraper.h"
 #include "utils/XBMCTinyXML.h"
 
@@ -30,20 +31,23 @@ class CNfoFile
 public:
   virtual ~CNfoFile() { Close(); }
 
-  CInfoScanner::InfoType Create(const std::string&, const ADDON::ScraperPtr&, int episode = -1);
+  CInfoScanner::InfoType Create(const std::string&, const ADDON::ScraperPtr&, int index = 1);
 
   template<class T>
-  bool GetDetails(T& details, const char* document = nullptr, bool prioritise = false)
+  bool GetDetails(T& details, const char* document = nullptr, bool prioritise = false) const
   {
-    CXBMCTinyXML doc;
     if (document)
+    {
+      CXBMCTinyXML doc;
       doc.Parse(document, TIXML_ENCODING_UNKNOWN);
-    else if (m_headPos < m_doc.size())
-      doc.Parse(m_doc.substr(m_headPos), TIXML_ENCODING_UNKNOWN);
-    else
+      return details.Load(doc.RootElement(), true, prioritise);
+    }
+
+    const TiXmlElement* root = GetRootElement();
+    if (!root)
       return false;
 
-    return details.Load(doc.RootElement(), true, prioritise);
+    return details.Load(root, true, prioritise);
   }
 
   void Close();
@@ -51,18 +55,25 @@ public:
   ADDON::ScraperPtr GetScraperInfo() { return m_info; }
   const CScraperUrl &ScraperUrl() const { return m_scurl; }
 
-  static int Scrape(ADDON::ScraperPtr& scraper, CScraperUrl& url,
-                    const std::string& content);
-
-  static std::vector<ADDON::ScraperPtr> GetScrapers(ADDON::AddonType type,
-                                                    const ADDON::ScraperPtr& selectedScraper);
-
 private:
+  CInfoScanner::InfoType TryParsing(ADDON::AddonType addonType) const;
+  CInfoScanner::InfoType TryParsing(const CURL& nfoPath,
+                                    ADDON::ContentType contentType,
+                                    int index = 1);
+  CInfoScanner::InfoType SearchNfoForScraperUrls(CInfoScanner::InfoType parseResult,
+                                                 const ADDON::ScraperPtr& info);
+  bool SeekToMovieIndex(int index);
+
+  // Returns the root element of m_doc (from m_headPos)
+  const TiXmlElement* GetRootElement() const;
+
   std::string m_doc;
   size_t m_headPos = 0;
   ADDON::ScraperPtr m_info;
-  ADDON::AddonType m_type{};
   CScraperUrl m_scurl;
 
-  int Load(const std::string&);
+  mutable CXBMCTinyXML m_xmlDoc;
+  mutable bool m_xmlParsed = false;
+
+  int Load(const CURL&);
 };

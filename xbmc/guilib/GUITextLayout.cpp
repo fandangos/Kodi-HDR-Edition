@@ -10,12 +10,18 @@
 
 #include "GUIColorManager.h"
 #include "GUIComponent.h"
-#include "GUIControl.h"
 #include "GUIFont.h"
+#include "ServiceBroker.h"
 #include "utils/CharsetConverter.h"
 #include "utils/StringUtils.h"
+#include "utils/TransformMatrix.h"
 #include "utils/log.h"
+#include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
+#include <algorithm>
+#include <functional>
+#include <iterator>
 #include <limits>
 
 CGUIString::CGUIString(iString start, iString end, bool carriageReturn)
@@ -49,6 +55,17 @@ void CGUITextLayout::SetWrap(bool bWrap)
   m_wrap = bWrap;
 }
 
+void CGUITextLayout::SetFont(CGUIFont* font)
+{
+  const bool usingMonoFont = m_font != nullptr && m_font == m_monoFont;
+  m_varFont = font;
+  m_font = usingMonoFont ? m_monoFont : font;
+
+  // invalidate the cached text so the next Update()/UpdateW() re-lays out using the new font
+  m_lastUtf8Text.clear();
+  m_lastText.clear();
+}
+
 void CGUITextLayout::Render(float x,
                             float y,
                             float angle,
@@ -62,7 +79,7 @@ void CGUITextLayout::Render(float x,
     return;
 
   // set the main text color
-  if (m_colors.size())
+  if (!m_colors.empty())
     m_colors[0] = color;
 
   // render the text at the required location, angle, and size
@@ -117,7 +134,7 @@ void CGUITextLayout::RenderScrolling(float x,
     return;
 
   // set the main text color
-  if (m_colors.size())
+  if (!m_colors.empty())
     m_colors[0] = color;
 
   // render the text at the required location, angle, and size
@@ -159,11 +176,6 @@ void CGUITextLayout::RenderOutline(float x,
   if (!m_font)
     return;
 
-  // set the outline color
-  std::vector<KODI::UTILS::COLOR::Color> outlineColors;
-  if (m_colors.size())
-    outlineColors.push_back(outlineColor);
-
   // center our text vertically
   if (alignment & XBFONT_CENTER_Y)
   {
@@ -195,14 +207,14 @@ void CGUITextLayout::RenderOutline(float x,
 
       // don't pass maxWidth through to the renderer for the same reason above: it will cause clipping
       // on the left.
-      m_borderFont->DrawText(bx, by, outlineColors, 0, string.m_text, align, 0);
+      m_borderFont->DrawText(bx, by, outlineColor, 0, string.m_text, align, 0);
       by += m_borderFont->GetLineHeight();
     }
     m_borderFont->End();
   }
 
   // set the main text color
-  if (m_colors.size())
+  if (!m_colors.empty())
     m_colors[0] = color;
 
   m_font->Begin();
@@ -380,13 +392,23 @@ void CGUITextLayout::ParseText(const std::wstring& text,
   std::stack<KODI::UTILS::COLOR::Color> colorStack;
   colorStack.push(0);
 
-  // these aren't independent, but that's probably not too much of an issue
-  // eg [UPPERCASE]Glah[LOWERCASE]FReD[/LOWERCASE]Georeg[/UPPERCASE] will work (lower case >> upper case)
-  // but [LOWERCASE]Glah[UPPERCASE]FReD[/UPPERCASE]Georeg[/LOWERCASE] won't
+  // Boolean style tags ([B], [I], [LIGHT], [UPPERCASE], [LOWERCASE], [CAPITALIZE])
+  // use per-tag reference counts so that nested identical tags work correctly.
+  // This fixes the case where a skin wraps a label in e.g. [B]...[/B] while the
+  // addon has already formatted the value with [B]...[/B], producing [B][B]text[/B][/B].
+  // With simple |= / &=~ the first [/B] would clear bold for everything that follows.
+  // With reference counts the bit stays set until the last matching open tag is closed.
+  // Unmatched closing tags are no-ops (count floors at 0).
+  int boldDepth = 0;
+  int italicDepth = 0;
+  int lightDepth = 0;
+  int uppercaseDepth = 0;
+  int lowercaseDepth = 0;
+  int capitalizeDepth = 0;
 
   int startPos = 0;
   size_t pos = text.find(L'[');
-  while (pos != std::string::npos && pos + 1 < text.size())
+  while (pos != std::wstring::npos && pos + 1 < text.size())
   {
     uint32_t newStyle = 0;
     KODI::UTILS::COLOR::Color newColor = currentColor;
@@ -403,58 +425,94 @@ void CGUITextLayout::ParseText(const std::wstring& text,
     }
     // check for each type
     if (text.compare(pos, 2, L"B]") == 0)
-    { // bold - finish the current text block and assign the bold state
+    { // bold
       pos += 2;
-      if ((on && text.find(L"[/B]",pos) != std::string::npos) ||          // check for a matching end point
-         (!on && (currentStyle & FONT_STYLE_BOLD)))       // or matching start point
-        newStyle = FONT_STYLE_BOLD;
+      if (on)
+      {
+        if (text.find(L"[/B]", pos) != std::wstring::npos)
+          ++boldDepth;
+      }
+      else if (boldDepth > 0)
+        --boldDepth;
+      newStyle = FONT_STYLE_BOLD;
     }
     else if (text.compare(pos, 2, L"I]") == 0)
     { // italics
       pos += 2;
-      if ((on && text.find(L"[/I]", pos) != std::string::npos) ||          // check for a matching end point
-         (!on && (currentStyle & FONT_STYLE_ITALICS)))    // or matching start point
-        newStyle = FONT_STYLE_ITALICS;
+      if (on)
+      {
+        if (text.find(L"[/I]", pos) != std::wstring::npos)
+          ++italicDepth;
+      }
+      else if (italicDepth > 0)
+        --italicDepth;
+      newStyle = FONT_STYLE_ITALICS;
     }
     else if (text.compare(pos, 10, L"UPPERCASE]") == 0)
     {
       pos += 10;
-      if ((on && text.find(L"[/UPPERCASE]", pos) != std::string::npos) ||  // check for a matching end point
-         (!on && (currentStyle & FONT_STYLE_UPPERCASE)))  // or matching start point
-        newStyle = FONT_STYLE_UPPERCASE;
+      if (on)
+      {
+        if (text.find(L"[/UPPERCASE]", pos) != std::wstring::npos)
+          ++uppercaseDepth;
+      }
+      else if (uppercaseDepth > 0)
+        --uppercaseDepth;
+      newStyle = FONT_STYLE_UPPERCASE;
     }
     else if (text.compare(pos, 10, L"LOWERCASE]") == 0)
     {
       pos += 10;
-      if ((on && text.find(L"[/LOWERCASE]", pos) != std::string::npos) ||  // check for a matching end point
-         (!on && (currentStyle & FONT_STYLE_LOWERCASE)))  // or matching start point
-        newStyle = FONT_STYLE_LOWERCASE;
+      if (on)
+      {
+        if (text.find(L"[/LOWERCASE]", pos) != std::wstring::npos)
+          ++lowercaseDepth;
+      }
+      else if (lowercaseDepth > 0)
+        --lowercaseDepth;
+      newStyle = FONT_STYLE_LOWERCASE;
     }
     else if (text.compare(pos, 11, L"CAPITALIZE]") == 0)
     {
       pos += 11;
-      if ((on && text.find(L"[/CAPITALIZE]", pos) != std::string::npos) ||  // check for a matching end point
-         (!on && (currentStyle & FONT_STYLE_CAPITALIZE)))  // or matching start point
-        newStyle = FONT_STYLE_CAPITALIZE;
+      if (on)
+      {
+        if (text.find(L"[/CAPITALIZE]", pos) != std::wstring::npos)
+          ++capitalizeDepth;
+      }
+      else if (capitalizeDepth > 0)
+        --capitalizeDepth;
+      newStyle = FONT_STYLE_CAPITALIZE;
     }
     else if (text.compare(pos, 6, L"LIGHT]") == 0)
     {
       pos += 6;
-      if ((on && text.find(L"[/LIGHT]", pos) != std::string::npos) ||
-         (!on && (currentStyle & FONT_STYLE_LIGHT)))
-        newStyle = FONT_STYLE_LIGHT;
+      if (on)
+      {
+        if (text.find(L"[/LIGHT]", pos) != std::wstring::npos)
+          ++lightDepth;
+      }
+      else if (lightDepth > 0)
+        --lightDepth;
+      newStyle = FONT_STYLE_LIGHT;
     }
-    else if (text.compare(pos, 5, L"TABS]") == 0 && on)
+    else if (text.compare(pos, 5, L"TABS]") == 0)
     {
       pos += 5;
-      const size_t end = text.find(L"[/TABS]", pos);
-      if (end != std::string::npos)
+      if (on)
       {
-        std::string t;
-        g_charsetConverter.wToUTF8(text.substr(pos), t);
-        tabs = atoi(t.c_str());
-        pos = end + 7;
+        const size_t end = text.find(L"[/TABS]", pos);
+        if (end != std::wstring::npos)
+        {
+          std::string t;
+          g_charsetConverter.wToUTF8(text.substr(pos, end - pos), t);
+          tabs = atoi(t.c_str());
+          pos = end + 7;
+        }
       }
+      // Equivalent of newStyle for other formatting tags to have the tag text discarded.
+      if (!tabs)
+        tabs = -1;
     }
     else if (text.compare(pos, 3, L"CR]") == 0 && on)
     {
@@ -464,12 +522,13 @@ void CGUITextLayout::ParseText(const std::wstring& text,
     else if (text.compare(pos,5, L"COLOR") == 0)
     { // color
       size_t finish = text.find(L']', pos + 5);
-      if (on && finish != std::string::npos && text.find(L"[/COLOR]",finish) != std::string::npos)
+      if (on && finish != std::wstring::npos &&
+          text.find(L"[/COLOR]", finish) != std::wstring::npos)
       {
         std::string t;
         g_charsetConverter.wToUTF8(text.substr(pos + 5, finish - pos - 5), t);
         KODI::UTILS::COLOR::Color color = CServiceBroker::GetGUI()->GetColorManager().GetColor(t);
-        const auto& it = std::find(colors.begin(), colors.end(), color);
+        const auto& it = std::ranges::find(colors, color);
         if (it == colors.end())
         { // create new color
           if (colors.size() <= 0xFF)
@@ -492,7 +551,7 @@ void CGUITextLayout::ParseText(const std::wstring& text,
         newColor = colorStack.top();
         colorTagChange = true;
       }
-      if (finish != std::string::npos)
+      if (finish != std::wstring::npos)
         pos = finish + 1;
     }
 
@@ -511,13 +570,22 @@ void CGUITextLayout::ParseText(const std::wstring& text,
       for (int i = 0; i < tabs; ++i)
         parsedText.push_back(L'\t');
 
-      // and switch to the new style
+      // switch to the new style, deriving it from the current depths
       startPos = pos;
       currentColor = newColor;
-      if (on)
-        currentStyle |= newStyle;
-      else
-        currentStyle &= ~newStyle;
+      currentStyle = defaultStyle;
+      if (boldDepth > 0)
+        currentStyle |= FONT_STYLE_BOLD;
+      if (italicDepth > 0)
+        currentStyle |= FONT_STYLE_ITALICS;
+      if (lightDepth > 0)
+        currentStyle |= FONT_STYLE_LIGHT;
+      if (uppercaseDepth > 0)
+        currentStyle |= FONT_STYLE_UPPERCASE;
+      if (lowercaseDepth > 0)
+        currentStyle |= FONT_STYLE_LOWERCASE;
+      if (capitalizeDepth > 0)
+        currentStyle |= FONT_STYLE_CAPITALIZE;
     }
     pos = text.find(L'[', pos);
   }
@@ -579,62 +647,109 @@ void CGUITextLayout::WrapText(const vecText &text, float maxWidth)
       continue;
     }
 
-    vecText::const_iterator pos = line.m_text.begin();
-    vecText::const_iterator lastBeginPos = line.m_text.begin();
-    vecText::const_iterator lastSpacePos = line.m_text.end();
-    vecText curLine;
-
-    while (pos < line.m_text.end())
+    auto widthOf = [&](const std::vector<character_t>::const_iterator start,
+                       const std::vector<character_t>::const_iterator end)
     {
-      // Get the current letter in the string
-      const character_t& letter = *pos;
+      if (start == end)
+        return 0.0f;
+      return m_font->GetTextWidth({start, end});
+    };
 
-      if (CanWrapAtLetter(letter)) // Check for a space char
-        lastSpacePos = pos;
+    auto skipLeadingSpaces = [&](vecText::const_iterator& it)
+    {
+      it = std::find_if_not(it, line.m_text.end(),
+                            std::bind_front(&CGUITextLayout::CanWrapAtLetter, this));
+    };
 
-      curLine.emplace_back(letter);
+    auto current = line.m_text.begin();
+    skipLeadingSpaces(current);
 
-      const float currWidth = m_font->GetTextWidth(curLine);
+    float currentWidth = 0.0f;
+    std::vector<character_t>::const_iterator currentStart = current;
+    // track end without trailing spaces
+    std::vector<character_t>::const_iterator lastNonSpaceInLine = currentStart;
 
-      if (currWidth > maxWidth)
+    while (current != line.m_text.end())
+    {
+      // Find next candidate wrap position
+      auto wordEnd = std::find_if(current, line.m_text.end(),
+                                  std::bind_front(&CGUITextLayout::CanWrapAtLetter, this));
+      const bool hasSpace = (wordEnd != line.m_text.end());
+      const float wordWidth = widthOf(current, wordEnd);
+
+      // Try to include word + trailing space
+      if (const float spaceWidth = hasSpace ? widthOf(wordEnd, wordEnd + 1) : 0.0f;
+          currentWidth + wordWidth + spaceWidth <= maxWidth)
       {
-        if (lastSpacePos > pos) // No space char where split the line, so split by char
-        {
-          // If the pos is equal to lastBeginPos, maxWidth is not large enough to contain 1 character
-          // Push a line with the single character and move on to the next character.
-          if (pos == lastBeginPos)
-            ++pos;
-
-          CGUIString linePart{lastBeginPos, pos, false};
-          m_lines.emplace_back(linePart);
-        }
-        else
-        {
-          CGUIString linePart{lastBeginPos, lastSpacePos, false};
-          m_lines.emplace_back(linePart);
-
-          pos = lastSpacePos + 1;
-          lastSpacePos = line.m_text.end();
-        }
-
-        curLine.clear();
-        lastBeginPos = pos;
-
-        if (m_lines.size() >= nMaxLines)
-          return;
-
+        currentWidth += wordWidth + spaceWidth;
+        lastNonSpaceInLine = wordEnd; // exclude trailing space
+        current = wordEnd;
+        if (hasSpace)
+          ++current;
         continue;
       }
 
-      ++pos;
+      // Try to include word without trailing space
+      if (currentWidth + wordWidth <= maxWidth)
+      {
+        m_lines.emplace_back(currentStart, wordEnd, false);
+        if (m_lines.size() >= nMaxLines)
+          return;
+
+        current = wordEnd;
+        skipLeadingSpaces(current);
+        currentStart = current;
+        currentWidth = 0.0f;
+        lastNonSpaceInLine = currentStart;
+        continue;
+      }
+
+      // word itself doesn't fit after existing content: wrap before it (trim trailing spaces)
+      if (currentWidth > 0.0f)
+      {
+        const std::vector<character_t>::const_iterator emitEnd =
+            lastNonSpaceInLine > currentStart ? lastNonSpaceInLine : wordEnd;
+        m_lines.emplace_back(currentStart, emitEnd, false);
+        if (m_lines.size() >= nMaxLines)
+          return;
+
+        // Start a new line; keep pos at start of the overflowing word
+        skipLeadingSpaces(current);
+        currentStart = current;
+        currentWidth = 0.0f;
+        lastNonSpaceInLine = currentStart;
+        continue;
+      }
+
+      if (current == wordEnd)
+        break;
+
+      // current line is empty and word is too long: split by character using a safe linear scan.
+      // Do not assume monotonic width because shaping/kerning can make width shrink or grow non-linearly.
+      size_t bestCount = 0;
+      for (auto it = std::next(current); it < wordEnd; ++it)
+      {
+        if (m_font->GetTextWidth({current, it}) <= maxWidth)
+          bestCount = std::distance(current, it);
+      }
+      if (bestCount == 0)
+        bestCount = 1; // ensure progress even if a single glyph is wider than maxWidth
+
+      const auto cut = current + static_cast<ptrdiff_t>(bestCount);
+      m_lines.emplace_back(current, cut, false);
+      if (m_lines.size() >= nMaxLines)
+        return;
+
+      current = cut;
+      skipLeadingSpaces(current);
+      currentStart = current;
+      currentWidth = 0.0f;
+      lastNonSpaceInLine = currentStart;
     }
 
-    // Add the remaining text part
-    if (!curLine.empty())
-    {
-      CGUIString linePart{curLine.begin(), curLine.end(), false};
-      m_lines.emplace_back(linePart);
-    }
+    // Add remaining text part of this paragraph line
+    if (currentStart < line.m_text.end())
+      m_lines.emplace_back(currentStart, line.m_text.end(), false);
 
     // Restore carriage return marker for the end of paragraph
     if (!m_lines.empty())
@@ -701,7 +816,7 @@ unsigned int CGUITextLayout::GetTextLength() const
 void CGUITextLayout::GetFirstText(vecText &text) const
 {
   text.clear();
-  if (m_lines.size())
+  if (!m_lines.empty())
     text = m_lines[0].m_text;
 }
 
@@ -767,5 +882,3 @@ void CGUITextLayout::Reset()
   m_lastUtf8Text.clear();
   m_textWidth = m_textHeight = 0;
 }
-
-

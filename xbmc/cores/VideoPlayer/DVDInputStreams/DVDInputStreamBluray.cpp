@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -15,10 +15,7 @@
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "filesystem/BlurayCallback.h"
-#include "filesystem/Directory.h"
 #include "filesystem/SpecialProtocol.h"
-#include "guilib/LocalizeStrings.h"
-#include "settings/DiscSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/Geometry.h"
@@ -28,19 +25,21 @@
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 #include "video/VideoFileItemClassify.h"
+#include "video/VideoInfoTag.h"
 
-#include <functional>
+#include <chrono>
 #include <limits>
 #include <memory>
+#include <string>
+#include <vector>
 
+#include <libbluray/bluray-version.h>
 #include <libbluray/bluray.h>
 #include <libbluray/log_control.h>
 
 #define LIBBLURAY_BYTESEEK 0
 
 using namespace KODI;
-using namespace XFILE;
-
 using namespace std::chrono_literals;
 
 static int read_blocks(void* handle, void* buf, int lba, int num_blocks)
@@ -86,6 +85,17 @@ void CDVDInputStreamBluray::Abort()
 bool CDVDInputStreamBluray::IsEOF()
 {
   return false;
+}
+
+BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetTitleFromState(const std::string& xmlstate)
+{
+  BlurayState blurayState;
+  if (!m_blurayStateSerializer.XMLToBlurayState(blurayState, xmlstate))
+  {
+    CLog::LogF(LOGWARNING, "Failed to deserialize Bluray state");
+    return nullptr;
+  }
+  return bd_get_playlist_info(m_bd, blurayState.playlistId, 0);
 }
 
 BLURAY_TITLE_INFO* CDVDInputStreamBluray::GetTitleLongest()
@@ -145,23 +155,22 @@ bool CDVDInputStreamBluray::Open()
     filename = URIUtils::GetFileName(url.GetFileName());
 
     // Check whether disc is AACS protected
-    CURL url3(root);
-    CFileItem base(url3, false);
-    openDisc = VIDEO::IsProtectedBlurayDisc(base);
+    CURL url2(root);
+    CFileItem item(url2, false);
+    openDisc = VIDEO::IsProtectedBlurayDisc(item);
 
     // check for a menu call for an image file
-    if (StringUtils::EqualsNoCase(filename, "menu"))
+    if (StringUtils::EqualsNoCase(filename, "menu") &&
+        !(m_item.GetStartOffset() == STARTOFFSET_RESUME && m_item.IsResumable()))
     {
-      //get rid of the udf:// protocol
-      CURL url2(root);
-      const std::string& root2 = url2.GetHostName();
-      CURL url(root2);
-      CFileItem item(url, false);
       resumable = false;
 
-      // Check whether disc is AACS protected
-      if (!openDisc)
+      // Remove udf:// if present
+      if (url2.IsProtocol("udf"))
+      {
+        item.SetPath(url2.GetHostName());
         openDisc = VIDEO::IsProtectedBlurayDisc(item);
+      }
 
       if (item.IsDiscImage())
       {
@@ -200,7 +209,12 @@ bool CDVDInputStreamBluray::Open()
       URIUtils::RemoveSlashAtEnd(strPath);
     }
     root = strPath;
-    filename = URIUtils::GetFileName(m_item.GetPath());
+    // Use the resolved (dynamic) path so playlist selectors survive plugin
+    // resolution and library .strm playback. m_item.GetPath() returns the
+    // original library reference (e.g. .strm file) which has no .mpls
+    // extension, causing the MPLS title selector to be lost and playback
+    // to fall through to navigation/main-feature mode.
+    filename = URIUtils::GetFileName(m_item.GetDynPath());
   }
 
   // root should not have trailing slash
@@ -249,6 +263,15 @@ bool CDVDInputStreamBluray::Open()
   else
   {
     m_rootPath = root;
+
+#if defined(HAS_UDFREAD)
+    // Only in files mode does libbluray reach the disc through Kodi's filesystem, opening a dozen
+    // or so files and directories on it, and then the clips as they play. On a disc image each of
+    // those opens would otherwise re-mount the image's UDF volume, so keep it mounted for as long
+    // as the disc is open. (Stream mode reads the image itself, disc mode is a physical disc.)
+    m_udfMount.emplace(root);
+#endif
+
     if (!bd_open_files(m_bd, &m_rootPath, CBlurayCallback::dir_open, CBlurayCallback::file_open))
     {
       CLog::Log(LOGERROR, "CDVDInputStreamBluray::Open - failed to open {} in files mode",
@@ -319,23 +342,15 @@ bool CDVDInputStreamBluray::Open()
     return false;
   }
 
-  int mode = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_DISC_PLAYBACK);
-
   if (URIUtils::HasExtension(filename, ".mpls"))
   {
     m_navmode = false;
     m_titleInfo = GetTitleFile(filename);
   }
-  else if (mode == BD_PLAYBACK_MAIN_TITLE)
-  {
-    m_navmode = false;
-    m_titleInfo = GetTitleLongest();
-  }
   else if (resumable && m_item.GetStartOffset() == STARTOFFSET_RESUME && m_item.IsResumable())
   {
-    // resuming a bluray for which we have a saved state - the playlist will be open later on SetState
     m_navmode = false;
-    return true;
+    m_titleInfo = GetTitleFromState(m_item.GetVideoInfoTag()->GetResumePoint().playerState);
   }
   else
   {
@@ -387,6 +402,9 @@ bool CDVDInputStreamBluray::Open()
     m_clip = nullptr;
   }
 
+  // For playlist/chapter watch time
+  m_startWatchTime = std::chrono::steady_clock::now();
+
   // Process any events that occurred during opening
   while (bd_get_event(m_bd, &m_event))
     ProcessEvent();
@@ -408,6 +426,11 @@ void CDVDInputStreamBluray::Close()
   m_bd = nullptr;
   m_pstream.reset();
   m_rootPath.clear();
+
+#if defined(HAS_UDFREAD)
+  // Released last, as the files opened from the volume are closed above
+  m_udfMount.reset();
+#endif
 }
 
 void CDVDInputStreamBluray::FreeTitleInfo()
@@ -488,7 +511,8 @@ void CDVDInputStreamBluray::ProcessEvent() {
 
   case BD_EVENT_DISCONTINUITY:
     CLog::Log(LOGDEBUG, "CDVDInputStreamBluray - BD_EVENT_DISCONTINUITY");
-    m_hold = HOLD_STILL;
+    m_player->OnDiscNavResult(&m_event.param, BD_EVENT_DISCONTINUITY);
+    m_hold = HOLD_NONE;
     break;
 
     /* playback position */
@@ -723,7 +747,7 @@ int CDVDInputStreamBluray::ReadBlocks(uint8_t* buf, int lba, int num_blocks)
     return -1;
   int result = -1;
   int64_t offset = static_cast<int64_t>(lba) * 2048;
-  std::unique_lock<CCriticalSection> lock(m_readBlocksLock);
+  std::unique_lock lock(m_readBlocksLock);
   if (lpstream->Seek(offset, SEEK_SET) >= 0)
   {
     int64_t size = static_cast<int64_t>(num_blocks) * 2048;
@@ -1003,6 +1027,21 @@ int CDVDInputStreamBluray::GetChapter()
     return 0;
 }
 
+void CDVDInputStreamBluray::GetChapterName(std::string& name, int ch)
+{
+  name.clear();
+
+#if (BLURAY_VERSION >= BLURAY_VERSION_CODE(1, 5, 0))
+  if (ch == -1 || ch > GetChapterCount())
+    ch = GetChapter();
+  if (ch < 1 || ch > GetChapterCount())
+    return;
+
+  if (m_titleInfo && m_titleInfo->chapters && m_titleInfo->chapters[ch - 1].chapter_name)
+    name = m_titleInfo->chapters[ch - 1].chapter_name;
+#endif
+}
+
 bool CDVDInputStreamBluray::SeekChapter(int ch)
 {
   if(m_titleInfo && bd_seek_chapter(m_bd, ch-1) < 0)
@@ -1014,15 +1053,15 @@ bool CDVDInputStreamBluray::SeekChapter(int ch)
   return true;
 }
 
-int64_t CDVDInputStreamBluray::GetChapterPos(int ch)
+std::chrono::milliseconds CDVDInputStreamBluray::GetChapterPos(int ch)
 {
   if (ch == -1 || ch > GetChapterCount())
     ch = GetChapter();
 
   if (m_titleInfo && m_titleInfo->chapters)
-    return m_titleInfo->chapters[ch - 1].start / 90000;
+    return std::chrono::milliseconds{m_titleInfo->chapters[ch - 1].start / 90};
   else
-    return 0;
+    return std::chrono::milliseconds{0};
 }
 
 int64_t CDVDInputStreamBluray::Seek(int64_t offset, int whence)
@@ -1338,8 +1377,8 @@ void CDVDInputStreamBluray::SetupPlayerSettings()
 
 bool CDVDInputStreamBluray::OpenStream(CFileItem &item)
 {
-  m_pstream =
-      std::make_unique<CDVDInputStreamFile>(item, READ_TRUNCATED | READ_BITRATE | READ_NO_CACHE);
+  m_pstream = std::make_unique<CDVDInputStreamFile>(
+      item, XFILE::READ_TRUNCATED | XFILE::READ_BITRATE | XFILE::READ_NO_CACHE);
 
   if (!m_pstream->Open())
   {
@@ -1396,4 +1435,42 @@ bool CDVDInputStreamBluray::SetState(const std::string& xmlstate)
   }
 
   return true;
+}
+
+void CDVDInputStreamBluray::SaveCurrentState(const CStreamDetails& details)
+{
+  std::unique_lock lock(m_statesLock);
+
+  if (!m_titleInfo)
+    return;
+
+  // Details for this playlist
+  SavePlaylistDetails(m_playedPlaylists, m_startWatchTime,
+                      {.playlist = static_cast<int>(m_titleInfo->playlist),
+                       .inMenu = m_isInMainMenu,
+                       .duration = std::chrono::milliseconds(GetTotalTime()),
+                       .details = details});
+
+  // Reset watch timer for next playlist
+  m_startWatchTime = std::chrono::steady_clock::now();
+}
+
+CDVDInputStream::UpdateState CDVDInputStreamBluray::UpdateItemFromSavedStates(CFileItem& item,
+                                                                              double time,
+                                                                              bool& closed)
+{
+  std::unique_lock lock(m_statesLock);
+
+  // First add current state to the list of playlist states
+  if (item.HasVideoInfoTag())
+    SaveCurrentState(item.GetVideoInfoTag()->m_streamDetails);
+
+  return UpdateItemFromPlaylistDetails(DVDSTREAM_TYPE_BLURAY, m_playedPlaylists, item, time,
+                                       closed);
+}
+
+void CDVDInputStreamBluray::UpdateStack(CFileItem& item)
+{
+  return UpdateStackItem(item,
+                         m_titleInfo ? std::chrono::milliseconds(m_titleInfo->duration / 90) : 0ms);
 }

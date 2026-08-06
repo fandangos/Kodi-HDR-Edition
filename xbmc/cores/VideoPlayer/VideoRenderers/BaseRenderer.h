@@ -9,7 +9,6 @@
 #pragma once
 
 #include "DebugInfo.h"
-#include "RenderCapture.h"
 #include "RenderInfo.h"
 #include "VideoShaders/ShaderFormats.h"
 #include "cores/IPlayer.h"
@@ -65,11 +64,12 @@ public:
   virtual void ReleaseBuffer(int idx) { }
   virtual bool NeedBuffer(int idx) { return false; }
   virtual bool IsGuiLayer() { return true; }
+  virtual bool HasVideoPlane() { return !IsGuiLayer(); }
   // Render info, can be called before configure
   virtual CRenderInfo GetRenderInfo() { return CRenderInfo(); }
   virtual void Update() = 0;
-  virtual void RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha) = 0;
-  virtual bool RenderCapture(int index, CRenderCapture* capture) = 0;
+  virtual void RenderUpdate(
+      int index, int index2, bool clear, unsigned int flags, unsigned int alpha) = 0;
   virtual bool ConfigChanged(const VideoPicture &picture) = 0;
 
   // Feature support
@@ -79,6 +79,7 @@ public:
 
   virtual bool WantsDoublePass() { return false; }
 
+  void SetFps(float fps) { m_fps = fps; }
   void SetViewMode(int viewMode);
 
   /*! \brief Get video rectangle and view window
@@ -92,15 +93,12 @@ public:
 
   static void SettingOptionsRenderMethodsFiller(const std::shared_ptr<const CSetting>& setting,
                                                 std::vector<IntegerSettingOption>& list,
-                                                int& current,
-                                                void* data);
+                                                int& current);
 
   void SetVideoSettings(const CVideoSettings &settings);
 
   // Gets debug info from render buffer
   virtual DEBUG_INFO_VIDEO GetDebugInfo(int idx) { return {}; }
-
-  virtual CRenderCapture* GetRenderCapture() { return nullptr; }
 
 protected:
   void CalcDestRect(float offsetX,

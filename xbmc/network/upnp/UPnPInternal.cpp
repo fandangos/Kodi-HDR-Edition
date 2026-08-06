@@ -30,6 +30,7 @@
 #include "utils/Base64.h"
 #include "utils/ContentUtils.h"
 #include "utils/LangCodeExpander.h"
+#include "utils/Set.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -78,12 +79,20 @@ namespace UPNP
 //
 // main purpose of this array is to share supported real subtitle formats when kodi act as a UPNP
 // server or UPNP/DLNA media render
-constexpr std::array<std::string_view, 9> SupportedSubFormats = {
-    "txt", "srt", "ssa", "ass", "sub", "smi", "vtt",
+constexpr auto SupportedSubFormats = make_set<std::string_view>({
+    "txt",
+    "srt",
+    "ssa",
+    "ass",
+    "sub",
+    "smi",
+    "vtt",
     // "sup" subtitle is not a real TEXT,
     // and there is no real STD subtitle RFC of DLNA,
     // so we only match the extension of the "fake" content type
-    "sup", "idx"};
+    "sup",
+    "idx",
+});
 
 // Map defining extensions for mimetypes not available in Platinum mimetype map
 // or that the application wants to override. These definitions take precedence
@@ -294,7 +303,7 @@ NPT_Result PopulateObjectFromTag(CMusicInfoTag& tag,
   if (!tag.GetURL().empty() && file_path)
     *file_path = tag.GetURL().c_str();
 
-  std::vector<std::string> genres = tag.GetGenre();
+  const std::vector<std::string>& genres = tag.GetGenre();
   for (unsigned int index = 0; index < genres.size(); index++)
     object.m_Affiliation.genres.Add(genres.at(index).c_str());
   object.m_Title = tag.GetTitle().c_str();
@@ -437,7 +446,7 @@ NPT_Result PopulateObjectFromTag(CVideoInfoTag& tag,
   for (unsigned int index = 0; index < tag.m_genre.size(); index++)
     object.m_Affiliation.genres.Add(tag.m_genre.at(index).c_str());
 
-  for (CVideoInfoTag::iCast it = tag.m_cast.begin(); it != tag.m_cast.end(); ++it)
+  for (auto it = tag.m_cast.begin(); it != tag.m_cast.end(); ++it)
   {
     object.m_People.actors.Add(it->strName.c_str(), it->strRole.c_str());
   }
@@ -519,7 +528,7 @@ PLT_MediaObject* BuildObject(CFileItem& item,
     rooturi = NPT_HttpUrl("localhost", upnp_server->GetPort(), "/");
   }
 
-  if (!item.m_bIsFolder)
+  if (!item.IsFolder())
   {
     object = new PLT_MediaItem();
     object->m_ObjectID = EncodeObjectId(item.GetPath());
@@ -562,14 +571,16 @@ PLT_MediaObject* BuildObject(CFileItem& item,
       resource.m_Duration = -1;
 
     // Set the resource file size
-    resource.m_Size = item.m_dwSize;
+    resource.m_Size = item.GetSize();
     if (resource.m_Size == 0)
       resource.m_Size = (NPT_LargeSize)-1;
 
     // set date
-    if (object->m_Date.IsEmpty() && item.m_dateTime.IsValid())
+    if (object->m_Date.IsEmpty())
     {
-      object->m_Date = item.m_dateTime.GetAsW3CDate().c_str();
+      const CDateTime& dateTime{item.GetDateTime()};
+      if (dateTime.IsValid())
+        object->m_Date = dateTime.GetAsW3CDate().c_str();
     }
 
     if (upnp_server)
@@ -730,7 +741,7 @@ PLT_MediaObject* BuildObject(CFileItem& item,
     if (with_count && upnp_server)
     {
       const NPT_String decodedObjectId = DecodeObjectId(object->m_ObjectID.GetChars());
-      if (StringUtils::StartsWithNoCase(decodedObjectId, "virtualpath://"))
+      if (StringUtils::StartsWithNoCase(decodedObjectId.GetChars(), "virtualpath://"))
       {
         NPT_LargeSize count = 0;
         NPT_CHECK_LABEL(NPT_File::GetSize(file_path, count), failure);
@@ -750,7 +761,7 @@ PLT_MediaObject* BuildObject(CFileItem& item,
     if (!item.GetLabel().empty())
     {
       std::string title = item.GetLabel();
-      if (PLAYLIST::IsPlayList(item) || !item.m_bIsFolder)
+      if (PLAYLIST::IsPlayList(item) || !item.IsFolder())
         URIUtils::RemoveExtension(title);
       object->m_Title = title.c_str();
     }
@@ -838,15 +849,12 @@ PLT_MediaObject* BuildObject(CFileItem& item,
     {
       ext = URIUtils::GetExtension(filenames[i]).c_str();
       ext = ext.substr(1);
-      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+      std::ranges::transform(ext, ext.begin(), ::tolower);
       /* Hardcoded check for extension is not the best way, but it can't be allowed to pass all
                subtitle extension (ex. rar or zip). There are the most popular extensions support by UPnP devices.*/
-      for (std::string_view type : SupportedSubFormats)
+      if (SupportedSubFormats.contains(ext))
       {
-        if (type == ext)
-        {
-          subtitles.push_back(filenames[i]);
-        }
+        subtitles.push_back(filenames[i]);
       }
     }
 
@@ -906,7 +914,7 @@ PLT_MediaObject* BuildObject(CFileItem& item,
 
       ext = URIUtils::GetExtension(subtitlePath).c_str();
       ext = ext.substr(1);
-      std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+      std::ranges::transform(ext, ext.begin(), ::tolower);
 
       NPT_String subtitle_uri = object->m_Resources[object->m_Resources.GetItemCount() - 1].m_Uri;
 
@@ -1157,11 +1165,11 @@ std::shared_ptr<CFileItem> BuildObject(PLT_MediaObject* entry,
 
   CFileItemPtr pItem(new CFileItem((const char*)entry->m_Title));
   pItem->SetLabelPreformatted(true);
-  pItem->m_strTitle = (const char*)entry->m_Title;
-  pItem->m_bIsFolder = entry->IsContainer();
+  pItem->SetTitle(static_cast<const char*>(entry->m_Title));
+  pItem->SetFolder(entry->IsContainer());
 
   // if it's a container, format a string as upnp://uuid/object_id
-  if (pItem->m_bIsFolder)
+  if (pItem->IsFolder())
   {
 
     // look for metadata
@@ -1213,7 +1221,7 @@ std::shared_ptr<CFileItem> BuildObject(PLT_MediaObject* entry,
       // set metadata
       if (resource.m_Size != (NPT_LargeSize)-1)
       {
-        pItem->m_dwSize = resource.m_Size;
+        pItem->SetSize(resource.m_Size);
       }
       res = &resource;
     }
@@ -1241,7 +1249,7 @@ std::shared_ptr<CFileItem> BuildObject(PLT_MediaObject* entry,
     KODI::TIME::SystemTime time = {};
     sscanf(entry->m_Description.date, "%hu-%hu-%huT%hu:%hu:%hu", &time.year, &time.month, &time.day,
            &time.hour, &time.minute, &time.second);
-    pItem->m_dateTime = time;
+    pItem->SetDateTime(time);
   }
 
   // if there is a thumbnail available set it here
@@ -1362,9 +1370,9 @@ bool GetResource(const PLT_MediaObject* entry, CFileItem& item)
     }
 
     // if this is an image fill the thumb of the item
-    if (StringUtils::StartsWithNoCase(resource.m_ProtocolInfo.GetContentType(), "image"))
+    if (StringUtils::StartsWithNoCase(resource.m_ProtocolInfo.GetContentType().GetChars(), "image"))
     {
-      item.SetArt("thumb", std::string(resource.m_Uri));
+      item.SetArt("thumb", std::string_view(resource.m_Uri));
     }
   }
   else
@@ -1380,17 +1388,14 @@ bool GetResource(const PLT_MediaObject* entry, CFileItem& item)
     const PLT_MediaItemResource& res = entry->m_Resources[r];
     const PLT_ProtocolInfo& info = res.m_ProtocolInfo;
 
-    for (std::string_view type : SupportedSubFormats)
+    const std::string type = info.GetContentType().Split("/").GetLastItem()->GetChars();
+    if (SupportedSubFormats.contains(type))
     {
-      if (type == info.GetContentType().Split("/").GetLastItem()->GetChars())
-      {
-        ++subIdx;
-        logger->info("adding subtitle: #{}, type '{}', URI '{}'", subIdx, type,
-                     res.m_Uri.GetChars());
+      ++subIdx;
+      logger->info("adding subtitle: #{}, type '{}', URI '{}'", subIdx, type, res.m_Uri.GetChars());
 
-        std::string prop = StringUtils::Format("subtitle:{}", subIdx);
-        item.SetProperty(prop, (const char*)res.m_Uri);
-      }
+      std::string prop = StringUtils::Format("subtitle:{}", subIdx);
+      item.SetProperty(prop, (const char*)res.m_Uri);
     }
   }
   return true;

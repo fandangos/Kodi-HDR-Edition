@@ -423,11 +423,15 @@ int KODI_Run(bool renderGUI)
   if (renderGUI && !g_application.CreateGUI())
   {
     CLog::Log(LOGERROR, "ERROR: Unable to create GUI. Exiting");
+    if (g_application.Stop(EXITCODE_QUIT))
+      g_application.Cleanup();
     return status;
   }
   if (!g_application.Initialize())
   {
     CLog::Log(LOGERROR, "ERROR: Unable to Initialize. Exiting");
+    if (g_application.Stop(EXITCODE_QUIT))
+      g_application.Cleanup();
     return status;
   }
 
@@ -465,7 +469,7 @@ int KODI_Run(bool renderGUI)
 
 #pragma mark - remoteControlReceivedWithEvent forwarder
 //  remoteControlReceived requires subclassing of UIViewController
-//  Just implement as a forwarding class to CLibRemote so it doesnt need to subclass
+//  Just implement as a forwarding class to CLibRemote so it doesn't need to subclass
 - (void)remoteControlReceivedWithEvent:(UIEvent*)receivedEvent
 {
   if (receivedEvent.type == UIEventTypeRemoteControl)

@@ -59,8 +59,6 @@ struct androidPackage
 
 class CNativeWindow
 {
-  friend class CWinSystemAndroidGLESContext; // meh
-
 public:
   static std::shared_ptr<CNativeWindow> CreateFromSurface(CJNISurfaceHolder holder);
   ~CNativeWindow();
@@ -68,6 +66,8 @@ public:
   bool SetBuffersGeometry(int width, int height, int format);
   int32_t GetWidth() const;
   int32_t GetHeight() const;
+
+  ANativeWindow* GetWindow() const { return m_window; }
 
 private:
   explicit CNativeWindow(ANativeWindow* window);
@@ -204,9 +204,6 @@ public:
   bool WaitVSync(unsigned int milliSeconds);
   int64_t GetNextFrameTime() const;
   float GetFrameLatencyMs() const;
-
-  bool getVideosurfaceInUse();
-  void setVideosurfaceInUse(bool videosurfaceInUse);
 
 protected:
   // limit who can access Volume

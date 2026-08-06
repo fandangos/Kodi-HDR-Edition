@@ -599,7 +599,10 @@ const char *CVariant::c_str() const
 
 void CVariant::swap(CVariant& rhs) noexcept
 {
-  std::swap(m_data, rhs.m_data);
+  if (type() == VariantTypeConstNull)
+    rhs = VariantTypeConstNull;
+  else
+    std::swap(m_data, rhs.m_data);
 }
 
 CVariant::iterator_array CVariant::begin_array()
@@ -703,7 +706,7 @@ void CVariant::erase(unsigned int position)
 
 bool CVariant::isMember(const std::string &key) const
 {
-  return std::visit(overloaded{[&](const VariantMap& m) { return m.find(key) != m.end(); },
+  return std::visit(overloaded{[&](const VariantMap& m) { return m.contains(key); },
                                [](const auto&) { return false; }},
                     m_data);
 }

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -253,18 +253,18 @@ CPoint CGraphicContext::StereoCorrection(const CPoint &point) const
 {
   CPoint res(point);
 
-  if(m_stereoMode == RENDER_STEREO_MODE_SPLIT_HORIZONTAL)
+  if (m_stereoMode == RenderStereoMode::SPLIT_HORIZONTAL)
   {
     const RESOLUTION_INFO info = GetResInfo();
 
-    if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    if (m_stereoView == RenderStereoView::RIGHT)
       res.y += info.iHeight + info.iBlanking;
   }
-  if(m_stereoMode == RENDER_STEREO_MODE_SPLIT_VERTICAL)
+  if (m_stereoMode == RenderStereoMode::SPLIT_VERTICAL)
   {
     const RESOLUTION_INFO info = GetResInfo();
 
-    if(m_stereoView == RENDER_STEREO_VIEW_RIGHT)
+    if (m_stereoView == RenderStereoView::RIGHT)
       res.x += info.iWidth  + info.iBlanking;
   }
   return res;
@@ -320,7 +320,7 @@ void CGraphicContext::SetViewWindow(float left, float top, float right, float bo
 
 void CGraphicContext::SetFullScreenVideo(bool bOnOff)
 {
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
 
   m_bFullScreenVideo = bOnOff;
 
@@ -424,7 +424,7 @@ void CGraphicContext::SetVideoResolutionInternal(RESOLUTION res, bool forceUpdat
     m_bFullScreenRoot = false;
   }
 
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
 
   // FIXME Wayland windowing needs some way to "deny" resolution updates since what Kodi
   // requests might not get actually set by the compositor.
@@ -459,7 +459,7 @@ void CGraphicContext::SetVideoResolutionInternal(RESOLUTION res, bool forceUpdat
     m_scissors.SetRect(0, 0, (float)m_iScreenWidth, (float)m_iScreenHeight);
 
     // make sure all stereo stuff are correctly setup
-    SetStereoView(RENDER_STEREO_VIEW_OFF);
+    SetStereoView(RenderStereoView::OFF);
 
     // update anyone that relies on sizing information
     CServiceBroker::GetInputManager().SetMouseResolution(info_org.iWidth, info_org.iHeight, 1, 1);
@@ -510,14 +510,14 @@ void CGraphicContext::ApplyVideoResolution(RESOLUTION res)
     m_bFullScreenRoot = false;
   }
 
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
 
   UpdateInternalStateWithResolution(res);
 
   m_scissors.SetRect(0, 0, (float)m_iScreenWidth, (float)m_iScreenHeight);
 
   // make sure all stereo stuff are correctly setup
-  SetStereoView(RENDER_STEREO_VIEW_OFF);
+  SetStereoView(RenderStereoView::OFF);
 
   // update anyone that relies on sizing information
   RESOLUTION_INFO info_org  = CDisplaySettings::GetInstance().GetResolutionInfo(res);
@@ -606,7 +606,7 @@ const RESOLUTION_INFO CGraphicContext::GetResInfo(RESOLUTION res) const
 {
   RESOLUTION_INFO info = CDisplaySettings::GetInstance().GetResolutionInfo(res);
 
-  if(m_stereoMode == RENDER_STEREO_MODE_SPLIT_HORIZONTAL)
+  if (m_stereoMode == RenderStereoMode::SPLIT_HORIZONTAL)
   {
     if((info.dwFlags & D3DPRESENTFLAG_MODE3DTB) == 0)
     {
@@ -620,7 +620,7 @@ const RESOLUTION_INFO CGraphicContext::GetResInfo(RESOLUTION res) const
     info.iSubtitles       = (info.iSubtitles      - info.iBlanking) / 2;
   }
 
-  if(m_stereoMode == RENDER_STEREO_MODE_SPLIT_VERTICAL)
+  if (m_stereoMode == RenderStereoMode::SPLIT_VERTICAL)
   {
     if((info.dwFlags & D3DPRESENTFLAG_MODE3DSBS) == 0)
     {
@@ -789,13 +789,13 @@ void CGraphicContext::SetScalingResolution(const RESOLUTION_INFO &res, bool need
 
 void CGraphicContext::SetRenderingResolution(const RESOLUTION_INFO &res, bool needsScaling)
 {
-  std::unique_lock<CCriticalSection> lock(*this);
+  std::unique_lock lock(*this);
 
   SetScalingResolution(res, needsScaling);
   UpdateCameraPosition(m_cameras.top(), m_stereoFactors.top());
 }
 
-void CGraphicContext::SetStereoView(RENDER_STEREO_VIEW view)
+void CGraphicContext::SetStereoView(RenderStereoView view)
 {
   m_stereoView = view;
 
@@ -938,15 +938,14 @@ CRect CGraphicContext::GenerateAABB(const CRect &rect) const
 void CGraphicContext::UpdateCameraPosition(const CPoint &camera, const float &factor)
 {
   float stereoFactor = 0.f;
-  if ( m_stereoMode != RENDER_STEREO_MODE_OFF
-    && m_stereoMode != RENDER_STEREO_MODE_MONO
-    && m_stereoView != RENDER_STEREO_VIEW_OFF)
+  if (m_stereoMode != RenderStereoMode::OFF && m_stereoMode != RenderStereoMode::MONO &&
+      m_stereoView != RenderStereoView::OFF)
   {
     RESOLUTION_INFO res = GetResInfo();
     RESOLUTION_INFO desktop = GetResInfo(RES_DESKTOP);
     float scaleRes = (static_cast<float>(res.iWidth) / static_cast<float>(desktop.iWidth));
     float scaleX = static_cast<float>(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_LOOKANDFEEL_STEREOSTRENGTH)) * scaleRes;
-    stereoFactor = factor * (m_stereoView == RENDER_STEREO_VIEW_LEFT ? scaleX : -scaleX);
+    stereoFactor = factor * (m_stereoView == RenderStereoView::LEFT ? scaleX : -scaleX);
   }
   CServiceBroker::GetRenderSystem()->SetCameraPosition(camera, m_iScreenWidth, m_iScreenHeight, stereoFactor);
 }
@@ -1086,11 +1085,11 @@ void CGraphicContext::SetRenderOrder(RENDER_ORDER renderOrder)
 {
   m_renderOrder = renderOrder;
   if (renderOrder == RENDER_ORDER_ALL_BACK_TO_FRONT)
-    CServiceBroker::GetRenderSystem()->SetDepthCulling(DEPTH_CULLING_OFF);
+    CServiceBroker::GetRenderSystem()->SetDepthCulling(DepthCulling::OFF);
   else if (renderOrder == RENDER_ORDER_BACK_TO_FRONT)
-    CServiceBroker::GetRenderSystem()->SetDepthCulling(DEPTH_CULLING_BACK_TO_FRONT);
+    CServiceBroker::GetRenderSystem()->SetDepthCulling(DepthCulling::BACK_TO_FRONT);
   else if (renderOrder == RENDER_ORDER_FRONT_TO_BACK)
-    CServiceBroker::GetRenderSystem()->SetDepthCulling(DEPTH_CULLING_FRONT_TO_BACK);
+    CServiceBroker::GetRenderSystem()->SetDepthCulling(DepthCulling::FRONT_TO_BACK);
 }
 
 uint32_t CGraphicContext::GetDepth(uint32_t addLayers)

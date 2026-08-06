@@ -8,11 +8,12 @@
 
 #include "PVRClientCapabilities.h"
 
-#include "guilib/LocalizeStrings.h"
+#include "ServiceBroker.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 
 #include <algorithm>
-#include <iterator>
 #include <memory>
 
 using namespace PVR;
@@ -24,7 +25,7 @@ CPVRClientCapabilities::CPVRClientCapabilities(const CPVRClientCapabilities& oth
   InitRecordingsLifetimeValues();
 }
 
-const CPVRClientCapabilities& CPVRClientCapabilities::operator=(const CPVRClientCapabilities& other)
+CPVRClientCapabilities& CPVRClientCapabilities::operator=(const CPVRClientCapabilities& other)
 {
   if (other.m_addonCapabilities)
     m_addonCapabilities = std::make_unique<PVR_ADDON_CAPABILITIES>(*other.m_addonCapabilities);
@@ -32,7 +33,7 @@ const CPVRClientCapabilities& CPVRClientCapabilities::operator=(const CPVRClient
   return *this;
 }
 
-const CPVRClientCapabilities& CPVRClientCapabilities::operator=(
+CPVRClientCapabilities& CPVRClientCapabilities::operator=(
     const PVR_ADDON_CAPABILITIES& addonCapabilities)
 {
   m_addonCapabilities = std::make_unique<PVR_ADDON_CAPABILITIES>(addonCapabilities);
@@ -69,8 +70,10 @@ void CPVRClientCapabilities::InitRecordingsLifetimeValues()
     // No values given by addon, but lifetime supported. Use default values 1..365
     for (int i = 1; i < 366; ++i)
     {
-      m_recordingsLifetimeValues.emplace_back(StringUtils::Format(g_localizeStrings.Get(17999), i),
-                                              i); // "{} days"
+      m_recordingsLifetimeValues.emplace_back(
+          StringUtils::Format(
+              CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(17999), i),
+          i); // "{} days"
     }
   }
   else
@@ -82,6 +85,5 @@ void CPVRClientCapabilities::InitRecordingsLifetimeValues()
 void CPVRClientCapabilities::GetRecordingsLifetimeValues(
     std::vector<std::pair<std::string, int>>& list) const
 {
-  std::copy(m_recordingsLifetimeValues.cbegin(), m_recordingsLifetimeValues.cend(),
-            std::back_inserter(list));
+  std::ranges::copy(m_recordingsLifetimeValues, std::back_inserter(list));
 }

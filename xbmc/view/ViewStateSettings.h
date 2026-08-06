@@ -58,5 +58,7 @@ private:
   bool m_eventShowHigherLevels = true;
   mutable CCriticalSection m_critical;
 
-  void AddViewState(const std::string& strTagName, int defaultView = DEFAULT_VIEW_LIST, SortBy defaultSort = SortByLabel);
+  void AddViewState(const std::string& strTagName,
+                    int defaultView = DEFAULT_VIEW_LIST,
+                    SortBy defaultSort = SortBy::LABEL);
 };

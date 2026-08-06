@@ -27,8 +27,8 @@ public:
   void UpdateButtons() override;
 
 private:
-  void ActivateChannelsWindow(const CPVRProvidersPath& selectedPath);
-  void ActivateRecordingsWindow(const CPVRProvidersPath& selectedPath);
+  void ActivateChannelsWindow(const CPVRProvidersPath& selectedPath) const;
+  void ActivateRecordingsWindow(const CPVRProvidersPath& selectedPath) const;
 };
 
 class CGUIWindowPVRTVProviders : public CGUIWindowPVRProvidersBase
@@ -38,7 +38,7 @@ public:
     : CGUIWindowPVRProvidersBase(false, WINDOW_TV_PROVIDERS, "MyPVRProviders.xml")
   {
   }
-  std::string GetRootPath() const override;
+  std::string GetRootPath() override;
   std::string GetDirectoryPath() override;
 };
 
@@ -49,7 +49,7 @@ public:
     : CGUIWindowPVRProvidersBase(true, WINDOW_RADIO_PROVIDERS, "MyPVRProviders.xml")
   {
   }
-  std::string GetRootPath() const override;
+  std::string GetRootPath() override;
   std::string GetDirectoryPath() override;
 };
 } // namespace PVR

@@ -8,9 +8,9 @@
 #   ${APP_NAME_LC}::OpenGl - The OpenGL library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
+  find_package(PkgConfig ${SEARCH_QUIET})
   if(PKG_CONFIG_FOUND)
-    pkg_check_modules(PC_OPENGL gl QUIET)
+    pkg_check_modules(PC_OPENGL gl ${SEARCH_QUIET})
   endif()
 
   find_library(OPENGL_gl_LIBRARY NAMES GL OpenGL
@@ -18,6 +18,10 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
                                  PATH_SUFFIXES Frameworks)
   find_path(OPENGL_INCLUDE_DIR NAMES GL/gl.h gl.h
                                HINTS ${PC_OPENGL_gl_INCLUDEDIR} ${OPENGL_gl_LIBRARY}/Headers)
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(OpenGl

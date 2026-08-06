@@ -21,20 +21,20 @@ if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
 
 else()
   set(BUNDLE_RESOURCES ${CMAKE_SOURCE_DIR}/media/applaunch_screen.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon29x29.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon29x29@2x.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon40x40.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon40x40@2x.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon50x50.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon50x50@2x.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon57x57.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon57x57@2x.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon60x60.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon60x60@2x.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon72x72.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon72x72@2x.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon76x76.png
-                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/rounded/AppIcon76x76@2x.png)
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon29x29.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon29x29@2x.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon40x40.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon40x40@2x.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon50x50.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon50x50@2x.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon57x57.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon57x57@2x.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon60x60.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon60x60@2x.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon72x72.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon72x72@2x.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon76x76.png
+                       ${CMAKE_SOURCE_DIR}/tools/darwin/packaging/media/ios/squared/AppIcon76x76@2x.png)
 
   target_sources(${APP_NAME_LC} PRIVATE ${BUNDLE_RESOURCES})
   foreach(file IN LISTS BUNDLE_RESOURCES)
@@ -121,14 +121,48 @@ if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
 endif()
 
 set(DEPENDS_ROOT_FOR_XCODE ${NATIVEPREFIX}/..)
+
+set(DARWIN_EMBEDDED_CPACK_DIR ${CMAKE_BINARY_DIR}/tools/darwin/packaging/darwin_embedded)
+set(DARWIN_EMBEDDED_DSYM_TARGET_DIR /Users/Shared/xbmc-depends/dSyms)
+set(DARWIN_EMBEDDED_DSYM_FILENAME ${APP_NAME}.app.dSYM)
+set(DARWIN_EMBEDDED_PACKAGE ${PLATFORM_BUNDLE_IDENTIFIER})
+set(DARWIN_EMBEDDED_PACKAGE_ARM64 ${DARWIN_EMBEDDED_PACKAGE}64)
+set(DARWIN_EMBEDDED_VERSION ${APP_VERSION_MAJOR}.${APP_VERSION_MINOR})
+set(DARWIN_EMBEDDED_REVISION 0)
+if(APP_VERSION_TAG_LC)
+  set(DARWIN_EMBEDDED_REVISION ${DARWIN_EMBEDDED_REVISION}~${APP_VERSION_TAG_LC})
+endif()
+if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
+  set(DARWIN_EMBEDDED_DEVICE tvOS)
+else()
+  set(DARWIN_EMBEDDED_DEVICE iOS)
+endif()
+
+set(DARWIN_EMBEDDED_CPACK_FILE_NAME
+    ${DARWIN_EMBEDDED_PACKAGE_ARM64}_${DARWIN_EMBEDDED_VERSION}-${DARWIN_EMBEDDED_REVISION}_${PLATFORM}-arm)
+set(DARWIN_EMBEDDED_IPA_CPACK_CONFIG CPackConfig-ipa.cmake)
+
 configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/mkdeb-darwin_embedded.sh.in
-               ${CMAKE_BINARY_DIR}/tools/darwin/packaging/darwin_embedded/mkdeb-darwin_embedded.sh @ONLY)
+               ${DARWIN_EMBEDDED_CPACK_DIR}/mkdeb-darwin_embedded.sh @ONLY)
+configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/cpack_install-darwin_embedded.cmake.in
+               ${DARWIN_EMBEDDED_CPACK_DIR}/cpack_install-darwin_embedded.cmake @ONLY)
+
+set(DARWIN_EMBEDDED_CPACK_KIND ipa)
+set(DARWIN_EMBEDDED_CPACK_GENERATOR ZIP)
+set(DARWIN_EMBEDDED_CPACK_PACKAGE_NAME ${DARWIN_EMBEDDED_PACKAGE})
+configure_file(${CMAKE_SOURCE_DIR}/tools/darwin/packaging/darwin_embedded/CPackConfig-darwin_embedded.cmake.in
+               ${DARWIN_EMBEDDED_CPACK_DIR}/${DARWIN_EMBEDDED_IPA_CPACK_CONFIG} @ONLY)
 
 configure_file(${CMAKE_SOURCE_DIR}/xbmc/platform/darwin/Credits.html.in
                ${CMAKE_BINARY_DIR}/xbmc/platform/darwin/Credits.html @ONLY)
 
 add_custom_target(deb
     COMMAND sh ./mkdeb-darwin_embedded.sh ${CORE_BUILD_CONFIG}
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tools/darwin/packaging/darwin_embedded)
+    WORKING_DIRECTORY ${DARWIN_EMBEDDED_CPACK_DIR})
 add_dependencies(deb ${APP_NAME_LC})
 
+add_custom_target(ipa
+    COMMAND ${CMAKE_COMMAND} -E env COPYFILE_DISABLE=true COPY_EXTENDED_ATTRIBUTES_DISABLE=true
+            ${CMAKE_CPACK_COMMAND} -C ${CORE_BUILD_CONFIG} --config ${DARWIN_EMBEDDED_IPA_CPACK_CONFIG}
+    WORKING_DIRECTORY ${DARWIN_EMBEDDED_CPACK_DIR})
+add_dependencies(ipa ${APP_NAME_LC})

@@ -57,8 +57,9 @@ typedef DWORD (__stdcall *tSSO)( IN DWORD SymOptions );
 // GetCurrentPackageFullName
 typedef LONG (__stdcall *GCPFN)(UINT32*, PWSTR);
 
+// Definition of class static members
 std::string win32_exception::mVersion;
-bool win32_exception::m_platformDir;
+std::string win32_exception::m_platformDir;
 
 bool win32_exception::write_minidump(EXCEPTION_POINTERS* pEp)
 {
@@ -74,8 +75,7 @@ bool win32_exception::write_minidump(EXCEPTION_POINTERS* pEp)
                                      stLocalTime.hour, stLocalTime.minute, stLocalTime.second);
 
   dumpFileName = CWIN32Util::SmbToUnc(
-      URIUtils::AddFileToFolder(CWIN32Util::GetProfilePath(m_platformDir),
-                                CUtil::MakeLegalFileName(std::move(dumpFileName))));
+      URIUtils::AddFileToFolder(m_platformDir, CUtil::MakeLegalFileName(std::move(dumpFileName))));
 
   dumpFileNameW = KODI::PLATFORM::WINDOWS::ToW(dumpFileName);
   HANDLE hDumpFile = CreateFileW(dumpFileNameW.c_str(), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
@@ -191,8 +191,7 @@ bool win32_exception::write_stacktrace(EXCEPTION_POINTERS* pEp)
                                      stLocalTime.hour, stLocalTime.minute, stLocalTime.second);
 
   dumpFileName = CWIN32Util::SmbToUnc(
-      URIUtils::AddFileToFolder(CWIN32Util::GetProfilePath(m_platformDir),
-                                CUtil::MakeLegalFileName(std::move(dumpFileName))));
+      URIUtils::AddFileToFolder(m_platformDir, CUtil::MakeLegalFileName(std::move(dumpFileName))));
 
   dumpFileNameW = KODI::PLATFORM::WINDOWS::ToW(dumpFileName);
   hDumpFile = CreateFileW(dumpFileNameW.c_str(), GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
@@ -210,6 +209,10 @@ bool win32_exception::write_stacktrace(EXCEPTION_POINTERS* pEp)
   frame.AddrPC.Offset = pEp->ContextRecord->Eip; // Current location in program
   frame.AddrStack.Offset = pEp->ContextRecord->Esp; // Stack pointers current value
   frame.AddrFrame.Offset = pEp->ContextRecord->Ebp; // Value of register used to access local function variables.
+#elif defined(_M_ARM64)
+  frame.AddrPC.Offset = pEp->ContextRecord->Pc; // Current location in program
+  frame.AddrStack.Offset = pEp->ContextRecord->Sp; // Stack pointers current value
+  frame.AddrFrame.Offset = pEp->ContextRecord->Fp; // Value of register used to access local function variables.
 #else
   frame.AddrPC.Offset = pEp->ContextRecord->Rip; // Current location in program
   frame.AddrStack.Offset = pEp->ContextRecord->Rsp; // Stack pointers current value

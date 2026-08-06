@@ -11,7 +11,6 @@
 #include "playlists/PlayListTypes.h"
 #include "video/VideoDatabase.h"
 #include "video/VideoThumbLoader.h"
-#include "video/guilib/VideoAction.h"
 #include "windows/GUIMediaWindow.h"
 
 class CGUIWindowVideoBase : public CGUIMediaWindow, public IBackgroundLoaderObserver
@@ -59,7 +58,6 @@ public:
                             bool allowReplaceLabels = true);
 
   bool PlayItem(const std::shared_ptr<CFileItem>& item, const std::string& player);
-  bool OnPlayStackPart(const std::shared_ptr<CFileItem>& item, unsigned int partNumber);
   void OnQueueItem(const std::shared_ptr<CFileItem>& item, int iItem, bool first = false);
 
 protected:
@@ -86,13 +84,6 @@ protected:
    \return true if the action is performed, false otherwise
    */
   bool OnItemInfo(int item);
-  /*! \brief perform a given action on a file
-   \param item the selected item
-   \param action the action to perform
-   \return true if the action is performed, false otherwise
-   */
-  bool OnFileAction(int item, KODI::VIDEO::GUILIB::Action action, const std::string& player);
-
   void OnRestartItem(int iItem, const std::string &player = "");
   bool OnPlayOrResumeItem(int iItem, const std::string& player = "");
   bool OnPlayMedia(int iItem, const std::string &player = "") override;
@@ -131,13 +122,19 @@ protected:
   bool m_stackingAvailable;
 
 private:
+  enum class ShowInfoResult
+  {
+    RESULT_ERROR, // some error occurred
+    RESULT_OK_UPDATED, // no error, data updated
+    RESULT_OK_NOT_UPDATED, // no error, data not updated
+  };
+
   /*!
    \brief Lookup the information of an item and display an Info dialog
    \param item the item to lookup
    \param content
-   \return true: the information of the item was modified. false: no change.
+   \return the result.
    */
-  bool ShowInfo(const CFileItemPtr& item, const ADDON::ScraperPtr& content);
-
-  bool m_forceSelection;
+  ShowInfoResult ShowInfo(const std::shared_ptr<CFileItem>& item,
+                          const std::shared_ptr<ADDON::CScraper>& content);
 };

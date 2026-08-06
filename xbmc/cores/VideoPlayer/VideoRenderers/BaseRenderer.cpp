@@ -12,7 +12,8 @@
 #include "cores/VideoPlayer/VideoRenderers/RenderFlags.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/DisplaySettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -20,6 +21,7 @@
 #include "utils/MathUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <algorithm>
 #include <cstdlib> // std::abs(int) prototype
@@ -304,7 +306,11 @@ void CBaseRenderer::CalculateFrameAspectRatio(unsigned int desired_width, unsign
 
 void CBaseRenderer::ManageRenderArea()
 {
-  m_viewRect = CServiceBroker::GetWinSystem()->GetGfxContext().GetViewWindow();
+  const CRect newRect = CServiceBroker::GetWinSystem()->GetGfxContext().GetViewWindow();
+  if (newRect.Width() != m_viewRect.Width() || newRect.Height() != m_viewRect.Height())
+    CLog::Log(LOGDEBUG, "CBaseRenderer::ManageRenderArea: viewRect {:.0f}x{:.0f} -> {:.0f}x{:.0f}",
+              m_viewRect.Width(), m_viewRect.Height(), newRect.Width(), newRect.Height());
+  m_viewRect = newRect;
 
   m_sourceRect.x1 = 0.0f;
   m_sourceRect.y1 = 0.0f;
@@ -312,27 +318,29 @@ void CBaseRenderer::ManageRenderArea()
   m_sourceRect.y2 = (float)m_sourceHeight;
 
   unsigned int stereo_mode  = CONF_FLAGS_STEREO_MODE_MASK(m_iFlags);
-  int          stereo_view  = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoView();
+  auto stereo_view = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoView();
 
   if(CONF_FLAGS_STEREO_CADENCE(m_iFlags) == CONF_FLAGS_STEREO_CADANCE_RIGHT_LEFT)
   {
-    if     (stereo_view == RENDER_STEREO_VIEW_LEFT)  stereo_view = RENDER_STEREO_VIEW_RIGHT;
-    else if(stereo_view == RENDER_STEREO_VIEW_RIGHT) stereo_view = RENDER_STEREO_VIEW_LEFT;
+    if (stereo_view == RenderStereoView::LEFT)
+      stereo_view = RenderStereoView::RIGHT;
+    else if (stereo_view == RenderStereoView::RIGHT)
+      stereo_view = RenderStereoView::LEFT;
   }
 
   switch(stereo_mode)
   {
     case CONF_FLAGS_STEREO_MODE_TAB:
-      if (stereo_view == RENDER_STEREO_VIEW_LEFT)
+      if (stereo_view == RenderStereoView::LEFT)
         m_sourceRect.y2 *= 0.5f;
-      else if(stereo_view == RENDER_STEREO_VIEW_RIGHT)
+      else if (stereo_view == RenderStereoView::RIGHT)
         m_sourceRect.y1 += m_sourceRect.y2*0.5f;
       break;
 
     case CONF_FLAGS_STEREO_MODE_SBS:
-      if     (stereo_view == RENDER_STEREO_VIEW_LEFT)
+      if (stereo_view == RenderStereoView::LEFT)
         m_sourceRect.x2 *= 0.5f;
-      else if(stereo_view == RENDER_STEREO_VIEW_RIGHT)
+      else if (stereo_view == RenderStereoView::RIGHT)
         m_sourceRect.x1 += m_sourceRect.x2*0.5f;
       break;
 
@@ -350,17 +358,30 @@ EShaderFormat CBaseRenderer::GetShaderFormat()
 {
   EShaderFormat ret = SHADER_NONE;
 
-  if (m_format == AV_PIX_FMT_YUV420P)
+  // clang-format off
+  if (m_format == AV_PIX_FMT_YUV420P ||
+      m_format == AV_PIX_FMT_YUV422P ||
+      m_format == AV_PIX_FMT_YUV444P)
     ret = SHADER_YV12;
-  else if (m_format == AV_PIX_FMT_YUV420P9)
+  else if (m_format == AV_PIX_FMT_YUV420P9 ||
+           m_format == AV_PIX_FMT_YUV422P9 ||
+           m_format == AV_PIX_FMT_YUV444P9)
     ret = SHADER_YV12_9;
-  else if (m_format == AV_PIX_FMT_YUV420P10)
+  else if (m_format == AV_PIX_FMT_YUV420P10 ||
+           m_format == AV_PIX_FMT_YUV422P10 ||
+           m_format == AV_PIX_FMT_YUV444P10)
     ret = SHADER_YV12_10;
-  else if (m_format == AV_PIX_FMT_YUV420P12)
+  else if (m_format == AV_PIX_FMT_YUV420P12 ||
+           m_format == AV_PIX_FMT_YUV422P12 ||
+           m_format == AV_PIX_FMT_YUV444P12)
     ret = SHADER_YV12_12;
-  else if (m_format == AV_PIX_FMT_YUV420P14)
+  else if (m_format == AV_PIX_FMT_YUV420P14 ||
+           m_format == AV_PIX_FMT_YUV422P14 ||
+           m_format == AV_PIX_FMT_YUV444P14)
     ret = SHADER_YV12_14;
-  else if (m_format == AV_PIX_FMT_YUV420P16)
+  else if (m_format == AV_PIX_FMT_YUV420P16 ||
+           m_format == AV_PIX_FMT_YUV422P16 ||
+           m_format == AV_PIX_FMT_YUV444P16)
     ret = SHADER_YV12_16;
   else if (m_format == AV_PIX_FMT_NV12)
     ret = SHADER_NV12;
@@ -368,8 +389,10 @@ EShaderFormat CBaseRenderer::GetShaderFormat()
     ret = SHADER_YUY2;
   else if (m_format == AV_PIX_FMT_UYVY422)
     ret = SHADER_UYVY;
+  // clang-format on
   else
-    CLog::Log(LOGERROR, "CBaseRenderer::GetShaderFormat - unsupported format {}", m_format);
+    CLog::Log(LOGERROR, "CBaseRenderer::GetShaderFormat - unsupported format {}",
+              m_format == AV_PIX_FMT_NONE ? "none" : av_get_pix_fmt_name(m_format));
 
   return ret;
 }
@@ -513,14 +536,19 @@ void CBaseRenderer::SetVideoSettings(const CVideoSettings &settings)
 void CBaseRenderer::SettingOptionsRenderMethodsFiller(
     const std::shared_ptr<const CSetting>& setting,
     std::vector<IntegerSettingOption>& list,
-    int& current,
-    void* data)
+    int& current)
 {
-  list.emplace_back(g_localizeStrings.Get(13416), RENDER_METHOD_AUTO);
+  list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13416),
+                    RENDER_METHOD_AUTO);
 
 #ifdef HAS_DX
-  list.push_back(IntegerSettingOption(g_localizeStrings.Get(16319), RENDER_METHOD_DXVA));
-  list.push_back(IntegerSettingOption(g_localizeStrings.Get(13431), RENDER_METHOD_D3D_PS));
-  list.push_back(IntegerSettingOption(g_localizeStrings.Get(13419), RENDER_METHOD_SOFTWARE));
+  list.push_back(IntegerSettingOption(
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16319), RENDER_METHOD_DXVA));
+  list.push_back(
+      IntegerSettingOption(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13431),
+                           RENDER_METHOD_D3D_PS));
+  list.push_back(
+      IntegerSettingOption(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13419),
+                           RENDER_METHOD_SOFTWARE));
 #endif
 }

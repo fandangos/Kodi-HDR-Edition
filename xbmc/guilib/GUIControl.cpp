@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -22,6 +22,7 @@
 #include "input/mouse/MouseEvent.h"
 #include "input/mouse/MouseStat.h"
 #include "utils/log.h"
+#include "windowing/WinSystem.h"
 
 using namespace KODI;
 using namespace GUILIB;
@@ -36,6 +37,7 @@ CGUIControl::CGUIControl()
   m_visibleFromSkinCondition = true;
   m_forceHidden = false;
   m_enabled = true;
+  m_enabledFromSkinCondition = true;
   m_posX = 0;
   m_posY = 0;
   m_width = 0;
@@ -67,6 +69,7 @@ CGUIControl::CGUIControl(int parentID, int controlID, float posX, float posY, fl
   m_visibleFromSkinCondition = true;
   m_forceHidden = false;
   m_enabled = true;
+  m_enabledFromSkinCondition = true;
   ControlType = GUICONTROL_UNKNOWN;
   m_bInvalidated = true;
   m_bAllocated=false;
@@ -125,14 +128,18 @@ void CGUIControl::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyreg
   bool changed = (m_controlDirtyState & DIRTY_STATE_CONTROL) != 0 || (m_bInvalidated && IsVisible());
   m_controlDirtyState = 0;
 
-  if (Animate(currentTime))
-    MarkDirtyRegion();
+  // If the control has an active animation, mark it as dirty even if culled because the
+  // animation might change the alpha at a later time so processing needs to continue
+  const bool animated = Animate(currentTime);
 
-  // if the control changed culling state from true to false, mark it
   const bool culled = m_transform.alpha <= 0.01f;
-  if (m_isCulled != culled)
+
+  // if the control changed culling state from true to false, mark it.
+  const bool cullingChanged = m_isCulled != culled;
+
+  if (cullingChanged || animated)
   {
-    m_isCulled = false;
+    m_isCulled = false; // set to false so MarkDirtyRegion() isn't a no-op
     MarkDirtyRegion();
   }
   m_isCulled = culled;
@@ -188,9 +195,8 @@ void CGUIControl::DoRender()
   {
     bool hasStereo =
         m_stereo != 0.0f &&
-        CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() !=
-            RENDER_STEREO_MODE_MONO &&
-        CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() != RENDER_STEREO_MODE_OFF;
+        CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() != RenderStereoMode::MONO &&
+        CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() != RenderStereoMode::OFF;
 
     CServiceBroker::GetWinSystem()->GetGfxContext().SetTransform(m_cachedTransform);
     if (m_hasCamera)
@@ -391,7 +397,6 @@ bool CGUIControl::OnMessage(CGUIMessage& message)
       SetVisible(false);
       return true;
 
-      // Note that the skin <enable> tag will override these messages
     case GUI_MSG_ENABLED:
       SetEnabled(true);
       return true;
@@ -425,24 +430,27 @@ bool CGUIControl::IsVisible() const
 
 bool CGUIControl::IsDisabled() const
 {
-  return !m_enabled;
+  return !m_enabled || !m_enabledFromSkinCondition;
 }
 
 void CGUIControl::SetEnabled(bool bEnable)
 {
+  const bool wasDisabled = IsDisabled();
+
   if (bEnable != m_enabled)
   {
     m_enabled = bEnable;
-    SetInvalid();
+    if (IsDisabled() != wasDisabled)
+      SetInvalid();
   }
 }
 
 void CGUIControl::SetEnableCondition(const std::string &expression)
 {
   if (expression == "true")
-    m_enabled = true;
+    m_enabledFromSkinCondition = true;
   else if (expression == "false")
-    m_enabled = false;
+    m_enabledFromSkinCondition = false;
   else
     m_enableCondition = CServiceBroker::GetGUI()->GetInfoManager().Register(expression, GetParentID());
 }
@@ -637,13 +645,12 @@ void CGUIControl::UpdateVisibility(const CGUIListItem *item)
     if (anim.GetType() == ANIM_TYPE_CONDITIONAL)
       anim.UpdateCondition(item);
   }
-  // and check for conditional enabling - note this overrides SetEnabled() from the code currently
-  // this may need to be reviewed at a later date
-  bool enabled = m_enabled;
+  // and check for conditional enabling, combined with status set with SetEnabled()
+  const bool disabled = IsDisabled();
   if (m_enableCondition)
-    m_enabled = m_enableCondition->Get(INFO::DEFAULT_CONTEXT, item);
+    m_enabledFromSkinCondition = m_enableCondition->Get(INFO::DEFAULT_CONTEXT, item);
 
-  if (m_enabled != enabled)
+  if (IsDisabled() != disabled)
     MarkDirtyRegion();
 
   m_allowHiddenFocus.Update(INFO::DEFAULT_CONTEXT, item);
@@ -676,10 +683,9 @@ void CGUIControl::SetInitialVisibility()
     if (anim.GetType() == ANIM_TYPE_CONDITIONAL)
       anim.SetInitialCondition();
   }
-  // and check for conditional enabling - note this overrides SetEnabled() from the code currently
-  // this may need to be reviewed at a later date
+  // and check for conditional enabling
   if (m_enableCondition)
-    m_enabled = m_enableCondition->Get(INFO::DEFAULT_CONTEXT);
+    m_enabledFromSkinCondition = m_enableCondition->Get(INFO::DEFAULT_CONTEXT);
   m_allowHiddenFocus.Update(INFO::DEFAULT_CONTEXT);
   UpdateColors(nullptr);
 

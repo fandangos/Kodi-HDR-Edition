@@ -20,10 +20,11 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "playlists/PlayListM3U.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/MediaSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
@@ -371,7 +372,9 @@ void CGUIWindowVideoPlaylist::UpdateButtons()
   else
     iLocalizedString = 597; // Repeat: All
 
-  SET_CONTROL_LABEL(CONTROL_BTNREPEAT, g_localizeStrings.Get(iLocalizedString));
+  SET_CONTROL_LABEL(
+      CONTROL_BTNREPEAT,
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(iLocalizedString));
 
   MarkPlaying();
 }
@@ -396,8 +399,9 @@ protected:
 
     const auto playlistItem{playlistPlayer.GetPlaylist(PLAYLIST::Id::TYPE_VIDEO)[m_itemIndex]};
     playlistItem->SetStartOffset(STARTOFFSET_RESUME);
-    if (playlistItem->HasVideoInfoTag() && m_item->HasVideoInfoTag())
-      playlistItem->GetVideoInfoTag()->SetResumePoint(m_item->GetVideoInfoTag()->GetResumePoint());
+    if (playlistItem->HasVideoInfoTag() && GetItem()->HasVideoInfoTag())
+      playlistItem->GetVideoInfoTag()->SetResumePoint(
+          GetItem()->GetVideoInfoTag()->GetResumePoint());
 
     playlistPlayer.Play(m_itemIndex, m_player);
     return true;
@@ -429,11 +433,8 @@ bool CGUIWindowVideoPlaylist::OnPlayMedia(int iItem, const std::string& player)
   else
   {
     const auto item{m_vecItems->Get(iItem)};
-    // play the current video version, even if multiple versions are available
-    item->SetProperty("has_resolved_video_asset", true);
     CVideoPlayActionProcessor proc{item, iItem, player};
     proc.ProcessDefaultAction();
-    item->ClearProperty("has_resolved_video_asset");
   }
   return true;
 }
@@ -469,8 +470,9 @@ void CGUIWindowVideoPlaylist::RemovePlayListItem(int iItem)
 void CGUIWindowVideoPlaylist::SavePlayList()
 {
   std::string strNewFileName;
-  if (CGUIKeyboardFactory::ShowAndGetInput(strNewFileName, CVariant{g_localizeStrings.Get(16012)},
-                                           false))
+  if (CGUIKeyboardFactory::ShowAndGetInput(
+          strNewFileName,
+          CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16012)}, false))
   {
     // need 2 rename it
     strNewFileName = CUtil::MakeLegalFileName(std::move(strNewFileName));

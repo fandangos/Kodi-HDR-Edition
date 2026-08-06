@@ -16,6 +16,7 @@
 #include "cores/VideoPlayer/VideoRenderers/ColorManager.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderManager.h"
 #include "filesystem/Directory.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "profiles/ProfileManager.h"
 #include "settings/Settings.h"
@@ -75,7 +76,8 @@ void CGUIDialogCMSSettings::InitializeSettings()
     return;
   }
 
-  bool usePopup = g_SkinInfo->HasSkinFile("DialogSlider.xml");
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  const bool usePopup = skin && skin->HasSkinFile("DialogSlider.xml");
 
   TranslatableIntegerSettingOptions entries;
 
@@ -220,8 +222,7 @@ bool CGUIDialogCMSSettings::Save()
 
 void CGUIDialogCMSSettings::Cms3dLutsFiller(const SettingConstPtr& setting,
                                             std::vector<StringSettingOption>& list,
-                                            std::string& current,
-                                            void* data)
+                                            std::string& current)
 {
   // get 3dLut directory from settings
   CFileItemList items;

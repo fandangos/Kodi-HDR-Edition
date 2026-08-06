@@ -18,6 +18,8 @@
 
 #include "platform/win32/WIN32Util.h"
 
+#include <cstdint>
+
 #include <Windows.h>
 
 using namespace XFILE;
@@ -66,6 +68,7 @@ bool CWin32Directory::GetDirectory(const CURL& url, CFileItemList &items)
   if (hSearch == INVALID_HANDLE_VALUE)
     return GetLastError() == ERROR_FILE_NOT_FOUND ? Exists(url) : false; // return true if directory exist and empty
 
+  std::vector<std::shared_ptr<CFileItem>> fileItems;
   do
   {
     std::wstring itemNameW(findData.cFileName);
@@ -75,38 +78,50 @@ bool CWin32Directory::GetDirectory(const CURL& url, CFileItemList &items)
     std::string itemName;
     if (!g_charsetConverter.wToUTF8(itemNameW, itemName, true) || itemName.empty())
     {
-      CLog::Log(LOGERROR, "{}: Can't convert wide string name to UTF-8 encoding", __FUNCTION__);
+      CLog::LogF(LOGERROR, "Can't convert wide string name to UTF-8 encoding");
       continue;
     }
 
-    CFileItemPtr pItem(new CFileItem(itemName));
+    const bool isDir = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    const bool isHidden =
+        (findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0 ||
+        itemName.front() == '.'; // mark files starting from dot as hidden
 
-    pItem->m_bIsFolder = ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
-    if (pItem->m_bIsFolder)
-      pItem->SetPath(pathWithSlash + itemName + '\\');
-    else
-      pItem->SetPath(pathWithSlash + itemName);
-
-    if ((findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0
-          || itemName.front() == '.') // mark files starting from dot as hidden
-      pItem->SetProperty("file:hidden", true);
+    std::string itemPath(pathWithSlash + itemName);
+    if (isDir)
+      itemPath.push_back('\\');
 
     // calculation of size and date costs a little on win32
     // so DIR_FLAG_NO_FILE_INFO flag is ignored
-    KODI::TIME::FileTime fileTime;
-    fileTime.lowDateTime = findData.ftLastWriteTime.dwLowDateTime;
-    fileTime.highDateTime = findData.ftLastWriteTime.dwHighDateTime;
-    KODI::TIME::FileTime localTime;
-    if (KODI::TIME::FileTimeToLocalFileTime(&fileTime, &localTime) == TRUE)
-      pItem->m_dateTime = localTime;
-    else
-      pItem->m_dateTime = 0;
+    const auto& item = fileItems.emplace_back(std::make_shared<CFileItem>(itemName));
 
-    if (!pItem->m_bIsFolder)
-        pItem->m_dwSize = (__int64(findData.nFileSizeHigh) << 32) + findData.nFileSizeLow;
+    item->SetFolder(isDir);
+    item->SetPath(itemPath);
 
-    items.Add(pItem);
+    using KODI::TIME::FileTime;
+    FileTime localTime{};
+
+    if (FileTimeToLocalFileTime(reinterpret_cast<const FileTime*>(&findData.ftLastWriteTime),
+                                &localTime) == TRUE)
+      item->SetDateTime(localTime);
+
+    if (!isDir)
+      item->SetSize((static_cast<int64_t>(findData.nFileSizeHigh) << 32) + findData.nFileSizeLow);
+
+    if (isHidden)
+      item->SetProperty("file:hidden", true);
+
+    if (isDir)
+    { // raw values; the DateTime above is local-time converted
+      item->SetProperty(DIR_PROPERTY_STAT_MTIME, static_cast<int64_t>(CWIN32Util::fileTimeToTimeT(
+                                                     findData.ftLastWriteTime)));
+      item->SetProperty(DIR_PROPERTY_STAT_CTIME,
+                        static_cast<int64_t>(CWIN32Util::fileTimeToTimeT(findData.ftCreationTime)));
+    }
+
   } while (FindNextFileW(hSearch, &findData));
+
+  items.AddItems(std::move(fileItems));
 
   FindClose(hSearch);
 
@@ -184,7 +199,7 @@ bool CWin32Directory::RemoveRecursive(const CURL& url)
       std::string path;
       if (!g_charsetConverter.wToUTF8(pathW, path, true))
       {
-        CLog::Log(LOGERROR, "{}: Can't convert wide string name to UTF-8 encoding", __FUNCTION__);
+        CLog::LogF(LOGERROR, "Can't convert wide string name to UTF-8 encoding");
         continue;
       }
 

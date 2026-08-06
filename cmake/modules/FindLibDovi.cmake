@@ -8,26 +8,22 @@
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
-  find_package(PkgConfig QUIET)
+  include(cmake/scripts/common/ModuleHelpers.cmake)
 
-  if(PKG_CONFIG_FOUND)
-    pkg_check_modules(PC_LIBDOVI libdovi QUIET)
-  endif()
+  set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC libdovi)
+  set(${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME dovi)
+  set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_DISABLE_VERSION ON)
 
-  find_library(LIBDOVI_LIBRARY NAMES dovi libdovi
-                               HINTS ${PC_LIBDOVI_LIBDIR})
-  find_path(LIBDOVI_INCLUDE_DIR NAMES libdovi/rpu_parser.h
-                                HINTS ${PC_LIBDOVI_INCLUDEDIR})
+  SETUP_BUILD_VARS()
 
-  include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(LibDovi
-                                    REQUIRED_VARS LIBDOVI_LIBRARY LIBDOVI_INCLUDE_DIR)
+  SETUP_FIND_SPECS()
 
-  if(LIBDOVI_FOUND)
-    add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
-    set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                     IMPORTED_LOCATION "${LIBDOVI_LIBRARY}"
-                                                                     INTERFACE_INCLUDE_DIRECTORIES "${LIBDOVI_INCLUDE_DIR}"
-                                                                     INTERFACE_COMPILE_DEFINITIONS HAVE_LIBDOVI)
+  SEARCH_EXISTING_PACKAGES()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
+
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS HAVE_LIBDOVI)
+    ADD_TARGET_COMPILE_DEFINITION()
   endif()
 endif()

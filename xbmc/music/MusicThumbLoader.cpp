@@ -12,6 +12,7 @@
 #include "imagefiles/ImageFileURL.h"
 #include "music/infoscanner/MusicInfoScanner.h"
 #include "music/tags/MusicInfoTag.h"
+#include "utils/Artwork.h"
 #include "utils/StringUtils.h"
 #include "video/VideoThumbLoader.h"
 
@@ -53,7 +54,7 @@ bool CMusicThumbLoader::LoadItem(CFileItem* pItem)
 
 bool CMusicThumbLoader::LoadItemCached(CFileItem* pItem)
 {
-  if (pItem->m_bIsShareOrDrive)
+  if (pItem->IsShareOrDrive())
     return false;
 
   if (pItem->HasMusicInfoTag() && !pItem->GetProperty("libraryartfilled").asBoolean())
@@ -97,7 +98,7 @@ bool CMusicThumbLoader::LoadItemCached(CFileItem* pItem)
 
 bool CMusicThumbLoader::LoadItemLookup(CFileItem* pItem)
 {
-  if (pItem->m_bIsShareOrDrive)
+  if (pItem->IsShareOrDrive())
     return false;
 
   if (pItem->HasMusicInfoTag() && pItem->GetMusicInfoTag()->GetType() == MediaTypeArtist) // No fallback for artist
@@ -269,8 +270,8 @@ bool CMusicThumbLoader::FillLibraryArt(CFileItem &item)
   {
     std::string fanartfallback;
     std::string artname;
-    std::map<std::string, std::string> artmap;
-    std::map<std::string, std::string> discartmap;
+    KODI::ART::Artwork artmap;
+    KODI::ART::Artwork discartmap;
     for (auto artitem : art)
     {
       /* Add art to artmap, naming according to media type.

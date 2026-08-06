@@ -50,7 +50,7 @@ CWinSystemAndroid::CWinSystemAndroid()
   m_displayWidth = 0;
   m_displayHeight = 0;
 
-  m_stereo_mode = RENDER_STEREO_MODE_OFF;
+  m_stereo_mode = RenderStereoMode::OFF;
 
   m_dispResetTimer = new CTimer(this);
 
@@ -127,6 +127,13 @@ bool CWinSystemAndroid::CreateNewWindow(const std::string& name,
     return false;
   }
 
+  if (m_dispModesUpdatePending)
+  {
+    CLog::LogF(LOGDEBUG, "display modes update was pending, refreshing resolutions");
+    UpdateResolutions(false);
+    m_dispModesUpdatePending = false;
+  }
+
   m_android->SetNativeResolution(res);
 
   m_bWindowCreated = true;
@@ -136,6 +143,7 @@ bool CWinSystemAndroid::CreateNewWindow(const std::string& name,
 bool CWinSystemAndroid::DestroyWindow()
 {
   CLog::Log(LOGINFO, "CWinSystemAndroid::{}", __FUNCTION__);
+  m_dispModesUpdatePending = false;
   m_nativeWindow.reset();
   m_bWindowCreated = false;
   return true;
@@ -222,7 +230,7 @@ void CWinSystemAndroid::InitiateModeChange()
 
 void CWinSystemAndroid::SetHdmiState(bool connected)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   CLog::Log(LOGDEBUG, "CWinSystemAndroid::SetHdmiState: state: {}", static_cast<int>(connected));
 
   if (connected)
@@ -264,6 +272,12 @@ void CWinSystemAndroid::UpdateDisplayModes()
     // update display settings
     UpdateResolutions(false);
   }
+  else
+  {
+    // Window not yet recreated after standby/wake - defer resolution update
+    // to CreateNewWindow() so CDisplaySettings gets fresh Android mode IDs
+    m_dispModesUpdatePending = true;
+  }
 }
 
 bool CWinSystemAndroid::Minimize()
@@ -283,13 +297,13 @@ bool CWinSystemAndroid::Show(bool raise)
 
 void CWinSystemAndroid::Register(IDispResource *resource)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemAndroid::Unregister(IDispResource *resource)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);

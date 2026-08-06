@@ -160,7 +160,7 @@ bool CActiveAEBufferPoolResample::Create(
   if (m_inputFormat.m_channelLayout != m_format.m_channelLayout ||
       m_inputFormat.m_sampleRate != m_format.m_sampleRate ||
       m_inputFormat.m_dataFormat != m_format.m_dataFormat ||
-      m_changeResampler)
+      m_inputFormat.m_frames != m_format.m_frames || m_changeResampler)
   {
     ChangeResampler();
   }
@@ -297,14 +297,15 @@ bool CActiveAEBufferPoolResample::ResampleBuffers(int64_t timestamp)
         }
 
         // pts of last sample we added to the buffer
-        m_lastSamplePts +=
-            (in->pkt->nb_samples - in->pkt_start_offset) * 1000 / in->pkt->config.sample_rate;
+        m_lastSamplePts += static_cast<int64_t>(in->pkt->nb_samples - in->pkt_start_offset) * 1000 /
+                           in->pkt->config.sample_rate;
       }
 
       // calculate pts for last sample in m_procSample
       int bufferedSamples = m_resampler->GetBufferedSamples();
       m_procSample->pkt_start_offset = m_procSample->pkt->nb_samples;
-      m_procSample->timestamp = m_lastSamplePts - bufferedSamples * 1000 / m_format.m_sampleRate;
+      m_procSample->timestamp =
+          m_lastSamplePts - static_cast<int64_t>(bufferedSamples) * 1000 / m_format.m_sampleRate;
 
       if ((m_drain || m_changeResampler) && m_empty)
       {
@@ -499,6 +500,21 @@ bool CActiveAEBufferPoolAtempo::ProcessBuffers()
     {
       in = m_inputSamples.front();
       m_inputSamples.pop_front();
+
+      // Update sample PTS and extrapolate missing timestamps for atempo processing
+      if (in->timestamp)
+      {
+        m_lastSamplePts = in->timestamp;
+      }
+      else
+      {
+        in->pkt_start_offset = 0;
+        in->timestamp = m_lastSamplePts;
+      }
+
+      m_lastSamplePts += static_cast<int64_t>(in->pkt->nb_samples - in->pkt_start_offset) * 1000 /
+                         m_format.m_sampleRate;
+
       m_outputSamples.push_back(in);
       busy = true;
     }
@@ -563,13 +579,15 @@ bool CActiveAEBufferPoolAtempo::ProcessBuffers()
           in->pkt_start_offset = 0;
 
         // pts of last sample we added to the buffer
-        m_lastSamplePts += (in->pkt->nb_samples-in->pkt_start_offset) * 1000 / m_format.m_sampleRate;
+        m_lastSamplePts += static_cast<int64_t>(in->pkt->nb_samples - in->pkt_start_offset) * 1000 /
+                           m_format.m_sampleRate;
       }
 
       // calculate pts for last sample in m_procSample
       int bufferedSamples = m_pTempoFilter->GetBufferedSamples();
       m_procSample->pkt_start_offset = m_procSample->pkt->nb_samples;
-      m_procSample->timestamp = m_lastSamplePts - bufferedSamples * 1000 / m_format.m_sampleRate;
+      m_procSample->timestamp =
+          m_lastSamplePts - static_cast<int64_t>(bufferedSamples) * 1000 / m_format.m_sampleRate;
 
       if ((m_drain || m_changeFilter) && m_empty)
       {
@@ -587,10 +605,11 @@ bool CActiveAEBufferPoolAtempo::ProcessBuffers()
         }
 
         // check if draining is finished
-        if (m_drain && m_procSample->pkt->nb_samples == 0)
+        if (m_procSample->pkt->nb_samples == 0)
         {
           m_procSample->Return();
-          busy = false;
+          if (m_drain)
+            busy = false;
         }
         else
           m_outputSamples.push_back(m_procSample);
@@ -605,7 +624,14 @@ bool CActiveAEBufferPoolAtempo::ProcessBuffers()
       // some methods like encode require completely filled packets
       else if (!m_fillPackets || (m_procSample->pkt->nb_samples == m_procSample->pkt->max_nb_samples))
       {
-        m_outputSamples.push_back(m_procSample);
+        if (m_procSample->pkt->nb_samples == 0)
+        {
+          m_procSample->Return();
+        }
+        else
+        {
+          m_outputSamples.push_back(m_procSample);
+        }
         m_procSample = nullptr;
       }
 

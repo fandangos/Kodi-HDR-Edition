@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -21,10 +21,6 @@ class CFileItemList;
 class CGUIViewState;
 enum class SourceType;
 
-namespace
-{
-class CGetDirectoryItems;
-}
 class TiXmlElement;
 
 // base class for all media windows
@@ -54,7 +50,7 @@ public:
   virtual bool IsFiltered();
   virtual bool IsSameStartFolder(const std::string &dir);
 
-  virtual std::string GetRootPath() const { return ""; }
+  virtual std::string GetRootPath() { return ""; }
 
   const CFileItemList &CurrentDirectory() const;
   const CGUIViewState *GetViewState() const;
@@ -162,9 +158,7 @@ protected:
   virtual void OnDeleteItem(int iItem);
   void OnRenameItem(int iItem);
   bool WaitForNetwork() const;
-  bool GetDirectoryItems(CURL &url, CFileItemList &items, bool useDir);
-  bool WaitGetDirectoryItems(CGetDirectoryItems &items);
-  void CancelUpdateItems();
+  bool GetDirectoryItems(CURL& url, CFileItemList& items, bool useDir);
 
   /*! \brief Translate the folder to start in from the given quick path
    \param url the folder the user wants
@@ -179,6 +173,12 @@ protected:
   static std::string RemoveParameterFromPath(const std::string &strDirectory, const std::string &strParameter);
 
   bool ProcessRenderLoop(bool renderOnly);
+
+  /*!
+   * \brief Helper function to remove the disc cache of <p> directory and possible dependencies
+   * \param[in] directory Directory
+   */
+  void RemoveDiscCache(const std::string& directory) const;
 
   XFILE::CVirtualDirectory m_rootDir;
   CGUIViewControl m_viewControl;
@@ -203,9 +203,6 @@ protected:
   protected:
     std::atomic_bool &m_update;
   };
-  CEvent m_updateEvent;
-  std::atomic_bool m_updateAborted = {false};
-  std::atomic_bool m_updateJobActive = {false};
 
   // save control state on window exit
   int m_iLastControl;

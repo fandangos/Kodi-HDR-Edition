@@ -17,7 +17,8 @@
 #include "filesystem/FileDirectoryFactory.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -163,7 +164,7 @@ bool CFileOperationJob::DoProcess(FileAction action,
         // get filename from label instead of path
         strFileName = pItem->GetLabel();
 
-        if (!pItem->m_bIsFolder && !URIUtils::HasExtension(strFileName))
+        if (!pItem->IsFolder() && !URIUtils::HasExtension(strFileName))
         {
           // FIXME: for now we only work well if the url has the extension
           // we should map the content type to the extension otherwise
@@ -177,7 +178,7 @@ bool CFileOperationJob::DoProcess(FileAction action,
       if (!strDestFile.empty()) // only do this if we have a destination
         strnewDestFile = URIUtils::ChangeBasePath(pItem->GetPath(), strFileName, strDestFile); // Convert (URL) encoding + slashes (if source / target differ)
 
-      if (pItem->m_bIsFolder)
+      if (pItem->IsFolder())
       {
         // in ActionReplace mode all subdirectories will be removed by the below
         // DoProcessFolder(ActionDelete) call as well, so ActionCopy is enough when
@@ -225,20 +226,20 @@ std::string CFileOperationJob::GetActionString(FileAction action)
   {
     case ActionCopy:
     case ActionReplace:
-      result = g_localizeStrings.Get(115);
+      result = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(115);
       break;
 
     case ActionMove:
-      result = g_localizeStrings.Get(116);
+      result = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(116);
       break;
 
     case ActionDelete:
     case ActionDeleteFolder:
-      result = g_localizeStrings.Get(117);
+      result = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(117);
       break;
 
     case ActionCreateFolder:
-      result = g_localizeStrings.Get(119);
+      result = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(119);
       break;
 
     default:
@@ -335,7 +336,7 @@ bool CFileOperationJob::CFileOperation::OnFileCallback(void* pContext, int iperc
   return !data->base->ShouldCancel((unsigned)current, 100);
 }
 
-bool CFileOperationJob::operator==(const CJob* job) const
+bool CFileOperationJob::Equals(const CJob* job) const
 {
   if (strcmp(job->GetType(), GetType()) != 0)
     return false;

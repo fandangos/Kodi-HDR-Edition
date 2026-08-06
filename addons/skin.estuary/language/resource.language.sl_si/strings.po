@@ -5,9 +5,9 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: KODI Main\n"
-"Report-Msgid-Bugs-To: translations@kodi.tv\n"
+"Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2024-11-09 17:26+0000\n"
+"PO-Revision-Date: 2025-04-02 12:55+0000\n"
 "Last-Translator: Simon <dolenec@gmail.com>\n"
 "Language-Team: Slovenian <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/sl_si/>\n"
 "Language: sl_si\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=4; plural=n%100==1 ? 0 : n%100==2 ? 1 : n%100==3 || n%100==4 ? 2 : 3;\n"
-"X-Generator: Weblate 5.8.2\n"
+"X-Generator: Weblate 5.10.4\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -39,7 +39,7 @@ msgstr "Poišči …"
 
 msgctxt "#31002"
 msgid "Show media fanart as background"
-msgstr "Pokaži medijsko fanart kot ozadje"
+msgstr "Pokaži medijski fanart kot ozadje"
 
 msgctxt "#31003"
 msgid "Cinema mode"
@@ -133,8 +133,8 @@ msgid "Choose rating to display for media items"
 msgstr "Izberite oceno za prikaz medijskih elementov"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "Ni priljubljenih. Na ta seznam lahko dodate poljuben element iz pogledov medijev s pomočjo kontekstnega menija."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr ""
 
 msgctxt "#31026"
 msgid "Timeshift"
@@ -179,7 +179,7 @@ msgstr "Strani"
 
 msgctxt "#31036"
 msgid "items"
-msgstr "predmete"
+msgstr "predmeti"
 
 msgctxt "#31037"
 msgid "Selected track"
@@ -222,10 +222,26 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "Izbriši skupino"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr ""
+
 # empty string with id 31047
 msgctxt "#31048"
 msgid "Available"
 msgstr "Na voljo"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr ""
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr ""
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr ""
 
 # empty strings from id 31049 to 31051
 msgctxt "#31052"
@@ -234,7 +250,7 @@ msgstr "filtrirano"
 
 msgctxt "#31053"
 msgid "Arial based"
-msgstr "Arial"
+msgstr "Temelji na Arial"
 
 msgctxt "#31054"
 msgid "Press [B]Left[/B] to step back, or [B]Right[/B] to step forward"
@@ -296,7 +312,7 @@ msgstr "od"
 
 msgctxt "#31072"
 msgid "Power Options"
-msgstr "Možnosti varčevanja z energijo"
+msgstr "Možnosti napajanja"
 
 msgctxt "#31073"
 msgid "Total length"
@@ -317,6 +333,11 @@ msgstr "Igralska zasedba ni na voljo"
 msgctxt "#31080"
 msgid "Ends at"
 msgstr "Konec ob"
+
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr ""
 
 msgctxt "#31082"
 msgid "Lyrics add-on"
@@ -401,6 +422,11 @@ msgctxt "#31107"
 msgid "WideList"
 msgstr "Širok seznam"
 
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr ""
+
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
 msgid "Video streams"
@@ -462,6 +488,10 @@ msgstr "Neogledane TV serije"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "Isti režiser"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr ""
 
 # empty string with id 31124
 msgctxt "#31125"
@@ -565,8 +595,8 @@ msgid "Categories"
 msgstr "Kategorije"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "Izberite žanr fanart paketa"
+msgid "Choose genre fanart pack"
+msgstr ""
 
 msgctxt "#31150"
 msgid "Origin"
@@ -689,6 +719,26 @@ msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
 msgstr "Privzeta izbira dejanja za nize filmov na začetnem zaslonu"
 
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr ""
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr ""
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr ""
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr ""
+
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
@@ -754,6 +804,29 @@ msgstr "Sistem"
 msgctxt "#31612"
 msgid "channels"
 msgstr "kanalov"
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr ""
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr ""
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr ""
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "Ni priljubljenih. Na ta seznam lahko dodate poljuben element iz pogledov medijev s pomočjo kontekstnega menija."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "Izberite žanr fanart paketa"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

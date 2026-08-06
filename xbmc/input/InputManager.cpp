@@ -20,14 +20,15 @@
 #include "guilib/GUIWindowManager.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
+#include "input/cec/ICecInputProvider.h"
 #include "input/keyboard/Key.h"
-#include "input/keyboard/KeyIDs.h"
 #include "input/keyboard/KeyboardEasterEgg.h"
 #include "input/keyboard/XBMC_vkeys.h"
 #include "input/keyboard/interfaces/IKeyboardDriverHandler.h"
 #include "input/keymaps/ButtonTranslator.h"
 #include "input/keymaps/KeymapEnvironment.h"
 #include "input/keymaps/joysticks/JoystickMapper.h"
+#include "input/keymaps/keyboard/KeyIDs.h"
 #include "input/keymaps/remote/CustomControllerTranslator.h"
 #include "input/keymaps/touch/TouchTranslator.h"
 #include "input/mouse/MouseTranslator.h"
@@ -40,13 +41,13 @@
 #include "settings/lib/Setting.h"
 #include "utils/ExecString.h"
 #include "utils/Geometry.h"
+#include "utils/Map.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <algorithm>
 #include <math.h>
 #include <mutex>
-#include <unordered_map>
 
 using EVENTSERVER::CEventServer;
 
@@ -56,10 +57,11 @@ const std::string CInputManager::SETTING_INPUT_ENABLE_CONTROLLER = "input.enable
 
 namespace
 {
-const std::unordered_map<uint8_t, int> keyComposeactionEventMap = {
+constexpr auto keyComposeactionEventMap = make_map<uint8_t, int>({
     {XBMC_KEYCOMPOSING_COMPOSING, ACTION_KEYBOARD_COMPOSING_KEY},
     {XBMC_KEYCOMPOSING_CANCELLED, ACTION_KEYBOARD_COMPOSING_KEY_CANCELLED},
-    {XBMC_KEYCOMPOSING_FINISHED, ACTION_KEYBOARD_COMPOSING_KEY_FINISHED}};
+    {XBMC_KEYCOMPOSING_FINISHED, ACTION_KEYBOARD_COMPOSING_KEY_FINISHED},
+});
 }
 
 CInputManager::CInputManager()
@@ -76,11 +78,8 @@ CInputManager::CInputManager()
 
   RegisterKeyboardDriverHandler(m_keyboardEasterEgg.get());
 
-  // Register settings
-  std::set<std::string> settingSet;
-  settingSet.insert(CSettings::SETTING_INPUT_ENABLEMOUSE);
-  settingSet.insert(SETTING_INPUT_ENABLE_CONTROLLER);
-  CServiceBroker::GetSettingsComponent()->GetSettings()->RegisterCallback(this, settingSet);
+  CServiceBroker::GetSettingsComponent()->GetSettings()->RegisterCallback(
+      this, {CSettings::SETTING_INPUT_ENABLEMOUSE, SETTING_INPUT_ENABLE_CONTROLLER});
 }
 
 CInputManager::~CInputManager()
@@ -111,14 +110,6 @@ void CInputManager::InitializeInputs()
 
 void CInputManager::Deinitialize()
 {
-}
-
-bool CInputManager::ProcessPeripherals(float frameTime)
-{
-  CKey key;
-  if (CServiceBroker::GetPeripherals().GetNextKeypress(frameTime, key))
-    return OnKey(key);
-  return false;
 }
 
 bool CInputManager::ProcessMouse(int windowId)
@@ -212,7 +203,7 @@ bool CInputManager::ProcessEventServer(int windowId, float frameTime)
 
   if (wKeyID)
   {
-    if (strMapName.length() > 0)
+    if (!strMapName.empty())
     {
       // joysticks are not supported via eventserver
       if (isJoystick)
@@ -282,7 +273,7 @@ bool CInputManager::ProcessEventServer(int windowId, float frameTime)
         key = CKey(wKeyID, 0, 0, 0.0, 0.0, 0.0, -fAmount, frameTime);
       else
         key = CKey(wKeyID);
-      key.SetFromService(true);
+      key.SetFromEventServer(true);
       return OnKey(key);
     }
   }
@@ -304,21 +295,44 @@ bool CInputManager::ProcessEventServer(int windowId, float frameTime)
   return false;
 }
 
+void CInputManager::ProcessCec()
+{
+  std::unique_lock lock(m_cecHandlingMutex);
+
+  for (auto* handler : m_cecInputProviders)
+  {
+    std::optional<CKey> key = handler->GetCecKey();
+    if (key)
+      QueueCecKey(*key);
+  }
+}
+
 void CInputManager::ProcessQueuedActions()
 {
+  // Process actions
   std::vector<CAction> queuedActions;
   {
-    std::unique_lock<CCriticalSection> lock(m_actionMutex);
+    std::unique_lock lock(m_actionMutex);
     queuedActions.swap(m_queuedActions);
   }
 
   for (const CAction& action : queuedActions)
     g_application.OnAction(action);
+
+  // Process CEC keys
+  std::vector<CKey> queuedCecKeys;
+  {
+    std::unique_lock lock(m_cecKeyMutex);
+    queuedCecKeys.swap(m_queuedCecKeys);
+  }
+
+  for (const CKey& key : queuedCecKeys)
+    OnKey(key);
 }
 
 void CInputManager::QueueAction(const CAction& action)
 {
-  std::unique_lock<CCriticalSection> lock(m_actionMutex);
+  std::unique_lock lock(m_actionMutex);
 
   // Avoid dispatching multiple analog actions per frame with the same ID
   if (action.IsAnalog())
@@ -332,11 +346,16 @@ void CInputManager::QueueAction(const CAction& action)
   m_queuedActions.push_back(action);
 }
 
+void CInputManager::QueueCecKey(const CKey& key)
+{
+  std::unique_lock lock(m_cecKeyMutex);
+  m_queuedCecKeys.emplace_back(key);
+}
+
 bool CInputManager::Process(int windowId, float frameTime)
 {
   // process input actions
   ProcessEventServer(windowId, frameTime);
-  ProcessPeripherals(frameTime);
   ProcessQueuedActions();
 
   // Inform the environment of the new active window ID
@@ -506,7 +525,7 @@ bool CInputManager::OnKey(const CKey& key)
     {
       // Event server keyboard doesn't give normal key up and key down, so don't
       // process for long press if that is the source
-      if (key.GetFromService() ||
+      if (key.GetFromEventServer() ||
           !m_buttonTranslator->HasLongpressMapping(
               CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindowOrDialog(), key))
       {
@@ -576,7 +595,7 @@ bool CInputManager::HandleKey(const CKey& key)
   if (appPower->WakeUpScreenSaverAndDPMS(processKey) && !processKey)
   {
     CLog::LogF(LOGDEBUG, "{} pressed, screen saver/dpms woken up",
-               m_Keyboard.GetKeyName((int)key.GetButtonCode()));
+               m_Keyboard.GetKeyName(key.GetButtonCode()));
     return true;
   }
 
@@ -629,7 +648,7 @@ bool CInputManager::HandleKey(const CKey& key)
       // else pass the keys through directly
       if (!action.GetID())
       {
-        if (key.GetFromService())
+        if (key.GetFromEventServer())
           action = CAction(key.GetButtonCode() != KEY_INVALID ? key.GetButtonCode() : 0,
                            key.GetUnicode());
         else
@@ -659,13 +678,13 @@ bool CInputManager::HandleKey(const CKey& key)
       }
 
       CLog::LogF(LOGDEBUG, "{} pressed, trying keyboard action {:x}",
-                 m_Keyboard.GetKeyName((int)key.GetButtonCode()), action.GetID());
+                 m_Keyboard.GetKeyName(key.GetButtonCode()), action.GetID());
 
       if (g_application.OnAction(action))
         return true;
       // failed to handle the keyboard action, drop down through to standard action
     }
-    if (key.GetFromService())
+    if (key.GetFromEventServer())
     {
       if (key.GetButtonCode() != KEY_INVALID)
         action = m_buttonTranslator->GetAction(iWin, key);
@@ -675,7 +694,7 @@ bool CInputManager::HandleKey(const CKey& key)
   }
   if (!key.IsAnalogButton())
     CLog::LogF(LOGDEBUG, "{} pressed, window {}, action is {}",
-               m_Keyboard.GetKeyName((int)key.GetButtonCode()), iWin, action.GetName());
+               m_Keyboard.GetKeyName(key.GetButtonCode()), iWin, action.GetName());
 
   return ExecuteInputAction(action);
 }
@@ -938,8 +957,7 @@ std::vector<std::shared_ptr<const KEYMAP::IWindowKeymap>> CInputManager::GetJoys
 
 void CInputManager::RegisterKeyboardDriverHandler(KEYBOARD::IKeyboardDriverHandler* handler)
 {
-  if (std::find(m_keyboardHandlers.begin(), m_keyboardHandlers.end(), handler) ==
-      m_keyboardHandlers.end())
+  if (std::ranges::find(m_keyboardHandlers, handler) == m_keyboardHandlers.end())
     m_keyboardHandlers.insert(m_keyboardHandlers.begin(), handler);
 }
 
@@ -952,7 +970,7 @@ void CInputManager::UnregisterKeyboardDriverHandler(KEYBOARD::IKeyboardDriverHan
 
 void CInputManager::RegisterMouseDriverHandler(MOUSE::IMouseDriverHandler* handler)
 {
-  if (std::find(m_mouseHandlers.begin(), m_mouseHandlers.end(), handler) == m_mouseHandlers.end())
+  if (std::ranges::find(m_mouseHandlers, handler) == m_mouseHandlers.end())
     m_mouseHandlers.insert(m_mouseHandlers.begin(), handler);
 }
 
@@ -960,4 +978,19 @@ void CInputManager::UnregisterMouseDriverHandler(MOUSE::IMouseDriverHandler* han
 {
   m_mouseHandlers.erase(std::remove(m_mouseHandlers.begin(), m_mouseHandlers.end(), handler),
                         m_mouseHandlers.end());
+}
+
+void CInputManager::RegisterCecInputProvider(CEC::ICecInputProvider* handler)
+{
+  std::unique_lock lock(m_cecHandlingMutex);
+
+  if (std::ranges::find(m_cecInputProviders, handler) == m_cecInputProviders.end())
+    m_cecInputProviders.emplace_back(handler);
+}
+
+void CInputManager::UnregisterCecInputProvider(CEC::ICecInputProvider* handler)
+{
+  std::unique_lock lock(m_cecHandlingMutex);
+
+  std::erase(m_cecInputProviders, handler);
 }

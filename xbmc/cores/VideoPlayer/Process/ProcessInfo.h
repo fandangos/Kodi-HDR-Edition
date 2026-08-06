@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -50,6 +50,12 @@ public:
   float GetVideoFps();
   void SetVideoDAR(float dar);
   float GetVideoDAR();
+  void SetVideoLiveBitRate(int bitRate);
+  int GetVideoLiveBitRate();
+  void SetVideoQueueLevel(int level);
+  int GetVideoQueueLevel();
+  void SetVideoQueueDataLevel(int level);
+  int GetVideoQueueDataLevel();
   void SetVideoInterlaced(bool interlaced);
   bool GetVideoInterlaced();
   virtual EINTERLACEMETHOD GetFallbackDeintMethod();
@@ -72,8 +78,19 @@ public:
   int GetAudioSampleRate();
   void SetAudioBitsPerSample(int bitsPerSample);
   int GetAudioBitsPerSample();
+  void SetAudioLiveBitRate(int bitRate);
+  int GetAudioLiveBitRate();
+  void SetAudioQueueLevel(int level);
+  int GetAudioQueueLevel();
+  void SetAudioQueueDataLevel(int level);
+  int GetAudioQueueDataLevel();
   virtual bool AllowDTSHDDecode();
   virtual bool WantsRawPassthrough() { return false; }
+
+  // subtitle info
+  void ResetSubtitleCodecInfo();
+  void SetSubtitleDecoderName(const std::string& name);
+  std::string GetSubtitleDecoderName();
 
   // render info
   void SetRenderClockSync(bool enabled);
@@ -103,8 +120,6 @@ public:
   void SetNewTempo(float tempo);
   float GetNewTempo();
   bool IsTempoAllowed(float tempo);
-  virtual float MinTempoPlatform();
-  virtual float MaxTempoPlatform();
   void SetLevelVQ(int level);
   int GetLevelVQ();
   void SetGuiRender(bool gui);
@@ -123,6 +138,10 @@ public:
 
 protected:
   CProcessInfo();
+
+  virtual float MinTempoPlatform();
+  virtual float MaxTempoPlatform();
+
   static std::map<std::string, CreateProcessControl> m_processControls;
   CDataCacheCore *m_dataCache = nullptr;
 
@@ -136,6 +155,9 @@ protected:
   int m_videoHeight;
   float m_videoFPS;
   float m_videoDAR;
+  int m_videoLiveBitRate = 0;
+  int m_videoQueueLevel = 0;
+  int m_videoQueueDataLevel = 0;
   bool m_videoIsInterlaced;
   std::list<EINTERLACEMETHOD> m_deintMethods;
   EINTERLACEMETHOD m_deintMethodDefault;
@@ -148,7 +170,14 @@ protected:
   std::string m_audioChannels;
   int m_audioSampleRate;
   int m_audioBitsPerSample;
+  int m_audioLiveBitRate = 0;
+  int m_audioQueueLevel = 0;
+  int m_audioQueueDataLevel = 0;
   CCriticalSection m_audioCodecSection;
+
+  // player subtitle info
+  std::string m_subtitleDecoderName;
+  CCriticalSection m_subtitleCodecSection;
 
   // render info
   CCriticalSection m_renderSection;

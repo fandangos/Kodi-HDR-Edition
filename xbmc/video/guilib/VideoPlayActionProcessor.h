@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2023 Team Kodi
+ *  Copyright (C) 2023-2025 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "video/guilib/VideoAction.h"
+#include "video/guilib/VideoActionProcessorBase.h"
 
 #include <memory>
 
@@ -16,35 +16,34 @@ class CFileItem;
 
 namespace KODI::VIDEO::GUILIB
 {
-class CVideoPlayActionProcessor
+class CVideoPlayActionProcessor : public CVideoActionProcessorBase
 {
 public:
-  explicit CVideoPlayActionProcessor(const std::shared_ptr<CFileItem>& item) : m_item(item) {}
-  virtual ~CVideoPlayActionProcessor() = default;
-
-  bool ProcessDefaultAction();
-  bool ProcessAction(Action action);
+  using CVideoActionProcessorBase::CVideoActionProcessorBase;
 
   void SetChoosePlayer() { m_choosePlayer = true; }
-
-  bool UserCancelled() const { return m_userCancelled; }
+  void SetChooseStackPart() { m_chooseStackPart = true; }
 
   static Action ChoosePlayOrResume(const CFileItem& item);
 
 protected:
-  virtual Action GetDefaultAction();
-  virtual bool Process(Action action);
+  Action GetDefaultAction() override;
+  bool Process(Action action) override;
 
   virtual bool OnResumeSelected();
   virtual bool OnPlaySelected();
 
-  void Play(const std::string& player);
-
-  std::shared_ptr<CFileItem> m_item;
-  bool m_userCancelled{false};
-  bool m_choosePlayer{false};
-
 private:
   CVideoPlayActionProcessor() = delete;
+  unsigned int ChooseStackPart() const;
+  Action ChoosePlayOrResume() const;
+  static Action ChoosePlayOrResume(const std::string& resumeString);
+  void SetResumeData();
+  void SetStartData();
+  void Play(const std::string& player);
+
+  bool m_chooseStackPart{false};
+  bool m_choosePlayer{false};
+  unsigned int m_chosenStackPart{0};
 };
 } // namespace KODI::VIDEO::GUILIB

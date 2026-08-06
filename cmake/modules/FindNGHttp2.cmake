@@ -5,45 +5,70 @@
 #
 # This will define the following target:
 #
-#   NGHttp2::NGHttp2   - The NGHttp2 library
+#   LIBRARY::NGHttp2   - The App specific library dependency target
+#
 
-if(NOT TARGET NGHttp2::NGHttp2)
-  find_package(PkgConfig QUIET)
-  if(PKG_CONFIG_FOUND AND NOT (WIN32 OR WINDOWSSTORE))
-    pkg_check_modules(NGHTTP2 libnghttp2 QUIET)
+if(NOT TARGET LIBRARY::NGHttp2)
 
-    # First item is the full path of the library file found
-    # pkg_check_modules does not populate a variable of the found library explicitly
-    list(GET NGHTTP2_LINK_LIBRARIES 0 NGHTTP2_LIBRARY)
+  macro(buildmacroNGHttp2)
 
-    set(NGHTTP2_INCLUDE_DIR ${NGHTTP2_INCLUDEDIR})
-  else()
+    set(CMAKE_ARGS -DENABLE_DEBUG=OFF
+                   -DENABLE_FAILMALLOC=OFF
+                   -DENABLE_LIB_ONLY=ON
+                   -DENABLE_DOC=OFF
+                   -DBUILD_STATIC_LIBS=ON
+                   -DBUILD_SHARED_LIBS=OFF
+                   -DBUILD_TESTING=OFF
+                   -DWITH_LIBXML2=OFF)
 
-    find_path(NGHTTP2_INCLUDE_DIR NAMES nghttp2/nghttp2.h
-                                  HINTS ${DEPENDS_PATH}/include
-                                  ${${CORE_PLATFORM_LC}_SEARCH_CONFIG})
-    find_library(NGHTTP2_LIBRARY NAMES nghttp2 nghttp2_static
-                                 HINTS ${DEPENDS_PATH}/lib
-                                 ${${CORE_PLATFORM_LC}_SEARCH_CONFIG})
+    BUILD_DEP_TARGET()
+  endmacro()
+
+  include(cmake/scripts/common/ModuleHelpers.cmake)
+
+  set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC nghttp2)
+  set(${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME_PC libnghttp2)
+
+  SETUP_BUILD_VARS()
+
+  SETUP_FIND_SPECS()
+
+  SEARCH_EXISTING_PACKAGES()
+
+  # Check for existing Nghttp2. If version >= NGHTTP2-VERSION file version, dont build
+  if("${${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_VERSION}" VERSION_LESS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER} AND NGHttp2_FIND_REQUIRED)
+    message(STATUS "Building ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}: \(version \"${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}\"\)")
+    cmake_language(EVAL CODE "
+      buildmacro${CMAKE_FIND_PACKAGE_NAME}()
+    ")
   endif()
 
-  include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(NGHttp2
-                                    REQUIRED_VARS NGHTTP2_LIBRARY NGHTTP2_INCLUDE_DIR
-                                    VERSION_VAR NGHTTP2_VERSION)
+  if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    if((TARGET nghttp2::nghttp2 OR TARGET nghttp2::nghttp2_static) AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      # We have a preference for the static lib when needed, however provide support 
+      # for the shared lib as well
+      if(TARGET nghttp2::nghttp2_static)
+        set(_target nghttp2::nghttp2_static)
+      else()
+        set(_target nghttp2::nghttp2)
+      endif()
 
-  if(NGHTTP2_FOUND)
-    add_library(NGHttp2::NGHttp2 UNKNOWN IMPORTED)
+      # This is a kodi target name
+      add_library(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} ALIAS ${_target})
+    elseif(TARGET PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      add_library(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
+    else()
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_TYPE LIBRARY)
+      SETUP_BUILD_TARGET()
 
-    set_target_properties(NGHttp2::NGHttp2 PROPERTIES
-                                           IMPORTED_LOCATION "${NGHTTP2_LIBRARY}"
-                                           INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP2_INCLUDE_DIR}")
+      add_dependencies(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
 
-    # Todo: for windows, do a find_package config call to retrieve this from the cmake config
-    #       For now just explicitly say its a static build
-    if(WIN32 OR WINDOWS_STORE)
-      set_property(TARGET NGHttp2::NGHttp2 APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS "NGHTTP2_STATICLIB")
+      # We are building as a requirement, so set LIB_BUILD property to allow calling
+      # modules to know we will be building, and they will want to rebuild as well.
+      set_target_properties(LIBRARY::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES LIB_BUILD ON)
     endif()
+
+    ADD_MULTICONFIG_BUILDMACRO()
   else()
     if(NGHttp2_FIND_REQUIRED)
       message(FATAL_ERROR "NGHttp2 libraries were not found.")

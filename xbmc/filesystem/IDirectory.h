@@ -19,6 +19,19 @@ class CFileItem;
 
 namespace XFILE
 {
+/*!
+ \brief max attempts to resolve an item.
+ \sa Resolve
+ */
+static constexpr size_t MAX_ITEM_RESOLVE_ATTEMPTS{5};
+
+/*! \brief Optional item properties a GetDirectory implementation may set.
+ Raw stat times in seconds since epoch, exactly as the filesystem reported
+ them, no local time conversion; consumers decide any mtime/ctime fallback.
+ */
+static constexpr const char* DIR_PROPERTY_STAT_MTIME{"stat:st_mtime"};
+static constexpr const char* DIR_PROPERTY_STAT_CTIME{"stat:st_ctime"};
+
 enum class CacheType
 {
   NEVER = 0, ///< Never cache this directory to memory
@@ -98,6 +111,13 @@ public:
   virtual bool Remove(const CURL& url) { return false; }
 
   /*!
+  \brief Provided a path, attempts to resolve to a mount point
+  \param path Path to resolve
+  \return Returns the mountpoint if found, else the provided path
+  */
+  virtual std::string ResolveMountPoint(const std::string& path) const { return path; }
+
+  /*!
   \brief Recursively removes the directory
   \param url Directory to remove.
   \return Returns \e false if not successful
@@ -141,7 +161,7 @@ public:
   \param item The item being manipulated (which the path points to a vfs protocol implementation)
   \return true if the item was resolved, false if it failed to resolve
   */
-  virtual bool Resolve(CFileItem& item) const { return true; };
+  virtual bool Resolve(CFileItem& item) const { return true; }
 
 protected:
   /*! \brief Prompt the user for some keyboard input

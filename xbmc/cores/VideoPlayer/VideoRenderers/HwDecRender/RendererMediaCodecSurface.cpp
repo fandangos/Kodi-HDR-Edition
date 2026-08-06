@@ -8,15 +8,16 @@
 
 #include "RendererMediaCodecSurface.h"
 
-#include "../RenderCapture.h"
 #include "../RenderFactory.h"
 #include "../RenderFlags.h"
 #include "DVDCodecs/Video/DVDVideoCodecAndroidMediaCodec.h"
+#include "ServiceBroker.h"
 #include "rendering/RenderSystem.h"
 #include "settings/MediaSettings.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include "platform/android/activity/XBMCApp.h"
 
@@ -85,13 +86,6 @@ CRenderInfo CRendererMediaCodecSurface::GetRenderInfo()
   return info;
 }
 
-bool CRendererMediaCodecSurface::RenderCapture(int index, CRenderCapture* capture)
-{
-  capture->BeginRender();
-  capture->EndRender();
-  return true;
-}
-
 void CRendererMediaCodecSurface::AddVideoPicture(const VideoPicture &picture, int index)
 {
   ReleaseBuffer(index);
@@ -151,25 +145,25 @@ void CRendererMediaCodecSurface::RenderUpdate(int index, int index2, bool clear,
   m_bConfigured = true;
 
   // this hack is needed to get the 2D mode of a 3D movie going
-  RENDER_STEREO_MODE stereo_mode = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
-  if (stereo_mode)
-    CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoView(RENDER_STEREO_VIEW_LEFT);
+  RenderStereoMode stereo_mode = CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
+  if (stereo_mode != RenderStereoMode::OFF)
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoView(RenderStereoView::LEFT);
 
   ManageRenderArea();
 
-  if (stereo_mode)
-    CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoView(RENDER_STEREO_VIEW_OFF);
+  if (stereo_mode != RenderStereoMode::OFF)
+    CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoView(RenderStereoView::OFF);
 
   m_surfDestRect = m_destRect;
   switch (stereo_mode)
   {
-    case RENDER_STEREO_MODE_SPLIT_HORIZONTAL:
+    case RenderStereoMode::SPLIT_HORIZONTAL:
       m_surfDestRect.y2 *= 2.0;
       break;
-    case RENDER_STEREO_MODE_SPLIT_VERTICAL:
+    case RenderStereoMode::SPLIT_VERTICAL:
       m_surfDestRect.x2 *= 2.0;
       break;
-    case RENDER_STEREO_MODE_MONO:
+    case RenderStereoMode::MONO:
       if (CONF_FLAGS_STEREO_MODE_MASK(m_iFlags) == CONF_FLAGS_STEREO_MODE_TAB)
         m_surfDestRect.y2 = m_surfDestRect.y2 * 2.0f;
       else

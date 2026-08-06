@@ -43,7 +43,7 @@ CVideoPlayerAudioID3::~CVideoPlayerAudioID3()
 
 bool CVideoPlayerAudioID3::CheckStream(const CDVDStreamInfo& hints)
 {
-  return hints.type == STREAM_AUDIO_ID3;
+  return hints.type == StreamType::AUDIO_ID3;
 }
 
 void CVideoPlayerAudioID3::Flush()
@@ -65,7 +65,7 @@ bool CVideoPlayerAudioID3::OpenStream(CDVDStreamInfo hints)
   CloseStream(true);
   m_messageQueue.Init();
 
-  if (hints.type == STREAM_AUDIO_ID3)
+  if (hints.type == StreamType::AUDIO_ID3)
   {
     Flush();
     CLog::Log(LOGINFO, "Creating Audio ID3 tag processor data thread");
@@ -141,7 +141,7 @@ void CVideoPlayerAudioID3::Process()
 
     if (pMsg->IsType(CDVDMsg::DEMUXER_PACKET))
     {
-      std::unique_lock<CCriticalSection> lock(m_critSection);
+      std::unique_lock lock(m_critSection);
       DemuxPacket* pPacket = std::static_pointer_cast<CDVDMsgDemuxerPacket>(pMsg)->GetPacket();
       if (pPacket)
         ProcessID3(pPacket->pData, pPacket->iSize);

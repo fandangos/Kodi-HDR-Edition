@@ -8,17 +8,18 @@
 
 #pragma once
 
+#include "settings/lib/ISettingCallback.h"
+
 /**
 * Playback settings
 */
 enum BDPlaybackMode
 {
-  BD_PLAYBACK_SIMPLE_MENU = 0,
+  BD_PLAYBACK_AUTO = 0, // Only use simple menu if playlist not known
+  BD_PLAYBACK_SIMPLE_MENU,
   BD_PLAYBACK_DISC_MENU,
   BD_PLAYBACK_MAIN_TITLE,
 };
-
-#include "settings/lib/ISettingCallback.h"
 
 class CDiscSettings : public ISettingCallback
 {

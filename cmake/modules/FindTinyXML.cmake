@@ -8,25 +8,32 @@
 #   ${APP_NAME_LC}::TinyXML   - The TinyXML library
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
-  find_package(PkgConfig QUIET)
+  find_package(PkgConfig ${SEARCH_QUIET})
 
   if(PKG_CONFIG_FOUND)
-    pkg_check_modules(PC_TINYXML tinyxml QUIET)
+    pkg_check_modules(PC_TINYXML tinyxml ${SEARCH_QUIET})
   endif()
 
   find_path(TINYXML_INCLUDE_DIR tinyxml.h
                                 PATH_SUFFIXES tinyxml
-                                HINTS ${PC_TINYXML_INCLUDEDIR})
+                                HINTS ${PC_TINYXML_INCLUDEDIR}
+                                      ${DEPENDS_PATH}/include)
   find_library(TINYXML_LIBRARY_RELEASE NAMES tinyxml tinyxmlSTL
                                        PATH_SUFFIXES tinyxml
-                                       HINTS ${PC_TINYXML_LIBDIR})
+                                       HINTS ${PC_TINYXML_LIBDIR}
+                                             ${DEPENDS_PATH}/lib)
   find_library(TINYXML_LIBRARY_DEBUG NAMES tinyxmld tinyxmlSTLd
                                      PATH_SUFFIXES tinyxml
-                                     HINTS ${PC_TINYXML_LIBDIR})
+                                     HINTS ${PC_TINYXML_LIBDIR}
+                                           ${DEPENDS_PATH}/lib)
   set(TINYXML_VERSION ${PC_TINYXML_VERSION})
 
   include(SelectLibraryConfigurations)
   select_library_configurations(TINYXML)
+
+  if(NOT VERBOSE_FIND)
+     set(${CMAKE_FIND_PACKAGE_NAME}_FIND_QUIETLY TRUE)
+   endif()
 
   include(FindPackageHandleStandardArgs)
   find_package_handle_standard_args(TinyXML

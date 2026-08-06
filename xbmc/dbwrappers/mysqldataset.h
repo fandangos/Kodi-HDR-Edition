@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -10,11 +10,12 @@
 
 #include "dataset.h"
 
-#include <stdio.h>
+#include <string>
+
 #ifdef HAS_MYSQL
 #include <mysql/mysql.h>
 #elif defined(HAS_MARIADB)
-#include <mariadb/mysql.h>
+#include <mysql.h>
 #endif
 
 namespace dbiplus
@@ -28,9 +29,8 @@ class MysqlDatabase : public Database
 {
 protected:
   /* connect descriptor */
-  MYSQL* conn;
-  bool _in_transaction;
-  int last_err;
+  MYSQL* conn{nullptr};
+  bool _in_transaction{false};
 
 public:
   /* default constructor */
@@ -38,15 +38,13 @@ public:
   /* destructor */
   ~MysqlDatabase() override;
 
-  Dataset* CreateDataset() const override;
+  Dataset* CreateDataset() override;
 
   /* func. returns connection handle with MySQL-server */
   MYSQL* getHandle() { return conn; }
   /* func. returns current status about MySQL-server connection */
   int status() override;
   int setErr(int err_code, const char* qry) override;
-  /* func. returns error message if error occurs */
-  const char* getErrorMsg() override;
 
   /* func. connects to database-server */
   int connect(bool create) override;
@@ -63,7 +61,7 @@ public:
   int copy(const char* backup_name) override;
 
   /* \brief drop all extra analytics from database */
-  int drop_analytics(void) override;
+  int drop_analytics() override;
 
   long nextid(const char* seq_name) override;
 
@@ -74,22 +72,14 @@ public:
   void rollback_transaction() override;
 
   /* virtual methods for formatting */
-  std::string vprepare(const char* format, va_list args) override;
+  std::string vprepare(std::string_view format, va_list args) override;
 
   bool in_transaction() override { return _in_transaction; }
   int query_with_reconnect(const char* query);
   void configure_connection();
 
 private:
-  typedef struct StrAccum StrAccum;
-
-  char et_getdigit(double* val, int* cnt);
-  void appendSpace(StrAccum* pAccum, int N);
-  void mysqlVXPrintf(StrAccum* pAccum, int useExtended, const char* fmt, va_list ap);
-  bool mysqlStrAccumAppend(StrAccum* p, const char* z, int N);
-  char* mysqlStrAccumFinish(StrAccum* p);
-  void mysqlStrAccumReset(StrAccum* p);
-  void mysqlStrAccumInit(StrAccum* p, char* zBase, int n, int mx);
+  char et_getdigit(double* val, int* cnt) const;
   std::string mysql_vmprintf(const char* zFormat, va_list ap);
 };
 
@@ -121,8 +111,7 @@ protected:
 
 public:
   /* constructor */
-  MysqlDataset();
-  explicit MysqlDataset(MysqlDatabase* newDb);
+  using Dataset::Dataset;
 
   /* destructor */
   ~MysqlDataset() override;
@@ -141,7 +130,7 @@ or insert() operations default = false) */
   /* as open, but with our query exec Sql */
   bool query(const std::string& query) override;
   /* func. closes a query */
-  void close(void) override;
+  void close() override;
   /* Cancel changes, made in insert or edit states of dataset */
   void cancel() override;
   /* last insert id */

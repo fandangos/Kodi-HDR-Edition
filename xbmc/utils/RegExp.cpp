@@ -513,6 +513,21 @@ std::string CRegExp::GetMatch(int iSub /* = 0 */) const
   return m_subject.substr(pos, len);
 }
 
+std::string CRegExp::GetMatch(const char* name) const
+{
+  if (!m_re)
+  {
+    CLog::LogF(LOGERROR, "PCRE: Called before compilation or compilation failed.");
+    return {};
+  }
+
+  int ret = pcre2_substring_number_from_name(m_re, reinterpret_cast<PCRE2_SPTR>(name));
+  if (ret >= 0)
+    return GetMatch(ret);
+
+  return {};
+}
+
 void CRegExp::DumpOvector(int iLog /* = LOGDEBUG */)
 {
   if (iLog < LOGDEBUG || iLog > LOGNONE)
@@ -560,7 +575,7 @@ void CRegExp::Cleanup()
 
 inline bool CRegExp::IsValidSubNumber(int iSub) const
 {
-  return iSub >= 0 && iSub <= m_iMatchCount && iSub <= m_MaxNumOfBackrefrences;
+  return iSub >= 0 && iSub < m_iMatchCount && iSub <= m_MaxNumOfBackrefrences;
 }
 
 
@@ -625,4 +640,19 @@ bool CRegExp::IsJitSupported(void)
   }
 
   return m_JitSupported == 1;
+}
+
+std::vector<CRegExp> CompileRegexes(const std::vector<std::string>& regExpPatterns)
+{
+  std::vector<CRegExp> regExps;
+  CRegExp regEx(true, CRegExp::autoUtf8);
+
+  for (const auto& expression : regExpPatterns)
+  {
+    if (regEx.RegComp(expression))
+      regExps.emplace_back(regEx);
+    else
+      CLog::LogF(LOGERROR, "Invalid RegExp:'{}'", expression.c_str());
+  }
+  return regExps;
 }

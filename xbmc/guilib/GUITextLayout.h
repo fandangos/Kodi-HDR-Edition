@@ -45,7 +45,7 @@ public:
 
   std::string GetAsString() const;
 
-  // The text is UTF-16 and the data stored in a character_t hold multiple informations by bits:
+  // The text is UTF-16 and the data stored in a character_t hold multiple information by bits:
   // <16 bits: are unicode code bits
   // 16-24 bits: are color bits
   // 24-32 bits: are style bits (see FONT_STYLE_* flags)
@@ -127,6 +127,13 @@ public:
 
   void SetWrap(bool bWrap=true);
   void SetMaxHeight(float fHeight);
+
+  /*! \brief Set the font used to render this text, replacing the one given at construction
+   Invalidates any cached layout so that the next call to Update()/UpdateW() re-lays out the
+   text using the new font, even if the text itself has not changed.
+   \param font the new font to use
+   */
+  void SetFont(CGUIFont* font);
 
   static void DrawText(CGUIFont* font,
                        float x,

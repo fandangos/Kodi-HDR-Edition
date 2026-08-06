@@ -8,7 +8,9 @@
 
 #include "BaseEvent.h"
 
-#include "guilib/LocalizeStrings.h"
+#include "ServiceBroker.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 
 #include <chrono>
@@ -93,15 +95,17 @@ std::string CBaseEvent::VariantToLocalizedString(const CVariant& variant)
     return variant.asString();
 
   if (variant.isInteger() && variant.asInteger() > 0)
-    return g_localizeStrings.Get(static_cast<uint32_t>(variant.asInteger()));
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        static_cast<uint32_t>(variant.asInteger()));
   if (variant.isUnsignedInteger() && variant.asUnsignedInteger() > 0)
-    return g_localizeStrings.Get(static_cast<uint32_t>(variant.asUnsignedInteger()));
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        static_cast<uint32_t>(variant.asUnsignedInteger()));
 
   return "";
 }
 
 void CBaseEvent::ToSortable(SortItem& sortable, Field field) const
 {
-  if (field == FieldDate)
-    sortable[FieldDate] = StringUtils::Format("{:020}", m_timestamp);
+  if (field == Field::DATE)
+    sortable[Field::DATE] = StringUtils::Format("{:020}", m_timestamp);
 }

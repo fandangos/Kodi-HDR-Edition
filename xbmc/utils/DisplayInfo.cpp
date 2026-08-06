@@ -54,17 +54,17 @@ bool CDisplayInfo::IsValid() const
   const char* error = di_info_get_failure_msg(m_info.get());
   if (error)
   {
-    CLog::Log(LOGERROR, "[display-info] Error parsing EDID:");
-    CLog::Log(LOGERROR, "[display-info] ----------------------------------------------");
+    CLog::Log(LOGWARNING, "[display-info] EDID parser warnings:");
+    CLog::Log(LOGWARNING, "[display-info] ----------------------------------------------");
 
     std::vector<std::string> lines = StringUtils::Split(error, "\n");
 
     for (const auto& line : lines)
     {
-      CLog::Log(LOGERROR, "[display-info] {}", line);
+      CLog::Log(LOGWARNING, "[display-info] {}", line);
     }
 
-    CLog::Log(LOGERROR, "[display-info] ----------------------------------------------");
+    CLog::Log(LOGWARNING, "[display-info] ----------------------------------------------");
   }
 
   return true;
@@ -202,6 +202,9 @@ bool CDisplayInfo::SupportsColorimetry(Colorimetry colorimetry) const
 
   switch (colorimetry)
   {
+    case Colorimetry::SMPTE_170M_YCC:
+    case Colorimetry::BT709_YCC:
+      return true; // baseline HDMI, all sinks support these
     case Colorimetry::XVYCC_601:
       return m_colorimetry->xvycc_601;
     case Colorimetry::XVYCC_709:

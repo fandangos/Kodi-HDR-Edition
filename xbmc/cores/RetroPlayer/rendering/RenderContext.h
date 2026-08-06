@@ -60,6 +60,7 @@ public:
   void SetViewPort(const CRect& viewPort);
   void GetViewPort(CRect& viewPort);
   void SetScissors(const CRect& rect);
+  void CaptureStateBlock();
   void ApplyStateBlock();
   bool IsExtSupported(const char* extension);
 
@@ -76,8 +77,6 @@ public:
 
   // Windowing functions
   bool UseLimitedColor();
-  bool DisplayHardwareScalingEnabled();
-  void UpdateDisplayHardwareScaling(const RESOLUTION_INFO& resInfo);
 
   // Graphics functions
   int GetScreenWidth();

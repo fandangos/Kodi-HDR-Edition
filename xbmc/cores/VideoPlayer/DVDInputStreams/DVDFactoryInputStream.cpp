@@ -16,7 +16,6 @@
 #include "DVDInputStreamFFmpeg.h"
 #include "DVDInputStreamFile.h"
 #include "DVDInputStreamNavigator.h"
-#include "DVDInputStreamStack.h"
 #include "FileItem.h"
 #include "InputStreamAddon.h"
 #include "InputStreamMultiSource.h"
@@ -108,9 +107,9 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
   if (VIDEO::IsDVDFile(fileitem, false, true))
     return std::make_shared<CDVDInputStreamNavigator>(pPlayer, fileitem);
   else if (URIUtils::IsPVRChannel(file))
-    return std::make_shared<CInputStreamPVRChannel>(pPlayer, fileitem);
+    return std::make_shared<CInputStreamPVRChannel>(fileitem);
   else if (URIUtils::IsPVRRecording(file))
-    return std::make_shared<CInputStreamPVRRecording>(pPlayer, fileitem);
+    return std::make_shared<CInputStreamPVRRecording>(fileitem);
 #ifdef HAVE_LIBBLURAY
   else if (fileitem.IsType(".bdmv") || fileitem.IsType(".mpls")
           || fileitem.IsType(".bdm") || fileitem.IsType(".mpl")
@@ -135,8 +134,6 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
   {
     return std::make_shared<CDVDInputStreamFFmpeg>(fileitem);
   }
-  else if(StringUtils::StartsWithNoCase(file, "stack://"))
-    return std::make_shared<CDVDInputStreamStack>(fileitem);
 
   CFileItem finalFileitem(fileitem);
 

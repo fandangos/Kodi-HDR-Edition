@@ -23,6 +23,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -71,11 +72,10 @@ public:
   void SetEnabled(bool enabled);
   bool IsDefault() const { return !m_changed; }
   const std::string& GetParent() const { return m_parentSetting; }
-  void SetParent(const std::string& parentSetting) { m_parentSetting = parentSetting; }
+  void SetParent(std::string_view parentSetting) { m_parentSetting = parentSetting; }
   SettingLevel GetLevel() const { return m_level; }
   void SetLevel(SettingLevel level) { m_level = level; }
-  std::shared_ptr<const ISettingControl> GetControl() const { return m_control; }
-  std::shared_ptr<ISettingControl> GetControl() { return m_control; }
+  std::shared_ptr<ISettingControl> GetControl() const { return m_control; }
   void SetControl(std::shared_ptr<ISettingControl> control) { m_control = std::move(control); }
   const SettingDependencies& GetDependencies() const { return m_dependencies; }
   void SetDependencies(const SettingDependencies &dependencies) { m_dependencies = dependencies; }
@@ -85,11 +85,13 @@ public:
 
   bool IsReference() const { return !m_referencedId.empty(); }
   const std::string& GetReferencedId() const { return m_referencedId; }
-  void SetReferencedId(const std::string& referencedId) { m_referencedId = referencedId; }
+  void SetReferencedId(std::string_view referencedId) { m_referencedId = referencedId; }
   void MakeReference(const std::string& referencedId = "");
 
   bool GetVisible() const { return ISetting::IsVisible(); }
-  // overrides of ISetting
+  /*!
+    \brief Returns whether the setting is visible. This override also checks the setting's dependencies to determine the visibility of the setting.
+  */
   bool IsVisible() const override;
 
   // implementation of ISettingCallback
@@ -146,7 +148,7 @@ template<typename TValue, SettingType TSettingType>
 class CTraitedSetting : public CSetting
 {
 public:
-  typedef TValue Value;
+  using Value = TValue;
 
   // implementation of CSetting
   SettingType GetType() const override { return TSettingType; }
@@ -192,7 +194,7 @@ public:
   void SetDefinition(std::shared_ptr<CSetting> definition) { m_definition = std::move(definition); }
 
   const std::string& GetDelimiter() const { return m_delimiter; }
-  void SetDelimiter(const std::string &delimiter) { m_delimiter = delimiter; }
+  void SetDelimiter(std::string_view delimiter) { m_delimiter = delimiter; }
   int GetMinimumItems() const { return m_minimumItems; }
   void SetMinimumItems(int minimumItems) { m_minimumItems = minimumItems; }
   int GetMaximumItems() const { return m_maximumItems; }
@@ -248,7 +250,7 @@ public:
 
   bool GetValue() const
   {
-    std::shared_lock<CSharedSection> lock(m_critical);
+    std::shared_lock lock(m_critical);
     return m_value;
   }
   bool SetValue(bool value);
@@ -296,7 +298,7 @@ public:
 
   int GetValue() const
   {
-    std::shared_lock<CSharedSection> lock(m_critical);
+    std::shared_lock lock(m_critical);
     return m_value;
   }
   bool SetValue(int value);
@@ -316,15 +318,13 @@ public:
   const IntegerSettingOptions& GetOptions() const { return m_options; }
   void SetOptions(const IntegerSettingOptions &options) { m_options = options; }
   const std::string& GetOptionsFillerName() const { return m_optionsFillerName; }
-  void SetOptionsFillerName(const std::string &optionsFillerName, void *data = nullptr)
+  void SetOptionsFillerName(std::string_view optionsFillerName)
   {
     m_optionsFillerName = optionsFillerName;
-    m_optionsFillerData = data;
   }
-  void SetOptionsFiller(IntegerSettingOptionsFiller optionsFiller, void *data = nullptr)
+  void SetOptionsFiller(const IntegerSettingOptionsFiller& optionsFiller)
   {
     m_optionsFiller = optionsFiller;
-    m_optionsFillerData = data;
   }
   const IntegerSettingOptions& GetDynamicOptions() const { return m_dynamicOptions; }
   IntegerSettingOptions UpdateDynamicOptions();
@@ -348,8 +348,7 @@ private:
   TranslatableIntegerSettingOptions m_translatableOptions;
   IntegerSettingOptions m_options;
   std::string m_optionsFillerName;
-  IntegerSettingOptionsFiller m_optionsFiller = nullptr;
-  void *m_optionsFillerData = nullptr;
+  IntegerSettingOptionsFiller m_optionsFiller{};
   IntegerSettingOptions m_dynamicOptions;
   SettingOptionsSort m_optionsSort = SettingOptionsSort::NoSorting;
 
@@ -384,7 +383,7 @@ public:
 
   double GetValue() const
   {
-    std::shared_lock<CSharedSection> lock(m_critical);
+    std::shared_lock lock(m_critical);
     return m_value;
   }
   bool SetValue(double value);
@@ -442,7 +441,7 @@ public:
 
   virtual const std::string& GetValue() const
   {
-    std::shared_lock<CSharedSection> lock(m_critical);
+    std::shared_lock lock(m_critical);
     return m_value;
   }
   virtual bool SetValue(const std::string &value);
@@ -460,15 +459,13 @@ public:
   const StringSettingOptions& GetOptions() const { return m_options; }
   void SetOptions(const StringSettingOptions &options) { m_options = options; }
   const std::string& GetOptionsFillerName() const { return m_optionsFillerName; }
-  void SetOptionsFillerName(const std::string &optionsFillerName, void *data = nullptr)
+  void SetOptionsFillerName(std::string_view optionsFillerName)
   {
     m_optionsFillerName = optionsFillerName;
-    m_optionsFillerData = data;
   }
-  void SetOptionsFiller(StringSettingOptionsFiller optionsFiller, void *data = nullptr)
+  void SetOptionsFiller(const StringSettingOptionsFiller& optionsFiller)
   {
     m_optionsFiller = optionsFiller;
-    m_optionsFillerData = data;
   }
   const StringSettingOptions& GetDynamicOptions() const { return m_dynamicOptions; }
   StringSettingOptions UpdateDynamicOptions();
@@ -487,8 +484,7 @@ protected:
   TranslatableStringSettingOptions m_translatableOptions;
   StringSettingOptions m_options;
   std::string m_optionsFillerName;
-  StringSettingOptionsFiller m_optionsFiller = nullptr;
-  void *m_optionsFillerData = nullptr;
+  StringSettingOptionsFiller m_optionsFiller{};
   StringSettingOptions m_dynamicOptions;
   SettingOptionsSort m_optionsSort = SettingOptionsSort::NoSorting;
 
@@ -526,7 +522,7 @@ public:
 
   bool HasData() const { return !m_data.empty(); }
   const std::string& GetData() const { return m_data; }
-  void SetData(const std::string& data) { m_data = data; }
+  void SetData(std::string_view data) { m_data = data; }
 
 protected:
   virtual void copy(const CSettingAction& setting);

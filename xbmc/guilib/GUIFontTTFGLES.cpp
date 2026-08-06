@@ -14,6 +14,7 @@
 #include "Texture.h"
 #include "TextureManager.h"
 #include "gui3d.h"
+#include "rendering/GLExtensions.h"
 #include "rendering/MatrixGL.h"
 #include "rendering/gles/RenderSystemGLES.h"
 #include "settings/AdvancedSettings.h"
@@ -21,6 +22,7 @@
 #include "utils/GLUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
+#include "windowing/WinSystem.h"
 
 #include <cassert>
 #include <memory>
@@ -97,7 +99,7 @@ bool CGUIFontTTFGLES::FirstBegin()
                  pixformat, GL_UNSIGNED_BYTE, 0);
 
 #ifdef GL_TEXTURE_MAX_ANISOTROPY_EXT
-    if (CServiceBroker::GetRenderSystem()->IsExtSupported("GL_EXT_texture_filter_anisotropic"))
+    if (CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_texture_filter_anisotropic))
     {
       int32_t aniso =
           CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiAnisotropicFiltering;
@@ -124,8 +126,19 @@ bool CGUIFontTTFGLES::FirstBegin()
     m_textureStatus = TEXTURE_READY;
   }
 
-  // Turn Blending On
-  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
+  // Alpha blending assumes linear light. SDR (direct-to-backbuffer or
+  // direct-to-plane) blends in sRGB -- "wrong but consistent", the aesthetic
+  // skins are designed against. HDR FBO compositing draws GUI into an sRGB
+  // FBO that is color-transformed to PQ/HLG before compositing with video
+  // in that non-linear space -- two stages of non-linear blending. The
+  // compensated factors below trade accumulator coverage for a squared-
+  // alpha blend that approximately matches SDR perceived translucency. It
+  // is a "close enough" compromise; a mathematically correct fix would
+  // require linear-light compositing (too expensive on typical ARM GPUs).
+  if (CServiceBroker::GetWinSystem()->IsHdrComposite())
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  else
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
   glEnable(GL_BLEND);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_nTexture);
@@ -268,6 +281,7 @@ void CGUIFontTTFGLES::LastEnd()
             reinterpret_cast<GLvoid*>(character * sizeof(SVertex) * 4 + offsetof(SVertex, u)));
 
         glDrawElements(GL_TRIANGLES, 6 * count, GL_UNSIGNED_SHORT, 0);
+        CRenderSystemBase::m_GUIElementCount++;
       }
 
       glMatrixModview.Pop();
@@ -331,8 +345,7 @@ std::unique_ptr<CTexture> CGUIFontTTFGLES::ReallocTexture(unsigned int& newHeigh
 
   if (!newTexture || !newTexture->GetPixels())
   {
-    CLog::Log(LOGERROR, "GUIFontTTFGLES::{}: Error creating new cache texture for size {:f}",
-              __func__, m_height);
+    CLog::LogF(LOGERROR, "Error creating new cache texture for size {:f}", m_height);
     return nullptr;
   }
 
@@ -341,9 +354,8 @@ std::unique_ptr<CTexture> CGUIFontTTFGLES::ReallocTexture(unsigned int& newHeigh
   m_textureWidth = newTexture->GetWidth();
   m_textureScaleX = 1.0f / m_textureWidth;
   if (m_textureHeight < newHeight)
-    CLog::Log(LOGWARNING,
-              "GUIFontTTFGLES::{}: allocated new texture with height of {}, requested {}", __func__,
-              m_textureHeight, newHeight);
+    CLog::LogF(LOGWARNING, "allocated new texture with height of {}, requested {}", m_textureHeight,
+               newHeight);
   m_staticCache.Flush();
   m_dynamicCache.Flush();
 

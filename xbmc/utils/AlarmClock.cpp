@@ -12,9 +12,10 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "events/EventLog.h"
 #include "events/NotificationEvent.h"
-#include "guilib/LocalizeStrings.h"
 #include "log.h"
 #include "messaging/ApplicationMessenger.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 
 #include <mutex>
@@ -60,8 +61,9 @@ void CAlarmClock::Start(const std::string& strName, float n_secs, const std::str
 
   EventPtr alarmClockActivity(new CNotificationEvent(
       labelAlarmClock,
-      StringUtils::Format(g_localizeStrings.Get(labelStarted), static_cast<int>(event.m_fSecs) / 60,
-                          static_cast<int>(event.m_fSecs) % 60)));
+      StringUtils::Format(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(labelStarted),
+          static_cast<int>(event.m_fSecs) / 60, static_cast<int>(event.m_fSecs) % 60)));
 
   auto eventLog = CServiceBroker::GetEventLog();
   if (eventLog)
@@ -73,14 +75,14 @@ void CAlarmClock::Start(const std::string& strName, float n_secs, const std::str
   }
 
   event.watch.StartZero();
-  std::unique_lock<CCriticalSection> lock(m_events);
+  std::unique_lock lock(m_events);
   m_event.insert(make_pair(lowerName,event));
   CLog::Log(LOGDEBUG, "started alarm with name: {}", lowerName);
 }
 
 void CAlarmClock::Stop(const std::string& strName, bool bSilent /* false */)
 {
-  std::unique_lock<CCriticalSection> lock(m_events);
+  std::unique_lock lock(m_events);
 
   std::string lowerName(strName);
   StringUtils::ToLower(lowerName);          // lookup as lowercase only
@@ -102,12 +104,13 @@ void CAlarmClock::Stop(const std::string& strName, bool bSilent /* false */)
     elapsed = iter->second.watch.GetElapsedSeconds();
 
   if (elapsed > static_cast<float>(iter->second.m_fSecs))
-    strMessage = g_localizeStrings.Get(13211);
+    strMessage = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13211);
   else
   {
     float remaining = static_cast<float>(iter->second.m_fSecs) - elapsed;
-    strMessage = StringUtils::Format(g_localizeStrings.Get(13212), static_cast<int>(remaining) / 60,
-                                     static_cast<int>(remaining) % 60);
+    strMessage =
+        StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13212),
+                            static_cast<int>(remaining) / 60, static_cast<int>(remaining) % 60);
   }
 
   if (iter->second.m_strCommand.empty() || static_cast<float>(iter->second.m_fSecs) > elapsed)
@@ -143,7 +146,7 @@ void CAlarmClock::Process()
   {
     std::string strLast;
     {
-      std::unique_lock<CCriticalSection> lock(m_events);
+      std::unique_lock lock(m_events);
       for (std::map<std::string,SAlarmClockEvent>::iterator iter=m_event.begin();iter != m_event.end(); ++iter)
         if (iter->second.watch.IsRunning() &&
             iter->second.watch.GetElapsedSeconds() >= static_cast<float>(iter->second.m_fSecs))

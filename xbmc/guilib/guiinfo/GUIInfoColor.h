@@ -20,23 +20,26 @@
 
 class CGUIListItem;
 
-namespace KODI
-{
-namespace GUILIB
-{
-namespace GUIINFO
+namespace KODI::GUILIB::GUIINFO
 {
 
 class CGUIInfoColor
 {
 public:
-  constexpr CGUIInfoColor(UTILS::COLOR::Color color = 0) : m_color(color) {}
-  constexpr CGUIInfoColor(UTILS::COLOR::Color color, int info) : m_info(info), m_color(color) {}
+  explicit constexpr CGUIInfoColor(KODI::UTILS::COLOR::Color color = 0) : m_color(color) {}
+  constexpr CGUIInfoColor(KODI::UTILS::COLOR::Color color, int info) : m_info(info), m_color(color)
+  {
+  }
 
+  constexpr CGUIInfoColor& operator=(int color)
+  {
+    m_color = color;
+    return *this;
+  }
   constexpr operator KODI::UTILS::COLOR::Color() const { return m_color; }
 
   bool Update(const CGUIListItem* item = nullptr);
-  void Parse(const std::string &label, int context);
+  void Parse(const std::string& label, int context);
 
   /*!
    * @brief Check if the infocolor has an info condition bound to its color definition (or otherwise, if it's constant color)
@@ -49,6 +52,4 @@ private:
   KODI::UTILS::COLOR::Color m_color;
 };
 
-} // namespace GUIINFO
-} // namespace GUILIB
-} // namespace KODI
+} // namespace KODI::GUILIB::GUIINFO

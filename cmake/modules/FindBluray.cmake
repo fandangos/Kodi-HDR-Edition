@@ -9,68 +9,230 @@
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
-  find_package(PkgConfig QUIET)
+  include(cmake/scripts/common/ModuleHelpers.cmake)
 
-  # We only rely on pkgconfig for non windows platforms
-  if(PKG_CONFIG_FOUND AND NOT (WIN32 OR WINDOWS_STORE))
-    if(Bluray_FIND_VERSION_EXACT)
-      set(Bluray_FIND_SPEC "=${Bluray_FIND_VERSION_COMPLETE}")
+  macro(buildmacroBluray)
+
+    find_package(Meson REQUIRED)
+    find_package(Ninja REQUIRED)
+
+    find_package(Udfread 1.2.0 REQUIRED ${SEARCH_QUIET})
+    find_package(FreeType REQUIRED ${SEARCH_QUIET})
+    find_package(LibXml2 REQUIRED ${SEARCH_QUIET})
+
+    if(NOT (WIN32 OR WINDOWS_STORE))
+      find_package(Fontconfig REQUIRED ${SEARCH_QUIET})
+
+      list(APPEND additional_env_mod --modify FONTCONFIG_ROOT=set:${DEPENDS_PATH})
+    endif()
+
+    set(temp_extras_arg -Dbdj_jar=disabled)
+    set(temp_env_mod --unset=JAVA_HOME)
+
+    if(ENABLE_BLURAY_JAR)
+      # Required for building libbluray bd jars, however is optional for libbluray
+      find_package(ANT)
+
+      if(TARGET ANT::ANT)
+        find_package(Java COMPONENTS Development)
+
+        if(Java_Development_FOUND)
+          get_filename_component(java_binpath ${Java_JAVAC_EXECUTABLE} DIRECTORY)
+
+          # Apple hosts have a complicated potential combination of binary and include paths
+          # If on an apple host, fall back to using the /usr/libexec/java_home binary to search
+          # for path based on the found version in the find_package(Java) call.
+          # This avoids the issue when the java binary is found in /usr/bin, as apple has
+          # potential helpers that dont necessarily stem from JAVA_HOME env vars
+          if(CMAKE_HOST_APPLE)
+            execute_process(COMMAND /usr/libexec/java_home -v ${Java_VERSION}
+                            ERROR_QUIET
+                            OUTPUT_VARIABLE java_homepath
+                            OUTPUT_STRIP_TRAILING_WHITESPACE)
+          else()
+            get_filename_component(java_homepath ${java_binpath} DIRECTORY)
+          endif()
+
+          get_target_property(ANT_PATH ANT::ANT ANT_PATH)
+          get_target_property(ANT_HOME ANT::ANT ANT_HOME)
+
+          if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.26)
+            list(APPEND additional_env_mod --modify PATH=path_list_prepend:${NATIVEPREFIX}/bin
+                                           --modify PATH=path_list_prepend:${java_binpath}
+                                           --modify PATH=path_list_prepend:${ANT_PATH}
+                                           --modify ANT_HOME=set:${ANT_HOME}
+                                           --modify JAVA_HOME=set:${java_homepath})
+
+            set(build_env_mod ${CMAKE_COMMAND} -E env ${additional_env_mod})
+          endif()
+          set(temp_extras_arg -Djdk_home=${java_homepath} -Dbdj_jar=enabled)
+          unset(temp_env_mod)
+
+          set(build_jar ON)
+        endif()
+      endif()
+    endif()
+
+    list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_EXTRAS ${temp_extras_arg})
+    if(temp_env_mod)
+      list(APPEND additional_env_mod ${temp_env_mod})
+    endif()
+
+    if(APPLE)
+      set(patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/002-darwin-dlopen_searchpath.patch")
+
+      if(CORE_SYSTEM_NAME STREQUAL darwin_embedded)
+        list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/001-darwinembed_DiskArbitration-revert.patch")
+
+        if(${CORE_PLATFORM_NAME} STREQUAL "tvos")
+          list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/tvos.patch")
+        endif()
+      endif()
+    endif()
+
+    list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/003-all-libxml_searchname.patch")
+
+    if(WIN32 OR WINDOWS_STORE)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType shared)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_SHARED_LIB TRUE)
+
+      list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/004-win-remove-lib-version.patch")
+
+      if(WINDOWS_STORE)
+         set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_EXE_LINKER_FLAGS "/APPCONTAINER windowsapp.lib")
+       endif()
+
+      create_module_dev_env()
     else()
-      set(Bluray_FIND_SPEC ">=${Bluray_FIND_VERSION_COMPLETE}")
-    endif()
-    pkg_check_modules(BLURAY libbluray${Bluray_FIND_SPEC} QUIET)
-
-    # First item is the full path of the library file found
-    # pkg_check_modules does not populate a variable of the found library explicitly
-    list(GET BLURAY_LINK_LIBRARIES 0 BLURAY_LIBRARY)
-  else()
-    # todo: for windows use find_package CONFIG call potentially
-
-    find_path(BLURAY_INCLUDEDIR NAMES libbluray/bluray.h
-                                HINTS ${DEPENDS_PATH}/include
-                                ${${CORE_PLATFORM_LC}_SEARCH_CONFIG}
-                                NO_CACHE)
-
-    find_library(BLURAY_LIBRARY NAMES bluray libbluray
-                                HINTS ${DEPENDS_PATH}/lib
-                                ${${CORE_PLATFORM_LC}_SEARCH_CONFIG}
-                                NO_CACHE)
-  endif()
-
-  if(NOT BLURAY_VERSION AND EXISTS ${BLURAY_INCLUDEDIR}/libbluray/bluray-version.h)
-    file(STRINGS ${BLURAY_INCLUDEDIR}/libbluray/bluray-version.h _bluray_version_str
-         REGEX "#define[ \t]BLURAY_VERSION_STRING[ \t][\"]?[0-9.]+[\"]?")
-    string(REGEX REPLACE "^.*BLURAY_VERSION_STRING[ \t][\"]?([0-9.]+).*$" "\\1" BLURAY_VERSION ${_bluray_version_str})
-    unset(_bluray_version_str)
-  endif()
-
-  include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(Bluray
-                                    REQUIRED_VARS BLURAY_LIBRARY BLURAY_INCLUDEDIR BLURAY_VERSION
-                                    VERSION_VAR BLURAY_VERSION)
-
-  if(BLURAY_FOUND)
-    add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
-    set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                     IMPORTED_LOCATION "${BLURAY_LIBRARY}"
-                                                                     INTERFACE_COMPILE_DEFINITIONS "HAVE_LIBBLURAY=1"
-                                                                     INTERFACE_INCLUDE_DIRECTORIES "${BLURAY_INCLUDEDIR}")
-
-    # Add link libraries for static lib usage
-    if(${BLURAY_LIBRARY} MATCHES ".+\.a$" AND BLURAY_LINK_LIBRARIES)
-      # Remove duplicates
-      list(REMOVE_DUPLICATES BLURAY_LINK_LIBRARIES)
-
-      # Remove own library - eg libbluray.a
-      list(FILTER BLURAY_LINK_LIBRARIES EXCLUDE REGEX ".*bluray.*\.a$")
-
-      set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                       INTERFACE_LINK_LIBRARIES "${BLURAY_LINK_LIBRARIES}")
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType static)
     endif()
 
+    generate_patchcommand("${patches}")
+    unset(patches)
+
+    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.26)
+      set(configure_env_mod ${CMAKE_COMMAND} -E env --modify FREETYPE_DIR=set:${DEPENDS_PATH}
+                                                    --modify LIBXML2_ROOT=set:${DEPENDS_PATH}
+                                                    --modify LIBUDFREAD_ROOT=set:${DEPENDS_PATH}
+                                                    --modify NINJA=set:${NINJA_EXECUTABLE}
+                                                    ${additional_env_mod})
+    endif()
+
+    # generate meson cross file for build target
+    generate_mesoncrossfile()
+
+    if(EXISTS ${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_CROSS_FILE --cross-file=${DEPENDS_PATH}/share/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}-cross-file.meson)
+    elseif(EXISTS ${DEPENDS_PATH}/share/cross-file.meson)
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_CROSS_FILE --cross-file=${DEPENDS_PATH}/share/cross-file.meson)
+    endif()
+
+    # We set a bunch of env vars to assist meson finding cmake packages for dependencies
+    # If we do not do this, it may find system libs outside of DEPENDS_PATH, or not find anything at all
+    set(CONFIGURE_COMMAND ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env}
+                          ${configure_env_mod}
+                          ${MESON_EXECUTABLE} setup ./build
+                          --cmake-prefix-path=['${DEPENDS_PATH}/lib/cmake']
+                          --prefix=${DEPENDS_PATH}
+                          --libdir=lib
+                          --buildtype=release
+                          -Ddefault_library=${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType}
+                          -Denable_tools=false
+                          -Dembed_udfread=false
+                          ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_EXTRAS}
+                          ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}_CROSS_FILE})
+
+    set(BUILD_COMMAND ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env}
+                      ${build_env_mod}
+                      ${NINJA_EXECUTABLE} -C ./build)
+    set(INSTALL_COMMAND ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_dev_env}
+                        ${build_env_mod}
+                        ${NINJA_EXECUTABLE} -C ./build install)
+    set(BUILD_IN_SOURCE 1)
+
+    BUILD_DEP_TARGET()
+
+    add_dependencies(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} LIBRARY::Udfread
+                                                                        Freetype::Freetype
+                                                                        LibXml2::LibXml2)
+
+    # Link libraries for target interface
+    list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES LIBRARY::Udfread
+                                                                    Freetype::Freetype
+                                                                    LibXml2::LibXml2)
+
+    if(NOT (WIN32 OR WINDOWS_STORE))
+      add_dependencies(${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME} Fontconfig::Fontconfig)
+      list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_LINK_LIBRARIES Fontconfig::Fontconfig)
+
+      # We currently use system FindFontconfig, and it doesnt recognise the need for
+      # Freetype link. Adding this corrects the link ordering
+      target_link_libraries(Fontconfig::Fontconfig INTERFACE Freetype::Freetype)
+    endif()
+
+  endmacro()
+
+  # If there is a potential this library can be built internally
+  # Check its dependencies to allow forcing this lib to be built if one of its
+  # dependencies requires being rebuilt
+  if(ENABLE_INTERNAL_BLURAY)
+    # Todo: other dependencies
+    # fontconfig freetype2 libxml2 Iconv
+
+    # Dependency list of this find module for an INTERNAL build
+    set(${CMAKE_FIND_PACKAGE_NAME}_DEPLIST Udfread)
+
+    check_dependency_build(${CMAKE_FIND_PACKAGE_NAME} "${${CMAKE_FIND_PACKAGE_NAME}_DEPLIST}")
+  endif()
+
+  set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC libbluray)
+
+  SETUP_BUILD_VARS()
+
+  SETUP_FIND_SPECS()
+
+  SEARCH_EXISTING_PACKAGES()
+
+  if((${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_VERSION VERSION_LESS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER} AND ENABLE_INTERNAL_BLURAY) OR
+     (((CORE_SYSTEM_NAME STREQUAL linux AND NOT "webos" IN_LIST CORE_PLATFORM_NAME_LC) OR CORE_SYSTEM_NAME STREQUAL freebsd) AND ENABLE_INTERNAL_BLURAY) OR
+     (DEFINED ${CMAKE_FIND_PACKAGE_NAME}_FORCE_BUILD))
+    message(STATUS "Building ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}: \(version \"${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}\"\)")
+
+    cmake_language(EVAL CODE "
+      buildmacro${CMAKE_FIND_PACKAGE_NAME}()
+    ")
+  endif()
+
+  if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    if(TARGET libbluray::libbluray AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS libbluray::libbluray)
+    elseif(TARGET PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME})
+    else()
+      SETUP_BUILD_TARGET()
+      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+
+      if(build_jar)
+        set_property(TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTY BDJ_BUILD ON)
+        set_property(TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTY BDJ_VERSION ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER})
+      endif()
+    endif()
+
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS HAVE_LIBBLURAY)
+
+    # This is incorrectly applied to all platforms. Requires its own handling in the future
     if(NOT CORE_PLATFORM_NAME_LC STREQUAL windowsstore)
-      set_property(TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} APPEND PROPERTY
-                                                                            INTERFACE_COMPILE_DEFINITIONS "HAVE_LIBBLURAY_BDJ")
+      list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS HAVE_LIBBLURAY_BDJ)
     endif()
+
+    find_package(BlurayBDJ ${SEARCH_QUIET})
+    if(TARGET Extras::BlurayBDJ)
+      #Todo: Relocate the HAVE_LIBBLURAY_BDJ compile definition inside the succesful bdj target?
+      add_dependencies(Extras::BlurayBDJ ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
+    endif()
+
+    ADD_TARGET_COMPILE_DEFINITION()
+
+    ADD_MULTICONFIG_BUILDMACRO()
   endif()
 endif()

@@ -8,6 +8,7 @@
 
 #include "ScreenSaver.h"
 
+#include "ServiceBroker.h"
 #include "filesystem/SpecialProtocol.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
@@ -67,7 +68,7 @@ void CScreenSaver::Render()
     m_ifc.screensaver->toAddon->render(m_ifc.hdl);
 }
 
-void CScreenSaver::GetProperties(struct KODI_ADDON_SCREENSAVER_PROPS* props)
+void CScreenSaver::GetProperties(struct KODI_ADDON_SCREENSAVER_PROPS* props) const
 {
   if (!props)
     return;

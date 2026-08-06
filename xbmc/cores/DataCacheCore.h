@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -23,6 +23,7 @@ public:
   virtual ~CDataCacheCore();
   static CDataCacheCore& GetInstance();
   void Reset();
+  void ResetAudioCache();
   bool HasAVInfoChanges();
   void SignalVideoInfoChange();
   void SignalAudioInfoChange();
@@ -45,6 +46,12 @@ public:
   float GetVideoFps();
   void SetVideoDAR(float dar);
   float GetVideoDAR();
+  void SetVideoLiveBitRate(int bitRate);
+  int GetVideoLiveBitRate();
+  void SetVideoQueueLevel(int level);
+  int GetVideoQueueLevel();
+  void SetVideoQueueDataLevel(int level);
+  int GetVideoQueueDataLevel();
 
   /*!
    * @brief Set if the video is interlaced in cache.
@@ -67,6 +74,16 @@ public:
   int GetAudioSampleRate();
   void SetAudioBitsPerSample(int bitsPerSample);
   int GetAudioBitsPerSample();
+  void SetAudioLiveBitRate(int bitRate);
+  int GetAudioLiveBitRate();
+  void SetAudioQueueLevel(int level);
+  int GetAudioQueueLevel();
+  void SetAudioQueueDataLevel(int level);
+  int GetAudioQueueDataLevel();
+
+  // player subtitle info
+  void SetSubtitleDecoderName(std::string name);
+  std::string GetSubtitleDecoderName();
 
   // content info
 
@@ -113,6 +130,18 @@ public:
    * @return The list of chapters or an empty vector if no chapters exist.
    */
   const std::vector<std::pair<std::string, int64_t>>& GetChapters() const;
+
+  /*!
+   * \brief Set the list of bookmarks in cache.
+   * \return The list of bookmarks or an empty list if no bookmarks exist
+   */
+  void SetBookmarks(const std::vector<std::chrono::milliseconds>& bookmarks);
+
+  /*!
+   * \brief Get the list of bookmarks from cache.
+   * \return The list of bookmarks or an empty vector if no scene exist.
+   */
+  const std::vector<std::chrono::milliseconds>& GetBookmarks() const;
 
   // render info
   void SetRenderClockSync(bool enabled);
@@ -211,6 +240,9 @@ protected:
     float fps;
     float dar;
     bool m_isInterlaced;
+    int liveBitRate;
+    int queueLevel;
+    int queueDataLevel;
   } m_playerVideoInfo;
 
   CCriticalSection m_audioPlayerSection;
@@ -220,7 +252,16 @@ protected:
     std::string channels;
     int sampleRate;
     int bitsPerSample;
+    int liveBitRate;
+    int queueLevel;
+    int queueDataLevel;
   } m_playerAudioInfo;
+
+  CCriticalSection m_subtitlePlayerSection;
+  struct SPlayerSubtitleInfo
+  {
+    std::string m_decoderName;
+  } m_playerSubtitleInfo;
 
   mutable CCriticalSection m_contentSection;
   struct SContentInfo
@@ -281,6 +322,21 @@ protected:
     const std::vector<std::pair<std::string, int64_t>>& GetChapters() const { return m_chapters; }
 
     /*!
+      * @brief Save the list of bookmarks in cache.
+      * @param sceneMarkers the list of bookmarks to store in cache
+      */
+    void SetBookmarks(const std::vector<std::chrono::milliseconds>& bookmarks)
+    {
+      m_bookmarks = bookmarks;
+    }
+
+    /*!
+      * \brief Get the list of bookmarks in cache.
+      * \return the list of bookmarks in cache
+      */
+    const std::vector<std::chrono::milliseconds>& GetBookmarks() const { return m_bookmarks; }
+
+    /*!
       * @brief Reset the content cache to the original values (all empty)
       */
     void Reset()
@@ -289,6 +345,7 @@ protected:
       m_chapters.clear();
       m_cuts.clear();
       m_sceneMarkers.clear();
+      m_bookmarks.clear();
     }
 
   private:
@@ -300,6 +357,8 @@ protected:
     std::vector<std::chrono::milliseconds> m_cuts;
     /*!< position for EDL scene markers */
     std::vector<std::chrono::milliseconds> m_sceneMarkers;
+    /*!< position for bookmarks */
+    std::vector<std::chrono::milliseconds> m_bookmarks;
   } m_contentInfo;
 
   CCriticalSection m_renderSection;

@@ -9,10 +9,10 @@
 #include "GUIColorButtonControl.h"
 
 #include "GUIInfoManager.h"
-#include "LocalizeStrings.h"
-#include "input/keyboard/Key.h"
+#include "ServiceBroker.h"
 #include "utils/ColorUtils.h"
 #include "utils/StringUtils.h"
+#include "windowing/WinSystem.h"
 
 using namespace KODI;
 using namespace GUILIB;
@@ -57,7 +57,6 @@ CGUIColorButtonControl::CGUIColorButtonControl(const CGUIColorButtonControl& con
 void CGUIColorButtonControl::Render()
 {
   CGUIButtonControl::Render();
-  RenderInfoText();
   if (IsDisabled())
     m_imgColorDisabledMask->Render();
   else
@@ -180,9 +179,13 @@ bool CGUIColorButtonControl::UpdateColors(const CGUIListItem* item)
   return changed;
 }
 
-void CGUIColorButtonControl::RenderInfoText()
+void CGUIColorButtonControl::RenderText()
 {
-  m_labelInfo.Render();
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetRenderOrder() !=
+      RENDER_ORDER_FRONT_TO_BACK)
+    m_labelInfo.Render();
+
+  CGUIButtonControl::RenderText();
 }
 
 void CGUIColorButtonControl::ProcessInfoText(unsigned int currentTime)

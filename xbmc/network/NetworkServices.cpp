@@ -12,7 +12,6 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "interfaces/json-rpc/JSONRPC.h"
 #include "messaging/ApplicationMessenger.h"
 #include "messaging/helpers/DialogHelper.h"
@@ -20,6 +19,8 @@
 #include "network/EventServer.h"
 #include "network/Network.h"
 #include "network/TCPServer.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -74,10 +75,6 @@
 #endif
 #endif
 
-#if defined(TARGET_DARWIN_OSX) and defined(HAS_XBMCHELPER)
-#include "platform/darwin/osx/XBMCHelper.h"
-#endif
-
 using namespace KODI::MESSAGING;
 using namespace JSONRPC;
 using namespace EVENTSERVER;
@@ -116,37 +113,35 @@ CNetworkServices::CNetworkServices()
   m_webserver.RegisterRequestHandler(&m_httpWebinterfaceHandler);
 #endif // HAS_WEB_INTERFACE
 #endif // HAS_WEB_SERVER
-  std::set<std::string> settingSet{
-      CSettings::SETTING_SERVICES_WEBSERVER,
-      CSettings::SETTING_SERVICES_WEBSERVERPORT,
-      CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION,
-      CSettings::SETTING_SERVICES_WEBSERVERUSERNAME,
-      CSettings::SETTING_SERVICES_WEBSERVERPASSWORD,
-      CSettings::SETTING_SERVICES_WEBSERVERSSL,
-      CSettings::SETTING_SERVICES_ZEROCONF,
-      CSettings::SETTING_SERVICES_AIRPLAY,
-      CSettings::SETTING_SERVICES_AIRPLAYVOLUMECONTROL,
-      CSettings::SETTING_SERVICES_AIRPLAYVIDEOSUPPORT,
-      CSettings::SETTING_SERVICES_USEAIRPLAYPASSWORD,
-      CSettings::SETTING_SERVICES_AIRPLAYPASSWORD,
-      CSettings::SETTING_SERVICES_UPNP,
-      CSettings::SETTING_SERVICES_UPNPSERVER,
-      CSettings::SETTING_SERVICES_UPNPRENDERER,
-      CSettings::SETTING_SERVICES_UPNPCONTROLLER,
-      CSettings::SETTING_SERVICES_ESENABLED,
-      CSettings::SETTING_SERVICES_ESPORT,
-      CSettings::SETTING_SERVICES_ESALLINTERFACES,
-      CSettings::SETTING_SERVICES_ESINITIALDELAY,
-      CSettings::SETTING_SERVICES_ESCONTINUOUSDELAY,
-      CSettings::SETTING_SMB_WINSSERVER,
-      CSettings::SETTING_SMB_WORKGROUP,
-      CSettings::SETTING_SMB_MINPROTOCOL,
-      CSettings::SETTING_SMB_MAXPROTOCOL,
-      CSettings::SETTING_SMB_LEGACYSECURITY,
-      CSettings::SETTING_SERVICES_WSDISCOVERY,
-  };
   m_settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-  m_settings->GetSettingsManager()->RegisterCallback(this, settingSet);
+  m_settings->GetSettingsManager()->RegisterCallback(
+      this, {CSettings::SETTING_SERVICES_WEBSERVER,
+             CSettings::SETTING_SERVICES_WEBSERVERPORT,
+             CSettings::SETTING_SERVICES_WEBSERVERAUTHENTICATION,
+             CSettings::SETTING_SERVICES_WEBSERVERUSERNAME,
+             CSettings::SETTING_SERVICES_WEBSERVERPASSWORD,
+             CSettings::SETTING_SERVICES_WEBSERVERSSL,
+             CSettings::SETTING_SERVICES_ZEROCONF,
+             CSettings::SETTING_SERVICES_AIRPLAY,
+             CSettings::SETTING_SERVICES_AIRPLAYVOLUMECONTROL,
+             CSettings::SETTING_SERVICES_AIRPLAYVIDEOSUPPORT,
+             CSettings::SETTING_SERVICES_USEAIRPLAYPASSWORD,
+             CSettings::SETTING_SERVICES_AIRPLAYPASSWORD,
+             CSettings::SETTING_SERVICES_UPNP,
+             CSettings::SETTING_SERVICES_UPNPSERVER,
+             CSettings::SETTING_SERVICES_UPNPRENDERER,
+             CSettings::SETTING_SERVICES_UPNPCONTROLLER,
+             CSettings::SETTING_SERVICES_ESENABLED,
+             CSettings::SETTING_SERVICES_ESPORT,
+             CSettings::SETTING_SERVICES_ESALLINTERFACES,
+             CSettings::SETTING_SERVICES_ESINITIALDELAY,
+             CSettings::SETTING_SERVICES_ESCONTINUOUSDELAY,
+             CSettings::SETTING_SMB_WINSSERVER,
+             CSettings::SETTING_SMB_WORKGROUP,
+             CSettings::SETTING_SMB_MINPROTOCOL,
+             CSettings::SETTING_SMB_MAXPROTOCOL,
+             CSettings::SETTING_SMB_LEGACYSECURITY,
+             CSettings::SETTING_SERVICES_WSDISCOVERY});
 }
 
 CNetworkServices::~CNetworkServices()
@@ -431,11 +426,6 @@ bool CNetworkServices::OnSettingChanging(const std::shared_ptr<const CSetting>& 
       HELPERS::ShowOKDialogText(CVariant{33102}, CVariant{33100});
       return false;
     }
-
-#if defined(TARGET_DARWIN_OSX) and defined(HAS_XBMCHELPER)
-    // reconfigure XBMCHelper for port changes
-    XBMCHelper::GetInstance().Configure();
-#endif // TARGET_DARWIN_OSX
   }
   else if (settingId == CSettings::SETTING_SERVICES_ESALLINTERFACES)
   {
@@ -549,9 +539,15 @@ void CNetworkServices::Start()
   if (m_settings->GetBool(CSettings::SETTING_SERVICES_UPNP))
     StartUPnP();
   if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED) && !StartEventServer())
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33102), g_localizeStrings.Get(33100));
+    CGUIDialogKaiToast::QueueNotification(
+        CGUIDialogKaiToast::Warning,
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33102),
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33100));
   if (m_settings->GetBool(CSettings::SETTING_SERVICES_ESENABLED) && !StartJSONRPCServer())
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33103), g_localizeStrings.Get(33100));
+    CGUIDialogKaiToast::QueueNotification(
+        CGUIDialogKaiToast::Warning,
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33103),
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33100));
 
 #ifdef HAS_WEB_SERVER
   // Start web server after eventserver and JSON-RPC server, so users can use these interfaces
@@ -575,7 +571,9 @@ void CNetworkServices::Start()
     // Only try to start server if configuration is OK
     else if (!StartWebserver())
       CGUIDialogKaiToast::QueueNotification(
-          CGUIDialogKaiToast::Warning, g_localizeStrings.Get(33101), g_localizeStrings.Get(33100));
+          CGUIDialogKaiToast::Warning,
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33101),
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(33100));
   }
 #endif // HAS_WEB_SERVER
 

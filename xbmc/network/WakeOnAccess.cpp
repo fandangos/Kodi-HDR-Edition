@@ -17,15 +17,16 @@
 #include "filesystem/SpecialProtocol.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "jobs/JobManager.h"
 #include "messaging/ApplicationMessenger.h"
 #include "network/Network.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
-#include "utils/JobManager.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
@@ -68,11 +69,11 @@ static int GetTotalSeconds(const CDateTimeSpan& ts)
 static unsigned long HostToIP(const std::string& host)
 {
   std::string ip;
-  CDNSNameCache::Lookup(host, ip);
+  CServiceBroker::GetDNSNameCache()->Lookup(host, ip);
   return inet_addr(ip.c_str());
 }
 
-#define LOCALIZED(id) g_localizeStrings.Get(id)
+#define LOCALIZED(id) CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(id)
 
 static void ShowDiscoveryMessage(const char* function, const char* server_name, bool new_entry)
 {
@@ -562,7 +563,7 @@ bool CWakeOnAccess::WakeUpHost(const WakeUpEntry& server)
 
 bool CWakeOnAccess::FindOrTouchHostEntry(const std::string& hostName, bool upnpMode, WakeUpEntry& result)
 {
-  std::unique_lock<CCriticalSection> lock(m_entrylist_protect);
+  std::unique_lock lock(m_entrylist_protect);
 
   bool need_wakeup = false;
 
@@ -602,7 +603,7 @@ bool CWakeOnAccess::FindOrTouchHostEntry(const std::string& hostName, bool upnpM
 
 void CWakeOnAccess::TouchHostEntry(const std::string& hostName, bool upnpMode)
 {
-  std::unique_lock<CCriticalSection> lock(m_entrylist_protect);
+  std::unique_lock lock(m_entrylist_protect);
 
   UPnPServer* upnp = upnpMode ? LookupUPnPServer(m_UPnPServers, hostName) : nullptr;
 
@@ -745,7 +746,7 @@ void CWakeOnAccess::OnJobComplete(unsigned int jobID, bool success, CJob *job)
 
   if (success)
   {
-    std::unique_lock<CCriticalSection> lock(m_entrylist_protect);
+    std::unique_lock lock(m_entrylist_protect);
 
     SaveMACDiscoveryResult(host, mac);
   }
@@ -786,7 +787,7 @@ std::string CWakeOnAccess::GetSettingFile()
 
 void CWakeOnAccess::OnSettingsLoaded()
 {
-  std::unique_lock<CCriticalSection> lock(m_entrylist_protect);
+  std::unique_lock lock(m_entrylist_protect);
 
   LoadFromXML();
 }

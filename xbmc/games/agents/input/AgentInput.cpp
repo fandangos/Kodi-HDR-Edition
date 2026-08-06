@@ -26,7 +26,8 @@ using namespace KODI;
 using namespace GAME;
 
 CAgentInput::CAgentInput(PERIPHERALS::CPeripherals& peripheralManager, CInputManager& inputManager)
-  : m_peripheralManager(peripheralManager), m_inputManager(inputManager)
+  : m_peripheralManager(peripheralManager),
+    m_inputManager(inputManager)
 {
   // Register callbacks
   m_peripheralManager.RegisterObserver(this);
@@ -105,13 +106,11 @@ void CAgentInput::Refresh()
 {
   if (m_gameClient)
   {
-    // Open keyboard
-    if (m_bHasKeyboard)
-      ProcessKeyboard();
+    // Process keyboard
+    ProcessKeyboard();
 
-    // Open mouse
-    if (m_bHasMouse)
-      ProcessMouse();
+    // Process mouse
+    ProcessMouse();
 
     // Open/close joysticks
     PERIPHERALS::EventLockHandlePtr inputHandlingLock;
@@ -185,7 +184,7 @@ std::vector<std::shared_ptr<const CAgentController>> CAgentInput::GetControllers
   std::lock_guard<std::mutex> lock(m_controllerMutex);
 
   std::vector<std::shared_ptr<const CAgentController>> controllers{m_controllers.size()};
-  std::copy(m_controllers.begin(), m_controllers.end(), controllers.begin());
+  std::ranges::copy(m_controllers, controllers.begin());
 
   return controllers;
 }
@@ -376,11 +375,10 @@ void CAgentInput::ProcessKeyboard()
                              { return port.GetPortType() == PORT_TYPE::KEYBOARD; });
 
       // Open keyboard input
-      PERIPHERALS::PeripheralPtr keyboard = std::move(keyboards.at(0));
-      m_gameClient->Input().OpenKeyboard(it->GetActiveController().GetController(), keyboard);
+      m_gameClient->Input().OpenKeyboard(it->GetActiveController().GetController());
 
       // Save keyboard port
-      m_keyboardPort[static_cast<KEYBOARD::IKeyboardInputProvider*>(keyboard.get())] =
+      m_keyboardPort[static_cast<KEYBOARD::IKeyboardInputProvider*>(keyboards.at(0).get())] =
           it->GetAddress();
 
       SetChanged(true);
@@ -411,11 +409,10 @@ void CAgentInput::ProcessMouse()
                              { return port.GetPortType() == PORT_TYPE::MOUSE; });
 
       // Open mouse input
-      PERIPHERALS::PeripheralPtr mouse = std::move(mice.at(0));
-      m_gameClient->Input().OpenMouse(it->GetActiveController().GetController(), mouse);
+      m_gameClient->Input().OpenMouse(it->GetActiveController().GetController());
 
       // Save mouse port
-      m_mousePort[static_cast<MOUSE::IMouseInputProvider*>(mouse.get())] = it->GetAddress();
+      m_mousePort[static_cast<MOUSE::IMouseInputProvider*>(mice.at(0).get())] = it->GetAddress();
 
       SetChanged(true);
     }
@@ -431,11 +428,15 @@ void CAgentInput::ProcessAgentControllers(const PERIPHERALS::PeripheralVector& p
   // Handle new and existing controllers
   for (const auto& peripheral : peripherals)
   {
+    // Skip peripherals that have never been active
+    if (!peripheral->LastActive().IsValid())
+      continue;
+
     // Check if controller already exists
-    auto it = std::find_if(m_controllers.begin(), m_controllers.end(),
-                           [&peripheral](const std::shared_ptr<CAgentController>& controller) {
-                             return controller->GetPeripheralLocation() == peripheral->Location();
-                           });
+    auto it =
+        std::find_if(m_controllers.begin(), m_controllers.end(),
+                     [&peripheral](const std::shared_ptr<CAgentController>& controller)
+                     { return controller->GetPeripheralLocation() == peripheral->FileLocation(); });
 
     if (it == m_controllers.end())
     {
@@ -481,11 +482,10 @@ void CAgentInput::ProcessAgentControllers(const PERIPHERALS::PeripheralVector& p
       if (agentController->GetPeripheral()->Type() != PERIPHERALS::PERIPHERAL_JOYSTICK)
         continue;
 
-      auto it =
-          std::find_if(peripherals.begin(), peripherals.end(),
-                       [&agentController](const PERIPHERALS::PeripheralPtr& peripheral) {
-                         return agentController->GetPeripheralLocation() == peripheral->Location();
-                       });
+      auto it = std::find_if(
+          peripherals.begin(), peripherals.end(),
+          [&agentController](const PERIPHERALS::PeripheralPtr& peripheral)
+          { return agentController->GetPeripheralLocation() == peripheral->FileLocation(); });
 
       if (it == peripherals.end())
         expiredJoysticks.emplace_back(agentController->GetPeripheralLocation());
@@ -676,7 +676,7 @@ void CAgentInput::UpdateConnectedJoysticks(
     JOYSTICK::IInputProvider* inputProvider = peripheral.get();
 
     // Check if peripheral is disconnected
-    if (m_portMap.find(inputProvider) == m_portMap.end())
+    if (!m_portMap.contains(inputProvider))
       disconnectedPeripherals.emplace(peripheral);
   }
 }
@@ -764,7 +764,7 @@ CAgentInput::PortMap CAgentInput::MapJoysticks(
             const PortAddress& portAddress = itPeripheral->second;
 
             // If port is disconnected, use this joystick
-            if (gameClientjoysticks.find(portAddress) == gameClientjoysticks.end())
+            if (!gameClientjoysticks.contains(portAddress))
               return true;
 
             return false;
@@ -822,7 +822,7 @@ void CAgentInput::LogPeripheralMap(
       if (line != 0)
         CLog::Log(LOGDEBUG, "");
       CLog::Log(LOGDEBUG, "{}:", controllerAddress);
-      CLog::Log(LOGDEBUG, "    {} [{}]", peripheral->Location(), peripheral->DeviceName());
+      CLog::Log(LOGDEBUG, "    {} [{}]", peripheral->FileLocation(), peripheral->DeviceName());
 
       ++line;
     }
@@ -837,7 +837,7 @@ void CAgentInput::LogPeripheralMap(
     // Sort by peripheral location
     std::map<std::string, std::string> disconnectedPeripheralMap;
     for (const auto& peripheral : disconnectedPeripherals)
-      disconnectedPeripheralMap[peripheral->Location()] = peripheral->DeviceName();
+      disconnectedPeripheralMap[peripheral->FileLocation()] = peripheral->DeviceName();
 
     // Log location and device name for disconnected peripherals
     for (const auto& [location, deviceName] : disconnectedPeripheralMap)

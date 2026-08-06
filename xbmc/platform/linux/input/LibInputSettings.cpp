@@ -27,7 +27,7 @@ namespace
 {
   inline bool LayoutSort(const StringSettingOption& i, const StringSettingOption& j)
   {
-    return (i.value < j.value);
+    return (i.label < j.label);
   }
 } // unnamed namespace
 
@@ -55,9 +55,7 @@ CLibInputSettings::CLibInputSettings(CLibInputHandler *handler) :
 
   setting->SetVisible(true);
 
-  std::set<std::string> settingSet;
-  settingSet.insert(SETTING_INPUT_LIBINPUTKEYBOARDLAYOUT);
-  settingsManager->RegisterCallback(this, settingSet);
+  settingsManager->RegisterCallback(this, {SETTING_INPUT_LIBINPUTKEYBOARDLAYOUT});
   settingsManager->RegisterSettingOptionsFiller("libinputkeyboardlayout",
                                                 SettingOptionsKeyboardLayoutsFiller);
 
@@ -149,8 +147,7 @@ CLibInputSettings::~CLibInputSettings()
 void CLibInputSettings::SettingOptionsKeyboardLayoutsFiller(
     const std::shared_ptr<const CSetting>& setting,
     std::vector<StringSettingOption>& list,
-    std::string& current,
-    void* data)
+    std::string& current)
 {
   list = layouts;
 }

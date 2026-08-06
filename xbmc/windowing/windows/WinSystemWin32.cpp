@@ -75,7 +75,7 @@ CWinSystemWin32::CWinSystemWin32()
   {
     cacert = CSpecialProtocol::TranslatePath("special://xbmc/system/certs/cacert.pem");
     if (XFILE::CFile::Exists(cacert))
-      CEnvironment::setenv("SSL_CERT_FILE", cacert.c_str(), 1);
+      CEnvironment::setenv("SSL_CERT_FILE", cacert, 1);
   }
 
   m_winEvents.reset(new CWinEventsWin32());
@@ -534,7 +534,9 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
 
   bool forceChange = false;    // resolution/display is changed but window state isn't changed
   bool changeScreen = false;   // display is changed
-  bool stereoChange = IsStereoEnabled() != (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_HARDWAREBASED);
+  bool stereoChange =
+      IsStereoEnabled() != (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+                            RenderStereoMode::HARDWAREBASED);
 
   if (m_nWidth != res.iWidth || m_nHeight != res.iHeight || m_fRefreshRate != res.fRefreshRate ||
       !oldMonitor || oldMonitor->hMonitor != newMonitor->hMonitor || stereoChange ||
@@ -1159,13 +1161,13 @@ bool CWinSystemWin32::Show(bool raise)
 
 void CWinSystemWin32::Register(IDispResource *resource)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemWin32::Unregister(IDispResource* resource)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -1176,7 +1178,7 @@ void CWinSystemWin32::OnDisplayLost()
   CLog::LogF(LOGDEBUG, "notify display lost event");
 
   {
-    std::unique_lock<CCriticalSection> lock(m_resourceSection);
+    std::unique_lock lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnLostDisplay();
   }
@@ -1187,7 +1189,7 @@ void CWinSystemWin32::OnDisplayReset()
   if (!m_delayDispReset)
   {
     CLog::LogF(LOGDEBUG, "notify display reset event");
-    std::unique_lock<CCriticalSection> lock(m_resourceSection);
+    std::unique_lock lock(m_resourceSection);
     for (std::vector<IDispResource *>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
       (*i)->OnResetDisplay();
   }
@@ -1348,7 +1350,10 @@ bool CWinSystemWin32::MessagePump()
 void CWinSystemWin32::SetTogglingHDR(bool toggling)
 {
   if (toggling)
+  {
     SetTimer(m_hWnd, ID_TIMER_HDR, 6000U, nullptr);
+    ResolutionChanged();
+  }
 
   m_IsTogglingHDR = toggling;
 }

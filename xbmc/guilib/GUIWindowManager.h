@@ -16,12 +16,14 @@
 #include "messaging/IMessageTarget.h"
 
 #include <list>
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 class CGUIDialog;
 class CGUIMediaWindow;
+class CScreenShot;
 
 #ifdef TARGET_WINDOWS_STORE
 #pragma pack(push, 8)
@@ -49,6 +51,8 @@ class CGUIWindowManager : public KODI::MESSAGING::IMessageTarget
 {
   friend CGUIDialog;
   friend CGUIMediaWindow;
+  friend CScreenShot;
+
 public:
   CGUIWindowManager();
   ~CGUIWindowManager() override;
@@ -56,7 +60,7 @@ public:
   bool SendMessage(int message, int senderID, int destID, int param1 = 0, int param2 = 0);
   bool SendMessage(CGUIMessage& message, int window);
   void Initialize();
-  void Add(CGUIWindow* pWindow);
+  bool Add(CGUIWindow* pWindow);
   void AddUniqueInstance(CGUIWindow *window);
   void AddCustomWindow(CGUIWindow* pWindow);
   void Remove(int id);
@@ -97,6 +101,13 @@ public:
   /*! \brief Mark a region as dirty, forcing a redraw at the next Render()
    */
   void MarkDirty(const CRect& rect);
+
+  /*! \brief True if Process() collected any dirty regions this frame.
+   *   Callable after Process() to decide whether the render pass needs
+   *   to run; used by the dirty-driven skip in CApplication::FrameMove
+   *   (currently gated to D2P plane and HDR GUI compositing FBO contexts).
+   */
+  bool HasDirtyRegions() const { return !m_dirtyregions.empty(); }
 
   /*! \brief Rendering of the current window and any dialogs
    Render is called every frame to draw the current window and any dialogs.
@@ -192,12 +203,13 @@ public:
    */
   int GetTopmostModalDialog(bool ignoreClosing = false) const;
 
-  void SendThreadMessage(CGUIMessage& message, int window = 0);
+  void SendThreadMessage(const CGUIMessage& message, int window = 0);
   void DispatchThreadMessages();
   // method to removed queued messages with message id in the requested message id list.
   // pMessageIDList: point to first integer of a 0 ends integer array.
-  int RemoveThreadMessageByMessageIds(int *pMessageIDList);
+  int RemoveThreadMessageByMessageIds(const int* pMessageIDList);
   void AddMsgTarget( IMsgTargetCallback* pMsgTarget );
+  void RemoveMsgTarget(IMsgTargetCallback* pMsgTarget);
   int GetActiveWindow() const;
   int GetActiveWindowOrDialog() const;
   bool HasModalDialog(bool ignoreClosing) const;
@@ -269,10 +281,10 @@ private:
 
   bool HandleAction(const CAction &action) const;
 
-  std::unordered_map<int, CGUIWindow*> m_mapWindows;
-  std::vector<CGUIWindow*> m_vecCustomWindows;
-  std::vector<CGUIWindow*> m_activeDialogs;
-  std::vector<CGUIWindow*> m_deleteWindows;
+  std::unordered_map<int, std::shared_ptr<CGUIWindow>> m_mapWindows;
+  std::vector<std::shared_ptr<CGUIWindow>> m_vecCustomWindows;
+  std::vector<std::shared_ptr<CGUIWindow>> m_activeDialogs;
+  std::vector<std::shared_ptr<CGUIWindow>> m_deleteWindows;
 
   std::deque<int> m_windowHistory;
 

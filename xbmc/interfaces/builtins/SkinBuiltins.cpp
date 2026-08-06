@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -23,14 +23,17 @@
 #include "dialogs/GUIDialogSelect.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
+#include "guilib/GUIUtils.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/SkinSettings.h"
 #include "storage/MediaManager.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "utils/log.h"
 
 using namespace ADDON;
 
@@ -57,6 +60,25 @@ static int UnloadSkin(const std::vector<std::string>& params)
   const auto appSkin = components.GetComponent<CApplicationSkinHandling>();
   appSkin->UnloadSkin();
 
+  return 0;
+}
+
+/*! \brief Load the provided skin.
+ *  \param params[0] = skinId of the skin to load
+ */
+static int LoadSkin(const std::vector<std::string>& params)
+{
+  if (!params.empty())
+  {
+    auto& components = CServiceBroker::GetAppComponents();
+    const auto appSkin = components.GetComponent<CApplicationSkinHandling>();
+    if (!appSkin->LoadSkin(params[0]))
+      CLog::Log(LOGERROR, "SkinBuiltins: error loading the skin {}", params[0]);
+  }
+  else
+  {
+    CLog::LogF(LOGDEBUG, "empty params - abort.");
+  }
   return 0;
 }
 
@@ -112,14 +134,14 @@ static int SelectBool(const std::vector<std::string>& params)
 
   CGUIDialogSelect* pDlgSelect = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogSelect>(WINDOW_DIALOG_SELECT);
   pDlgSelect->Reset();
-  pDlgSelect->SetHeading(CVariant{g_localizeStrings.Get(atoi(params[0].c_str()))});
+  pDlgSelect->SetHeading(CVariant{CGUIUtils::GetLocalizedString(std::atoi(params[0].c_str()))});
 
   for (unsigned int i = 1 ; i < params.size() ; i++)
   {
     if (params[i].find('|') != std::string::npos)
     {
       std::vector<std::string> values = StringUtils::Split(params[i], '|');
-      std::string label = g_localizeStrings.Get(atoi(values[0].c_str()));
+      std::string label = CGUIUtils::GetLocalizedString(std::atoi(values[0].c_str()));
       settings.emplace_back(label, values[1].c_str());
       pDlgSelect->Add(label);
     }
@@ -176,7 +198,8 @@ static int SetNumeric(const std::vector<std::string>& params)
 {
   int string = CSkinSettings::GetInstance().TranslateString(params[0]);
   std::string value = CSkinSettings::GetInstance().GetString(string);
-  if (CGUIDialogNumeric::ShowAndGetNumber(value, g_localizeStrings.Get(611)))
+  if (CGUIDialogNumeric::ShowAndGetNumber(
+          value, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(611)))
     CSkinSettings::GetInstance().SetString(string, value);
 
   return 0;
@@ -194,6 +217,9 @@ static int SetPath(const std::vector<std::string>& params)
   std::vector<CMediaSource> localShares;
   CServiceBroker::GetMediaManager().GetLocalDrives(localShares);
   CServiceBroker::GetMediaManager().GetNetworkLocations(localShares);
+
+  const auto& localizeStrings = CServiceBroker::GetResourcesComponent().GetLocalizeStrings();
+
   if (params.size() > 1)
   {
     value = params[1];
@@ -202,13 +228,13 @@ static int SetPath(const std::vector<std::string>& params)
     if (CUtil::GetMatchingSource(value,localShares,bIsSource) < 0) // path is outside shares - add it as a separate one
     {
       CMediaSource share;
-      share.strName = g_localizeStrings.Get(13278);
+      share.strName = localizeStrings.Get(13278);
       share.strPath = value;
       localShares.push_back(share);
     }
   }
 
-  if (CGUIDialogFileBrowser::ShowAndGetDirectory(localShares, g_localizeStrings.Get(657), value))
+  if (CGUIDialogFileBrowser::ShowAndGetDirectory(localShares, localizeStrings.Get(657), value))
     CSkinSettings::GetInstance().SetString(string, value);
 
   CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
@@ -229,6 +255,8 @@ static int SetFile(const std::vector<std::string>& params)
   std::string value = CSkinSettings::GetInstance().GetString(string);
   std::vector<CMediaSource> localShares;
   CServiceBroker::GetMediaManager().GetLocalDrives(localShares);
+
+  const auto& localizeStrings = CServiceBroker::GetResourcesComponent().GetLocalizeStrings();
 
   // Note. can only browse one addon type from here
   // if browsing for addons, required param[1] is addontype string, with optional param[2]
@@ -268,12 +296,13 @@ static int SetFile(const std::vector<std::string>& params)
       if (CUtil::GetMatchingSource(value,localShares,bIsSource) < 0) // path is outside shares - add it as a separate one
       {
         CMediaSource share;
-        share.strName = g_localizeStrings.Get(13278);
+        share.strName = localizeStrings.Get(13278);
         share.strPath = value;
         localShares.push_back(share);
       }
     }
-    if (CGUIDialogFileBrowser::ShowAndGetFile(localShares, strMask, g_localizeStrings.Get(1033), value))
+    if (CGUIDialogFileBrowser::ShowAndGetFile(localShares, strMask, localizeStrings.Get(1033),
+                                              value))
       CSkinSettings::GetInstance().SetString(string, value);
   }
 
@@ -291,6 +320,9 @@ static int SetImage(const std::vector<std::string>& params)
   std::string value = CSkinSettings::GetInstance().GetString(string);
   std::vector<CMediaSource> localShares;
   CServiceBroker::GetMediaManager().GetLocalDrives(localShares);
+
+  const auto& localizeStrings = CServiceBroker::GetResourcesComponent().GetLocalizeStrings();
+
   if (params.size() > 1)
   {
     value = params[1];
@@ -299,12 +331,12 @@ static int SetImage(const std::vector<std::string>& params)
     if (CUtil::GetMatchingSource(value,localShares,bIsSource) < 0) // path is outside shares - add it as a separate one
     {
       CMediaSource share;
-      share.strName = g_localizeStrings.Get(13278);
+      share.strName = localizeStrings.Get(13278);
       share.strPath = value;
       localShares.push_back(share);
     }
   }
-  if (CGUIDialogFileBrowser::ShowAndGetImage(localShares, g_localizeStrings.Get(1030), value))
+  if (CGUIDialogFileBrowser::ShowAndGetImage(localShares, localizeStrings.Get(1030), value))
     CSkinSettings::GetInstance().SetString(string, value);
 
   return 0;
@@ -331,7 +363,8 @@ static int SetColor(const std::vector<std::string>& params)
       CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogColorPicker>(
           WINDOW_DIALOG_COLOR_PICKER);
   pDlgColorPicker->Reset();
-  pDlgColorPicker->SetHeading(CVariant{g_localizeStrings.Get(atoi(params[1].c_str()))});
+  pDlgColorPicker->SetHeading(
+      CVariant{CGUIUtils::GetLocalizedString(std::atoi(params[1].c_str()))});
 
   if (params.size() > 3)
   {
@@ -375,7 +408,9 @@ static int SetString(const std::vector<std::string>& params)
     string = CSkinSettings::GetInstance().TranslateString(params[0]);
 
   std::string value = CSkinSettings::GetInstance().GetString(string);
-  if (CGUIKeyboardFactory::ShowAndGetInput(value, CVariant{g_localizeStrings.Get(1029)}, true))
+  if (CGUIKeyboardFactory::ShowAndGetInput(
+          value, CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1029)},
+          true))
     CSkinSettings::GetInstance().SetString(string, value);
 
   return 0;
@@ -461,7 +496,9 @@ static int SkinResetAll(const std::vector<std::string>& params)
  */
 static int SkinDebug(const std::vector<std::string>& params)
 {
-  g_SkinInfo->ToggleDebug();
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  if (skin)
+    skin->ToggleDebug();
 
   return 0;
 }
@@ -478,7 +515,9 @@ static int SkinTimerStart(const std::vector<std::string>& params)
     return -1;
   }
 
-  g_SkinInfo->TimerStart(params[0]);
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  if (skin)
+    skin->TimerStart(params[0]);
   return 0;
 }
 
@@ -494,7 +533,9 @@ static int SkinTimerStop(const std::vector<std::string>& params)
     return -1;
   }
 
-  g_SkinInfo->TimerStop(params[0]);
+  auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+  if (skin)
+    skin->TimerStop(params[0]);
   return 0;
 }
 
@@ -520,6 +561,12 @@ static int SkinTimerStop(const std::vector<std::string>& params)
 ///     <b>`UnloadSkin()`</b>
 ///     ,
 ///     Unloads the current skin
+///   }
+///   \table_row2_l{
+///     <b>`LoadSkin(skinId)`</b>
+///     ,
+///     Loads the skin passed as a parameter
+///     @param[in] skinId               Addon skin id of the skin.
 ///   }
 ///   \table_row2_l{
 ///     <b>`Skin.Reset(setting)`</b>
@@ -680,6 +727,7 @@ CBuiltins::CommandMap CSkinBuiltins::GetOperations() const
 {
   return {{"reloadskin", {"Reload Kodi's skin", 0, ReloadSkin}},
           {"unloadskin", {"Unload Kodi's skin", 0, UnloadSkin}},
+          {"loadskin", {"Load Kodi's skin", 0, LoadSkin}},
           {"skin.reset", {"Resets a skin setting to default", 1, SkinReset}},
           {"skin.resetsettings", {"Resets all skin settings", 0, SkinResetAll}},
           {"skin.setaddon", {"Prompts and set an addon", 2, SetAddon}},

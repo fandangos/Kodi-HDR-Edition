@@ -71,7 +71,7 @@ namespace JSONRPC
       virtual bool IsNew() const { return m_new; }
       virtual bool Closing() const { return false; }
 
-      SOCKET m_socket;
+      SOCKET m_socket{INVALID_SOCKET};
       sockaddr_storage m_cliaddr;
       socklen_t m_addrlen;
       CCriticalSection m_critSection;
@@ -109,6 +109,7 @@ namespace JSONRPC
 
     std::vector<CTCPClient*> m_connections;
     std::vector<SOCKET> m_servers;
+    CCriticalSection m_connectionsCritSection;
     int m_port;
     bool m_nonlocal;
     void* m_sdpd;

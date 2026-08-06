@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <uses-feature
@@ -72,6 +73,7 @@
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="image/*" />
 
+                <data android:scheme="" />
                 <data android:scheme="file" />
                 <data android:scheme="content" />
                 <data android:scheme="http" />
@@ -113,7 +115,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.DREAMING_STOPPED" />
                 <action android:name="android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED" />
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
@@ -125,10 +126,6 @@
         <provider
             android:name=".content.XBMCFileContentProvider"
             android:authorities="@APP_PACKAGE@.file"
-            android:exported="true" />
-        <provider
-            android:name=".content.XBMCYTDLContentProvider"
-            android:authorities="@APP_PACKAGE@.ytdl"
             android:exported="true" />
         <provider
             android:name=".content.XBMCFileProvider"

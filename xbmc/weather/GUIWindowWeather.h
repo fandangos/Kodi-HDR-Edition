@@ -10,11 +10,13 @@
 
 #include "guilib/GUIWindow.h"
 
+#include <vector>
+
 class CGUIWindowWeather : public CGUIWindow
 {
 public:
-  CGUIWindowWeather(void);
-  ~CGUIWindowWeather(void) override;
+  CGUIWindowWeather();
+  ~CGUIWindowWeather() override;
   bool OnMessage(CGUIMessage& message) override;
   void FrameMove() override;
 
@@ -23,9 +25,11 @@ protected:
 
   void UpdateButtons();
   void UpdateLocations();
-  void SetProperties();
-  void ClearProperties();
+  void SetProps();
+  void ClearProps();
   void SetLocation(int loc);
 
-  unsigned int m_maxLocation = 0;
+private:
+  unsigned int m_maxLocation{0};
+  const std::vector<std::string> m_windowProps;
 };

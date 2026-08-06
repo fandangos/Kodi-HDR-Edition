@@ -16,6 +16,9 @@
 #include "games/controllers/Controller.h"
 #include "games/controllers/ControllerLayout.h"
 #include "guilib/GUIListItem.h"
+#include "guilib/GUITexture.h"
+#include "peripherals/Peripherals.h"
+#include "utils/StringUtils.h"
 #include "utils/log.h"
 
 #include <algorithm>
@@ -36,6 +39,9 @@ CGUIGameController::CGUIGameController(int parentID,
 {
   // Initialize CGUIControl
   ControlType = GUICONTROL_GAMECONTROLLER;
+
+  // Initialize CGUIImage
+  SetAspectRatio(CAspectRatio::KEEP);
 }
 
 CGUIGameController::CGUIGameController(const CGUIGameController& from)
@@ -51,6 +57,9 @@ CGUIGameController::CGUIGameController(const CGUIGameController& from)
 {
   // Initialize CGUIControl
   ControlType = GUICONTROL_GAMECONTROLLER;
+
+  // Initialize CGUIImage
+  SetAspectRatio(CAspectRatio::KEEP);
 }
 
 CGUIGameController* CGUIGameController::Clone(void) const
@@ -70,6 +79,7 @@ void CGUIGameController::DoProcess(unsigned int currentTime, CDirtyRegionList& d
   }
 
   const GAME::CAgentInput& agentInput = CServiceBroker::GetGameServices().AgentInput();
+  const PERIPHERALS::CPeripherals& peripheralManager = CServiceBroker::GetPeripherals();
 
   // Highlight the controller if it is active
   float activation = 0.0f;
@@ -77,8 +87,11 @@ void CGUIGameController::DoProcess(unsigned int currentTime, CDirtyRegionList& d
   if (!portAddress.empty())
     activation = agentInput.GetGamePortActivation(portAddress);
 
-  if (!peripheralLocation.empty())
-    activation = std::max(agentInput.GetPeripheralActivation(peripheralLocation), activation);
+  if (StringUtils::StartsWith(peripheralLocation, "peripherals://"))
+  {
+    activation =
+        std::max(peripheralManager.GetPeripheralActivation(peripheralLocation), activation);
+  }
 
   SetActivation(activation);
 
@@ -243,6 +256,6 @@ void CGUIGameController::SetActivation(float activation)
   const UTILS::COLOR::Color activationColor =
       (newAlpha << 24) | (newRed << 16) | (newGreen << 8) | newBlue;
 
-  if (CGUIImage::SetColorDiffuse(activationColor))
+  if (CGUIImage::SetColorDiffuse(GUILIB::GUIINFO::CGUIInfoColor(activationColor)))
     CGUIImage::UpdateDiffuseColor(nullptr);
 }

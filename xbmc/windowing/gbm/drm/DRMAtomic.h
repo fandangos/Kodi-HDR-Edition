@@ -9,6 +9,7 @@
 #pragma once
 
 #include "DRMUtils.h"
+#include "utils/log.h"
 
 #include <cstdint>
 #include <deque>
@@ -32,16 +33,17 @@ public:
   bool SetActive(bool active) override;
   bool InitDrm() override;
   void DestroyDrm() override;
+  bool SupportsFencing() override { return true; }
   bool AddProperty(CDRMObject* object, const char* name, uint64_t value);
 
-  bool DisplayHardwareScalingEnabled();
+  // Probe whether any DRM device supports atomic modesetting, with no
+  // connector required. Used to decide atomic-vs-legacy before falling back.
+  static bool SupportsAtomicModesetting();
 
 private:
   void DrmAtomicCommit(int fb_id, int flags, bool rendered, bool videoLayer);
 
-  bool SetScalingFilter(CDRMObject* object, const char* name, const char* type);
-
-  bool m_need_modeset;
+  bool m_need_modeset{true};
   bool m_active = true;
 
   class CDRMAtomicRequest
@@ -54,6 +56,7 @@ private:
     drmModeAtomicReqPtr Get() const { return m_atomicRequest.get(); }
 
     bool AddProperty(CDRMObject* object, const char* name, uint64_t value);
+    void CacheProperties();
     void LogAtomicRequest();
 
     static void LogAtomicDiff(CDRMAtomicRequest* current, CDRMAtomicRequest* old);
@@ -76,6 +79,6 @@ private:
   std::deque<std::unique_ptr<CDRMAtomicRequest>> m_atomicRequestQueue;
 };
 
-}
-}
-}
+} // namespace GBM
+} // namespace WINDOWING
+} // namespace KODI

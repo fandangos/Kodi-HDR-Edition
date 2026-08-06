@@ -11,12 +11,15 @@
 #include "CompileInfo.h"
 #include "ServiceBroker.h"
 #include "filesystem/File.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/SettingUtils.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "settings/SettingsContainer.h"
 #include "settings/lib/Setting.h"
 #include "settings/lib/SettingsManager.h"
+#include "utils/Map.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 
@@ -29,16 +32,62 @@
 
 namespace
 {
-static constexpr unsigned char Utf8Bom[3] = {0xEF, 0xBB, 0xBF};
-static const std::string LogFileExtension = ".log";
-static const std::string LogPattern = "%Y-%m-%d %T.%e T:%-5t %7l <%n>: %v";
-} // namespace
+constexpr unsigned char Utf8Bom[3] = {0xEF, 0xBB, 0xBF};
+const std::string LogFileExtension = ".log";
+const std::string LogPattern = "%Y-%m-%d %T.%e T:%-5t %7l <%n>: %v";
+
+struct ComponentInfo
+{
+  const char* name{nullptr};
+  uint32_t stringId{0};
+};
+
+// clang-format off
+constexpr auto componentMap = make_map<int, ComponentInfo>({
+  // component id,  component name, component setting value string id
+  {LOGSAMBA,        {"samba",       669}},
+  {LOGCURL,         {"curl",        670}},
+  {LOGFFMPEG,       {"ffmpeg",      672}},
+#ifdef HAS_DBUS
+  {LOGDBUS,         {"dbus",        674}},
+#endif
+  {LOGJSONRPC,      {"jsonrpc",     675}},
+  {LOGAUDIO,        {"audio",       676}},
+#ifdef HAS_AIRTUNES
+  {LOGAIRTUNES,     {"airtunes",    677}},
+#endif
+#ifdef HAS_UPNP
+  {LOGUPNP,         {"upnp",        678}},
+#endif
+#ifdef HAVE_LIBCEC
+  {LOGCEC,          {"cec",         679}},
+#endif
+  {LOGVIDEO,        {"video",       680}},
+#ifdef HAS_WEB_SERVER
+  {LOGWEBSERVER,    {"webserver",   681}},
+#endif
+  {LOGDATABASE,     {"database",    682}},
+  {LOGAVTIMING,     {"avtiming",    683}},
+  {LOGWINDOWING,    {"windowing",   684}},
+  {LOGPVR,          {"pvr",         685}},
+  {LOGEPG,          {"epg",         686}},
+  {LOGANNOUNCE,     {"announce",    39117}},
+#if defined(HAS_FILESYSTEM_SMB)
+  {LOGWSDISCOVERY,  {"wsdiscovery", 37050}},
+#endif
+  {LOGADDONS,       {"addons",      39124}},
+#ifdef HAVE_LIBBLURAY
+  {LOGBLURAY,       {"bluray",      39126}},
+#endif
+});
+// clang-format on
+
+} // unnamed namespace
 
 CLog::CLog()
   : m_platform(IPlatformLog::CreatePlatformLog()),
     m_sinks(std::make_shared<spdlog::sinks::dist_sink_mt>()),
-    m_defaultLogger(CreateLogger("general")),
-    m_logLevel(LOG_LEVEL_DEBUG)
+    m_defaultLogger(CreateLogger("general"))
 {
   // add platform-specific debug sinks
   m_platform->AddSinks(m_sinks);
@@ -70,7 +119,7 @@ void CLog::OnSettingsLoaded()
 
 void CLog::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
-  if (setting == NULL)
+  if (setting == nullptr)
     return;
 
   const std::string& settingId = setting->GetId();
@@ -92,10 +141,8 @@ void CLog::Initialize(const std::string& path)
   settingsManager->RegisterSettingOptionsFiller("loggingcomponents",
                                                 SettingOptionsLoggingComponentsFiller);
   settingsManager->RegisterSettingsHandler(this);
-  std::set<std::string> settingSet;
-  settingSet.insert(CSettings::SETTING_DEBUG_EXTRALOGGING);
-  settingSet.insert(CSettings::SETTING_DEBUG_SETEXTRALOGLEVEL);
-  settingsManager->RegisterCallback(this, settingSet);
+  settingsManager->RegisterCallback(
+      this, {CSettings::SETTING_DEBUG_EXTRALOGGING, CSettings::SETTING_DEBUG_SETEXTRALOGLEVEL});
 
   if (path.empty())
     return;
@@ -174,11 +221,11 @@ void CLog::SetLogLevel(int level)
     return;
 
   spdlog::set_level(spdLevel);
-  FormatAndLogInternal(spdlog::level::info, "Log level changed to \"{}\"",
+  FormatAndLogInternal(spdlog::level::info, LOG_COMPONENT_GENERAL, "Log level changed to \"{}\"",
                        fmt::make_format_args(spdlog::level::to_string_view(spdLevel)));
 }
 
-bool CLog::IsLogLevelLogged(int loglevel)
+bool CLog::IsLogLevelLogged(int loglevel) const
 {
   if (m_logLevel >= LOG_LEVEL_DEBUG)
     return true;
@@ -190,7 +237,10 @@ bool CLog::IsLogLevelLogged(int loglevel)
 
 bool CLog::CanLogComponent(uint32_t component) const
 {
-  if (!m_componentLogEnabled || component == 0)
+  if (component == LOG_COMPONENT_GENERAL)
+    return true;
+
+  if (!m_componentLogEnabled)
     return false;
 
   return ((m_componentLogLevels & component) == component);
@@ -198,40 +248,26 @@ bool CLog::CanLogComponent(uint32_t component) const
 
 void CLog::SettingOptionsLoggingComponentsFiller(const SettingConstPtr& setting,
                                                  std::vector<IntegerSettingOption>& list,
-                                                 int& current,
-                                                 void* data)
+                                                 int& current)
 {
-  list.emplace_back(g_localizeStrings.Get(669), LOGSAMBA);
-  list.emplace_back(g_localizeStrings.Get(670), LOGCURL);
-  list.emplace_back(g_localizeStrings.Get(672), LOGFFMPEG);
-  list.emplace_back(g_localizeStrings.Get(675), LOGJSONRPC);
-  list.emplace_back(g_localizeStrings.Get(676), LOGAUDIO);
-  list.emplace_back(g_localizeStrings.Get(680), LOGVIDEO);
-  list.emplace_back(g_localizeStrings.Get(683), LOGAVTIMING);
-  list.emplace_back(g_localizeStrings.Get(684), LOGWINDOWING);
-  list.emplace_back(g_localizeStrings.Get(685), LOGPVR);
-  list.emplace_back(g_localizeStrings.Get(686), LOGEPG);
-  list.emplace_back(g_localizeStrings.Get(39117), LOGANNOUNCE);
-  list.emplace_back(g_localizeStrings.Get(39124), LOGADDONS);
-#ifdef HAS_DBUS
-  list.emplace_back(g_localizeStrings.Get(674), LOGDBUS);
-#endif
-#ifdef HAS_WEB_SERVER
-  list.emplace_back(g_localizeStrings.Get(681), LOGWEBSERVER);
-#endif
-#ifdef HAS_AIRTUNES
-  list.emplace_back(g_localizeStrings.Get(677), LOGAIRTUNES);
-#endif
-#ifdef HAS_UPNP
-  list.emplace_back(g_localizeStrings.Get(678), LOGUPNP);
-#endif
-#ifdef HAVE_LIBCEC
-  list.emplace_back(g_localizeStrings.Get(679), LOGCEC);
-#endif
-  list.emplace_back(g_localizeStrings.Get(682), LOGDATABASE);
-#if defined(HAS_FILESYSTEM_SMB)
-  list.emplace_back(g_localizeStrings.Get(37050), LOGWSDISCOVERY);
-#endif
+  for (const auto& [id, names] : componentMap)
+  {
+    // localized component setting name, component id
+    list.emplace_back(
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(names.stringId), id);
+  }
+}
+
+Logger CLog::GetLoggerById(uint32_t component)
+{
+  if (component != LOG_COMPONENT_GENERAL)
+  {
+    const auto it{componentMap.find(component)};
+    if (it != componentMap.cend())
+      return GetLogger((*it).second.name);
+  }
+  // default and fallback
+  return m_defaultLogger;
 }
 
 Logger CLog::GetLogger(const std::string& loggerName)
@@ -272,6 +308,32 @@ spdlog::level::level_enum CLog::MapLogLevel(int level)
   return spdlog::level::info;
 }
 
+void CLog::FormatAndLogInternal(spdlog::level::level_enum level,
+                                uint32_t component,
+                                fmt::string_view format,
+                                fmt::format_args args)
+{
+  if (level < m_defaultLogger->level())
+    return;
+
+  auto message = fmt::vformat(format, args);
+  FormatLineBreaks(message);
+  GetLoggerById(component)->log(level, message);
+}
+
+void CLog::FormatAndLogInternal(const std::string& loggerName,
+                                spdlog::level::level_enum level,
+                                fmt::string_view format,
+                                fmt::format_args args)
+{
+  if (level < m_defaultLogger->level())
+    return;
+
+  auto message = fmt::vformat(format, args);
+  FormatLineBreaks(message);
+  GetLogger(loggerName)->log(level, message);
+}
+
 Logger CLog::CreateLogger(const std::string& loggerName)
 {
   // create the logger
@@ -295,7 +357,8 @@ void CLog::SetComponentLogLevel(const std::vector<CVariant>& components)
   }
 }
 
-void CLog::FormatLineBreaks(std::string& message)
+void CLog::FormatLineBreaks(std::string& message) const
 {
+  // fixup newline alignment, number of spaces should equal prefix length
   StringUtils::Replace(message, "\n", "\n                                                   ");
 }

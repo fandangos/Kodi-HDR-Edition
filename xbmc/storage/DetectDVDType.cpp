@@ -15,7 +15,8 @@
 #include "cdioSupport.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
@@ -100,7 +101,7 @@ void CDetectDVDMedia::UpdateDvdrom()
   // that we are busy detecting the
   // newly inserted media.
   {
-    std::unique_lock<CCriticalSection> waitLock(m_muReadingMedia);
+    std::unique_lock waitLock(m_muReadingMedia);
     switch (PollDriveState())
     {
       case DriveState::NONE:
@@ -111,7 +112,7 @@ void CDetectDVDMedia::UpdateDvdrom()
       {
         // Send Message to GUI that disc been ejected
         SetNewDVDShareUrl(CServiceBroker::GetMediaManager().TranslateDevicePath(m_diskPath), false,
-                          g_localizeStrings.Get(502));
+                          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(502));
         CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_REMOVED_MEDIA);
         CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
         // Clear all stored info
@@ -126,7 +127,7 @@ void CDetectDVDMedia::UpdateDvdrom()
       {
         // Drive is not ready (closing, opening)
         SetNewDVDShareUrl(CServiceBroker::GetMediaManager().TranslateDevicePath(m_diskPath), false,
-                          g_localizeStrings.Get(503));
+                          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(503));
         m_DriveState = DriveState::NOT_READY;
         // DVD-ROM in undefined state
         // Better delete old CD Information
@@ -148,7 +149,7 @@ void CDetectDVDMedia::UpdateDvdrom()
       {
         // Nothing in there...
         SetNewDVDShareUrl(CServiceBroker::GetMediaManager().TranslateDevicePath(m_diskPath), false,
-                          g_localizeStrings.Get(504));
+                          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(504));
         m_DriveState = DriveState::CLOSED_NO_MEDIA;
         // Send Message to GUI that disc has changed
         CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_UPDATE_SOURCES);
@@ -289,7 +290,8 @@ void CDetectDVDMedia::SetNewDVDShareUrl( const std::string& strNewUrl, bool bCDD
   std::string strDescription = "DVD";
   if (bCDDA) strDescription = "CD";
 
-  if (strDiscLabel != "") strDescription = strDiscLabel;
+  if (!strDiscLabel.empty())
+    strDescription = strDiscLabel;
 
   // Store it in case others want it
   m_diskLabel = strDescription;
@@ -378,7 +380,7 @@ DriveState CDetectDVDMedia::PollDriveState()
 
 void CDetectDVDMedia::UpdateState()
 {
-  std::unique_lock<CCriticalSection> waitLock(m_muReadingMedia);
+  std::unique_lock waitLock(m_muReadingMedia);
   m_pInstance->DetectMediaType();
 }
 
@@ -386,7 +388,7 @@ void CDetectDVDMedia::UpdateState()
 // Wait for drive, to finish media detection.
 void CDetectDVDMedia::WaitMediaReady()
 {
-  std::unique_lock<CCriticalSection> waitLock(m_muReadingMedia);
+  std::unique_lock waitLock(m_muReadingMedia);
 }
 
 DriveState CDetectDVDMedia::GetDriveState()
@@ -407,7 +409,7 @@ bool CDetectDVDMedia::IsDiscInDrive()
 // Can be NULL
 CCdInfo* CDetectDVDMedia::GetCdInfo()
 {
-  std::unique_lock<CCriticalSection> waitLock(m_muReadingMedia);
+  std::unique_lock waitLock(m_muReadingMedia);
   CCdInfo* pCdInfo = m_pCdInfo;
   return pCdInfo;
 }

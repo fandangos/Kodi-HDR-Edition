@@ -1,13 +1,6 @@
-include ../../Makefile.include
-DEPS = ../../Makefile.include Makefile 01-osx.patch 02-Fix-crash-reading-CD-TOC-on-macOS-Ventura.patch 03-fix-glob-on-android.patch ../../download-files.include
-
-# lib name, version
-LIBNAME=libcdio
-VERSION=2.1.0
-SOURCE=$(LIBNAME)-$(VERSION)
-ARCHIVE=$(SOURCE).tar.bz2
-SHA512=c290821da55fd9ae366670a58857aa6efcebc9f25b7caea063cf12f9cbda84fe770c5f59f972227fda50517ca58c5f39c0137daa0f93179e3daa45303d8b610f
-include ../../download-files.include
+include ../../Makefile.include LIBCDIO-GPLV3-VERSION ../../download-files.include
+DEPS = ../../Makefile.include LIBCDIO-GPLV3-VERSION Makefile ../../download-files.include \
+                              01-osx.patch
 
 # configuration settings
 CONFIGURE=cp -f $(CONFIG_SUB) $(CONFIG_GUESS) .; \
@@ -20,18 +13,17 @@ LIBDYLIB=$(PLATFORM)/lib/driver/.libs/$(LIBNAME).a
 all: .installed-$(PLATFORM)
 
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 	rm -rf $(PLATFORM)/*; mkdir -p $(PLATFORM)
 	cd $(PLATFORM); $(ARCHIVE_TOOL) $(ARCHIVE_TOOL_FLAGS) $(TARBALLS_LOCATION)/$(ARCHIVE)
 ifeq ($(TARGET_PLATFORM),macosx)
 	cd $(PLATFORM); patch -p1 -i ../01-osx.patch
-	cd $(PLATFORM); patch -p1 -i ../02-Fix-crash-reading-CD-TOC-on-macOS-Ventura.patch
 endif
-	cd $(PLATFORM); patch -p1 -i ../03-fix-glob-on-android.patch
 	cd $(PLATFORM); $(AUTORECONF) -vif
 	cd $(PLATFORM); $(CONFIGURE)
+	touch $@
 
-$(LIBDYLIB): $(PLATFORM)
+$(LIBDYLIB): .configured-$(PLATFORM)
 	$(MAKE) -C $(PLATFORM)/lib
 
 .installed-$(PLATFORM): $(LIBDYLIB)
@@ -42,7 +34,7 @@ $(LIBDYLIB): $(PLATFORM)
 
 clean:
 	$(MAKE) -C $(PLATFORM) clean
-	rm -f .installed-$(PLATFORM)
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean::
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

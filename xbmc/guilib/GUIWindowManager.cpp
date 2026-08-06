@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -55,6 +55,7 @@
 #include "video/windows/GUIWindowVideoNav.h"
 #include "video/windows/GUIWindowVideoPlaylist.h"
 #include "weather/GUIWindowWeather.h"
+#include "windowing/WinSystem.h"
 #include "windows/GUIWindowDebugInfo.h"
 #include "windows/GUIWindowFileManager.h"
 #include "windows/GUIWindowHome.h"
@@ -147,6 +148,7 @@
 #include "cores/RetroPlayer/guiwindows/GameWindowFullScreen.h"
 #include "games/agents/windows/GUIAgentWindow.h"
 #include "games/controllers/windows/GUIControllerWindow.h"
+#include "games/dialogs/disc/DialogGameDiscManager.h"
 #include "games/dialogs/osd/DialogGameAdvancedSettings.h"
 #include "games/dialogs/osd/DialogGameOSD.h"
 #include "games/dialogs/osd/DialogGameSaves.h"
@@ -175,6 +177,29 @@
 using namespace KODI;
 using namespace PVR;
 using namespace PERIPHERALS;
+
+namespace
+{
+bool PreValidateMessage(CGUIMessage& message, CGUIWindow& window)
+{
+  // Click message: check that the underlying control hasn't been disabled by core code.
+  // note: the "regular" enabled status is modified by skin conditions > use a different function.
+  if (message.GetMessage() == GUI_MSG_CLICKED && window.HasID(message.GetControlId()))
+  {
+    // @todo: if this is not enough to locate the control, maybe borrow more from SendControlMessage
+    if (CGUIControl * ctrl{window.GetControl(message.GetSenderId(), nullptr)};
+        ctrl != nullptr && ctrl->IsDisabled())
+    {
+      CLog::Log(LOGWARNING,
+                "Window manager: Blocked an attempt to click a disabled control "
+                "(control {} window {})",
+                message.GetSenderId(), message.GetControlId());
+      return false;
+    }
+  }
+  return true;
+}
+} // namespace
 
 CGUIWindowManager::CGUIWindowManager()
 {
@@ -323,8 +348,6 @@ void CGUIWindowManager::CreateWindows()
   Add(new CGUIDialogVideoInfo);
   Add(new CGUIDialogVideoManagerVersions);
   Add(new CGUIDialogVideoManagerExtras);
-  Add(new CGUIDialogSelect(WINDOW_DIALOG_SELECT_VIDEO_VERSION));
-  Add(new CGUIDialogSelect(WINDOW_DIALOG_SELECT_VIDEO_EXTRA));
   Add(new CGUIDialogSelect(WINDOW_DIALOG_SELECT_VIDEO_STREAM));
   Add(new CGUIDialogSelect(WINDOW_DIALOG_SELECT_AUDIO_STREAM));
   Add(new CGUIDialogSelect(WINDOW_DIALOG_SELECT_SUBTITLE_STREAM));
@@ -356,6 +379,7 @@ void CGUIWindowManager::CreateWindows()
   Add(new GAME::CDialogGameVideoRotation);
   Add(new GAME::CDialogInGameSaves);
   Add(new GAME::CGUIAgentWindow);
+  Add(new GAME::CDialogGameDiscManager);
   Add(new RETRO::CGameWindowFullScreen);
 }
 
@@ -369,8 +393,6 @@ bool CGUIWindowManager::DestroyWindows()
     DestroyWindow(WINDOW_MUSIC_NAV);
     DestroyWindow(WINDOW_DIALOG_MUSIC_INFO);
     DestroyWindow(WINDOW_DIALOG_VIDEO_INFO);
-    DestroyWindow(WINDOW_DIALOG_SELECT_VIDEO_EXTRA);
-    DestroyWindow(WINDOW_DIALOG_SELECT_VIDEO_VERSION);
     DestroyWindow(WINDOW_DIALOG_MANAGE_VIDEO_EXTRAS);
     DestroyWindow(WINDOW_DIALOG_MANAGE_VIDEO_VERSIONS);
     DestroyWindow(WINDOW_VIDEO_PLAYLIST);
@@ -496,6 +518,7 @@ bool CGUIWindowManager::DestroyWindows()
     DestroyWindow(WINDOW_DIALOG_GAME_VIDEO_ROTATION);
     DestroyWindow(WINDOW_DIALOG_IN_GAME_SAVES);
     DestroyWindow(WINDOW_DIALOG_GAME_AGENTS);
+    DestroyWindow(WINDOW_DIALOG_GAME_DISC_MANAGER);
     DestroyWindow(WINDOW_FULLSCREEN_GAME);
 
     Remove(WINDOW_SETTINGS_SERVICE);
@@ -528,13 +551,13 @@ bool CGUIWindowManager::DestroyWindows()
 
 void CGUIWindowManager::DestroyWindow(int id)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
-  CGUIWindow *pWindow = GetWindow(id);
-  if (pWindow)
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  auto it = m_mapWindows.find(id);
+  if (it != m_mapWindows.end())
   {
+    std::shared_ptr<CGUIWindow> pWindow = it->second;
     Remove(id);
     pWindow->FreeResources(true);
-    delete pWindow;
   }
 }
 
@@ -563,9 +586,11 @@ bool CGUIWindowManager::SendMessage(CGUIMessage& message)
   //  and all windows whether they are active or not
   if (message.GetMessage()==GUI_MSG_NOTIFY_ALL)
   {
-    std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
-    for (auto it = m_activeDialogs.rbegin(); it != m_activeDialogs.rend(); ++it)
+    // make copy of vector as OnMessage may modify m_activeDialogs (e.g., via DeInit)
+    auto activeDialogs = m_activeDialogs;
+    for (auto it = activeDialogs.rbegin(); it != activeDialogs.rend(); ++it)
     {
       (*it)->OnMessage(message);
     }
@@ -587,11 +612,14 @@ bool CGUIWindowManager::SendMessage(CGUIMessage& message)
   bool modalAcceptedMessage(false);
   // don't use an iterator for this loop, as some messages mean that m_activeDialogs is altered,
   // which will invalidate any iterator
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   size_t topWindow = m_activeDialogs.size();
   while (topWindow)
   {
-    CGUIWindow* dialog = m_activeDialogs[--topWindow];
+    auto dialog = m_activeDialogs[--topWindow];
+
+    if (!PreValidateMessage(message, *dialog))
+      continue;
 
     if (!modalAcceptedMessage && dialog->IsModalDialog())
     { // modal window
@@ -613,7 +641,7 @@ bool CGUIWindowManager::SendMessage(CGUIMessage& message)
 
   // now send to the underlying window
   CGUIWindow* window = GetWindow(GetActiveWindow());
-  if (window)
+  if (window && PreValidateMessage(message, *window))
   {
     if (hasModalDialog)
     {
@@ -648,7 +676,7 @@ bool CGUIWindowManager::SendMessage(CGUIMessage& message, int window)
 
 void CGUIWindowManager::AddUniqueInstance(CGUIWindow *window)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   // increment our instance (upper word of windowID)
   // until we get a window we don't have
   int instance = 0;
@@ -657,15 +685,16 @@ void CGUIWindowManager::AddUniqueInstance(CGUIWindow *window)
   Add(window);
 }
 
-void CGUIWindowManager::Add(CGUIWindow* pWindow)
+bool CGUIWindowManager::Add(CGUIWindow* pWindow)
 {
   if (!pWindow)
   {
     CLog::Log(LOGERROR, "Attempted to add a NULL window pointer to the window manager.");
-    return;
+    return false;
   }
   // push back all the windows if there are more than one covered by this class
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::shared_ptr<CGUIWindow> windowPtr(pWindow);
 
   for (int id : pWindow->GetIDRange())
   {
@@ -676,47 +705,58 @@ void CGUIWindowManager::Add(CGUIWindow* pWindow)
                 "Error, trying to add a second window with id {} "
                 "to the window manager",
                 id);
-      return;
+      return false;
     }
 
-    m_mapWindows.insert(std::make_pair(id, pWindow));
+    m_mapWindows.insert(std::make_pair(id, windowPtr));
   }
+  return true;
 }
 
 void CGUIWindowManager::AddCustomWindow(CGUIWindow* pWindow)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
-  Add(pWindow);
-  m_vecCustomWindows.emplace_back(pWindow);
+  if (!pWindow)
+    return;
+
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  int windowId = pWindow->GetID(); // Get ID before Add() takes ownership
+  if (!Add(pWindow))
+    return; // Add() failed, window was deleted
+
+  auto it = m_mapWindows.find(windowId);
+  if (it != m_mapWindows.end())
+    m_vecCustomWindows.emplace_back(it->second);
 }
 
 void CGUIWindowManager::RegisterDialog(CGUIWindow* dialog)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   // only add the window if it does not exists
   for (const auto& window : m_activeDialogs)
   {
     if (window->GetID() == dialog->GetID())
       return;
   }
-  m_activeDialogs.emplace_back(dialog);
+  auto it = m_mapWindows.find(dialog->GetID());
+  if (it != m_mapWindows.end())
+    m_activeDialogs.emplace_back(it->second);
 }
 
 void CGUIWindowManager::Remove(int id)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   auto it = m_mapWindows.find(id);
   if (it != m_mapWindows.end())
   {
-    CGUIWindow *window = it->second;
+    CGUIWindow* window = it->second.get();
     m_windowHistory.erase(std::remove_if(m_windowHistory.begin(),
                                          m_windowHistory.end(),
                                          [id](int winId){ return winId == id; }),
                           m_windowHistory.end());
-    m_activeDialogs.erase(std::remove_if(m_activeDialogs.begin(),
-                                         m_activeDialogs.end(),
-                                         [window](CGUIWindow* w){ return w == window; }),
+    m_activeDialogs.erase(std::remove_if(m_activeDialogs.begin(), m_activeDialogs.end(),
+                                         [window](const std::shared_ptr<CGUIWindow>& w)
+                                         { return w.get() == window; }),
                           m_activeDialogs.end());
     m_mapWindows.erase(it);
   }
@@ -729,23 +769,25 @@ void CGUIWindowManager::Remove(int id)
   }
 }
 
-// removes and deletes the window.  Should only be called
-// from the class that created the window using new.
+// Removes and deletes the window. Should only be called
+// from the class that created the window and transferred
+// ownership to CGUIWindowManager via Add.
 void CGUIWindowManager::Delete(int id)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
-  CGUIWindow *pWindow = GetWindow(id);
-  if (pWindow)
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  auto it = m_mapWindows.find(id);
+  if (it != m_mapWindows.end())
   {
+    std::shared_ptr<CGUIWindow> pWindow = it->second;
     Remove(id);
-    m_deleteWindows.emplace_back(pWindow);
+    m_deleteWindows.emplace_back(std::move(pWindow));
   }
 }
 
 void CGUIWindowManager::PreviousWindow()
 {
   // deactivate any window
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   CLog::Log(LOGDEBUG,"CGUIWindowManager::PreviousWindow: Deactivate");
   int currentWindow = GetActiveWindow();
   CGUIWindow *pCurrentWindow = GetWindow(currentWindow);
@@ -846,7 +888,7 @@ void CGUIWindowManager::ActivateWindow(int iWindowID, const std::vector<std::str
   }
   else
   {
-    std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
     ActivateWindow_Internal(iWindowID, params, swappingWindows, force);
   }
 }
@@ -856,7 +898,9 @@ void CGUIWindowManager::ActivateWindow_Internal(int iWindowID, const std::vector
   // translate virtual windows
   if (iWindowID == WINDOW_START)
   { // virtual start window
-    iWindowID = g_SkinInfo->GetStartWindow();
+    auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+    if (skin)
+      iWindowID = skin->GetStartWindow();
   }
 
   // debug
@@ -904,7 +948,7 @@ void CGUIWindowManager::ActivateWindow_Internal(int iWindowID, const std::vector
     if (!pNewWindow->IsDialogRunning())
     {
       CSingleExit exitit(CServiceBroker::GetWinSystem()->GetGfxContext());
-      static_cast<CGUIDialog *>(pNewWindow)->Open(params.size() > 0 ? params[0] : "");
+      static_cast<CGUIDialog*>(pNewWindow)->Open(!params.empty() ? params[0] : "");
       // Invalidate underlying windows after closing a modal dialog
       MarkDirty();
     }
@@ -947,7 +991,7 @@ void CGUIWindowManager::ActivateWindow_Internal(int iWindowID, const std::vector
 
 void CGUIWindowManager::CloseDialogs(bool forceClose) const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   //This is to avoid an assert about out of bounds iterator
   //when m_activeDialogs happens to be empty
@@ -964,7 +1008,7 @@ void CGUIWindowManager::CloseDialogs(bool forceClose) const
 
 void CGUIWindowManager::CloseInternalModalDialogs(bool forceClose) const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   if (m_activeDialogs.empty())
     return;
 
@@ -1209,11 +1253,11 @@ bool CGUIWindowManager::OnAction(const CAction &action) const
 
 bool CGUIWindowManager::HandleAction(CAction const& action) const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   size_t topmost = m_activeDialogs.size();
   while (topmost)
   {
-    CGUIWindow *dialog = m_activeDialogs[--topmost];
+    auto dialog = m_activeDialogs[--topmost];
     lock.unlock();
     if (dialog->IsModalDialog())
     { // we have the topmost modal dialog
@@ -1248,7 +1292,8 @@ bool CGUIWindowManager::HandleAction(CAction const& action) const
   return false;
 }
 
-bool RenderOrderSortFunction(CGUIWindow *first, CGUIWindow *second)
+bool RenderOrderSortFunction(const std::shared_ptr<CGUIWindow>& first,
+                             const std::shared_ptr<CGUIWindow>& second)
 {
   return first->GetRenderOrder() < second->GetRenderOrder();
 }
@@ -1256,7 +1301,7 @@ bool RenderOrderSortFunction(CGUIWindow *first, CGUIWindow *second)
 void CGUIWindowManager::Process(unsigned int currentTime)
 {
   assert(CServiceBroker::GetAppMessenger()->IsProcessThread());
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_dirtyregions.clear();
 
@@ -1265,18 +1310,23 @@ void CGUIWindowManager::Process(unsigned int currentTime)
     pWindow->DoProcess(currentTime, m_dirtyregions);
 
   // process all dialogs - visibility may change etc.
+  // copy shared_ptrs to ensure windows stay alive during iteration even if map is modified
+  std::vector<std::shared_ptr<CGUIWindow>> windows;
+  windows.reserve(m_mapWindows.size());
   for (const auto& entry : m_mapWindows)
+    windows.emplace_back(entry.second);
+
+  for (const auto& window : windows)
   {
-    CGUIWindow *pWindow = entry.second;
-    if (pWindow && pWindow->IsDialog())
-      pWindow->DoProcess(currentTime, m_dirtyregions);
+    if (window && window->IsDialog())
+      window->DoProcess(currentTime, m_dirtyregions);
   }
 
   // assign depth values to all active controls
   if (pWindow)
     pWindow->AssignDepth();
 
-  std::vector<CGUIWindow*> activeDialogs = m_activeDialogs;
+  auto activeDialogs = m_activeDialogs;
   stable_sort(activeDialogs.begin(), activeDialogs.end(), RenderOrderSortFunction);
 
   for (const auto& window : activeDialogs)
@@ -1366,7 +1416,7 @@ void CGUIWindowManager::RenderPassDual() const
   if (pWindow)
     pWindow->ClearBackground();
 
-  std::vector<CGUIWindow*> renderList = m_activeDialogs;
+  auto renderList = m_activeDialogs;
   stable_sort(renderList.begin(), renderList.end(), RenderOrderSortFunction);
 
   // first the opaque pass, rendering from front to back
@@ -1433,7 +1483,6 @@ bool CGUIWindowManager::Render()
     m_tracker.CleanMarkedRegions(10);
 
   CDirtyRegionList dirtyRegions = m_tracker.GetDirtyRegions();
-  CServiceBroker::GetWinSystem()->SetDirtyRegions(dirtyRegions);
 
   bool hasRendered = false;
   // If we visualize the regions we will always render the entire viewport
@@ -1461,6 +1510,9 @@ bool CGUIWindowManager::Render()
     {
       if (i.IsEmpty())
         continue;
+
+      if (!hasRendered)
+        CServiceBroker::GetWinSystem()->SetDirtyRegions(dirtyRegions);
 
       CServiceBroker::GetWinSystem()->GetGfxContext().SetScissors(i);
       RenderPass();
@@ -1511,7 +1563,7 @@ void CGUIWindowManager::AfterRender()
 void CGUIWindowManager::FrameMove()
 {
   assert(CServiceBroker::GetAppMessenger()->IsProcessThread());
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   if(m_iNested == 0)
   {
@@ -1520,7 +1572,6 @@ void CGUIWindowManager::FrameMove()
     {
       // Free any window resources
       window->FreeResources(true);
-      delete window;
     }
     m_deleteWindows.clear();
   }
@@ -1552,11 +1603,11 @@ CGUIWindow* CGUIWindowManager::GetWindow(int id) const
   if (id == 0 || id == WINDOW_INVALID)
     return nullptr;
 
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   auto it = m_mapWindows.find(id);
   if (it != m_mapWindows.end())
-    return it->second;
+    return it->second.get();
   return nullptr;
 }
 
@@ -1590,14 +1641,18 @@ void CGUIWindowManager::SetCallback(IWindowManagerCallback& callback)
 
 void CGUIWindowManager::DeInitialize()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   // Need a copy because addon-dialogs removes itself on Close()
-  std::unordered_map<int, CGUIWindow*> closeMap(m_mapWindows);
-  for (const auto& entry : closeMap)
+  // Copy shared_ptrs to keep windows alive during cleanup
+  std::vector<std::shared_ptr<CGUIWindow>> windowsCopy;
+  windowsCopy.reserve(m_mapWindows.size());
+  for (const auto& entry : m_mapWindows)
+    windowsCopy.emplace_back(entry.second);
+
+  for (const auto& pWindow : windowsCopy)
   {
-    CGUIWindow* pWindow = entry.second;
-    if (IsWindowActive(entry.first, false))
+    if (IsWindowActive(pWindow->GetID(), false))
     {
       pWindow->DisableAnimations();
       pWindow->Close(true);
@@ -1610,12 +1665,10 @@ void CGUIWindowManager::DeInitialize()
   m_vecMsgTargets.erase( m_vecMsgTargets.begin(), m_vecMsgTargets.end() );
 
   // destroy our custom windows...
-  for (int i = 0; i < int(m_vecCustomWindows.size()); i++)
+  for (const auto& pWindow : m_vecCustomWindows)
   {
-    CGUIWindow *pWindow = m_vecCustomWindows[i];
     RemoveFromWindowHistory(pWindow->GetID());
     Remove(pWindow->GetID());
-    delete pWindow;
   }
 
   // clear our vectors of windows
@@ -1629,16 +1682,16 @@ void CGUIWindowManager::DeInitialize()
 /// \param id ID of the window routed
 void CGUIWindowManager::RemoveDialog(int id)
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
-  m_activeDialogs.erase(std::remove_if(m_activeDialogs.begin(),
-                                       m_activeDialogs.end(),
-                                       [id](CGUIWindow* dialog) { return dialog->GetID() == id; }),
-                         m_activeDialogs.end());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  m_activeDialogs.erase(std::remove_if(m_activeDialogs.begin(), m_activeDialogs.end(),
+                                       [id](const std::shared_ptr<CGUIWindow>& dialog)
+                                       { return dialog->GetID() == id; }),
+                        m_activeDialogs.end());
 }
 
 bool CGUIWindowManager::HasModalDialog(bool ignoreClosing) const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   for (const auto& window : m_activeDialogs)
   {
     if (window->IsDialog() &&
@@ -1658,12 +1711,12 @@ bool CGUIWindowManager::HasVisibleModalDialog() const
 
 int CGUIWindowManager::GetTopmostDialog(bool modal, bool ignoreClosing) const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   for (auto it = m_activeDialogs.rbegin(); it != m_activeDialogs.rend(); ++it)
   {
-    CGUIWindow *dialog = *it;
-    if ((!modal || dialog->IsModalDialog()) && (!ignoreClosing || !dialog->IsAnimating(ANIM_TYPE_WINDOW_CLOSE)))
-      return dialog->GetID();
+    if ((!modal || (*it)->IsModalDialog()) &&
+        (!ignoreClosing || !(*it)->IsAnimating(ANIM_TYPE_WINDOW_CLOSE)))
+      return (*it)->GetID();
   }
   return WINDOW_INVALID;
 }
@@ -1678,9 +1731,9 @@ int CGUIWindowManager::GetTopmostModalDialog(bool ignoreClosing /*= false*/) con
   return GetTopmostDialog(true, ignoreClosing);
 }
 
-void CGUIWindowManager::SendThreadMessage(CGUIMessage& message, int window /*= 0*/)
+void CGUIWindowManager::SendThreadMessage(const CGUIMessage& message, int window /*= 0*/)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   CGUIMessage* msg = new CGUIMessage(message);
   m_vecThreadMessages.emplace_back(msg, window);
@@ -1706,7 +1759,7 @@ void CGUIWindowManager::DispatchThreadMessages()
   // 5. If possible, queued messages can be removed by certain filter condition
   //    and not break above.
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   while (!m_vecThreadMessages.empty())
   {
@@ -1730,15 +1783,15 @@ void CGUIWindowManager::DispatchThreadMessages()
   }
 }
 
-int CGUIWindowManager::RemoveThreadMessageByMessageIds(int *pMessageIDList)
+int CGUIWindowManager::RemoveThreadMessageByMessageIds(const int* pMessageIDList)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   int removedMsgCount = 0;
   for (std::list < std::pair<CGUIMessage*,int> >::iterator it = m_vecThreadMessages.begin();
        it != m_vecThreadMessages.end();)
   {
     CGUIMessage *pMsg = it->first;
-    int *pMsgID;
+    const int* pMsgID;
     for(pMsgID = pMessageIDList; *pMsgID != 0; ++pMsgID)
       if (pMsg->GetMessage() == *pMsgID)
         break;
@@ -1759,6 +1812,12 @@ int CGUIWindowManager::RemoveThreadMessageByMessageIds(int *pMessageIDList)
 void CGUIWindowManager::AddMsgTarget(IMsgTargetCallback* pMsgTarget)
 {
   m_vecMsgTargets.emplace_back(pMsgTarget);
+}
+
+void CGUIWindowManager::RemoveMsgTarget(IMsgTargetCallback* pMsgTarget)
+{
+  m_vecMsgTargets.erase(std::remove(m_vecMsgTargets.begin(), m_vecMsgTargets.end(), pMsgTarget),
+                        m_vecMsgTargets.end());
 }
 
 int CGUIWindowManager::GetActiveWindow() const
@@ -1790,7 +1849,7 @@ bool CGUIWindowManager::IsWindowActive(int id, bool ignoreClosing /* = true */) 
   if ((GetActiveWindow() & WINDOW_ID_MASK) == id)
     return true;
   // run through the dialogs
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   for (const auto& window : m_activeDialogs)
   {
     if ((window->GetID() & WINDOW_ID_MASK) == id && (!ignoreClosing || !window->IsAnimating(ANIM_TYPE_WINDOW_CLOSE)))
@@ -1801,7 +1860,7 @@ bool CGUIWindowManager::IsWindowActive(int id, bool ignoreClosing /* = true */) 
 
 bool CGUIWindowManager::IsWindowActive(const std::string &xmlFile, bool ignoreClosing /* = true */) const
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   CGUIWindow *window = GetWindow(GetActiveWindow());
   if (window && StringUtils::EqualsNoCase(URIUtils::GetFileName(window->GetProperty("xmlfile").asString()), xmlFile))
     return true;
@@ -1827,10 +1886,10 @@ bool CGUIWindowManager::IsWindowVisible(const std::string &xmlFile) const
 
 void CGUIWindowManager::LoadNotOnDemandWindows()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   for (const auto& entry : m_mapWindows)
   {
-    CGUIWindow *pWindow = entry.second;
+    const auto& pWindow = entry.second;
     if (pWindow->GetLoadType() == CGUIWindow::LOAD_ON_GUI_INIT)
     {
       pWindow->FreeResources(true);
@@ -1841,10 +1900,10 @@ void CGUIWindowManager::LoadNotOnDemandWindows()
 
 void CGUIWindowManager::UnloadNotOnDemandWindows()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   for (const auto& entry : m_mapWindows)
   {
-    CGUIWindow *pWindow = entry.second;
+    const auto& pWindow = entry.second;
     if (pWindow->GetLoadType() == CGUIWindow::LOAD_ON_GUI_INIT ||
         pWindow->GetLoadType() == CGUIWindow::KEEP_IN_MEMORY)
     {
@@ -1967,7 +2026,7 @@ void CGUIWindowManager::DumpTextureUse()
   if (pWindow)
     pWindow->DumpTextureUse();
 
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   for (const auto& window : m_activeDialogs)
   {
     if (window->IsDialogRunning())

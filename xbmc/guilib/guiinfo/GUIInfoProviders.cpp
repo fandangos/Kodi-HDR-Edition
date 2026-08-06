@@ -17,9 +17,10 @@ using namespace KODI::GUILIB::GUIINFO;
 CGUIInfoProviders::CGUIInfoProviders()
 {
   RegisterProvider(&m_guiControlsGUIInfo);
-  RegisterProvider(&m_videoGUIInfo); // Note: video info provider must be registered before music info provider,
-                                     // because of music videos having both a video info tag and a music info tag
-                                     // and video info tag always has to be evaluated first.
+  RegisterProvider(
+      &m_videoGUIInfo); // Note: video info provider must be registered before music info provider,
+  // because of music videos having both a video info tag and a music info tag
+  // and video info tag always has to be evaluated first.
   RegisterProvider(&m_musicGUIInfo);
   RegisterProvider(&m_picturesGUIInfo);
   RegisterProvider(&m_playerGUIInfo);
@@ -48,9 +49,9 @@ CGUIInfoProviders::~CGUIInfoProviders()
   UnregisterProvider(&m_guiControlsGUIInfo);
 }
 
-void CGUIInfoProviders::RegisterProvider(IGUIInfoProvider *provider, bool bAppend /* = true */)
+void CGUIInfoProviders::RegisterProvider(IGUIInfoProvider* provider, bool bAppend /* = true */)
 {
-  auto it = std::find(m_providers.begin(), m_providers.end(), provider);
+  auto it = std::ranges::find(m_providers, provider);
   if (it == m_providers.end())
   {
     if (bAppend)
@@ -60,14 +61,14 @@ void CGUIInfoProviders::RegisterProvider(IGUIInfoProvider *provider, bool bAppen
   }
 }
 
-void CGUIInfoProviders::UnregisterProvider(IGUIInfoProvider *provider)
+void CGUIInfoProviders::UnregisterProvider(IGUIInfoProvider* provider)
 {
-  auto it = std::find(m_providers.begin(), m_providers.end(), provider);
+  auto it = std::ranges::find(m_providers, provider);
   if (it != m_providers.end())
     m_providers.erase(it);
 }
 
-bool CGUIInfoProviders::InitCurrentItem(CFileItem *item)
+bool CGUIInfoProviders::InitCurrentItem(CFileItem* item) const
 {
   bool bReturn = false;
 
@@ -78,7 +79,11 @@ bool CGUIInfoProviders::InitCurrentItem(CFileItem *item)
   return bReturn;
 }
 
-bool CGUIInfoProviders::GetLabel(std::string& value, const CFileItem *item, int contextWindow, const CGUIInfo &info, std::string *fallback) const
+bool CGUIInfoProviders::GetLabel(std::string& value,
+                                 const CFileItem* item,
+                                 int contextWindow,
+                                 const CGUIInfo& info,
+                                 std::string* fallback) const
 {
   for (const auto& provider : m_providers)
   {
@@ -93,7 +98,10 @@ bool CGUIInfoProviders::GetLabel(std::string& value, const CFileItem *item, int 
   return false;
 }
 
-bool CGUIInfoProviders::GetInt(int& value, const CGUIListItem *item, int contextWindow, const CGUIInfo &info) const
+bool CGUIInfoProviders::GetInt(int& value,
+                               const CGUIListItem* item,
+                               int contextWindow,
+                               const CGUIInfo& info) const
 {
   for (const auto& provider : m_providers)
   {
@@ -103,7 +111,10 @@ bool CGUIInfoProviders::GetInt(int& value, const CGUIListItem *item, int context
   return false;
 }
 
-bool CGUIInfoProviders::GetBool(bool& value, const CGUIListItem *item, int contextWindow, const CGUIInfo &info) const
+bool CGUIInfoProviders::GetBool(bool& value,
+                                const CGUIListItem* item,
+                                int contextWindow,
+                                const CGUIInfo& info) const
 {
   for (const auto& provider : m_providers)
   {
@@ -113,7 +124,9 @@ bool CGUIInfoProviders::GetBool(bool& value, const CGUIListItem *item, int conte
   return false;
 }
 
-void CGUIInfoProviders::UpdateAVInfo(const AudioStreamInfo& audioInfo, const VideoStreamInfo& videoInfo, const SubtitleStreamInfo& subtitleInfo)
+void CGUIInfoProviders::UpdateAVInfo(const AudioStreamInfo& audioInfo,
+                                     const VideoStreamInfo& videoInfo,
+                                     const SubtitleStreamInfo& subtitleInfo) const
 {
   for (const auto& provider : m_providers)
   {

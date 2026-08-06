@@ -33,16 +33,19 @@ CViewStateSettings::CViewStateSettings()
 {
   AddViewState("musicnavartists");
   AddViewState("musicnavalbums");
-  AddViewState("musicnavsongs", DEFAULT_VIEW_LIST, SortByTrackNumber);
+  AddViewState("musicnavsongs", DEFAULT_VIEW_LIST, SortBy::TRACK_NUMBER);
   AddViewState("musiclastfm");
   AddViewState("videonavactors");
   AddViewState("videonavyears");
   AddViewState("videonavgenres");
   AddViewState("videonavtitles");
-  AddViewState("videonavepisodes", DEFAULT_VIEW_AUTO, SortByEpisodeNumber);
+  AddViewState("videonavepisodes", DEFAULT_VIEW_AUTO, SortBy::EPISODE_NUMBER);
   AddViewState("videonavtvshows");
   AddViewState("videonavseasons");
   AddViewState("videonavmusicvideos");
+  AddViewState("videonavassets");
+  AddViewState("videonavversions");
+  AddViewState("videonavextras");
 
   AddViewState("programs", DEFAULT_VIEW_AUTO);
   AddViewState("pictures", DEFAULT_VIEW_AUTO);
@@ -71,7 +74,7 @@ bool CViewStateSettings::Load(const TiXmlNode *settings)
   if (settings == NULL)
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   const TiXmlNode *pElement = settings->FirstChildElement(XML_VIEWSTATESETTINGS);
   if (pElement == NULL)
   {
@@ -100,14 +103,16 @@ bool CViewStateSettings::Load(const TiXmlNode *settings)
     else
     {
       int sortMethod;
-      if (XMLUtils::GetInt(pViewState, XML_SORTMETHOD, sortMethod, SortByNone, SortByLastUsed))
+      if (XMLUtils::GetInt(pViewState, XML_SORTMETHOD, sortMethod, static_cast<int>(SortBy::NONE),
+                           static_cast<int>(SortBy::LAST_USED)))
         viewState->second->m_sortDescription.sortBy = (SortBy)sortMethod;
       if (XMLUtils::GetInt(pViewState, XML_SORTATTRIBUTES, sortMethod, SortAttributeNone, SortAttributeIgnoreFolders))
         viewState->second->m_sortDescription.sortAttributes = (SortAttribute)sortMethod;
     }
 
     int sortOrder;
-    if (XMLUtils::GetInt(pViewState, XML_SORTORDER, sortOrder, SortOrderNone, SortOrderDescending))
+    if (XMLUtils::GetInt(pViewState, XML_SORTORDER, sortOrder, static_cast<int>(SortOrder::NONE),
+                         static_cast<int>(SortOrder::DESCENDING)))
       viewState->second->m_sortDescription.sortOrder = (SortOrder)sortOrder;
   }
 
@@ -142,7 +147,7 @@ bool CViewStateSettings::Save(TiXmlNode *settings) const
   if (settings == NULL)
     return false;
 
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   // add the <viewstates> tag
   TiXmlElement xmlViewStateElement(XML_VIEWSTATESETTINGS);
   TiXmlNode *pViewStateNode = settings->InsertEndChild(xmlViewStateElement);
@@ -198,7 +203,7 @@ void CViewStateSettings::Clear()
 
 const CViewState* CViewStateSettings::Get(const std::string &viewState) const
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   std::map<std::string, CViewState*>::const_iterator view = m_viewStates.find(viewState);
   if (view != m_viewStates.end())
     return view->second;
@@ -208,7 +213,7 @@ const CViewState* CViewStateSettings::Get(const std::string &viewState) const
 
 CViewState* CViewStateSettings::Get(const std::string &viewState)
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   std::map<std::string, CViewState*>::iterator view = m_viewStates.find(viewState);
   if (view != m_viewStates.end())
     return view->second;
@@ -243,7 +248,7 @@ void CViewStateSettings::SetEventLevel(EventLevel eventLevel)
 {
   if (eventLevel < EventLevel::Basic)
     m_eventLevel = EventLevel::Basic;
-  if (eventLevel > EventLevel::Error)
+  else if (eventLevel > EventLevel::Error)
     m_eventLevel = EventLevel::Error;
   else
     m_eventLevel = eventLevel;
@@ -262,12 +267,14 @@ EventLevel CViewStateSettings::GetNextEventLevel() const
   return level;
 }
 
-void CViewStateSettings::AddViewState(const std::string& strTagName, int defaultView /* = DEFAULT_VIEW_LIST */, SortBy defaultSort /* = SortByLabel */)
+void CViewStateSettings::AddViewState(const std::string& strTagName,
+                                      int defaultView /* = DEFAULT_VIEW_LIST */,
+                                      SortBy defaultSort /* = SortBy::LABEL */)
 {
-  if (strTagName.empty() || m_viewStates.find(strTagName) != m_viewStates.end())
+  if (strTagName.empty() || m_viewStates.contains(strTagName))
     return;
 
-  CViewState *viewState = new CViewState(defaultView, defaultSort, SortOrderAscending);
+  CViewState* viewState = new CViewState(defaultView, defaultSort, SortOrder::ASCENDING);
   if (viewState == NULL)
     return;
 

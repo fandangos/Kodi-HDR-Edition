@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class CVideoDatabase;
@@ -43,15 +44,17 @@ class CPVRTimerInfoTag;
 class CPVRRecordingUid final
 {
 public:
-  int m_iClientId; /*!< ID of the backend */
+  CPVRRecordingUid(int iClientId, const std::string& strRecordingId)
+    : m_iClientId(iClientId),
+      m_strRecordingId(strRecordingId)
+  {
+  }
+
+  auto operator<=>(const CPVRRecordingUid& other) const = default;
+
+private:
+  int m_iClientId{0}; /*!< ID of the backend */
   std::string m_strRecordingId; /*!< unique ID of the recording on the client */
-
-  CPVRRecordingUid(int iClientId, const std::string& strRecordingId);
-
-  bool operator>(const CPVRRecordingUid& right) const;
-  bool operator<(const CPVRRecordingUid& right) const;
-  bool operator==(const CPVRRecordingUid& right) const;
-  bool operator!=(const CPVRRecordingUid& right) const;
 };
 
 class CPVRRecording final : public CVideoInfoTag
@@ -63,7 +66,6 @@ public:
   CPVRRecording(const PVR_RECORDING& recording, unsigned int iClientId);
 
   bool operator==(const CPVRRecording& right) const;
-  bool operator!=(const CPVRRecording& right) const;
 
   void Serialize(CVariant& value) const override;
 
@@ -73,26 +75,26 @@ public:
   /*!
    * @brief Reset this tag to it's initial state.
    */
-  void Reset();
+  void Reset() override;
 
   /*!
    * @brief Delete this recording on the client (if supported).
    * @return True if it was deleted successfully, false otherwise.
    */
-  bool Delete();
+  bool Delete() const;
 
   /*!
    * @brief Undelete this recording on the client (if supported).
    * @return True if it was undeleted successfully, false otherwise.
    */
-  bool Undelete();
+  bool Undelete() const;
 
   /*!
    * @brief Rename this recording on the client (if supported).
    * @param strNewName The new name.
    * @return True if it was renamed successfully, false otherwise.
    */
-  bool Rename(const std::string& strNewName);
+  bool Rename(std::string_view strNewName);
 
   /*!
    * @brief Set this recording's play count. The value will be transferred to the backend if it supports server-side play counts.
@@ -136,7 +138,7 @@ public:
    */
   bool SetResumePoint(double timeInSeconds,
                       double totalTimeInSeconds,
-                      const std::string& playerState = "") override;
+                      const std::string& playerState) override;
 
   /*!
    * @brief Get this recording's resume point. The value will be obtained from the backend if it supports server-side resume points.
@@ -174,7 +176,7 @@ public:
    * @brief Delete metadata like the resume point and play count from the database.
    * @param db The database to delete the data from.
    */
-  void DeleteMetadata(CVideoDatabase& db);
+  void DeleteMetadata(CVideoDatabase& db) const;
 
   /*!
    * @brief Update this tag with the contents of the given tag.
@@ -349,7 +351,7 @@ public:
   const std::string& IconPath() const { return m_iconPath.GetLocalImage(); }
 
   /*!
-   * @brief Return the thumnail path used by Kodi.
+   * @brief Return the thumbnail path used by Kodi.
    * @return The path.
    */
   const std::string& ThumbnailPath() const { return m_thumbnailPath.GetLocalImage(); }
@@ -408,7 +410,7 @@ public:
    * @brief Get the genre(s) of this recording as formatted string.
    * @return The genres label.
    */
-  const std::string GetGenresLabel() const;
+  std::string GetGenresLabel() const;
 
   /*!
    * @brief Get the first air date of this recording.

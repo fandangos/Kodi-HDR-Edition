@@ -9,27 +9,32 @@
 #pragma once
 
 #include "RPBaseRenderer.h"
-#include "cores/GameSettings.h"
-#include "cores/RetroPlayer/buffers/BaseRenderBufferPool.h"
-#include "cores/RetroPlayer/buffers/video/RenderBufferSysMem.h"
 #include "cores/RetroPlayer/process/RPProcessInfo.h"
 
-#include <atomic>
+#include <map>
+#include <memory>
 #include <stdint.h>
-#include <vector>
 
 #include "system_gl.h"
 
 namespace KODI
 {
+namespace SHADER
+{
+class CShaderTextureGLES;
+class CShaderTextureGLESRef;
+} // namespace SHADER
+
 namespace RETRO
 {
+class CRenderBufferOpenGLES;
+
 class CRendererFactoryOpenGLES : public IRendererFactory
 {
 public:
   ~CRendererFactoryOpenGLES() override = default;
 
-  // implementation of IRendererFactory
+  // Implementation of IRendererFactory
   std::string RenderSystemName() const override;
   CRPBaseRenderer* CreateRenderer(const CRenderSettings& settings,
                                   CRenderContext& context,
@@ -45,14 +50,33 @@ public:
                       std::shared_ptr<IRenderBufferPool> bufferPool);
   ~CRPRendererOpenGLES() override;
 
-  // implementation of CRPBaseRenderer
+  // Implementation of CRPBaseRenderer
   bool Supports(RENDERFEATURE feature) const override;
   SCALINGMETHOD GetDefaultScalingMethod() const override { return SCALINGMETHOD::NEAREST; }
 
   static bool SupportsScalingMethod(SCALINGMETHOD method);
 
 protected:
-  // implementation of CRPBaseRenderer
+  struct PackedVertex
+  {
+    float x, y, z;
+    float u1, v1;
+  };
+
+  struct Svertex
+  {
+    float x;
+    float y;
+    float z;
+  };
+
+  struct RenderBufferTextures
+  {
+    std::shared_ptr<SHADER::CShaderTextureGLESRef> sourceTexture;
+    std::shared_ptr<SHADER::CShaderTextureGLES> targetTexture;
+  };
+
+  // Implementation of CRPBaseRenderer
   void RenderInternal(bool clear, uint8_t alpha) override;
   void FlushInternal() override;
 
@@ -71,11 +95,15 @@ protected:
 
   virtual void Render(uint8_t alpha);
 
+  std::map<CRenderBufferOpenGLES*, std::unique_ptr<RenderBufferTextures>> m_RBTexturesMap;
+
   GLuint m_mainIndexVBO;
   GLuint m_mainVertexVBO;
+
   GLuint m_blackbarsVertexVBO;
-  GLenum m_textureTarget = GL_TEXTURE_2D;
-  float m_clearColour = 0.0f;
+
+  const GLenum m_textureTarget = GL_TEXTURE_2D;
+  float m_clearColor = 0.0f;
 };
 } // namespace RETRO
 } // namespace KODI

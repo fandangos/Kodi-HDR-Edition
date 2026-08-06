@@ -47,7 +47,8 @@ CGUIGameControllerList::CGUIGameControllerList(int parentID,
 }
 
 CGUIGameControllerList::CGUIGameControllerList(const CGUIGameControllerList& other)
-  : CGUIListContainer(other), m_alignment(other.m_alignment)
+  : CGUIListContainer(other),
+    m_alignment(other.m_alignment)
 {
   // Initialize CGUIControl
   ControlType = GUICONTROL_GAMECONTROLLERLIST;
@@ -187,7 +188,7 @@ void CGUIGameControllerList::UpdatePortIndex(const PERIPHERALS::PeripheralPtr& a
 
 void CGUIGameControllerList::UpdatePeripheral(const PERIPHERALS::PeripheralPtr& agentPeripheral)
 {
-  m_peripheralLocation = agentPeripheral->Location();
+  m_peripheralLocation = agentPeripheral->FileLocation();
 }
 
 std::string CGUIGameControllerList::GetPortAddress(

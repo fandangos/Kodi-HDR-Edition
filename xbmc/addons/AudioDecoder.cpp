@@ -16,6 +16,7 @@
 #include "music/tags/MusicInfoTag.h"
 #include "music/tags/TagLoaderTagLib.h"
 #include "utils/Mime.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
@@ -86,9 +87,7 @@ bool CAudioDecoder::Init(const CFileItem& file, unsigned int filecache)
   {
     if (channels <= 0 || sampleRate <= 0 || addonFormat == AUDIOENGINE_FMT_INVALID)
     {
-      CLog::Log(LOGERROR,
-                "CAudioDecoder::{} - Addon '{}' returned true without set of needed values",
-                __func__, ID());
+      CLog::LogF(LOGERROR, "Addon '{}' returned true without set of needed values", ID());
       return false;
     }
 

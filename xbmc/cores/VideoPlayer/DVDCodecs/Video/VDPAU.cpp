@@ -16,12 +16,14 @@
 #include "cores/VideoPlayer/VideoRenderers/RenderFlags.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderManager.h"
 #include "guilib/TextureManager.h"
+#include "rendering/GLExtensions.h"
 #include "rendering/RenderSystem.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
 #include "utils/MathUtils.h"
+#include "utils/StringUtils.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
@@ -92,7 +94,7 @@ CVDPAUContext::CVDPAUContext()
 
 void CVDPAUContext::Release()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   m_refCount--;
   if (m_refCount <= 0)
@@ -111,7 +113,7 @@ void CVDPAUContext::Close()
 
 bool CVDPAUContext::EnsureContext(CVDPAUContext **ctx)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (m_context)
   {
@@ -123,7 +125,7 @@ bool CVDPAUContext::EnsureContext(CVDPAUContext **ctx)
   m_context = new CVDPAUContext();
   *ctx = m_context;
   {
-    std::unique_lock<CCriticalSection> gLock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock gLock(CServiceBroker::GetWinSystem()->GetGfxContext());
     if (!m_context->LoadSymbols() || !m_context->CreateContext())
     {
       delete m_context;
@@ -189,7 +191,7 @@ bool CVDPAUContext::CreateContext()
 
   int screen;
   {
-    std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
     if (!m_display)
       m_display = XOpenDisplay(NULL);
@@ -346,14 +348,14 @@ bool CVDPAUContext::Supports(VdpVideoMixerFeature feature)
 
 void CVideoSurfaces::AddSurface(VdpVideoSurface surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_state[surf] = SURFACE_USED_FOR_REFERENCE;
 }
 
 void CVideoSurfaces::ClearReference(VdpVideoSurface surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) == m_state.end())
+  std::unique_lock lock(m_section);
+  if (!m_state.contains(surf))
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::ClearReference - surface invalid");
     return;
@@ -367,14 +369,14 @@ void CVideoSurfaces::ClearReference(VdpVideoSurface surf)
 
 bool CVideoSurfaces::MarkRender(VdpVideoSurface surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) == m_state.end())
+  std::unique_lock lock(m_section);
+  if (!m_state.contains(surf))
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::MarkRender - surface invalid");
     return false;
   }
   std::list<VdpVideoSurface>::iterator it;
-  it = std::find(m_freeSurfaces.begin(), m_freeSurfaces.end(), surf);
+  it = std::ranges::find(m_freeSurfaces, surf);
   if (it != m_freeSurfaces.end())
   {
     m_freeSurfaces.erase(it);
@@ -385,8 +387,8 @@ bool CVideoSurfaces::MarkRender(VdpVideoSurface surf)
 
 void CVideoSurfaces::ClearRender(VdpVideoSurface surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) == m_state.end())
+  std::unique_lock lock(m_section);
+  if (!m_state.contains(surf))
   {
     CLog::Log(LOGWARNING, "CVideoSurfaces::ClearRender - surface invalid");
     return;
@@ -400,8 +402,8 @@ void CVideoSurfaces::ClearRender(VdpVideoSurface surf)
 
 bool CVideoSurfaces::IsValid(VdpVideoSurface surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) != m_state.end())
+  std::unique_lock lock(m_section);
+  if (m_state.contains(surf))
     return true;
   else
     return false;
@@ -409,11 +411,11 @@ bool CVideoSurfaces::IsValid(VdpVideoSurface surf)
 
 VdpVideoSurface CVideoSurfaces::GetFree(VdpVideoSurface surf)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_state.find(surf) != m_state.end())
+  std::unique_lock lock(m_section);
+  if (m_state.contains(surf))
   {
     std::list<VdpVideoSurface>::iterator it;
-    it = std::find(m_freeSurfaces.begin(), m_freeSurfaces.end(), surf);
+    it = std::ranges::find(m_freeSurfaces, surf);
     if (it == m_freeSurfaces.end())
     {
       CLog::Log(LOGWARNING, "CVideoSurfaces::GetFree - surface not free");
@@ -439,7 +441,7 @@ VdpVideoSurface CVideoSurfaces::GetFree(VdpVideoSurface surf)
 
 VdpVideoSurface CVideoSurfaces::RemoveNext(bool skiprender)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   VdpVideoSurface surf;
   std::map<VdpVideoSurface, int>::iterator it;
   for(it = m_state.begin(); it != m_state.end(); ++it)
@@ -450,7 +452,7 @@ VdpVideoSurface CVideoSurfaces::RemoveNext(bool skiprender)
     m_state.erase(surf);
 
     std::list<VdpVideoSurface>::iterator it2;
-    it2 = std::find(m_freeSurfaces.begin(), m_freeSurfaces.end(), surf);
+    it2 = std::ranges::find(m_freeSurfaces, surf);
     if (it2 != m_freeSurfaces.end())
       m_freeSurfaces.erase(it2);
     return surf;
@@ -460,14 +462,14 @@ VdpVideoSurface CVideoSurfaces::RemoveNext(bool skiprender)
 
 void CVideoSurfaces::Reset()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_freeSurfaces.clear();
   m_state.clear();
 }
 
 int CVideoSurfaces::Size()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return m_state.size();
 }
 
@@ -499,7 +501,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
 
   // check if user wants to decode this format with VDPAU
   std::string gpuvendor = CServiceBroker::GetRenderSystem()->GetRenderVendor();
-  std::transform(gpuvendor.begin(), gpuvendor.end(), gpuvendor.begin(), ::tolower);
+  StringUtils::ToLower(gpuvendor);
   // nvidia is whitelisted despite for mpeg-4 we need to query user settings
   if ((gpuvendor.compare(0, 6, "nvidia") != 0)  || (avctx->codec_id == AV_CODEC_ID_MPEG4) || (avctx->codec_id == AV_CODEC_ID_H263))
   {
@@ -535,7 +537,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, const enum A
     }
   }
 
-  if (!CServiceBroker::GetRenderSystem()->IsExtSupported("GL_NV_vdpau_interop"))
+  if (!CGLExtensions::IsExtensionSupported(CGLExtensions::NV_vdpau_interop))
   {
     CLog::Log(LOGINFO, "VDPAU::Open: required extension GL_NV_vdpau_interop not found");
     return false;
@@ -632,7 +634,7 @@ void CDecoder::Close()
 
   CServiceBroker::GetWinSystem()->Unregister(this);
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   FiniVDPAUOutput();
   m_vdpauOutput.Dispose();
@@ -648,7 +650,7 @@ long CDecoder::Release()
   // a second decoder might need resources
   if (m_vdpauConfigured == true)
   {
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
     CLog::Log(LOGINFO, "CVDPAU::Release pre-cleanup");
 
     Message *reply;
@@ -718,7 +720,7 @@ void CDecoder::OnLostDisplay()
 
   int count = CServiceBroker::GetWinSystem()->GetGfxContext().exit();
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
   FiniVDPAUOutput();
   if (m_vdpauConfig.context)
     m_vdpauConfig.context->Release();
@@ -737,7 +739,7 @@ void CDecoder::OnResetDisplay()
 
   int count = CServiceBroker::GetWinSystem()->GetGfxContext().exit();
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
   if (m_DisplayState == VDPAU_LOST)
   {
     m_DisplayState = VDPAU_RESET;
@@ -753,7 +755,7 @@ CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
   EDisplayState state;
 
   {
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
     state = m_DisplayState;
   }
 
@@ -767,13 +769,13 @@ CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
     }
     else
     {
-      std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+      std::unique_lock lock(m_DecoderSection);
       state = m_DisplayState;
     }
   }
   if (state == VDPAU_RESET || state == VDPAU_ERROR)
   {
-    std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+    std::unique_lock lock(m_DecoderSection);
 
     FiniVDPAUOutput();
     if (m_vdpauConfig.context)
@@ -922,7 +924,7 @@ bool CDecoder::ConfigVDPAU(AVCodecContext* avctx, int ref_frames)
   }
   else if (avctx->codec_id == AV_CODEC_ID_VP9)
   {
-    if (avctx->profile != FF_PROFILE_VP9_0)
+    if (avctx->profile != AV_PROFILE_VP9_0)
       return false;
 
     m_vdpauConfig.maxReferences = 8;
@@ -940,7 +942,7 @@ bool CDecoder::ConfigVDPAU(AVCodecContext* avctx, int ref_frames)
     return false;
 
   // initialize output
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_vdpauConfig.stats = &m_bufferStats;
   m_vdpauConfig.vdpau = this;
   m_bufferStats.Reset();
@@ -978,7 +980,7 @@ int CDecoder::FFGetBuffer(AVCodecContext *avctx, AVFrame *pic, int flags)
   CDecoder* vdp = static_cast<CDecoder*>(cb->GetHWAccel());
 
   // while we are waiting to recover we can't do anything
-  std::unique_lock<CCriticalSection> lock(vdp->m_DecoderSection);
+  std::unique_lock lock(vdp->m_DecoderSection);
 
   if(vdp->m_DisplayState != VDPAU_OPEN)
   {
@@ -1035,7 +1037,7 @@ void CDecoder::FFReleaseBuffer(void *opaque, uint8_t *data)
 
   VdpVideoSurface surf;
 
-  std::unique_lock<CCriticalSection> lock(vdp->m_DecoderSection);
+  std::unique_lock lock(vdp->m_DecoderSection);
 
   surf = (VdpVideoSurface)(uintptr_t)data;
 
@@ -1050,7 +1052,7 @@ int CDecoder::Render(struct AVCodecContext *s, struct AVFrame *src,
   CDecoder* vdp = static_cast<CDecoder*>(ctx->GetHWAccel());
 
   // while we are waiting to recover we can't do anything
-  std::unique_lock<CCriticalSection> lock(vdp->m_DecoderSection);
+  std::unique_lock lock(vdp->m_DecoderSection);
 
   if(vdp->m_DisplayState != VDPAU_OPEN)
     return -1;
@@ -1116,7 +1118,7 @@ CDVDVideoCodec::VCReturn CDecoder::Decode(AVCodecContext *avctx, AVFrame *pFrame
   if (result != CDVDVideoCodec::VC_NONE)
     return result;
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   if (!m_vdpauConfigured)
     return CDVDVideoCodec::VC_ERROR;
@@ -1230,7 +1232,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
     picture->videoBuffer = nullptr;
   }
 
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   if (m_DisplayState != VDPAU_OPEN)
     return false;
@@ -1244,7 +1246,7 @@ bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
 
 void CDecoder::Reset()
 {
-  std::unique_lock<CCriticalSection> lock(m_DecoderSection);
+  std::unique_lock lock(m_DecoderSection);
 
   if (m_presentPicture)
   {
@@ -1333,7 +1335,7 @@ void CDecoder::Register()
   CDVDFactoryCodec::RegisterHWAccel("vdpau", CDecoder::Create);
 
   std::string gpuvendor = CServiceBroker::GetRenderSystem()->GetRenderVendor();
-  std::transform(gpuvendor.begin(), gpuvendor.end(), gpuvendor.begin(), ::tolower);
+  StringUtils::ToLower(gpuvendor);
   bool isNvidia = (gpuvendor.compare(0, 6, "nvidia") == 0);
 
   auto settingsComponent = CServiceBroker::GetSettingsComponent();
@@ -1707,9 +1709,8 @@ void CMixer::StateMachine(int signal, Protocol *port, Message *msg)
             m_state = M_TOP_CONFIGURED_STEP1;
             m_bStateMachineSelfTrigger = true;
           }
-          else if (!m_outputSurfaces.empty() &&
-                   m_config.stats->IsDraining() &&
-                   m_mixerInput.size() >= 1)
+          else if (!m_outputSurfaces.empty() && m_config.stats->IsDraining() &&
+                   !m_mixerInput.empty())
           {
             CVdpauDecodedPicture pic;
             pic.DVDPic.SetParams(m_mixerInput[0].DVDPic);
@@ -2664,8 +2665,7 @@ void CMixer::FiniCycle()
   // NVidia recommends num_ref + 5
   size_t surfToKeep = 5;
 
-  if (m_mixerInput.size() > 0 &&
-      (m_mixerInput[0].videoSurface == VDP_INVALID_HANDLE))
+  if (!m_mixerInput.empty() && (m_mixerInput[0].videoSurface == VDP_INVALID_HANDLE))
     surfToKeep = 1;
 
   while (m_mixerInput.size() > surfToKeep)
@@ -2831,7 +2831,7 @@ COutput::~COutput()
 
 void COutput::Dispose()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_bStop = true;
   m_outMsgEvent.Set();
   StopThread();

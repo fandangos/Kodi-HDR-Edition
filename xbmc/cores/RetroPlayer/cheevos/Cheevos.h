@@ -10,9 +10,15 @@
 
 #include "RConsoleIDs.h"
 
-#include <cstdint>
-#include <map>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace KODI
 {
@@ -26,65 +32,107 @@ namespace RETRO
 class CCheevos
 {
 public:
+  ~CCheevos();
   CCheevos(GAME::CGameClient* gameClient,
            const std::string& userName,
            const std::string& loginToken);
+
+  /*!
+   * \brief Stop background work before the game client is closed
+   */
+  void Stop();
+
+  /*!
+   * \brief Perform the actual HTTP login exchange with RetroAchievements
+   *
+   * Call this with the user's PASSWORD when they press the Login button.
+   * On success the returned token is stored internally and persisted to
+   * settings — the password is never stored.
+   *
+   * Uses the r=login2 endpoint with credentials in the HTTPS POST body:
+   *
+   *   - https://api-docs.retroachievements.org/connect/standalone.html
+   *
+   * \param password  The user's account password (not a token)
+   *
+   * \return true on successful login.
+   */
+  bool RCLogin(const std::string& password);
+
+  /*!
+   * \brief Reset the runtime
+   */
   void ResetRuntime();
+
+  /*!
+   * \brief Fetch achievement patch data for the loaded game
+   */
+  bool LoadData();
+
+  /*!
+   * \brief Enable rich presence
+   */
   void EnableRichPresence();
+
   std::string GetRichPresenceEvaluation();
 
+  /*!
+   * \brief Achievement activation and trigger detection
+   */
+  void ActivateAchievement();
+
+  void CallbackUrlId(const std::string& achievementUrl, unsigned int cheevoId);
+
 private:
-  bool LoadData();
+  using ActivatedCheevoMap = std::unordered_map<unsigned, std::vector<std::string>>;
+  using CheevoTitleMap = std::unordered_map<unsigned, std::pair<std::string, std::string>>;
+
+  /*!
+   * \brief Rich presence periodic ping thread
+   */
+  void RichPresencePingThread();
+
+  // Helper functions
+  void DownloadThread();
+  bool QueueDownload(std::function<void()> task);
   RConsoleID ConsoleID();
 
-  GAME::CGameClient* const m_gameClient;
+  const std::string RA_USER_AGENT;
+
+  // Construction parameters
+  GAME::CGameClient* m_gameClient;
   std::string m_userName;
   std::string m_loginToken;
-  std::string m_romHash;
-  std::string m_richPresenceScript;
-  uint32_t m_gameID{};
-  RConsoleID m_consoleID = RConsoleID::RC_INVALID_ID;
-  bool m_richPresenceLoaded{};
 
-  const std::map<std::string, RConsoleID> m_extensionToConsole = {
-      {".a26", RConsoleID::RC_CONSOLE_ATARI_2600},
-      {".a78", RConsoleID::RC_CONSOLE_ATARI_7800},
-      {".agb", RConsoleID::RC_CONSOLE_GAMEBOY_ADVANCE},
-      {".cdi", RConsoleID::RC_CONSOLE_DREAMCAST},
-      {".cdt", RConsoleID::RC_CONSOLE_AMSTRAD_PC},
-      {".cgb", RConsoleID::RC_CONSOLE_GAMEBOY_COLOR},
-      {".chd", RConsoleID::RC_CONSOLE_DREAMCAST},
-      {".cpr", RConsoleID::RC_CONSOLE_AMSTRAD_PC},
-      {".d64", RConsoleID::RC_CONSOLE_COMMODORE_64},
-      {".gb", RConsoleID::RC_CONSOLE_GAMEBOY},
-      {".gba", RConsoleID::RC_CONSOLE_GAMEBOY_ADVANCE},
-      {".gbc", RConsoleID::RC_CONSOLE_GAMEBOY_COLOR},
-      {".gdi", RConsoleID::RC_CONSOLE_DREAMCAST},
-      {".j64", RConsoleID::RC_CONSOLE_ATARI_JAGUAR},
-      {".jag", RConsoleID::RC_CONSOLE_ATARI_JAGUAR},
-      {".lnx", RConsoleID::RC_CONSOLE_ATARI_LYNX},
-      {".mds", RConsoleID::RC_CONSOLE_SATURN},
-      {".min", RConsoleID::RC_CONSOLE_POKEMON_MINI},
-      {".mx1", RConsoleID::RC_CONSOLE_MSX},
-      {".mx2", RConsoleID::RC_CONSOLE_MSX},
-      {".n64", RConsoleID::RC_CONSOLE_NINTENDO_64},
-      {".ndd", RConsoleID::RC_CONSOLE_NINTENDO_64},
-      {".nds", RConsoleID::RC_CONSOLE_NINTENDO_DS},
-      {".nes", RConsoleID::RC_CONSOLE_NINTENDO},
-      {".o", RConsoleID::RC_CONSOLE_ATARI_LYNX},
-      {".pce", RConsoleID::RC_CONSOLE_PC_ENGINE},
-      {".sfc", RConsoleID::RC_CONSOLE_SUPER_NINTENDO},
-      {".sgx", RConsoleID::RC_CONSOLE_PC_ENGINE},
-      {".smc", RConsoleID::RC_CONSOLE_SUPER_NINTENDO},
-      {".sna", RConsoleID::RC_CONSOLE_AMSTRAD_PC},
-      {".tap", RConsoleID::RC_CONSOLE_AMSTRAD_PC},
-      {".u1", RConsoleID::RC_CONSOLE_NINTENDO_64},
-      {".v64", RConsoleID::RC_CONSOLE_NINTENDO_64},
-      {".vb", RConsoleID::RC_CONSOLE_VIRTUAL_BOY},
-      {".vboy", RConsoleID::RC_CONSOLE_VIRTUAL_BOY},
-      {".vec", RConsoleID::RC_CONSOLE_VECTREX},
-      {".voc", RConsoleID::RC_CONSOLE_AMSTRAD_PC},
-      {".z64", RConsoleID::RC_CONSOLE_NINTENDO_64}};
+  bool m_richPresenceLoaded{false};
+  std::string m_richPresenceScript;
+
+  // Published as a complete snapshot after loading and copied by readers
+  std::mutex m_activatedCheevoMutex;
+  ActivatedCheevoMap m_activatedCheevoMap;
+  std::string m_gameTitle;
+  unsigned int m_gameId{0};
+
+  // So CallbackUrlId can look up titles
+  std::mutex m_cheevoTitlesMutex;
+  CheevoTitleMap m_cheevoTitles;
+
+  // Set true when RA flags this emulator as unsupported
+  bool m_unsupportedEmulator{false};
+
+  // Persistent achievement callback — must outlive game session, so stored as member
+  std::function<void(const std::string&, unsigned int)> m_cheevoCallback;
+
+  // Rich presence periodic ping
+  std::atomic<bool> m_richPresenceRunning{false};
+  std::thread m_richPresenceThread;
+
+  // Bounded background image download queue.
+  std::mutex m_downloadThreadsMutex;
+  std::condition_variable m_downloadCondition;
+  std::deque<std::function<void()>> m_downloadQueue;
+  bool m_downloadRunning{true};
+  std::thread m_downloadThread;
 };
 } // namespace RETRO
 } // namespace KODI

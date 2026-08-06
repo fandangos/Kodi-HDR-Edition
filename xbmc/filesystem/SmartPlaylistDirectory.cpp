@@ -67,7 +67,7 @@ namespace XFILE
     if (playlist.GetLimit() > 0)
       sorting.limitEnd = playlist.GetLimit();
     sorting.sortBy = playlist.GetOrder();
-    sorting.sortOrder = playlist.GetOrderAscending() ? SortOrderAscending : SortOrderDescending;
+    sorting.sortOrder = playlist.GetOrderAscending() ? SortOrder::ASCENDING : SortOrder::DESCENDING;
     sorting.sortAttributes = playlist.GetOrderAttributes();
     if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING))
       sorting.sortAttributes = (SortAttribute)(sorting.sortAttributes | SortAttributeIgnoreArticle);
@@ -93,7 +93,7 @@ namespace XFILE
 
       if (dir != NULL)
       {
-        pItem->SetSpecialSort(SortSpecialOnTop);
+        pItem->SetSpecialSort(SortSpecial::TOP);
         items.Add(pItem);
         delete dir;
       }
@@ -208,7 +208,7 @@ namespace XFILE
           musicUrl.RemoveOption(option);
 
         CDatabase::Filter dbfilter;
-        success = db.GetItems(musicUrl.ToString(), items, dbfilter, sorting);
+        success = db.GetItems(musicUrl.ToString(), items, sorting, dbfilter);
         db.Close();
 
         items.SetProperty(PROPERTY_PATH_DB, musicUrl.ToString());
@@ -290,7 +290,8 @@ namespace XFILE
       items.SetContent(playlist.GetType());
 
     items.SetProperty(PROPERTY_SORT_ORDER, (int)playlist.GetOrder());
-    items.SetProperty(PROPERTY_SORT_ASCENDING, playlist.GetOrderDirection() == SortOrderAscending);
+    items.SetProperty(PROPERTY_SORT_ASCENDING,
+                      playlist.GetOrderDirection() == SortOrder::ASCENDING);
     if (!group.empty())
     {
       items.SetProperty(PROPERTY_GROUP_BY, group);
@@ -300,15 +301,15 @@ namespace XFILE
     // sort grouped list by label unless random was specified for musicvideo artists
     if (items.Size() > 1 && !group.empty())
     {
-      if (playlist.GetOrder() == SortByRandom && group == "actors" &&
+      if (playlist.GetOrder() == SortBy::RANDOM && group == "actors" &&
           playlist.GetType() == "musicvideos")
-        items.Sort(SortByRandom, SortOrderAscending,
+        items.Sort(SortBy::RANDOM, SortOrder::ASCENDING,
                    CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                        CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING)
                        ? SortAttributeIgnoreArticle
                        : SortAttributeNone);
       else
-        items.Sort(SortByLabel, SortOrderAscending,
+        items.Sort(SortBy::LABEL, SortOrder::ASCENDING,
                    CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                        CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING)
                        ? SortAttributeIgnoreArticle
@@ -319,7 +320,7 @@ namespace XFILE
     for (int i = 0; i < items.Size(); i++)
     {
       CFileItemPtr item = items[i];
-      item->m_iprogramCount = i;  // hack for playlist order
+      item->SetProgramCount(i); //! @todo remove this hack for playlist order
       item->SetProperty("playlist_type_hint", static_cast<int>(playlistTypeHint));
     }
 
@@ -373,7 +374,4 @@ namespace XFILE
   {
     return XFILE::CFile::Delete(url);
   }
-}
-
-
-
+  } // namespace XFILE

@@ -12,6 +12,7 @@
 #include "GameClientProperties.h"
 #include "addons/kodi-dev-kit/include/kodi/addon-instance/Game.h"
 #include "games/addons/cheevos/GameClientCheevos.h"
+#include "games/addons/disc/GameClientDiscs.h"
 #include "games/addons/input/GameClientInput.h"
 #include "games/addons/streams/GameClientStreams.h"
 
@@ -23,7 +24,9 @@ using namespace GAME;
 CGameClientSubsystem::CGameClientSubsystem(CGameClient& gameClient,
                                            AddonInstance_Game& addonStruct,
                                            CCriticalSection& clientAccess)
-  : m_gameClient(gameClient), m_struct(addonStruct), m_clientAccess(clientAccess)
+  : m_gameClient(gameClient),
+    m_struct(addonStruct),
+    m_clientAccess(clientAccess)
 {
 }
 
@@ -36,6 +39,7 @@ GameClientSubsystems CGameClientSubsystem::CreateSubsystems(CGameClient& gameCli
   GameClientSubsystems subsystems = {};
 
   subsystems.Cheevos = std::make_unique<CGameClientCheevos>(gameClient, gameStruct);
+  subsystems.Discs = std::make_unique<CGameClientDiscs>(gameClient, gameStruct, clientAccess);
   subsystems.Input = std::make_unique<CGameClientInput>(gameClient, gameStruct, clientAccess);
   subsystems.AddonProperties =
       std::make_unique<CGameClientProperties>(gameClient, *gameStruct.props);
@@ -47,6 +51,7 @@ GameClientSubsystems CGameClientSubsystem::CreateSubsystems(CGameClient& gameCli
 void CGameClientSubsystem::DestroySubsystems(GameClientSubsystems& subsystems)
 {
   subsystems.Cheevos.reset();
+  subsystems.Discs.reset();
   subsystems.Input.reset();
   subsystems.AddonProperties.reset();
   subsystems.Streams.reset();
@@ -55,6 +60,11 @@ void CGameClientSubsystem::DestroySubsystems(GameClientSubsystems& subsystems)
 CGameClientCheevos& CGameClientSubsystem::Cheevos() const
 {
   return m_gameClient.Cheevos();
+}
+
+CGameClientDiscs& CGameClientSubsystem::Discs() const
+{
+  return m_gameClient.Discs();
 }
 
 CGameClientInput& CGameClientSubsystem::Input() const

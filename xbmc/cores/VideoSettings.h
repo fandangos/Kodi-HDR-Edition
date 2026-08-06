@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -10,6 +10,7 @@
 
 #include "utils/Map.h"
 
+#include <optional>
 #include <string_view>
 
 #include <fmt/format.h>
@@ -55,6 +56,12 @@ struct fmt::formatter<EINTERLACEMETHOD> : fmt::formatter<std::string_view>
       throw std::range_error("no interlace method string found");
 
     return fmt::formatter<string_view>::format(it->second, ctx);
+  }
+
+  static constexpr std::string_view ToString(EINTERLACEMETHOD m) noexcept
+  {
+    const auto it = interlaceMethodMap.find(m);
+    return it != interlaceMethodMap.cend() ? it->second : "unknown";
   }
 
 private:
@@ -129,6 +136,12 @@ public:
     return fmt::formatter<string_view>::format(it->second, ctx);
   }
 
+  static constexpr std::string_view ToString(ESCALINGMETHOD m) noexcept
+  {
+    const auto it = scalingMethodMap.find(m);
+    return it != scalingMethodMap.cend() ? it->second : "unknown";
+  }
+
 private:
   static constexpr auto scalingMethodMap = make_map<ESCALINGMETHOD, std::string_view>({
       {VS_SCALINGMETHOD_NEAREST, "nearest neighbour"},
@@ -148,8 +161,8 @@ private:
       {VS_SCALINGMETHOD_VDPAU_HARDWARE, "vdpau"},
       {VS_SCALINGMETHOD_DXVA_HARDWARE, "dxva"},
       {VS_SCALINGMETHOD_AUTO, "auto"},
-      {VS_SCALINGMETHOD_SPLINE36_FAST, "spline32 fast"},
-      {VS_SCALINGMETHOD_SPLINE36, "spline32"},
+      {VS_SCALINGMETHOD_SPLINE36_FAST, "spline36 fast"},
+      {VS_SCALINGMETHOD_SPLINE36, "spline36"},
   });
 
   static_assert(VS_SCALINGMETHOD_MAX == scalingMethodMap.size(),
@@ -178,6 +191,12 @@ public:
       throw std::range_error("no tonemap method string found");
 
     return fmt::formatter<string_view>::format(it->second, ctx);
+  }
+
+  static constexpr std::string_view ToString(ETONEMAPMETHOD m) noexcept
+  {
+    const auto it = tonemapMethodMap.find(m);
+    return it != tonemapMethodMap.cend() ? it->second : "unknown";
   }
 
 private:
@@ -296,6 +315,8 @@ public:
   float m_ToneMapParam;
   int m_Orientation;
   int m_CenterMixLevel; // relative to metadata or default
+  std::optional<bool>
+      m_isDefaultVideoSettings; //!< true: default video settings, false: video specific
 };
 
 class CCriticalSection;

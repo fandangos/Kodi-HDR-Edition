@@ -21,7 +21,7 @@
 
 CDVDClock::CDVDClock()
 {
-  std::unique_lock<CCriticalSection> lock(m_systemsection);
+  std::unique_lock lock(m_systemsection);
 
   m_pauseClock = 0;
   m_bReset = true;
@@ -47,7 +47,7 @@ CDVDClock::~CDVDClock() = default;
 // Returns the current absolute clock in units of DVD_TIME_BASE (usually microseconds).
 double CDVDClock::GetAbsoluteClock(bool interpolated /*= true*/)
 {
-  std::unique_lock<CCriticalSection> lock(m_systemsection);
+  std::unique_lock lock(m_systemsection);
 
   int64_t current;
   current = m_videoRefClock->GetTime(interpolated);
@@ -57,7 +57,7 @@ double CDVDClock::GetAbsoluteClock(bool interpolated /*= true*/)
 
 double CDVDClock::GetClock(bool interpolated /*= true*/)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   int64_t current = m_videoRefClock->GetTime(interpolated);
   m_systemAdjust += m_speedAdjust * (current - m_lastSystemTime);
@@ -70,7 +70,7 @@ double CDVDClock::GetClock(double& absolute, bool interpolated /*= true*/)
 {
   int64_t current = m_videoRefClock->GetTime(interpolated);
 
-  std::unique_lock<CCriticalSection> lock(m_systemsection);
+  std::unique_lock lock(m_systemsection);
   absolute = SystemToAbsolute(current);
 
   m_systemAdjust += m_speedAdjust * (current - m_lastSystemTime);
@@ -81,19 +81,19 @@ double CDVDClock::GetClock(double& absolute, bool interpolated /*= true*/)
 
 void CDVDClock::SetVsyncAdjust(double adjustment)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   m_vSyncAdjust = adjustment;
 }
 
 double CDVDClock::GetVsyncAdjust()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   return m_vSyncAdjust;
 }
 
 void CDVDClock::Pause(bool pause)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   if (pause && !m_paused)
   {
@@ -112,9 +112,15 @@ void CDVDClock::Pause(bool pause)
   }
 }
 
+bool CDVDClock::IsPaused() const
+{
+  std::unique_lock lock(m_critSection);
+  return m_pauseClock != 0;
+}
+
 void CDVDClock::Advance(double time)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   if (m_pauseClock)
   {
@@ -125,7 +131,7 @@ void CDVDClock::Advance(double time)
 void CDVDClock::SetSpeed(int iSpeed)
 {
   // this will sometimes be a little bit of due to rounding errors, ie clock might jump a bit when changing speed
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   if (m_paused)
   {
@@ -158,19 +164,19 @@ void CDVDClock::SetSpeedAdjust(double adjust)
 {
   CLog::Log(LOGDEBUG, "CDVDClock::SetSpeedAdjust - adjusted:{:f}", adjust);
 
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   m_speedAdjust = adjust;
 }
 
-double CDVDClock::GetSpeedAdjust()
+double CDVDClock::GetSpeedAdjust() const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   return m_speedAdjust;
 }
 
 double CDVDClock::ErrorAdjust(double error, const char* log)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   double clock, absolute, adjustment;
   clock = GetClock(absolute);
@@ -210,7 +216,7 @@ double CDVDClock::ErrorAdjust(double error, const char* log)
 
 void CDVDClock::Discontinuity(double clock, double absolute)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   m_startClock = AbsoluteToSystem(absolute);
   if(m_pauseClock)
     m_pauseClock = m_startClock;
@@ -222,7 +228,7 @@ void CDVDClock::Discontinuity(double clock, double absolute)
 
 void CDVDClock::SetMaxSpeedAdjust(double speed)
 {
-  std::unique_lock<CCriticalSection> lock(m_speedsection);
+  std::unique_lock lock(m_speedsection);
 
   m_maxspeedadjust = speed;
 }
@@ -242,7 +248,7 @@ int CDVDClock::UpdateFramerate(double fps, double* interval /*= NULL*/)
   if (rate <= 0)
     return -1;
 
-  std::unique_lock<CCriticalSection> lock(m_speedsection);
+  std::unique_lock lock(m_speedsection);
 
   double weight = (rate * 2) / fps;
 
@@ -266,12 +272,12 @@ bool CDVDClock::GetClockInfo(int& MissedVblanks, double& ClockSpeed, double& Ref
   return m_videoRefClock->GetClockInfo(MissedVblanks, ClockSpeed, RefreshRate);
 }
 
-double CDVDClock::SystemToAbsolute(int64_t system)
+double CDVDClock::SystemToAbsolute(int64_t system) const
 {
   return DVD_TIME_BASE * (double)(system - m_systemOffset) / m_systemFrequency;
 }
 
-int64_t CDVDClock::AbsoluteToSystem(double absolute)
+int64_t CDVDClock::AbsoluteToSystem(double absolute) const
 {
   return (int64_t)(absolute / DVD_TIME_BASE * m_systemFrequency) + m_systemOffset;
 }
@@ -301,9 +307,9 @@ double CDVDClock::SystemToPlaying(int64_t system)
   return DVD_TIME_BASE * (double)(current - m_startClock + m_systemAdjust) / m_systemUsed + m_iDisc;
 }
 
-double CDVDClock::GetClockSpeed()
+double CDVDClock::GetClockSpeed() const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   double speed = (double)m_systemFrequency / m_systemUsed;
   return m_videoRefClock->GetSpeed() * speed + m_speedAdjust;

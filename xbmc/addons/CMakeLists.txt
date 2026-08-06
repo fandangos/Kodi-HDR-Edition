@@ -19,12 +19,14 @@ set(SOURCES Addon.cpp
             ImageDecoder.cpp
             ImageResource.cpp
             LanguageResource.cpp
+            SkinResource.cpp
             PluginSource.cpp
             Repository.cpp
             RepositoryUpdater.cpp
             Scraper.cpp
             ScreenSaver.cpp
             Service.cpp
+            ShaderPreset.cpp
             Skin.cpp
             UISoundsResource.cpp
             VFSEntry.cpp
@@ -55,9 +57,11 @@ set(HEADERS Addon.h
             IAddon.h
             IAddonManagerCallback.h
             IAddonSupportCheck.h
+            IAddonSupportList.h
             ImageDecoder.h
             ImageResource.h
             LanguageResource.h
+            SkinResource.h
             PluginSource.h
             Repository.h
             RepositoryUpdater.h
@@ -65,6 +69,7 @@ set(HEADERS Addon.h
             Scraper.h
             ScreenSaver.h
             Service.h
+            ShaderPreset.h
             Skin.h
             UISoundsResource.h
             VFSEntry.h

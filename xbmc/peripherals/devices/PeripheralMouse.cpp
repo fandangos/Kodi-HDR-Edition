@@ -54,7 +54,7 @@ bool CPeripheralMouse::InitialiseFeature(const PeripheralFeature feature)
 void CPeripheralMouse::RegisterMouseDriverHandler(MOUSE::IMouseDriverHandler* handler,
                                                   bool bPromiscuous)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   MouseHandle handle{handler, bPromiscuous};
   m_mouseHandlers.insert(m_mouseHandlers.begin(), handle);
@@ -62,7 +62,7 @@ void CPeripheralMouse::RegisterMouseDriverHandler(MOUSE::IMouseDriverHandler* ha
 
 void CPeripheralMouse::UnregisterMouseDriverHandler(MOUSE::IMouseDriverHandler* handler)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   auto it =
       std::find_if(m_mouseHandlers.begin(), m_mouseHandlers.end(),
@@ -70,6 +70,15 @@ void CPeripheralMouse::UnregisterMouseDriverHandler(MOUSE::IMouseDriverHandler* 
 
   if (it != m_mouseHandlers.end())
     m_mouseHandlers.erase(it);
+}
+
+void CPeripheralMouse::SetLastActive(const CDateTime& lastActive)
+{
+  // Update state
+  m_lastActive = lastActive;
+
+  // Update ancestor
+  CPeripheral::SetLastActive(lastActive);
 }
 
 GAME::ControllerPtr CPeripheralMouse::ControllerProfile() const
@@ -82,7 +91,7 @@ GAME::ControllerPtr CPeripheralMouse::ControllerProfile() const
 
 bool CPeripheralMouse::OnPosition(int x, int y)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   bool bHandled = false;
 
@@ -104,17 +113,19 @@ bool CPeripheralMouse::OnPosition(int x, int y)
     }
   }
 
+  // Update state
   if (bHandled)
-    m_lastActive = CDateTime::GetCurrentDateTime();
+    SetLastActive(CDateTime::GetCurrentDateTime());
 
   return bHandled;
 }
 
 bool CPeripheralMouse::OnButtonPress(MOUSE::BUTTON_ID button)
 {
-  m_lastActive = CDateTime::GetCurrentDateTime();
+  std::unique_lock lock(m_mutex);
 
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  // Update state
+  SetLastActive(CDateTime::GetCurrentDateTime());
 
   bool bHandled = false;
 
@@ -141,7 +152,7 @@ bool CPeripheralMouse::OnButtonPress(MOUSE::BUTTON_ID button)
 
 void CPeripheralMouse::OnButtonRelease(MOUSE::BUTTON_ID button)
 {
-  std::unique_lock<CCriticalSection> lock(m_mutex);
+  std::unique_lock lock(m_mutex);
 
   for (const MouseHandle& handle : m_mouseHandlers)
     handle.handler->OnButtonRelease(button);

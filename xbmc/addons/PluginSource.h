@@ -11,24 +11,32 @@
 #include "addons/Addon.h"
 
 #include <set>
+#include <string_view>
 
 namespace ADDON
 {
 
-typedef std::map<std::string, std::vector<std::string>> ContentPathMap;
+using ContentPathMap = std::map<std::string, std::vector<std::string>, std::less<>>;
 
 class CPluginSource : public CAddon
 {
 public:
-
-  enum Content { UNKNOWN, AUDIO, IMAGE, EXECUTABLE, VIDEO, GAME };
+  enum class Content
+  {
+    UNKNOWN,
+    AUDIO,
+    IMAGE,
+    EXECUTABLE,
+    VIDEO,
+    GAME
+  };
 
   explicit CPluginSource(const AddonInfoPtr& addonInfo, AddonType addonType);
 
   bool HasType(AddonType type) const override;
   bool Provides(const Content& content) const
   {
-    return content == UNKNOWN ? false : m_providedContent.count(content) > 0;
+    return content == Content::UNKNOWN ? false : m_providedContent.contains(content);
   }
 
   bool ProvidesSeveral() const
@@ -41,7 +49,8 @@ public:
     return m_mediaLibraryScanPaths;
   }
 
-  static Content Translate(const std::string &content);
+  static Content Translate(std::string_view content);
+
 private:
   /*! \brief Set the provided content for this plugin
    If no valid content types are passed in, we set the EXECUTABLE type

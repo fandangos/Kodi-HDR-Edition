@@ -73,9 +73,7 @@ bool CDVDAudioCodecPassthrough::Open(CDVDStreamInfo &hints, CDVDCodecOptions &op
 
     case CAEStreamInfo::STREAM_TYPE_TRUEHD:
       m_codecName = "pt-truehd";
-
-      CLog::Log(LOGDEBUG, "CDVDAudioCodecPassthrough::{} - passthrough output device is {}",
-                __func__, m_deviceIsRAW ? "RAW" : "IEC");
+      CLog::LogF(LOGDEBUG, "passthrough output device is {}", m_deviceIsRAW ? "RAW" : "IEC");
       break;
 
     default:
@@ -189,6 +187,14 @@ bool CDVDAudioCodecPassthrough::AddData(const DemuxPacket &packet)
 
   if (m_format.m_streamInfo.m_type == CAEStreamInfo::STREAM_TYPE_TRUEHD)
   {
+    if (m_trueHDBuffer.empty())
+    {
+      m_trueHDBuffer.resize(TRUEHD_BUF_SIZE);
+
+      if (!m_deviceIsRAW && !m_packerMAT)
+        m_packerMAT = std::make_unique<CPackerMAT>();
+    }
+
     if (m_deviceIsRAW) // RAW
     {
       m_dataSize = PackTrueHD();

@@ -14,14 +14,16 @@
 #include "filesystem/CurlFile.h"
 #include "filesystem/File.h"
 #include "guilib/GUIRSSControl.h"
-#include "guilib/LocalizeStrings.h"
 #include "log.h"
 #include "network/Network.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
 #include "threads/SystemClock.h"
 #include "utils/HTMLUtil.h"
 #include "utils/XTimeUtils.h"
+#include "windowing/WinSystem.h"
 
 #include <mutex>
 
@@ -57,7 +59,7 @@ CRssReader::~CRssReader()
 
 void CRssReader::Create(IRssObserver* aObserver, const std::vector<std::string>& aUrls, const std::vector<int> &times, int spacesBetweenFeeds, bool rtl)
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
 
   m_pObserver = aObserver;
   m_spacesBetweenFeeds = spacesBetweenFeeds;
@@ -86,7 +88,7 @@ void CRssReader::requestRefresh()
 
 void CRssReader::AddToQueue(int iAdd)
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   if (iAdd < (int)m_vecUrls.size())
     m_vecQueue.push_back(iAdd);
   if (!m_bIsRunning)
@@ -104,7 +106,7 @@ void CRssReader::OnExit()
 
 int CRssReader::GetQueueSize()
 {
-  std::unique_lock<CCriticalSection> lock(m_critical);
+  std::unique_lock lock(m_critical);
   return m_vecQueue.size();
 }
 
@@ -112,7 +114,7 @@ void CRssReader::Process()
 {
   while (GetQueueSize())
   {
-    std::unique_lock<CCriticalSection> lock(m_critical);
+    std::unique_lock lock(m_critical);
 
     int iFeed = m_vecQueue.front();
     m_vecQueue.erase(m_vecQueue.begin());
@@ -135,7 +137,9 @@ void CRssReader::Process()
         !CServiceBroker::GetNetwork().IsAvailable())
     {
       CLog::Log(LOGWARNING, "RSS: No network connection");
-      strXML = "<rss><item><title>"+g_localizeStrings.Get(15301)+"</title></item></rss>";
+      strXML = "<rss><item><title>" +
+               CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(15301) +
+               "</title></item></rss>";
     }
     else
     {
@@ -255,7 +259,7 @@ void CRssReader::GetNewsItems(tinyxml2::XMLNode* channelXmlNode, int iFeed)
           // This usually happens in right-to-left languages where they want to
           // specify in the RSS body that the text should be RTL.
           // <title>
-          //  <div dir="RTL">��� ����: ���� �� �����</div>
+          //  <div dir="RTL">פעילות הבינאום, W3C!</div>
           // </title>
           if (htmlText == "div" || htmlText == "span")
             htmlText = childNode->FirstChild()->FirstChild()->Value();
@@ -362,7 +366,7 @@ void CRssReader::UpdateObserver()
   getFeed(feed);
   if (!feed.empty())
   {
-    std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+    std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
     if (m_pObserver) // need to check again when locked to make sure observer wasnt removed
       m_pObserver->OnFeedUpdate(feed);
   }

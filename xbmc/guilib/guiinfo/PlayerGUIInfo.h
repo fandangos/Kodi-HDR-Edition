@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2018 Team Kodi
+ *  Copyright (C) 2012-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -22,11 +22,7 @@ class CApplicationPlayer;
 class CApplicationVolumeHandling;
 class CDataCacheCore;
 
-namespace KODI
-{
-namespace GUILIB
-{
-namespace GUIINFO
+namespace KODI::GUILIB::GUIINFO
 {
 
 class CGUIInfo;
@@ -48,10 +44,20 @@ public:
   CEventStream<PlayerShowInfoChangedEvent>& Events() { return m_events; }
 
   // KODI::GUILIB::GUIINFO::IGUIInfoProvider implementation
-  bool InitCurrentItem(CFileItem *item) override;
-  bool GetLabel(std::string& value, const CFileItem *item, int contextWindow, const CGUIInfo &info, std::string *fallback) const override;
-  bool GetInt(int& value, const CGUIListItem *item, int contextWindow, const CGUIInfo &info) const override;
-  bool GetBool(bool& value, const CGUIListItem *item, int contextWindow, const CGUIInfo &info) const override;
+  bool InitCurrentItem(CFileItem* item) override;
+  bool GetLabel(std::string& value,
+                const CFileItem* item,
+                int contextWindow,
+                const CGUIInfo& info,
+                std::string* fallback) const override;
+  bool GetInt(int& value,
+              const CGUIListItem* item,
+              int contextWindow,
+              const CGUIInfo& info) const override;
+  bool GetBool(bool& value,
+               const CGUIListItem* item,
+               int contextWindow,
+               const CGUIInfo& info) const override;
 
   void SetShowTime(bool showtime) { m_playerShowTime = showtime; }
   void SetShowInfo(bool showinfo);
@@ -79,6 +85,8 @@ private:
                                                        std::time_t duration) const;
   std::vector<std::pair<float, float>> GetChapters(const CDataCacheCore& data,
                                                    std::time_t duration) const;
+  std::vector<std::pair<float, float>> GetBookmarks(const CDataCacheCore& data,
+                                                    std::time_t duration) const;
 
   std::unique_ptr<CFileItem> m_currentItem;
   std::atomic_bool m_playerShowTime{false};
@@ -88,6 +96,4 @@ private:
   CEventSource<PlayerShowInfoChangedEvent> m_events;
 };
 
-} // namespace GUIINFO
-} // namespace GUILIB
-} // namespace KODI
+} // namespace KODI::GUILIB::GUIINFO

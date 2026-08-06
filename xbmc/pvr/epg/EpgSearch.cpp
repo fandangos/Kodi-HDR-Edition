@@ -20,7 +20,7 @@ using namespace PVR;
 
 void CPVREpgSearch::Execute()
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
 
   std::vector<std::shared_ptr<CPVREpgInfoTag>> tags{
       CServiceBroker::GetPVRManager().EpgContainer().GetTags(m_filter.GetEpgSearchData())};
@@ -28,16 +28,11 @@ void CPVREpgSearch::Execute()
 
   // Tags can still contain false positives, for search criteria that cannot be handled via
   // database. So, run extended search filters on what we got from the database.
-  for (auto it = tags.cbegin(); it != tags.cend();)
-  {
-    it = tags.erase(std::remove_if(tags.begin(), tags.end(),
-                                   [this](const std::shared_ptr<const CPVREpgInfoTag>& entry)
-                                   { return !m_filter.FilterEntry(entry); }),
-                    tags.cend());
-  }
+  std::erase_if(tags, [this](const std::shared_ptr<const CPVREpgInfoTag>& entry)
+                { return !m_filter.FilterEntry(entry); });
 
   if (m_filter.ShouldRemoveDuplicates())
-    m_filter.RemoveDuplicates(tags);
+    CPVREpgSearchFilter::RemoveDuplicates(tags);
 
   m_filter.SetLastExecutedDateTime(CDateTime::GetUTCDateTime());
 
@@ -46,6 +41,6 @@ void CPVREpgSearch::Execute()
 
 const std::vector<std::shared_ptr<CPVREpgInfoTag>>& CPVREpgSearch::GetResults() const
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   return m_results;
 }

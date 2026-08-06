@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace tinyxml2
@@ -34,7 +35,7 @@ struct DVDState
   bool sub_enabled = false;
 };
 
-/*! \brief Auxiliar class to serialize/deserialize the dvd state (into/from XML)
+/*! \brief Auxiliary class to serialize/deserialize the dvd state (into/from XML)
 */
 class CDVDStateSerializer
 {

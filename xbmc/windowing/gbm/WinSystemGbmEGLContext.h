@@ -30,41 +30,46 @@ public:
   ~CWinSystemGbmEGLContext() override = default;
 
   bool DestroyWindowSystem() override;
-  bool CreateNewWindow(const std::string& name,
-                       bool fullScreen,
-                       RESOLUTION_INFO& res) override;
+  bool CreateNewWindow(const std::string& name, bool fullScreen, RESOLUTION_INFO& res) override;
   bool DestroyWindow() override;
   void SetDirtyRegions(const CDirtyRegionList& dirtyRegions) override
   {
     m_eglContext.SetDamagedRegions(dirtyRegions);
   }
   int GetBufferAge() override { return m_eglContext.GetBufferAge(); }
+  int GetOutputBitDepth() const override { return m_eglContext.GetConfigAttrib(EGL_RED_SIZE); }
 
   bool BindTextureUploadContext() override;
   bool UnbindTextureUploadContext() override;
   bool HasContext() override;
 
+  bool SetVideoOutput(const VideoPicture* videoPicture) override;
+
 protected:
   CWinSystemGbmEGLContext(EGLenum platform, std::string const& platformExtension)
     : CWinSystemEGL{platform, platformExtension}
-  {}
+  {
+  }
 
   /**
    * Inheriting classes should override InitWindowSystem() without parameters
    * and call this function there with appropriate parameters
    */
   bool InitWindowSystemEGL(EGLint renderableType, EGLint apiType);
+  bool ChooseEGLConfig(EGLint renderableType, int bitDepth = 8);
   virtual bool CreateContext() = 0;
+
+  EGLint m_renderableType{0};
 
   std::unique_ptr<KODI::UTILS::EGL::CEGLFence> m_eglFence;
 
   struct delete_CVaapiProxy
   {
-    void operator()(CVaapiProxy *p) const;
+    void operator()(CVaapiProxy* p) const;
   };
   std::unique_ptr<CVaapiProxy, delete_CVaapiProxy> m_vaapiProxy;
 };
 
-}
-}
-}
+} // namespace GBM
+} // namespace WINDOWING
+} // namespace KODI

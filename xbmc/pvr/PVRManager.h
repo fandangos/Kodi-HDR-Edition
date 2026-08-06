@@ -10,9 +10,9 @@
 
 #include "addons/kodi-dev-kit/include/kodi/c-api/addon-instance/pvr/pvr_general.h"
 #include "interfaces/IAnnouncer.h"
+#include "powermanagement/PowerState.h"
 #include "pvr/PVRComponentRegistration.h"
 #include "pvr/guilib/PVRGUIActionListener.h"
-#include "pvr/settings/PVRSettings.h"
 #include "threads/CriticalSection.h"
 #include "threads/Event.h"
 #include "threads/Thread.h"
@@ -40,6 +40,7 @@ class CPVRManagerJobQueue;
 class CPVRPlaybackState;
 class CPVRRecording;
 class CPVRRecordings;
+class CPVRSettings;
 class CPVRTimers;
 class CPVREpgContainer;
 class CPVREpgInfoTag;
@@ -47,11 +48,9 @@ class CPVREpgInfoTag;
 enum class PVREvent
 {
   // PVR Manager states
-  ManagerError = 0,
   ManagerStopped,
   ManagerStarting,
   ManagerStopping,
-  ManagerInterrupted,
   ManagerStarted,
 
   // Channel events
@@ -93,7 +92,7 @@ enum class PVREvent
   SystemWake,
 };
 
-class CPVRManager : private CThread, public ANNOUNCEMENT::IAnnouncer
+class CPVRManager : private CThread, public ANNOUNCEMENT::IAnnouncer, public CPowerState
 {
 public:
   /*!
@@ -180,7 +179,7 @@ public:
   /*!
    * @brief Init PVRManager.
    */
-  void Init();
+  void Init() const;
 
   /*!
    * @brief Start the PVRManager, which loads all PVR data and starts some threads to update the PVR data.
@@ -205,12 +204,12 @@ public:
   /*!
    * @brief Propagate event on system sleep
    */
-  void OnSleep();
+  void OnSleep() override;
 
   /*!
    * @brief Propagate event on system wake
    */
-  void OnWake();
+  void OnWake() override;
 
   /*!
    * @brief Get the TV database.
@@ -325,10 +324,10 @@ public:
   /*!
    * @brief Signal a connection change of a client
    */
-  void ConnectionStateChange(CPVRClient* client,
+  void ConnectionStateChange(const CPVRClient* client,
                              const std::string& connectString,
                              PVR_CONNECTION_STATE state,
-                             const std::string& message);
+                             const std::string& message) const;
 
   /*!
    * @brief Query the events available for CEventStream
@@ -351,15 +350,13 @@ private:
   /*!
    * @brief Executes "pvrpowermanagement.setwakeupcmd"
    */
-  bool SetWakeupCommand();
+  bool SetWakeupCommand() const;
 
   enum class ManagerState
   {
-    STATE_ERROR = 0,
     STATE_STOPPED,
     STATE_STARTING,
     STATE_STOPPING,
-    STATE_INTERRUPTED,
     STATE_STARTED
   };
 
@@ -398,8 +395,7 @@ private:
    * @param progressHandler The progress handler to use for showing the different stages.
    * @return True if at least one client is known and successfully loaded, false otherwise.
    */
-  bool UpdateComponents(ManagerState stateToCheck,
-                        const std::unique_ptr<CPVRGUIProgressHandler>& progressHandler);
+  bool UpdateComponents(ManagerState stateToCheck, CPVRGUIProgressHandler* progressHandler);
 
   /*!
    * @brief Unload all PVR data (recordings, timers, channelgroups).
@@ -461,6 +457,10 @@ private:
 
   const std::shared_ptr<CPVRPlaybackState> m_playbackState;
   CPVRGUIActionListener m_actionListener;
-  CPVRSettings m_settings;
+  std::unique_ptr<CPVRSettings> m_settings;
+
+  CEvent m_sleepConfirmedEvent{false,
+                               false}; // Event to sync with worker thread on power state transition
+  CEvent m_wakeEvent{true, false}; // event to wake worker thread on power state transition
 };
 } // namespace PVR

@@ -8,22 +8,26 @@
 
 #pragma once
 
+#include "Edl/EdlParser.h"
 #include "cores/Direction.h"
 #include "cores/EdlEdit.h"
 
+#include <chrono>
 #include <memory>
 #include <optional>
-#include <string>
 #include <vector>
 
 class CFileItem;
+class TestParseEditsForEpisode;
 
 class CEdl
 {
 public:
   CEdl();
 
-  bool ReadEditDecisionLists(const CFileItem& fileItem, float fps);
+  bool ReadEditDecisionLists(const CFileItem& fileItem,
+                             float fps,
+                             std::chrono::milliseconds duration);
   void Clear();
 
   /*!
@@ -87,7 +91,7 @@ public:
    * @brief Get the list of EDL cut markers.
    * @return The list of EDL cut markers or an empty vector if no EDL cuts exist.
    * The returned values are accurate with respect to cut durations. I.e. if the file
-   * has multiple cuts, the positions of subsquent cuts are automatically corrected by
+   * has multiple cuts, the positions of subsequent cuts are automatically corrected by
    * substracting the previous cut durations.
   */
   const std::vector<std::chrono::milliseconds> GetCutMarkers() const;
@@ -152,7 +156,28 @@ public:
   std::optional<std::chrono::milliseconds> GetNextSceneMarker(Direction direction,
                                                               std::chrono::milliseconds clockTime);
 
+  /*!
+   * @brief Resolve the next playable time on the original media timeline.
+   * If the provided time lands inside an edit, or exactly on the start of an
+   * adjacent edit, advance to the end of that edit and keep walking until a
+   * playable point is reached.
+   * @param seekTime The candidate seek time on the original timeline
+   * @return The next playable time on the original timeline
+   */
+  std::chrono::milliseconds GetNextPlayableTime(std::chrono::milliseconds seekTime) const;
+
+  /*!
+   * @brief Resolve the previous playable time on the original media timeline.
+   * If the provided time lands inside an edit, retreat to the start of that edit
+   * and keep walking backward until a playable point is reached.
+   * @param seekTime The candidate seek time on the original timeline
+   * @return The previous playable time on the original timeline
+   */
+  std::chrono::milliseconds GetPrevPlayableTime(std::chrono::milliseconds seekTime) const;
+
 private:
+  friend class TestParseEditsForEpisode;
+
   // total cut time (edl cuts) in ms
   std::chrono::milliseconds m_totalCutTime;
   std::vector<EDL::Edit> m_vecEdits;
@@ -168,11 +193,16 @@ private:
   */
   EDL::Action m_lastEditActionType{EDL::EDL_ACTION_NONE};
 
-  bool ReadEdl(const std::string& mediaFilePath, float fps);
-  bool ReadComskip(const std::string& mediaFilePath, float fps);
-  bool ReadVideoReDo(const std::string& mediaFilePath);
-  bool ReadBeyondTV(const std::string& mediaFilePath);
-  bool ReadPvr(const CFileItem& fileItem);
+  /*!
+   * @brief Process the result from an EDL parser
+   * @param result The parser result containing edits and scene markers
+   * @param multiEpisodeResult Optional multi-episode parser result.
+   * @param duration (Optional) The duration of the media item in ms (used for multi-episode parsing)
+   * @return true if the result was processed successfully
+   */
+  bool ProcessParserResult(const EDL::CEdlParserResult& result,
+                           const EDL::CEdlParserResult& multiEpisodeResult = {},
+                           std::chrono::milliseconds duration = std::chrono::milliseconds(0));
 
   /*!
    * @brief Adds an edit to the list of EDL edits
@@ -190,4 +220,12 @@ private:
    * (currently only for commercial breaks)
   */
   void AddSceneMarkersAtStartAndEndOfEdits();
+
+  /*!
+   * @brief Parse edits if this is a multi-episode file
+   * @param multiEpisodeResult The result from the multi-episode EDL parser, containing episode start/end edits
+   * @param duration The duration of the media item in ms (used for multi-episode parsing)
+  */
+  void ParseEditsForEpisode(const EDL::CEdlParserResult& multiEpisodeResult,
+                            std::chrono::milliseconds duration);
 };

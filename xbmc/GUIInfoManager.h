@@ -18,6 +18,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class CFileItem;
@@ -25,28 +26,22 @@ class CVideoInfoTag;
 
 class CGUIListItem;
 
-namespace KODI
-{
-namespace GAME
+namespace KODI::GAME
 {
 class CGameInfoTag;
 }
-namespace GUILIB
+namespace KODI::GUILIB::GUIINFO
 {
-namespace GUIINFO
-{
-  class CGUIInfo;
-  class IGUIInfoProvider;
-}
-}
-}
+class CGUIInfo;
+class IGUIInfoProvider;
+} // namespace KODI::GUILIB::GUIINFO
 namespace INFO
 {
-  class InfoSingle;
+class InfoSingle;
 }
 namespace MUSIC_INFO
 {
-  class CMusicInfoTag;
+class CMusicInfoTag;
 }
 
 /*!
@@ -78,7 +73,7 @@ public:
    \param context the context window
    \return an identifier used to reference this expression
    */
-  INFO::InfoPtr Register(const std::string &expression, int context = 0);
+  INFO::InfoPtr Register(const std::string& expression, int context = 0);
 
   /*! \brief Unregister a boolean condition/expression
    * This routine allows controls or other clients of the info manager to unregister a previously registered
@@ -88,7 +83,7 @@ public:
   void UnRegister(const INFO::InfoPtr& expression);
 
   /// \brief iterates through boolean conditions and compares their stored values to current values. Returns true if any condition changed value.
-  bool ConditionsChangedValues(const std::map<INFO::InfoPtr, bool>& map);
+  bool ConditionsChangedValues(const std::map<INFO::InfoPtr, bool>& map) const;
 
   /*! \brief Evaluate a boolean expression
    \param expression the expression to evaluate
@@ -100,16 +95,22 @@ public:
                     int context,
                     const std::shared_ptr<CGUIListItem>& item = nullptr);
 
-  int TranslateString(const std::string &strCondition);
-  int TranslateSingleString(const std::string &strCondition, bool &listItemDependent);
+  int TranslateString(const std::string& strCondition);
+  int TranslateSingleString(const std::string& strCondition, bool& listItemDependent);
 
   std::string GetLabel(int info, int contextWindow, std::string* fallback = nullptr) const;
-  std::string GetImage(int info, int contextWindow, std::string *fallback = nullptr);
+  std::string GetImage(int info, int contextWindow, std::string* fallback = nullptr);
   bool GetInt(int& value, int info, int contextWindow, const CGUIListItem* item = nullptr) const;
   bool GetBool(int condition, int contextWindow, const CGUIListItem* item = nullptr);
 
-  std::string GetItemLabel(const CFileItem *item, int contextWindow, int info, std::string *fallback = nullptr) const;
-  std::string GetItemImage(const CGUIListItem *item, int contextWindow, int info, std::string *fallback = nullptr) const;
+  std::string GetItemLabel(const CFileItem* item,
+                           int contextWindow,
+                           int info,
+                           std::string* fallback = nullptr) const;
+  std::string GetItemImage(const CGUIListItem* item,
+                           int contextWindow,
+                           int info,
+                           std::string* fallback = nullptr) const;
   /*! \brief Get integer value of info.
    \param value int reference to pass value of given info
    \param info id of info
@@ -118,18 +119,18 @@ public:
    \return true if given info was handled
    \sa GetItemInt, GetMultiInfoInt
    */
-  bool GetItemInt(int &value, const CGUIListItem *item, int contextWindow, int info) const;
-  bool GetItemBool(const CGUIListItem *item, int contextWindow, int condition) const;
+  bool GetItemInt(int& value, const CGUIListItem* item, int contextWindow, int info) const;
+  bool GetItemBool(const CGUIListItem* item, int contextWindow, int condition) const;
 
   /*! \brief Set currently playing file item
    */
-  void SetCurrentItem(const CFileItem &item);
+  void SetCurrentItem(const CFileItem& item);
   void ResetCurrentItem();
-  void UpdateCurrentItem(const CFileItem &item);
+  void UpdateCurrentItem(const CFileItem& item);
 
   // Current song stuff
-  void SetCurrentAlbumThumb(const std::string &thumbFileName);
-  const MUSIC_INFO::CMusicInfoTag *GetCurrentSongTag() const;
+  void SetCurrentAlbumThumb(const std::string& thumbFileName);
+  const MUSIC_INFO::CMusicInfoTag* GetCurrentSongTag() const;
 
   // Current video stuff
   const CVideoInfoTag* GetCurrentMovieTag() const;
@@ -137,7 +138,7 @@ public:
   // Current game stuff
   const KODI::GAME::CGameInfoTag* GetCurrentGameTag() const;
 
-  void UpdateAVInfo();
+  void UpdateAVInfo() const;
 
   int RegisterSkinVariableString(const INFO::CSkinVariableString* info);
   int TranslateSkinVariableString(const std::string& name, int context);
@@ -145,12 +146,12 @@ public:
   /*! \brief register a guiinfo provider
    \param the guiinfo provider to register
    */
-  void RegisterInfoProvider(KODI::GUILIB::GUIINFO::IGUIInfoProvider *provider);
+  void RegisterInfoProvider(KODI::GUILIB::GUIINFO::IGUIInfoProvider* provider);
 
   /*! \brief unregister a guiinfo provider
    \param the guiinfo provider to unregister
    */
-  void UnregisterInfoProvider(KODI::GUILIB::GUIINFO::IGUIInfoProvider *provider);
+  void UnregisterInfoProvider(KODI::GUILIB::GUIINFO::IGUIInfoProvider* provider);
 
   /*! \brief get access to the registered guiinfo providers
    \return the guiinfo providers
@@ -163,13 +164,15 @@ private:
   class Property
   {
   public:
-    Property(const std::string &property, const std::string &parameters);
+    Property(const std::string& property, const std::string& parameters);
 
-    const std::string &param(unsigned int n = 0) const;
+    const std::string& Name() const { return m_name; }
+
+    const std::string& param(size_t n = 0) const;
     unsigned int num_params() const;
 
-    std::string name;
   private:
+    std::string m_name;
     std::vector<std::string> params;
   };
 
@@ -183,43 +186,63 @@ private:
    \param infoString the original string
    \param info the resulting pairs of info and parameters.
    */
-  void SplitInfoString(const std::string &infoString, std::vector<Property> &info);
+  void SplitInfoString(const std::string& infoString, std::vector<Property>& info) const;
 
-  int TranslateSingleString(const std::string &strCondition);
+  int TranslateSingleString(const std::string& strCondition);
   int TranslateListItem(const Property& cat, const Property& prop, int id, bool container);
-  int TranslateMusicPlayerString(const std::string &info) const;
-  int TranslateVideoPlayerString(const std::string& info) const;
-  int TranslatePlayerString(const std::string& info) const;
-  static TIME_FORMAT TranslateTimeFormat(const std::string &format);
+  int TranslateMusicPlayerString(std::string_view info) const;
+  int TranslateVideoPlayerString(std::string_view info) const;
+  int TranslatePlayerString(std::string_view info) const;
+  static TIME_FORMAT TranslateTimeFormat(const std::string& format);
 
-  std::string GetMultiInfoLabel(const KODI::GUILIB::GUIINFO::CGUIInfo &info, int contextWindow, std::string *fallback = nullptr) const;
-  bool GetMultiInfoInt(int &value, const KODI::GUILIB::GUIINFO::CGUIInfo &info, int contextWindow, const CGUIListItem *item) const;
-  bool GetMultiInfoBool(const KODI::GUILIB::GUIINFO::CGUIInfo &info, int contextWindow, const CGUIListItem *item);
+  std::string GetMultiInfoLabel(const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                                int contextWindow,
+                                std::string* fallback = nullptr) const;
+  bool GetMultiInfoInt(int& value,
+                       const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                       int contextWindow,
+                       const CGUIListItem* item) const;
+  bool GetMultiInfoBool(const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                        int contextWindow,
+                        const CGUIListItem* item);
 
-  std::string GetMultiInfoItemLabel(const CFileItem *item, int contextWindow, const KODI::GUILIB::GUIINFO::CGUIInfo &info, std::string *fallback = nullptr) const;
-  std::string GetMultiInfoItemImage(const CFileItem *item, int contextWindow, const KODI::GUILIB::GUIINFO::CGUIInfo &info, std::string *fallback = nullptr) const;
+  std::string GetMultiInfoItemLabel(const CFileItem* item,
+                                    int contextWindow,
+                                    const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                                    std::string* fallback = nullptr) const;
+  std::string GetMultiInfoItemImage(const CFileItem* item,
+                                    int contextWindow,
+                                    const KODI::GUILIB::GUIINFO::CGUIInfo& info,
+                                    std::string* fallback = nullptr) const;
 
   std::string GetSkinVariableString(int info,
                                     int contextWindow,
                                     bool preferImage = false,
                                     const CGUIListItem* item = nullptr) const;
 
-  int AddMultiInfo(const KODI::GUILIB::GUIINFO::CGUIInfo &info);
+  int AddMultiInfo(const KODI::GUILIB::GUIINFO::CGUIInfo& info);
 
   int ResolveMultiInfo(int info) const;
   bool IsListItemInfo(int info) const;
 
-  void SetCurrentSongTag(const MUSIC_INFO::CMusicInfoTag &tag);
-  void SetCurrentVideoTag(const CVideoInfoTag &tag);
+  void SetCurrentSongTag(const MUSIC_INFO::CMusicInfoTag& tag);
+  void SetCurrentVideoTag(const CVideoInfoTag& tag);
 
   // Vector of multiple information mapped to a single integer lookup
   std::vector<KODI::GUILIB::GUIINFO::CGUIInfo> m_multiInfo;
 
   // Current playing stuff
-  CFileItem* m_currentFile;
+  std::unique_ptr<CFileItem> m_currentFile;
 
-  typedef std::set<INFO::InfoPtr, bool(*)(const INFO::InfoPtr&, const INFO::InfoPtr&)> INFOBOOLTYPE;
-  INFOBOOLTYPE m_bools;
+  using INFOBOOLTYPE =
+      std::set<INFO::InfoPtr, bool (*)(const INFO::InfoPtr&, const INFO::InfoPtr&)>;
+
+  static bool InfoBoolComparator(const INFO::InfoPtr& right, const INFO::InfoPtr& left)
+  {
+    return *right < *left;
+  }
+
+  INFOBOOLTYPE m_bools{&CGUIInfoManager::InfoBoolComparator};
   unsigned int m_refreshCounter = 0;
   std::vector<INFO::CSkinVariableString> m_skinVariableStrings;
 

@@ -13,6 +13,7 @@
 #include "cores/AudioEngine/Utils/AEUtil.h"
 #include "utils/log.h"
 
+#include <algorithm>
 #include <mutex>
 
 using namespace ActiveAE;
@@ -54,19 +55,19 @@ CActiveAEStream::CActiveAEStream(AEAudioFormat* format, unsigned int streamid, C
 
 void CActiveAEStream::IncFreeBuffers()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   m_streamFreeBuffers++;
 }
 
 void CActiveAEStream::DecFreeBuffers()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   m_streamFreeBuffers--;
 }
 
 void CActiveAEStream::ResetFreeBuffers()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   m_streamFreeBuffers = 0;
 }
 
@@ -178,7 +179,13 @@ double CActiveAEStream::CalcResampleRatio(double error)
   if (fabs(error) > 1000)
     m_resampleIntegral = 0;
   else if (fabs(error) > 5)
-    m_resampleIntegral += error / 1000 / 50;
+  {
+    // Limit the correction sum to +/-0.04 to prevent over-correction during large fixes
+    // This stops the system from swinging too far the other way after a big sync gap.
+    constexpr double MAX_RESAMPLE_INTEGRAL = 0.04;
+    m_resampleIntegral = std::clamp(m_resampleIntegral + error / 1000 / 50, -MAX_RESAMPLE_INTEGRAL,
+                                    MAX_RESAMPLE_INTEGRAL);
+  }
 
   double proportional = 0.0;
 
@@ -203,15 +210,23 @@ double CActiveAEStream::CalcResampleRatio(double error)
 std::chrono::milliseconds CActiveAEStream::GetErrorInterval()
 {
   std::chrono::milliseconds ret = m_errorInterval;
-  double rr = m_processingBuffers->GetRR();
+
+  // If atempo is active, we don't want to slow down the sync checks.
+  // The normal 3x wait is meant to keep standard resampling smooth,
+  // but for Atempo it just makes sync recovery take too long.
+  if (m_processingBuffers->IsAtempoActive())
+    return ret;
+
+  const double rr = m_processingBuffers->GetRR();
   if (rr > 1.02 || rr < 0.98)
     ret *= 3;
+
   return ret;
 }
 
 unsigned int CActiveAEStream::GetSpace()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   if (m_format.m_dataFormat == AE_FMT_RAW)
     return m_streamFreeBuffers;
   else
@@ -285,7 +300,7 @@ unsigned int CActiveAEStream::AddData(const uint8_t* const *data, unsigned int o
 
       bool rawPktComplete = false;
       {
-        std::unique_lock<CCriticalSection> lock(m_statsLock);
+        std::unique_lock lock(m_statsLock);
         if (m_format.m_dataFormat != AE_FMT_RAW)
         {
           m_currentBuffer->pkt->nb_samples += minFrames;
@@ -352,7 +367,7 @@ CAESyncInfo CActiveAEStream::GetSyncInfo()
 
 bool CActiveAEStream::IsBuffering()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   return m_streamIsBuffering;
 }
 
@@ -444,13 +459,13 @@ void CActiveAEStream::Drain(bool wait)
 
 bool CActiveAEStream::IsDraining()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   return m_streamDraining;
 }
 
 bool CActiveAEStream::IsDrained()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   return m_streamDrained;
 }
 
@@ -533,7 +548,7 @@ void CActiveAEStream::FadeVolume(float from, float target, unsigned int time)
 
 bool CActiveAEStream::IsFading()
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   return m_streamFading;
 }
 
@@ -567,7 +582,7 @@ void CActiveAEStream::UnRegisterAudioCallback()
 
 void CActiveAEStream::RegisterSlave(IAEStream *slave)
 {
-  std::unique_lock<CCriticalSection> lock(m_streamLock);
+  std::unique_lock lock(m_streamLock);
   m_streamSlave = slave;
 }
 
@@ -778,4 +793,9 @@ bool CActiveAEStreamBuffers::HasWork()
     return true;
 
   return false;
+}
+
+bool CActiveAEStreamBuffers::IsAtempoActive() const
+{
+  return m_atempoBuffers && m_atempoBuffers->GetTempo() != 1.0f;
 }

@@ -10,9 +10,11 @@
 
 #include "ServiceBroker.h"
 #include "addons/Skin.h"
-#include "guilib/LocalizeStrings.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/guiinfo/GUIInfo.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/SkinSettings.h"
@@ -21,14 +23,18 @@
 
 using namespace KODI::GUILIB::GUIINFO;
 
-bool CSkinGUIInfo::InitCurrentItem(CFileItem *item)
+bool CSkinGUIInfo::InitCurrentItem(CFileItem* item)
 {
   return false;
 }
 
-bool CSkinGUIInfo::GetLabel(std::string& value, const CFileItem *item, int contextWindow, const CGUIInfo &info, std::string *fallback) const
+bool CSkinGUIInfo::GetLabel(std::string& value,
+                            const CFileItem* item,
+                            int contextWindow,
+                            const CGUIInfo& info,
+                            std::string* fallback) const
 {
-  switch (info.m_info)
+  switch (info.GetInfo())
   {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // SKIN_*
@@ -38,7 +44,7 @@ bool CSkinGUIInfo::GetLabel(std::string& value, const CFileItem *item, int conte
       bool bInfo = CSkinSettings::GetInstance().GetBool(info.GetData1());
       if (bInfo)
       {
-        value = g_localizeStrings.Get(20122); // True
+        value = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20122); // True
         return true;
       }
       break;
@@ -50,41 +56,51 @@ bool CSkinGUIInfo::GetLabel(std::string& value, const CFileItem *item, int conte
     }
     case SKIN_THEME:
     {
-      value = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_LOOKANDFEEL_SKINTHEME);
+      value = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+          CSettings::SETTING_LOOKANDFEEL_SKINTHEME);
       return true;
     }
     case SKIN_COLOUR_THEME:
     {
-      value = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_LOOKANDFEEL_SKINCOLORS);
+      value = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+          CSettings::SETTING_LOOKANDFEEL_SKINCOLORS);
       return true;
     }
     case SKIN_ASPECT_RATIO:
     {
-      if (g_SkinInfo)
+      auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+      if (skin)
       {
-        value = g_SkinInfo->GetCurrentAspect();
+        value = skin->GetCurrentAspect();
         return true;
       }
       break;
     }
     case SKIN_FONT:
     {
-      value = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_LOOKANDFEEL_FONT);
+      value = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+          CSettings::SETTING_LOOKANDFEEL_FONT);
       return true;
     }
     case SKIN_TIMER_ELAPSEDSECS:
     {
-      value = std::to_string(g_SkinInfo->GetTimerElapsedSeconds(info.GetData3()));
+      auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+      value = std::to_string(skin ? skin->GetTimerElapsedSeconds(info.GetData3()) : 0.0f);
       return true;
     }
+    default:
+      break;
   }
 
   return false;
 }
 
-bool CSkinGUIInfo::GetInt(int& value, const CGUIListItem *gitem, int contextWindow, const CGUIInfo &info) const
+bool CSkinGUIInfo::GetInt(int& value,
+                          const CGUIListItem* gitem,
+                          int contextWindow,
+                          const CGUIInfo& info) const
 {
-  switch (info.m_info)
+  switch (info.GetInfo())
   {
     case SKIN_INTEGER:
     {
@@ -93,16 +109,22 @@ bool CSkinGUIInfo::GetInt(int& value, const CGUIListItem *gitem, int contextWind
     }
     case SKIN_TIMER_ELAPSEDSECS:
     {
-      value = g_SkinInfo->GetTimerElapsedSeconds(info.GetData3());
+      auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+      value = skin ? skin->GetTimerElapsedSeconds(info.GetData3()) : 0;
       return true;
     }
+    default:
+      break;
   }
   return false;
 }
 
-bool CSkinGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int contextWindow, const CGUIInfo &info) const
+bool CSkinGUIInfo::GetBool(bool& value,
+                           const CGUIListItem* gitem,
+                           int contextWindow,
+                           const CGUIInfo& info) const
 {
-  switch (info.m_info)
+  switch (info.GetInfo())
   {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // SKIN_*
@@ -114,7 +136,8 @@ bool CSkinGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int contextWi
     }
     case SKIN_STRING_IS_EQUAL:
     {
-      value = StringUtils::EqualsNoCase(CSkinSettings::GetInstance().GetString(info.GetData1()), info.GetData3());
+      value = StringUtils::EqualsNoCase(CSkinSettings::GetInstance().GetString(info.GetData1()),
+                                        info.GetData3());
       return true;
     }
     case SKIN_STRING:
@@ -124,16 +147,20 @@ bool CSkinGUIInfo::GetBool(bool& value, const CGUIListItem *gitem, int contextWi
     }
     case SKIN_HAS_THEME:
     {
-      std::string theme = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_LOOKANDFEEL_SKINTHEME);
+      std::string theme = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+          CSettings::SETTING_LOOKANDFEEL_SKINTHEME);
       URIUtils::RemoveExtension(theme);
       value = StringUtils::EqualsNoCase(theme, info.GetData3());
       return true;
     }
     case SKIN_TIMER_IS_RUNNING:
     {
-      value = g_SkinInfo->TimerIsRunning(info.GetData3());
+      auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+      value = skin ? skin->TimerIsRunning(info.GetData3()) : false;
       return true;
     }
+    default:
+      break;
   }
 
   return false;

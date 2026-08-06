@@ -15,21 +15,23 @@
 #include "application/Application.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "music/MusicFileItemClassify.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/PlayerUtils.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "video/VideoFileItemClassify.h"
 #include "video/VideoInfoTag.h"
+#include "video/VideoLibraryQueue.h"
 #include "video/VideoManagerTypes.h"
 #include "video/VideoUtils.h"
 #include "video/dialogs/GUIDialogVideoInfo.h"
 #include "video/guilib/VideoGUIUtils.h"
 #include "video/guilib/VideoPlayActionProcessor.h"
 #include "video/guilib/VideoSelectActionProcessor.h"
-#include "video/guilib/VideoVersionHelper.h"
 
 #include <utility>
 
@@ -65,8 +67,11 @@ bool CVideoInfo::IsVisible(const CFileItem& item) const
   if (CVideoInfoBase::IsVisible(item))
     return true;
 
-  if (item.m_bIsFolder)
+  if (item.IsFolder())
     return false;
+
+  if (item.IsPVRRecording())
+    return false; // pvr recordings have its own implementation for this
 
   const auto* tag{item.GetVideoInfoTag()};
   return tag && tag->m_type == MediaTypeNone && !tag->IsEmpty() && VIDEO::IsVideo(item);
@@ -79,7 +84,7 @@ bool CVideoRemoveResumePoint::IsVisible(const CFileItem& itemIn) const
     return false;
 
   // Folders don't have a resume point
-  return !item.m_bIsFolder && VIDEO::UTILS::GetItemResumeInformation(item).isResumable;
+  return !item.IsFolder() && VIDEO::UTILS::GetItemResumeInformation(item).isResumable;
 }
 
 bool CVideoRemoveResumePoint::Execute(const std::shared_ptr<CFileItem>& item) const
@@ -93,22 +98,33 @@ bool CVideoMarkWatched::IsVisible(const CFileItem& item) const
   if (item.IsDeleted()) // e.g. trashed pvr recording
     return false;
 
-  if (item.m_bIsFolder && item.IsPlugin()) // we cannot manage plugin folder's watched state
+  if (item.IsFolder() && item.IsPlugin()) // we cannot manage plugin folder's watched state
     return false;
 
-  if (item.m_bIsFolder) // Only allow video db content, video and recording folders to be updated recursively
+  if (item.IsFolder())
   {
-    if (item.HasVideoInfoTag())
-      return VIDEO::IsVideoDb(item);
+    if (item.HasProperty("watchedepisodes") && item.HasProperty("totalepisodes"))
+    {
+      return item.GetProperty("watchedepisodes").asInteger() <
+             item.GetProperty("totalepisodes").asInteger();
+    }
+    else if (item.HasProperty("watched") && item.HasProperty("total"))
+    {
+      return item.GetProperty("watched").asInteger() < item.GetProperty("total").asInteger();
+    }
+    else if (VIDEO::IsVideoDb(item))
+      return true;
+    else if (StringUtils::StartsWithNoCase(item.GetPath(), "library://video/"))
+      return true;
     else if (item.GetProperty("IsVideoFolder").asBoolean())
       return true;
     else
       return !item.IsParentFolder() && URIUtils::IsPVRRecordingFileOrFolder(item.GetPath());
   }
-  else if (!item.HasVideoInfoTag())
-    return false;
-
-  return item.GetVideoInfoTag()->GetPlayCount() == 0;
+  else if (item.HasVideoInfoTag())
+    return item.GetVideoInfoTag()->GetPlayCount() <= 0;
+  else
+    return VIDEO::IsVideo(item);
 }
 
 bool CVideoMarkWatched::Execute(const std::shared_ptr<CFileItem>& item) const
@@ -122,22 +138,32 @@ bool CVideoMarkUnWatched::IsVisible(const CFileItem& item) const
   if (item.IsDeleted()) // e.g. trashed pvr recording
     return false;
 
-  if (item.m_bIsFolder && item.IsPlugin()) // we cannot manage plugin folder's watched state
+  if (item.IsFolder() && item.IsPlugin()) // we cannot manage plugin folder's watched state
     return false;
 
-  if (item.m_bIsFolder) // Only allow video db content, video and recording folders to be updated recursively
+  if (item.IsFolder())
   {
-    if (item.HasVideoInfoTag())
-      return VIDEO::IsVideoDb(item);
+    if (item.HasProperty("watchedepisodes"))
+    {
+      return item.GetProperty("watchedepisodes").asInteger() > 0;
+    }
+    else if (item.HasProperty("watched"))
+    {
+      return item.GetProperty("watched").asInteger() > 0;
+    }
+    else if (VIDEO::IsVideoDb(item))
+      return true;
+    else if (StringUtils::StartsWithNoCase(item.GetPath(), "library://video/"))
+      return true;
     else if (item.GetProperty("IsVideoFolder").asBoolean())
       return true;
     else
       return !item.IsParentFolder() && URIUtils::IsPVRRecordingFileOrFolder(item.GetPath());
   }
-  else if (!item.HasVideoInfoTag())
+  else if (item.HasVideoInfoTag())
+    return item.GetVideoInfoTag()->GetPlayCount() > 0;
+  else
     return false;
-
-  return item.GetVideoInfoTag()->GetPlayCount() > 0;
 }
 
 bool CVideoMarkUnWatched::Execute(const std::shared_ptr<CFileItem>& item) const
@@ -148,7 +174,7 @@ bool CVideoMarkUnWatched::Execute(const std::shared_ptr<CFileItem>& item) const
 
 bool CVideoBrowse::IsVisible(const CFileItem& item) const
 {
-  return ((item.m_bIsFolder || item.IsFileFolder(FileFolderType::MASK_ONBROWSE)) &&
+  return ((item.IsFolder() || item.IsFileFolder(FileFolderType::MASK_ONBROWSE)) &&
           VIDEO::UTILS::IsItemPlayable(item));
 }
 
@@ -181,26 +207,6 @@ bool CVideoBrowse::Execute(const std::shared_ptr<CFileItem>& item) const
   return true;
 }
 
-bool CVideoChooseVersion::IsVisible(const CFileItem& item) const
-{
-  return item.HasVideoVersions() &&
-         !CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-             CSettings::SETTING_VIDEOLIBRARY_SHOWVIDEOVERSIONSASFOLDER) &&
-         !VIDEO::IsVideoAssetFile(item);
-}
-
-bool CVideoChooseVersion::Execute(const std::shared_ptr<CFileItem>& item) const
-{
-  // force selection dialog, regardless of any settings like 'Select default video version'
-  item->SetProperty("needs_resolved_video_asset", true);
-  item->SetProperty("video_asset_type", static_cast<int>(VideoAssetType::VERSION));
-  KODI::VIDEO::GUILIB::CVideoSelectActionProcessor proc{item};
-  const bool ret = proc.ProcessDefaultAction();
-  item->ClearProperty("needs_resolved_video_asset");
-  item->ClearProperty("video_asset_type");
-  return ret;
-}
-
 std::string CVideoResume::GetLabel(const CFileItem& item) const
 {
   return VIDEO::UTILS::GetResumeString(item.GetItemToPlay());
@@ -221,14 +227,12 @@ enum class PlayMode
 {
   PLAY,
   PLAY_USING,
-  PLAY_VERSION_USING,
+  PLAY_STACK_PART,
   RESUME,
 };
 
 void SetPathAndPlay(const std::shared_ptr<CFileItem>& item, PlayMode mode)
 {
-  item->SetProperty("check_resume", false);
-
   if (item->IsLiveTV()) // pvr tv or pvr radio?
   {
     g_application.PlayMedia(*item, "", PLAYLIST::Id::TYPE_VIDEO);
@@ -238,7 +242,7 @@ void SetPathAndPlay(const std::shared_ptr<CFileItem>& item, PlayMode mode)
     const auto itemCopy{std::make_shared<CFileItem>(*item)};
     if (VIDEO::IsVideoDb(*itemCopy))
     {
-      if (!itemCopy->m_bIsFolder)
+      if (!itemCopy->IsFolder())
       {
         itemCopy->SetProperty("original_listitem_url", item->GetPath());
         itemCopy->SetPath(item->GetVideoInfoTag()->m_strFileNameAndPath);
@@ -246,28 +250,21 @@ void SetPathAndPlay(const std::shared_ptr<CFileItem>& item, PlayMode mode)
       else if (itemCopy->HasVideoInfoTag() && itemCopy->GetVideoInfoTag()->IsDefaultVideoVersion())
       {
         //! @todo get rid of "videos with versions as folder" hack!
-        itemCopy->m_bIsFolder = false;
+        itemCopy->SetFolder(false);
       }
     }
 
-    if (mode == PlayMode::PLAY_VERSION_USING)
-    {
-      // force video version selection dialog
-      itemCopy->SetProperty("needs_resolved_video_asset", true);
-    }
-    else
-    {
-      // play the given/default video version, if multiple versions are available
-      itemCopy->SetProperty("has_resolved_video_asset", true);
-    }
-
     KODI::VIDEO::GUILIB::CVideoPlayActionProcessor proc{itemCopy};
-    if (mode == PlayMode::PLAY_USING || mode == PlayMode::PLAY_VERSION_USING)
+    if (mode == PlayMode::PLAY_USING)
       proc.SetChoosePlayer();
+    else if (mode == PlayMode::PLAY_STACK_PART)
+      proc.SetChooseStackPart();
 
     if (mode == PlayMode::RESUME && (itemCopy->GetStartOffset() == STARTOFFSET_RESUME ||
                                      VIDEO::UTILS::GetItemResumeInformation(*item).isResumable))
       proc.ProcessAction(VIDEO::GUILIB::ACTION_RESUME);
+    else if (mode == PlayMode::PLAY_STACK_PART)
+      proc.ProcessDefaultAction();
     else // all other modes are actually PLAY
       proc.ProcessAction(VIDEO::GUILIB::ACTION_PLAY_FROM_BEGINNING);
   }
@@ -279,7 +276,11 @@ bool CVideoResume::Execute(const std::shared_ptr<CFileItem>& itemIn) const
   const auto item{std::make_shared<CFileItem>(itemIn->GetItemToPlay())};
 #ifdef HAS_OPTICAL_DRIVE
   if (item->IsDVD() || MUSIC::IsCDDA(*item))
-    return MEDIA_DETECT::CAutorun::PlayDisc(item->GetPath(), true, false);
+  {
+    MEDIA_DETECT::PlayDiscOptions options(
+        {.bypassSettings = true, .startFromBeginning = false, .forceSelection = false});
+    return MEDIA_DETECT::CAutorun::PlayDisc(item->GetPath(), options);
+  }
 #endif
 
   item->SetStartOffset(STARTOFFSET_RESUME);
@@ -291,10 +292,12 @@ std::string CVideoPlay::GetLabel(const CFileItem& itemIn) const
 {
   CFileItem item(itemIn.GetItemToPlay());
   if (item.IsLiveTV())
-    return g_localizeStrings.Get(19000); // Switch to channel
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        19000); // Switch to channel
   if (VIDEO::UTILS::GetItemResumeInformation(item).isResumable)
-    return g_localizeStrings.Get(12021); // Play from beginning
-  return g_localizeStrings.Get(208); // Play
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        12021); // Play from beginning
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(208); // Play
 }
 
 bool CVideoPlay::IsVisible(const CFileItem& item) const
@@ -307,7 +310,11 @@ bool CVideoPlay::Execute(const std::shared_ptr<CFileItem>& itemIn) const
   const auto item{std::make_shared<CFileItem>(itemIn->GetItemToPlay())};
 #ifdef HAS_OPTICAL_DRIVE
   if (item->IsDVD() || MUSIC::IsCDDA(*item))
-    return MEDIA_DETECT::CAutorun::PlayDisc(item->GetPath(), true, true);
+  {
+    MEDIA_DETECT::PlayDiscOptions options(
+        {.bypassSettings = true, .startFromBeginning = true, .forceSelection = false});
+    return MEDIA_DETECT::CAutorun::PlayDisc(item->GetPath(), options);
+  }
 #endif
   SetPathAndPlay(item, PlayMode::PLAY);
   return true;
@@ -315,12 +322,6 @@ bool CVideoPlay::Execute(const std::shared_ptr<CFileItem>& itemIn) const
 
 bool CVideoPlayUsing::IsVisible(const CFileItem& item) const
 {
-  if (item.HasVideoVersions() &&
-      !CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-          CSettings::SETTING_VIDEOLIBRARY_SHOWVIDEOVERSIONSASFOLDER) &&
-      !VIDEO::IsVideoAssetFile(item))
-    return false;
-
   if (item.IsLiveTV())
     return false;
 
@@ -334,19 +335,15 @@ bool CVideoPlayUsing::Execute(const std::shared_ptr<CFileItem>& itemIn) const
   return true;
 }
 
-bool CVideoPlayVersionUsing::IsVisible(const CFileItem& item) const
+bool CVideoPlayStackPart::IsVisible(const CFileItem& item) const
 {
-  return item.HasVideoVersions() &&
-         !CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-             CSettings::SETTING_VIDEOLIBRARY_SHOWVIDEOVERSIONSASFOLDER) &&
-         !VIDEO::IsVideoAssetFile(item);
+  return !item.IsParentFolder() && item.IsStack();
 }
 
-bool CVideoPlayVersionUsing::Execute(const std::shared_ptr<CFileItem>& itemIn) const
+bool CVideoPlayStackPart::Execute(const std::shared_ptr<CFileItem>& itemIn) const
 {
   const auto item{std::make_shared<CFileItem>(itemIn->GetItemToPlay())};
-  item->SetProperty("video_asset_type", static_cast<int>(VideoAssetType::VERSION));
-  SetPathAndPlay(item, PlayMode::PLAY_VERSION_USING);
+  SetPathAndPlay(item, PlayMode::PLAY_STACK_PART);
   return true;
 }
 
@@ -419,9 +416,11 @@ bool CVideoPlayNext::Execute(const std::shared_ptr<CFileItem>& item) const
 std::string CVideoPlayAndQueue::GetLabel(const CFileItem& item) const
 {
   if (VIDEO::UTILS::IsAutoPlayNextItem(item))
-    return g_localizeStrings.Get(13434); // Play only this
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        13434); // Play only this
   else
-    return g_localizeStrings.Get(13412); // Play from here
+    return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
+        13412); // Play from here
 }
 
 bool CVideoPlayAndQueue::IsVisible(const CFileItem& item) const
@@ -452,4 +451,20 @@ bool CVideoPlayAndQueue::Execute(const std::shared_ptr<CFileItem>& item) const
 
   return true; //! @todo implement
 }
+
+bool CTVShowScanForNewContent::IsVisible(const CFileItem& item) const
+{
+  return !item.IsParentFolder() && item.HasVideoInfoTag() &&
+         item.GetVideoInfoTag()->m_type == MediaTypeTvShow;
 }
+
+bool CTVShowScanForNewContent::Execute(const std::shared_ptr<CFileItem>& item) const
+{
+  const std::string strPath{VIDEO::IsVideoDb(*item) ? item->GetVideoInfoTag()->m_strPath
+                                                    : item->GetPath()};
+  CVideoLibraryQueue::GetInstance().ScanLibrary(strPath, true /* scanAll */,
+                                                true /* showProgress */);
+  return true;
+}
+
+} // namespace CONTEXTMENU

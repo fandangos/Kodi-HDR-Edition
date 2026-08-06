@@ -62,6 +62,7 @@ set(package_files strings.xml
                   src/interfaces/XBMCNsdManagerRegistrationListener.java
                   src/interfaces/XBMCNsdManagerDiscoveryListener.java
                   src/interfaces/XBMCMediaDrmOnEventListener.java
+                  src/interfaces/XBMCMediaDrmOnKeyStatusChangeListener.java
                   src/interfaces/XBMCDisplayManagerDisplayListener.java
                   src/interfaces/XBMCSpeechRecognitionListener.java
                   src/interfaces/XBMCConnectivityManagerNetworkCallback.java
@@ -77,7 +78,6 @@ set(package_files strings.xml
                   src/content/XBMCFileProvider.java
                   src/content/XBMCMediaContentProvider.java
                   src/content/XBMCContentProvider.java
-                  src/content/XBMCYTDLContentProvider.java
                   src/util/Storage.java
                   )
 foreach(file IN LISTS package_files)

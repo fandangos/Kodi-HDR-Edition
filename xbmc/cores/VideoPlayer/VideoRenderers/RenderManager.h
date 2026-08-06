@@ -23,11 +23,21 @@
 #include <atomic>
 #include <deque>
 #include <list>
-#include <map>
+#include <memory>
 
 #include "PlatformDefs.h"
 
-class CRenderCapture;
+namespace KODI
+{
+namespace RENDERING
+{
+namespace CAPTURE
+{
+class CCaptureBlit;
+}
+} // namespace RENDERING
+} // namespace KODI
+
 struct VideoPicture;
 
 class CWinRenderer;
@@ -65,7 +75,7 @@ public:
   void FrameMove();
   void FrameWait(std::chrono::milliseconds duration);
   void Render(bool clear, DWORD flags = 0, DWORD alpha = 255, bool gui = true);
-  bool IsVideoLayer();
+
   RESOLUTION GetResolution();
   void UpdateResolution();
   void TriggerUpdateResolution(float fps, int width, int height, std::string &stereomode);
@@ -85,11 +95,6 @@ public:
    */
   void SetSubtitleVerticalPosition(const int value, bool save);
 
-  unsigned int AllocRenderCapture();
-  void ReleaseRenderCapture(unsigned int captureId);
-  void StartRenderCapture(unsigned int captureId, unsigned int width, unsigned int height, int flags);
-  bool RenderCaptureGetPixels(unsigned int captureId, unsigned int millis, uint8_t *buffer, unsigned int size);
-
   // Functions called from GUI
   bool Supports(ERENDERFEATURE feature) const;
   bool Supports(ESCALINGMETHOD method) const;
@@ -100,6 +105,16 @@ public:
   bool AddVideoPicture(const VideoPicture& picture, volatile std::atomic_bool& bStop, EINTERLACEMETHOD deintMethod, bool wait);
   void AddOverlay(std::shared_ptr<CDVDOverlay> o, double pts);
   void ShowVideo(bool enable);
+
+  /*!
+   * \brief True if any subtitle/overlay is visible on the current presented
+   *  frame. Per-frame accurate. See OVERLAY::CRenderer::HasVisibleOverlay
+   *  for the libass vs PGS/DVB/SPU details.
+   *
+   *  Must be called after CRenderManager::FrameMove has run this frame
+   *  (which calls PrepareOverlays). Reads cached state; cheap.
+   */
+  bool HasVisibleOverlay() const { return m_overlays.HasVisibleOverlay(m_presentsource); }
 
   /**
    * If player uses buffering it has to wait for a buffer before it calls
@@ -117,7 +132,7 @@ public:
   bool GetStats(int &lateframes, double &pts, int &queued, int &discard);
 
   /**
-   * Video player call this on flush in oder to discard any queued frames
+   * Video player call this on flush in order to discard any queued frames
    */
   void DiscardBuffer();
 
@@ -139,12 +154,16 @@ protected:
   bool Configure();
   void CreateRenderer();
   void DeleteRenderer();
-  void ManageCaptures();
+
+  //! Video-only tap: serve VIDEO capture requests from the just-presented frame.
+  void ServiceVideoCaptures();
 
   void UpdateLatencyTweak();
   void CheckEnableClockSync();
 
   CBaseRenderer *m_pRenderer = nullptr;
+  //! Owns the video tap's private FBO; render-thread only, reset in UnInit
+  std::unique_ptr<KODI::RENDERING::CAPTURE::CCaptureBlit> m_captureBlit;
   OVERLAY::CRenderer m_overlays;
   CDebugRenderer m_debugRenderer;
   mutable CCriticalSection m_statelock;
@@ -152,7 +171,7 @@ protected:
   CCriticalSection m_datalock;
   bool m_bTriggerUpdateResolution = false;
   bool m_bRenderGUI = true;
-  bool m_renderedOverlay = false;
+  bool m_renderedDebugOverlay = false;
   bool m_renderDebug = false;
   bool m_renderDebugVideo = false;
   XbmcThreads::EndTime<> m_debugTimer;
@@ -233,14 +252,4 @@ protected:
     bool m_enabled;
   };
   CClockSync m_clockSync;
-
-  void RenderCapture(CRenderCapture* capture);
-  void RemoveCaptures();
-  CCriticalSection m_captCritSect;
-  std::map<unsigned int, CRenderCapture*> m_captures;
-  static unsigned int m_nextCaptureId;
-  unsigned int m_captureWaitCounter = 0;
-  //set to true when adding something to m_captures, set to false when m_captures is made empty
-  //std::list::empty() isn't thread safe, using an extra bool will save a lock per render when no captures are requested
-  bool m_hasCaptures = false;
 };

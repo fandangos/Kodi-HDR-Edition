@@ -40,8 +40,9 @@ public:
 
 private:
     bool InitializeExclusive(AEAudioFormat &format);
-    static void BuildWaveFormatExtensibleIEC61397(AEAudioFormat &format, WAVEFORMATEXTENSIBLE_IEC61937 &wfxex);
-    bool IsUSBDevice();
+    static void BuildWaveFormatExtensibleIEC61397(AEAudioFormat& format,
+                                                  WAVEFORMATEXTENSIBLE_IEC61937& wfxex);
+    void WriteLastBuffer();
 
     HANDLE m_needDataEvent{0};
     IAEWASAPIDevice* m_pDevice{nullptr};
@@ -55,22 +56,20 @@ private:
     CAEChannelInfo m_channelLayout;
     std::string m_device;
 
-    enum AEDataFormat sinkReqFormat = AE_FMT_INVALID;
-    enum AEDataFormat sinkRetFormat = AE_FMT_INVALID;
-
     bool m_running{false};
     bool m_initialized{false};
     bool m_isSuspended{false}; // sink is in a suspended state - release audio device
     bool m_isDirty{false}; // sink output failed - needs re-init or new device
 
     // time between next buffer of data from SoftAE and driver call for data
-    double m_avgTimeWaiting{50.0};
+    double m_avgTimeWaiting{20.0};
     double m_sinkLatency{0.0}; // time in seconds of total duration of the two WASAPI buffers
 
-    unsigned int m_uiBufferLen{0}; // wasapi endpoint buffer size, in frames
     uint64_t m_sinkFrames{0};
     uint64_t m_clockFreq{0};
 
     std::vector<uint8_t> m_buffer;
     int m_bufferPtr{0};
+
+    LARGE_INTEGER m_timerFreq{}; // performance counter frequency
 };

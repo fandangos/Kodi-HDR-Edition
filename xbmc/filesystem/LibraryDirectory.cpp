@@ -12,6 +12,7 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "GUIInfoManager.h"
+#include "ServiceBroker.h"
 #include "SmartPlaylistDirectory.h"
 #include "URL.h"
 #include "guilib/GUIControlFactory.h" // for label parsing
@@ -95,7 +96,7 @@ bool CLibraryDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   {
     const TiXmlElement *node = NULL;
     std::string xml = nodes[i]->GetPath();
-    if (nodes[i]->m_bIsFolder)
+    if (nodes[i]->IsFolder())
       node = LoadXML(URIUtils::AddFileToFolder(xml, "index.xml"));
     else
     {
@@ -126,11 +127,11 @@ bool CLibraryDirectory::GetDirectory(const CURL& url, CFileItemList &items)
       item->SetLabel(label);
       if (!icon.empty() && CServiceBroker::GetGUI()->GetTextureManager().HasTexture(icon))
         item->SetArt("icon", icon);
-      item->m_iprogramCount = order;
+      item->SetProgramCount(order);
       items.Add(item);
     }
   }
-  items.Sort(SortByPlaylistOrder, SortOrderAscending);
+  items.Sort(SortBy::PLAYLIST_ORDER, SortOrder::ASCENDING);
   return true;
 }
 

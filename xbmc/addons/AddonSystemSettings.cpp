@@ -16,35 +16,38 @@
 #include "addons/addoninfo/AddonType.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "messaging/helpers/DialogOKHelper.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
+#include "utils/Map.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
+namespace
+{
+constexpr auto activeSettings = make_map<ADDON::AddonType, const char*>({
+    {ADDON::AddonType::AUDIOENCODER, CSettings::SETTING_AUDIOCDS_ENCODER},
+    {ADDON::AddonType::RESOURCE_LANGUAGE, CSettings::SETTING_LOCALE_LANGUAGE},
+    {ADDON::AddonType::RESOURCE_UISOUNDS, CSettings::SETTING_LOOKANDFEEL_SOUNDSKIN},
+    {ADDON::AddonType::SCRAPER_ALBUMS, CSettings::SETTING_MUSICLIBRARY_ALBUMSSCRAPER},
+    {ADDON::AddonType::SCRAPER_ARTISTS, CSettings::SETTING_MUSICLIBRARY_ARTISTSSCRAPER},
+    {ADDON::AddonType::SCRAPER_MOVIES, CSettings::SETTING_SCRAPERS_MOVIESDEFAULT},
+    {ADDON::AddonType::SCRAPER_MUSICVIDEOS, CSettings::SETTING_SCRAPERS_MUSICVIDEOSDEFAULT},
+    {ADDON::AddonType::SCRAPER_TVSHOWS, CSettings::SETTING_SCRAPERS_TVSHOWSDEFAULT},
+    {ADDON::AddonType::SCREENSAVER, CSettings::SETTING_SCREENSAVER_MODE},
+    {ADDON::AddonType::SCRIPT_WEATHER, CSettings::SETTING_WEATHER_ADDON},
+    {ADDON::AddonType::SKIN, CSettings::SETTING_LOOKANDFEEL_SKIN},
+    {ADDON::AddonType::WEB_INTERFACE, CSettings::SETTING_SERVICES_WEBSKIN},
+    {ADDON::AddonType::VISUALIZATION, CSettings::SETTING_MUSICPLAYER_VISUALISATION},
+});
+}
+
 namespace ADDON
 {
-
-CAddonSystemSettings::CAddonSystemSettings()
-  : m_activeSettings{
-        {AddonType::AUDIOENCODER, CSettings::SETTING_AUDIOCDS_ENCODER},
-        {AddonType::RESOURCE_LANGUAGE, CSettings::SETTING_LOCALE_LANGUAGE},
-        {AddonType::RESOURCE_UISOUNDS, CSettings::SETTING_LOOKANDFEEL_SOUNDSKIN},
-        {AddonType::SCRAPER_ALBUMS, CSettings::SETTING_MUSICLIBRARY_ALBUMSSCRAPER},
-        {AddonType::SCRAPER_ARTISTS, CSettings::SETTING_MUSICLIBRARY_ARTISTSSCRAPER},
-        {AddonType::SCRAPER_MOVIES, CSettings::SETTING_SCRAPERS_MOVIESDEFAULT},
-        {AddonType::SCRAPER_MUSICVIDEOS, CSettings::SETTING_SCRAPERS_MUSICVIDEOSDEFAULT},
-        {AddonType::SCRAPER_TVSHOWS, CSettings::SETTING_SCRAPERS_TVSHOWSDEFAULT},
-        {AddonType::SCREENSAVER, CSettings::SETTING_SCREENSAVER_MODE},
-        {AddonType::SCRIPT_WEATHER, CSettings::SETTING_WEATHER_ADDON},
-        {AddonType::SKIN, CSettings::SETTING_LOOKANDFEEL_SKIN},
-        {AddonType::WEB_INTERFACE, CSettings::SETTING_SERVICES_WEBSKIN},
-        {AddonType::VISUALIZATION, CSettings::SETTING_MUSICPLAYER_VISUALISATION},
-    }
-{}
 
 CAddonSystemSettings& CAddonSystemSettings::GetInstance()
 {
@@ -69,10 +72,11 @@ void CAddonSystemSettings::OnSettingAction(const std::shared_ptr<const CSetting>
     using namespace KODI::MESSAGING::HELPERS;
 
     const auto removedItems = CAddonInstaller::GetInstance().RemoveOrphanedDepsRecursively();
-    if (removedItems.size() > 0)
+    if (!removedItems.empty())
     {
-      const auto message =
-          StringUtils::Format(g_localizeStrings.Get(36641), StringUtils::Join(removedItems, ", "));
+      const auto message = StringUtils::Format(
+          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(36641),
+          StringUtils::Join(removedItems, ", "));
 
       ShowOKDialogText(CVariant{36640}, CVariant{message}); // "following orphaned were removed..."
     }
@@ -96,10 +100,10 @@ void CAddonSystemSettings::OnSettingChanged(const std::shared_ptr<const CSetting
   }
 }
 
-bool CAddonSystemSettings::GetActive(AddonType type, AddonPtr& addon)
+bool CAddonSystemSettings::GetActive(AddonType type, AddonPtr& addon) const
 {
-  auto it = m_activeSettings.find(type);
-  if (it != m_activeSettings.end())
+  auto it = activeSettings.find(type);
+  if (it != activeSettings.end())
   {
     auto settingValue = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(it->second);
     return CServiceBroker::GetAddonMgr().GetAddon(settingValue, addon, type,
@@ -108,10 +112,10 @@ bool CAddonSystemSettings::GetActive(AddonType type, AddonPtr& addon)
   return false;
 }
 
-bool CAddonSystemSettings::SetActive(AddonType type, const std::string& addonID)
+bool CAddonSystemSettings::SetActive(AddonType type, const std::string& addonID) const
 {
-  auto it = m_activeSettings.find(type);
-  if (it != m_activeSettings.end())
+  auto it = activeSettings.find(type);
+  if (it != activeSettings.end())
   {
     CServiceBroker::GetSettingsComponent()->GetSettings()->SetString(it->second, addonID);
     return true;
@@ -119,16 +123,16 @@ bool CAddonSystemSettings::SetActive(AddonType type, const std::string& addonID)
   return false;
 }
 
-bool CAddonSystemSettings::IsActive(const IAddon& addon)
+bool CAddonSystemSettings::IsActive(const IAddon& addon) const
 {
   AddonPtr active;
   return GetActive(addon.Type(), active) && active->ID() == addon.ID();
 }
 
-bool CAddonSystemSettings::UnsetActive(const AddonInfoPtr& addon)
+bool CAddonSystemSettings::UnsetActive(const AddonInfoPtr& addon) const
 {
-  auto it = m_activeSettings.find(addon->MainType());
-  if (it == m_activeSettings.end())
+  auto it = activeSettings.find(addon->MainType());
+  if (it == activeSettings.end())
     return true;
 
   auto setting = std::static_pointer_cast<CSettingString>(CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(it->second));
@@ -154,4 +158,4 @@ AddonRepoUpdateMode CAddonSystemSettings::GetAddonRepoUpdateMode() const
       CSettings::SETTING_ADDONS_UPDATEMODE);
   return static_cast<AddonRepoUpdateMode>(updateMode);
 }
-}
+} // namespace ADDON

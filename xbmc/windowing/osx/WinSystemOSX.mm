@@ -596,13 +596,13 @@ CWinSystemOSX::~CWinSystemOSX() = default;
 
 void CWinSystemOSX::Register(IDispResource* resource)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   m_resources.push_back(resource);
 }
 
 void CWinSystemOSX::Unregister(IDispResource* resource)
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   std::vector<IDispResource*>::iterator i = find(m_resources.begin(), m_resources.end(), resource);
   if (i != m_resources.end())
     m_resources.erase(i);
@@ -610,7 +610,7 @@ void CWinSystemOSX::Unregister(IDispResource* resource)
 
 void CWinSystemOSX::AnnounceOnLostDevice()
 {
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   // tell any shared resources
   CLog::LogF(LOGDEBUG, "Lost Device Announce");
   for (std::vector<IDispResource*>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
@@ -640,7 +640,7 @@ void CWinSystemOSX::AnnounceOnResetDevice()
   auto screenResolution = GetScreenResolution(m_lastDisplayNr);
   m_gfxContext->SetFPS(screenResolution.refreshrate);
 
-  std::unique_lock<CCriticalSection> lock(m_resourceSection);
+  std::unique_lock lock(m_resourceSection);
   // tell any shared resources
   CLog::LogF(LOGDEBUG, "Reset Device Announce");
   for (std::vector<IDispResource*>::iterator i = m_resources.begin(); i != m_resources.end(); ++i)
@@ -785,7 +785,7 @@ bool CWinSystemOSX::CreateNewWindow(const std::string& name, bool fullScreen, RE
 
 bool CWinSystemOSX::DestroyWindowInternal()
 {
-  // set this 1st, we should really mutex protext m_appWindow in this class
+  // set this 1st, we should really mutex protect m_appWindow in this class
   m_bWindowCreated = false;
   if (m_appWindow)
   {
@@ -906,7 +906,7 @@ bool CWinSystemOSX::ResizeWindow(int newWidth, int newHeight, int newLeft, int n
 
 bool CWinSystemOSX::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool blankOtherDisplays)
 {
-  std::unique_lock<CCriticalSection> lock(m_critSection);
+  std::unique_lock lock(m_critSection);
   const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
   m_lastDisplayNr = GetDisplayIndex(settings->GetString(CSettings::SETTING_VIDEOSCREEN_MONITOR));
   m_nWidth = res.iWidth;

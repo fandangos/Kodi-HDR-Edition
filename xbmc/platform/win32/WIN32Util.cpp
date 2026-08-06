@@ -12,11 +12,10 @@
 #include "ServiceBroker.h"
 #include "Util.h"
 #include "WindowHelper.h"
-#include "guilib/LocalizeStrings.h"
+#include "application/AppParams.h"
 #include "my_ntddscsi.h"
 #include "rendering/dx/DirectXHelper.h"
 #include "storage/MediaManager.h"
-#include "storage/cdioSupport.h"
 #include "utils/CharsetConverter.h"
 #include "utils/StringUtils.h"
 #include "utils/SystemInfo.h"
@@ -340,7 +339,7 @@ size_t CWIN32Util::GetSystemMemorySize()
 #endif
 }
 
-std::string CWIN32Util::GetProfilePath(const bool platformDirectories)
+std::string CWIN32Util::GetProfilePath(UserDirectoriesLocation loc)
 {
   std::string strProfilePath;
 #ifdef TARGET_WINDOWS_STORE
@@ -349,10 +348,18 @@ std::string CWIN32Util::GetProfilePath(const bool platformDirectories)
 #else
   std::string strHomePath = CUtil::GetHomePath();
 
-  if (platformDirectories)
-    strProfilePath = URIUtils::AddFileToFolder(GetAppDataFolder(), CCompileInfo::GetAppName());
-  else
-    strProfilePath = URIUtils::AddFileToFolder(strHomePath , "portable_data");
+  switch (loc)
+  {
+    case UserDirectoriesLocation::PLATFORM:
+      strProfilePath = URIUtils::AddFileToFolder(GetAppDataFolder(), CCompileInfo::GetAppName());
+      break;
+    case UserDirectoriesLocation::PORTABLE:
+      strProfilePath = URIUtils::AddFileToFolder(strHomePath, "portable_data");
+      break;
+    case UserDirectoriesLocation::TEST:
+      strProfilePath = URIUtils::AddFileToFolder(strHomePath, "test_data");
+      break;
+  }
 
   if (strProfilePath.length() == 0)
     strProfilePath = strHomePath;
@@ -1584,7 +1591,7 @@ VideoDriverInfo CWIN32Util::FormatVideoDriverInfo(const UINT vendorId, uint64_t 
   return FormatVideoDriverInfo(vendorId, ss.str());
 }
 
-VideoDriverInfo CWIN32Util::FormatVideoDriverInfo(const UINT vendorId, const std::string version)
+VideoDriverInfo CWIN32Util::FormatVideoDriverInfo(const UINT vendorId, const std::string& version)
 {
   VideoDriverInfo info = {};
 

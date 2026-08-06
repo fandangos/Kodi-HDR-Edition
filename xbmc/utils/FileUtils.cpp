@@ -21,8 +21,9 @@
 #include "filesystem/StackDirectory.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
-#include "guilib/LocalizeStrings.h"
 #include "imagefiles/ImageFileURL.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -43,7 +44,7 @@ bool CFileUtils::DeleteItem(const std::string &strPath)
 {
   CFileItemPtr item(new CFileItem(strPath));
   item->SetPath(strPath);
-  item->m_bIsFolder = URIUtils::HasSlashAtEnd(strPath);
+  item->SetFolder(URIUtils::HasSlashAtEnd(strPath));
   item->Select(true);
   return DeleteItem(item);
 }
@@ -72,7 +73,9 @@ bool CFileUtils::RenameFile(const std::string &strFile)
   URIUtils::RemoveSlashAtEnd(strFileAndPath);
   std::string strFileName = URIUtils::GetFileName(strFileAndPath);
   std::string strPath = URIUtils::GetDirectory(strFileAndPath);
-  if (CGUIKeyboardFactory::ShowAndGetInput(strFileName, CVariant{g_localizeStrings.Get(16013)}, false))
+  if (CGUIKeyboardFactory::ShowAndGetInput(
+          strFileName,
+          CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16013)}, false))
   {
     strPath = URIUtils::AddFileToFolder(strPath, strFileName);
     CLog::Log(LOGINFO, "FileUtils: rename {}->{}", strFileAndPath, strPath);
@@ -149,7 +152,7 @@ bool CFileUtils::RemoteAccessAllowed(const std::string &strPath)
     std::vector<CMediaSource>* sources = CMediaSourceSettings::GetInstance().GetSources(sourceName);
     int sourceIndex = CUtil::GetMatchingSource(realPath, *sources, isSource);
     if (sourceIndex >= 0 && sourceIndex < static_cast<int>(sources->size()) &&
-        sources->at(sourceIndex).m_iHasLock != LOCK_STATE_LOCKED &&
+        !sources->at(sourceIndex).GetLockInfo().IsLocked() &&
         sources->at(sourceIndex).m_allowSharing)
       return true;
   }
@@ -160,8 +163,7 @@ bool CFileUtils::RemoteAccessAllowed(const std::string &strPath)
   //! @todo Make sharing of auto-mounted sources user configurable
   int sourceIndex = CUtil::GetMatchingSource(realPath, sources, isSource);
   if (sourceIndex >= 0 && sourceIndex < static_cast<int>(sources.size()) &&
-      sources.at(sourceIndex).m_iHasLock != LOCK_STATE_LOCKED &&
-      sources.at(sourceIndex).m_allowSharing)
+      !sources.at(sourceIndex).GetLockInfo().IsLocked() && sources.at(sourceIndex).m_allowSharing)
     return true;
 
   return false;

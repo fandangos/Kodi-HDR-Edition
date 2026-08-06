@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -226,15 +226,8 @@ void DX::DeviceResources::GetDisplayMode(DXGI_MODE_DESC* mode) const
 void DX::DeviceResources::SetViewPort(D3D11_VIEWPORT& viewPort) const
 {
   // convert logical viewport to real
-  D3D11_VIEWPORT realViewPort =
-  {
-    viewPort.TopLeftX,
-    viewPort.TopLeftY,
-    viewPort.Width,
-    viewPort.Height,
-    viewPort.MinDepth,
-    viewPort.MinDepth
-  };
+  D3D11_VIEWPORT realViewPort = {viewPort.TopLeftX, viewPort.TopLeftY, viewPort.Width,
+                                 viewPort.Height,   viewPort.MinDepth, viewPort.MaxDepth};
 
   m_deferrContext->RSSetViewports(1, &realViewPort);
 }
@@ -253,7 +246,9 @@ bool DX::DeviceResources::SetFullScreen(bool fullscreen, RESOLUTION_INFO& res)
              bFullScreen ? "fullscreen " : "", m_outputSize.Width, m_outputSize.Height,
              fullscreen ? "fullscreen " : "", res.iWidth, res.iHeight);
 
-  bool recreate = m_stereoEnabled != (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_HARDWAREBASED);
+  bool recreate =
+      m_stereoEnabled != (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+                          RenderStereoMode::HARDWAREBASED);
   if (!!bFullScreen && !fullscreen)
   {
     CLog::LogF(LOGDEBUG, "switching to windowed");
@@ -274,17 +269,16 @@ bool DX::DeviceResources::SetFullScreen(bool fullscreen, RESOLUTION_INFO& res)
       if (res.dwFlags & D3DPRESENTFLAG_INTERLACED)
         refreshRate *= 2;
 
-      if (currentMode.Width != res.iWidth
-        || currentMode.Height != res.iHeight
-        || DX::RationalToFloat(currentMode.RefreshRate) != refreshRate
-        || is_interlaced != (res.dwFlags & D3DPRESENTFLAG_INTERLACED ? true : false)
-        // force resolution change for stereo mode
-        // some drivers unable to create stereo swapchain if mode does not match @23.976
-        || CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() == RENDER_STEREO_MODE_HARDWAREBASED)
+      if (currentMode.Width != res.iWidth || currentMode.Height != res.iHeight ||
+          DX::RationalToFloat(currentMode.RefreshRate) != refreshRate ||
+          is_interlaced != (res.dwFlags & D3DPRESENTFLAG_INTERLACED ? true : false)
+          // force resolution change for stereo mode
+          // some drivers unable to create stereo swapchain if mode does not match @23.976
+          || CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode() ==
+                 RenderStereoMode::HARDWAREBASED)
       {
-        CLog::Log(LOGDEBUG, __FUNCTION__ ": changing display mode to {}x{}@{:0.3f}", res.iWidth,
-                  res.iHeight, res.fRefreshRate,
-                  res.dwFlags & D3DPRESENTFLAG_INTERLACED ? "i" : "");
+        CLog::LogF(LOGDEBUG, "changing display mode to {}x{}@{:0.3f}{}", res.iWidth, res.iHeight,
+                   res.fRefreshRate, (res.dwFlags & D3DPRESENTFLAG_INTERLACED) ? "i" : "");
 
         int refresh = static_cast<int>(res.fRefreshRate);
         int i = (refresh + 1) % 24 == 0 || (refresh + 1) % 30 == 0 ? 1 : 0;
@@ -606,7 +600,7 @@ void DX::DeviceResources::ResizeBuffers()
 
   CLog::LogF(LOGDEBUG, "resize buffers.");
 
-  bool bHWStereoEnabled = RENDER_STEREO_MODE_HARDWAREBASED ==
+  bool bHWStereoEnabled = RenderStereoMode::HARDWAREBASED ==
                           CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode();
   bool windowed = true;
   HRESULT hr = E_FAIL;
@@ -697,7 +691,7 @@ void DX::DeviceResources::ResizeBuffers()
     scFSDesc.Windowed = windowed;
 
     ComPtr<IDXGISwapChain1> swapChain;
-    if (m_d3dFeatureLevel >= D3D_FEATURE_LEVEL_11_0 && !bHWStereoEnabled &&
+    if (m_d3dFeatureLevel >= D3D_FEATURE_LEVEL_10_0 && !bHWStereoEnabled &&
         (isHdrEnabled || use10bit))
     {
       swapChainDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
@@ -725,7 +719,7 @@ void DX::DeviceResources::ResizeBuffers()
 
       // fallback to split_horizontal mode.
       CServiceBroker::GetWinSystem()->GetGfxContext().SetStereoMode(
-          RENDER_STEREO_MODE_SPLIT_HORIZONTAL);
+          RenderStereoMode::SPLIT_HORIZONTAL);
     }
 
     if (FAILED(hr))
@@ -1047,8 +1041,8 @@ void DX::DeviceResources::Present()
 
 void DX::DeviceResources::ClearDepthStencil() const
 {
-  //if (!CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->ReadyDS(DIRECTSHOW_RENDERER_MPCVR))
-    m_deferrContext->ClearDepthStencilView(m_d3dDepthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0, 0);
+  const UINT flags = D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL;
+  m_deferrContext->ClearDepthStencilView(m_d3dDepthStencilView.Get(), flags, 0.0f, 0);
 }
 
 void DX::DeviceResources::ClearRenderTarget(ID3D11RenderTargetView* pRTView, float color[4]) const
@@ -1190,6 +1184,7 @@ void DX::DeviceResources::CheckDXVA2SharedDecoderSurfaces()
 
   m_DXVA2SharedDecoderSurfaces =
       ad.VendorId == PCIV_Intel ||
+      (ad.VendorId == PCIV_QUALCOMM && driver.valid && driver.majorVersion >= 31) ||
       (ad.VendorId == PCIV_NVIDIA && driver.valid && driver.majorVersion >= 465) ||
       (ad.VendorId == PCIV_AMD && driver.valid && driver.majorVersion >= 30 &&
        m_d3dFeatureLevel >= D3D_FEATURE_LEVEL_12_1);
@@ -1197,9 +1192,10 @@ void DX::DeviceResources::CheckDXVA2SharedDecoderSurfaces()
   CLog::LogF(LOGINFO, "DXVA2 shared decoder surfaces is{}supported",
              m_DXVA2SharedDecoderSurfaces ? " " : " NOT ");
 
-  m_DXVA2UseFence = m_DXVA2SharedDecoderSurfaces &&
-                    (ad.VendorId == PCIV_NVIDIA || ad.VendorId == PCIV_AMD) &&
-                    CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin10_1703);
+  m_DXVA2UseFence =
+      m_DXVA2SharedDecoderSurfaces &&
+      (ad.VendorId == PCIV_NVIDIA || ad.VendorId == PCIV_AMD || ad.VendorId == PCIV_QUALCOMM) &&
+      CSysInfo::IsWindowsVersionAtLeast(CSysInfo::WindowsVersionWin10_1703);
 
   if (m_DXVA2SharedDecoderSurfaces)
     CLog::LogF(LOGINFO, "DXVA2 shared decoder surfaces {} fence synchronization.",

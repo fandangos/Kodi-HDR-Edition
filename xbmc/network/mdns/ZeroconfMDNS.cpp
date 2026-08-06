@@ -8,8 +8,10 @@
 
 #include "ZeroconfMDNS.h"
 
+#include "ServiceBroker.h"
 #include "dialogs/GUIDialogKaiToast.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/log.h"
 
 #include <mutex>
@@ -42,7 +44,6 @@ void CZeroconfMDNS::Process()
 
 CZeroconfMDNS::CZeroconfMDNS()  : CThread("ZeroconfEmbedded")
 {
-  m_service = NULL;
 #if defined(HAS_MDNS_EMBEDDED)
   embedded_mDNSInit();
   Create();
@@ -67,7 +68,10 @@ bool CZeroconfMDNS::IsZCdaemonRunning()
   if(err != kDNSServiceErr_NoError)
   {
     CLog::Log(LOGERROR, "ZeroconfMDNS: Zeroconf can't be started probably because Apple's Bonjour Service isn't installed. You can get it by either installing Itunes or Apple's Bonjour Print Service for Windows (http://support.apple.com/kb/DL999)");
-    CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Error, g_localizeStrings.Get(34300), g_localizeStrings.Get(34301), 10000, true);
+    CGUIDialogKaiToast::QueueNotification(
+        CGUIDialogKaiToast::Error,
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(34300),
+        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(34301), 10000, true);
     return false;
   }
   CLog::Log(LOGDEBUG, "ZeroconfMDNS:Bonjour version is {}.{}", version / 10000,
@@ -89,7 +93,7 @@ bool CZeroconfMDNS::doPublishService(const std::string& fcr_identifier,
   TXTRecordCreate(&txtRecord, 0, NULL);
 
 #if !defined(HAS_MDNS_EMBEDDED)
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   if(m_service == NULL)
   {
     err = DNSServiceCreateConnection(&m_service);
@@ -124,7 +128,7 @@ bool CZeroconfMDNS::doPublishService(const std::string& fcr_identifier,
   }
 
   {
-    std::unique_lock<CCriticalSection> lock(m_data_guard);
+    std::unique_lock lock(m_data_guard);
     netService = m_service;
     err = DNSServiceRegister(&netService, kDNSServiceFlagsShareConnection, 0, fcr_name.c_str(), fcr_type.c_str(), NULL, NULL, htons(f_port), TXTRecordGetLength(&txtRecord), TXTRecordGetBytesPtr(&txtRecord), registerCallback, NULL);
   }
@@ -139,7 +143,7 @@ bool CZeroconfMDNS::doPublishService(const std::string& fcr_identifier,
   }
   else
   {
-    std::unique_lock<CCriticalSection> lock(m_data_guard);
+    std::unique_lock lock(m_data_guard);
     struct tServiceRef newService;
     newService.serviceRef = netService;
     newService.txtRecordRef = txtRecord;
@@ -153,7 +157,7 @@ bool CZeroconfMDNS::doPublishService(const std::string& fcr_identifier,
 bool CZeroconfMDNS::doForceReAnnounceService(const std::string& fcr_identifier)
 {
   bool ret = false;
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   tServiceMap::iterator it = m_services.find(fcr_identifier);
   if(it != m_services.end())
   {
@@ -174,7 +178,7 @@ bool CZeroconfMDNS::doForceReAnnounceService(const std::string& fcr_identifier)
 
 bool CZeroconfMDNS::doRemoveService(const std::string& fcr_ident)
 {
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   tServiceMap::iterator it = m_services.find(fcr_ident);
   if(it != m_services.end())
   {
@@ -191,7 +195,7 @@ bool CZeroconfMDNS::doRemoveService(const std::string& fcr_ident)
 void CZeroconfMDNS::doStop()
 {
   {
-    std::unique_lock<CCriticalSection> lock(m_data_guard);
+    std::unique_lock lock(m_data_guard);
     CLog::Log(LOGDEBUG, "ZeroconfMDNS: Shutdown services");
     for (auto& it : m_services)
     {
@@ -202,7 +206,7 @@ void CZeroconfMDNS::doStop()
     m_services.clear();
   }
   {
-    std::unique_lock<CCriticalSection> lock(m_data_guard);
+    std::unique_lock lock(m_data_guard);
 #if defined(TARGET_WINDOWS_STORE)
     CLog::Log(LOGERROR, "ZeroconfMDNS: WSAAsyncSelect not yet supported for TARGET_WINDOWS_STORE");
 #else
@@ -237,7 +241,7 @@ void DNSSD_API CZeroconfMDNS::registerCallback(DNSServiceRef sdref, const DNSSer
 
 void CZeroconfMDNS::ProcessResults()
 {
-  std::unique_lock<CCriticalSection> lock(m_data_guard);
+  std::unique_lock lock(m_data_guard);
   DNSServiceErrorType err = DNSServiceProcessResult(m_service);
   if (err != kDNSServiceErr_NoError)
     CLog::Log(LOGERROR, "ZeroconfMDNS: DNSServiceProcessResult returned (error = {})", (int)err);

@@ -76,6 +76,17 @@
 						<texture>icons/pvr/timers/bell.png</texture>
 						<visible>ListItem.Property(PVR.IsRemindingTimer)</visible>
 					</control>
+					<control type="gamecontroller">
+						<description>The animated controller image for game controllers in the select dialog</description>
+						<left>12</left>
+						<top>7</top>
+						<width>110</width>
+						<height>110</height>
+						<texture>$INFO[ListItem.Art(icon)]</texture>
+						<peripherallocation>$INFO[ListItem.FilenameAndPath]</peripherallocation>
+						<controllerdiffuse>button_focus</controllerdiffuse>
+						<visible>String.StartsWith(ListItem.FilenameAndPath,peripherals://)</visible>
+					</control>
 					<control type="label">
 						<left>135</left>
 						<top>0</top>
@@ -132,6 +143,16 @@
 						<aligny>center</aligny>
 						<texture>icons/pvr/timers/bell.png</texture>
 						<visible>ListItem.Property(PVR.IsRemindingTimer)</visible>
+					</control>
+					<control type="gamecontroller">
+						<left>12</left>
+						<top>7</top>
+						<width>110</width>
+						<height>110</height>
+						<texture>$INFO[ListItem.Art(icon)]</texture>
+						<peripherallocation>$INFO[ListItem.FilenameAndPath]</peripherallocation>
+						<controllerdiffuse>button_focus</controllerdiffuse>
+						<visible>String.StartsWith(ListItem.FilenameAndPath,peripherals://)</visible>
 					</control>
 					<control type="label">
 						<left>135</left>
@@ -235,7 +256,7 @@
 					<param name="list_id" value="3" />
 				</include>
 			</control>
-			<control type="list" id="6">
+			<control type="fixedlist" id="6">
 				<left>20</left>
 				<top>100</top>
 				<width>930</width>
@@ -245,6 +266,10 @@
 				<onleft>9001</onleft>
 				<onright>61</onright>
 				<pagecontrol>61</pagecontrol>
+				<focusposition>4</focusposition>
+				<startmovement>4</startmovement>
+				<endmovement>5</endmovement>
+				<aligny>top</aligny>
 				<scrolltime>200</scrolltime>
 				<itemlayout height="75" width="930">
 					<control type="image">
@@ -263,7 +288,7 @@
 						<right>50</right>
 						<height>30</height>
 						<aligny>center</aligny>
-						<label>$INFO[ListItem.Property(stream.codec)]$INFO[ListItem.Property(stream.hdrtype),$COMMA ]$INFO[ListItem.Property(stream.resolution),$COMMA ]$VAR[StreamBitrateVar,$COMMA , kbps]$INFO[ListItem.Property(stream.fps),$COMMA , fps]$VAR[VideoStreamDialogItemLabelVar, - [LIGHT],[/LIGHT]]</label>
+						<label>$MAP[DefaultCodecMap, ListItem.Property(stream.codec)]$MAP[DefaultHdrMap, ListItem.Property(stream.hdrtype), | ]$INFO[ListItem.Property(stream.resolution), | ]$VAR[StreamBitrateVar, | , kbps]$INFO[ListItem.Property(stream.fps), | , fps]$VAR[VideoStreamDialogItemLabelVar, - [LIGHT],[/LIGHT]]</label>
 					</control>
 					<control type="label">
 						<left>50</left>
@@ -312,7 +337,7 @@
 						<height>30</height>
 						<aligny>center</aligny>
 						<scroll>true</scroll>
-						<label>$INFO[ListItem.Property(stream.codec)]$INFO[ListItem.Property(stream.hdrtype),$COMMA ]$INFO[ListItem.Property(stream.resolution),$COMMA ]$VAR[StreamBitrateVar,$COMMA , kbps]$INFO[ListItem.Property(stream.fps),$COMMA , fps]$VAR[VideoStreamDialogItemLabelVar, - [LIGHT],[/LIGHT]]</label>
+						<label>$MAP[DefaultCodecMap, ListItem.Property(stream.codec)]$MAP[DefaultHdrMap, ListItem.Property(stream.hdrtype), | ]$INFO[ListItem.Property(stream.resolution), | ]$VAR[StreamBitrateVar, | , kbps]$INFO[ListItem.Property(stream.fps), | , fps]$VAR[VideoStreamDialogItemLabelVar, - [LIGHT],[/LIGHT]]</label>
 					</control>
 					<control type="label">
 						<left>50</left>
@@ -338,7 +363,7 @@
 				</focusedlayout>
 			</control>
 			<control type="scrollbar" id="61">
-				<left>960</left>
+				<left>950</left>
 				<top>100</top>
 				<width>12</width>
 				<bottom>20</bottom>
@@ -383,7 +408,7 @@
 	Available ListItem audio stream properties:
 	stream.description, stream.codec, stream.codecdesc, stream.channels,
 	stream.isdefault, stream.isforced, stream.isoriginal, stream.ishearingimpaired, stream.isvisualimpaired
-	-->
+	-->
 		<control type="group">
 			<centertop>50%</centertop>
 			<centerleft>50%</centerleft>
@@ -418,7 +443,7 @@
 					<param name="list_id" value="3" />
 				</include>
 			</control>
-			<control type="list" id="6">
+			<control type="fixedlist" id="6">
 				<left>20</left>
 				<top>100</top>
 				<width>930</width>
@@ -428,6 +453,10 @@
 				<onleft>9001</onleft>
 				<onright>61</onright>
 				<pagecontrol>61</pagecontrol>
+				<focusposition>4</focusposition>
+				<startmovement>4</startmovement>
+				<endmovement>5</endmovement>
+				<aligny>top</aligny>
 				<scrolltime>200</scrolltime>
 				<itemlayout height="75" width="930">
 					<control type="image">
@@ -440,7 +469,7 @@
 						<texture>icons/menumarks/tick.png</texture>
 						<visible>ListItem.IsSelected</visible>
 					</control>
--					<control type="label">
+					<control type="label">
 						<left>50</left>
 						<top>5</top>
 						<right>50</right>
@@ -455,7 +484,7 @@
 						<height>20</height>
 						<font>font10</font>
 						<aligny>center</aligny>
-						<label>$INFO[ListItem.Property(stream.codecdesc)]$INFO[ListItem.Property(stream.channels), - , $LOCALIZE[31612]]$INFO[ListItem.Property(stream.description), - ]</label>
+						<label>$MAP[DefaultAltAudioMap, ListItem.Property(stream.codec)]$INFO[ListItem.Property(stream.channels), ]$INFO[ListItem.Property(stream.description), | ]</label>
 						<textcolor>grey</textcolor>
 					</control>
 					<control type="image">
@@ -505,7 +534,7 @@
 						<font>font10</font>
 						<aligny>center</aligny>
 						<scroll>true</scroll>
-						<label>$INFO[ListItem.Property(stream.codecdesc)]$INFO[ListItem.Property(stream.channels), - , $LOCALIZE[31612]]$INFO[ListItem.Property(stream.description), - ]</label>
+						<label>$MAP[DefaultAltAudioMap, ListItem.Property(stream.codec)]$INFO[ListItem.Property(stream.channels), ]$INFO[ListItem.Property(stream.description), | ]</label>
 					</control>
 					<control type="image">
 						<right>10</right>
@@ -520,7 +549,7 @@
 				</focusedlayout>
 			</control>
 			<control type="scrollbar" id="61">
-				<left>960</left>
+				<left>950</left>
 				<top>100</top>
 				<width>12</width>
 				<bottom>20</bottom>
@@ -565,7 +594,7 @@
 	Available ListItem subtitle stream properties:
 	stream.description, stream.codec, stream.isdefault, stream.isforced, stream.isoriginal,
 	stream.ishearingimpaired, stream.isvisualimpaired, stream.isexternal
-	-->
+	-->
 		<control type="group">
 			<centertop>50%</centertop>
 			<centerleft>50%</centerleft>
@@ -600,7 +629,7 @@
 					<param name="list_id" value="3" />
 				</include>
 			</control>
-			<control type="list" id="6">
+			<control type="fixedlist" id="6">
 				<left>20</left>
 				<top>100</top>
 				<width>880</width>
@@ -610,6 +639,10 @@
 				<onleft>9001</onleft>
 				<onright>61</onright>
 				<pagecontrol>61</pagecontrol>
+				<focusposition>4</focusposition>
+				<startmovement>4</startmovement>
+				<endmovement>5</endmovement>
+				<aligny>top</aligny>
 				<scrolltime>200</scrolltime>
 				<itemlayout height="75" width="880">
 					<control type="image">
@@ -637,7 +670,7 @@
 						<height>20</height>
 						<font>font10</font>
 						<aligny>center</aligny>
-						<label>$INFO[ListItem.Property(stream.description)]</label>
+						<label>$VAR[SubtitleStreamDescriptionVar]</label>
 						<textcolor>grey</textcolor>
 					</control>
 					<control type="image">
@@ -686,7 +719,7 @@
 						<font>font10</font>
 						<aligny>center</aligny>
 						<scroll>true</scroll>
-						<label>$INFO[ListItem.Property(stream.description)]</label>
+						<label>$VAR[SubtitleStreamDescriptionVar]</label>
 						<scroll>true</scroll>
 					</control>
 					<control type="image">
@@ -702,7 +735,7 @@
 				</focusedlayout>
 			</control>
 			<control type="scrollbar" id="61">
-				<left>910</left>
+				<left>900</left>
 				<top>100</top>
 				<width>12</width>
 				<bottom>20</bottom>
@@ -746,11 +779,11 @@
 		<control type="group">
 			<centertop>50%</centertop>
 			<centerleft>50%</centerleft>
-			<width>1639</width>
-			<height>919</height>
+			<width>1580</width>
+			<height>920</height>
 			<include content="DialogBackgroundCommons">
-				<param name="width" value="1639" />
-				<param name="height" value="919" />
+				<param name="width" value="1580" />
+				<param name="height" value="920" />
 				<param name="header_label" value="35260" />
 				<param name="header_id" value="10820" />
 			</include>
@@ -850,14 +883,14 @@
 					</control>
 					<control type="scrollbar" id="61">
 						<description>Scroll bar</description>
-						<right>-20</right>
+						<right>-12</right>
 						<width>12</width>
 						<orientation>vertical</orientation>
 					</control>
 				</control>
 				<control type="grouplist" id="9001">
 					<description>Buttons on the right</description>
-					<left>1302</left>
+					<left>1240</left>
 					<top>-20</top>
 					<onleft>3</onleft>
 					<itemgap>dialogbuttons_itemgap</itemgap>
@@ -872,7 +905,7 @@
 				</control>
 				<control type="group">
 					<description>Saved-with emulator name, version and icon</description>
-					<left>1302</left>
+					<left>1260</left>
 					<top>420</top>
 					<control type="label" id="10823">
 						<description>Emulator name</description>
@@ -933,14 +966,14 @@
 			<left>0</left>
 			<top>0</top>
 			<width>100%</width>
-			<bottom>540</bottom>
+			<bottom>410</bottom>
 			<texturefocus />
 			<texturenofocus />
 			<onclick>Action(close)</onclick>
 		</control>
 		<control type="group">
 			<bottom>0</bottom>
-			<height>540</height>
+			<height>410</height>
 			<width>100%</width>
 			<control type="image">
 				<animation effect="fade" start="0" end="100" time="300">WindowOpen</animation>
@@ -959,12 +992,16 @@
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">DefaultVideo.png</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<texture colordiffuse="border_alpha">colors/black.png</texture>
+						</control>
+						<control type="image">
+							<width>444</width>
+							<height>250</height>
+							<aspectratio>keep</aspectratio>
+							<texture>$INFO[ListItem.Icon]</texture>
 						</control>
 						<control type="gamewindow">
+							<visible>!String.IsEmpty(ListItem.Property(game.videofilter))</visible>
 							<width>444</width>
 							<height>250</height>
 							<videofilter>$INFO[ListItem.Property(game.videofilter)]</videofilter>
@@ -990,12 +1027,16 @@
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">DefaultVideo.png</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<texture colordiffuse="border_alpha">colors/black.png</texture>
+						</control>
+						<control type="image">
+							<width>444</width>
+							<height>250</height>
+							<aspectratio>keep</aspectratio>
+							<texture>$INFO[ListItem.Icon]</texture>
 						</control>
 						<control type="gamewindow">
+							<visible>!String.IsEmpty(ListItem.Property(game.videofilter))</visible>
 							<width>444</width>
 							<height>250</height>
 							<videofilter>$INFO[ListItem.Property(game.videofilter)]</videofilter>
@@ -1019,17 +1060,6 @@
 						</control>
 					</control>
 				</focusedlayout>
-			</control>
-			<control type="textbox" id="10812">
-				<description>Description Area</description>
-				<top>410</top>
-				<left>100</left>
-				<right>100</right>
-				<height>200</height>
-				<font>font37</font>
-				<align>justify</align>
-				<shadowcolor>text_shadow</shadowcolor>
-				<autoscroll time="3000" delay="5000" repeat="5000">true</autoscroll>
 			</control>
 		</control>
 	</include>
@@ -1065,10 +1095,13 @@
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">DefaultVideo.png</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<texture colordiffuse="border_alpha">colors/black.png</texture>
+						</control>
+						<control type="image">
+							<width>444</width>
+							<height>250</height>
+							<aspectratio>keep</aspectratio>
+							<texture>$INFO[ListItem.Icon]</texture>
 						</control>
 						<control type="gamewindow">
 							<width>444</width>
@@ -1096,10 +1129,13 @@
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">DefaultVideo.png</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<texture colordiffuse="border_alpha">colors/black.png</texture>
+						</control>
+						<control type="image">
+							<width>444</width>
+							<height>250</height>
+							<aspectratio>keep</aspectratio>
+							<texture>$INFO[ListItem.Icon]</texture>
 						</control>
 						<control type="gamewindow">
 							<width>444</width>
@@ -1160,18 +1196,13 @@
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">$INFO[ListItem.Icon]</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<texture colordiffuse="border_alpha">colors/black.png</texture>
 						</control>
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">$INFO[ListItem.Art(screenshot)]</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<aspectratio>keep</aspectratio>
+							<texture>$INFO[ListItem.Icon]</texture>
 						</control>
 						<control type="gamewindow">
 							<width>444</width>
@@ -1197,18 +1228,13 @@
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">$INFO[ListItem.Icon]</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<texture colordiffuse="border_alpha">colors/black.png</texture>
 						</control>
 						<control type="image">
 							<width>444</width>
 							<height>250</height>
-							<aspectratio>scale</aspectratio>
-							<texture border="4">$INFO[ListItem.Art(screenshot)]</texture>
-							<bordertexture colordiffuse="border_alpha">colors/black.png</bordertexture>
-							<bordersize>4</bordersize>
+							<aspectratio>keep</aspectratio>
+							<texture>$INFO[ListItem.Icon]</texture>
 						</control>
 						<control type="gamewindow">
 							<width>444</width>
@@ -1228,6 +1254,7 @@
 							<width>444</width>
 							<height>250</height>
 							<texture border="4" infill="false" colordiffuse="button_focus">colors/white.png</texture>
+							<visible>Control.HasFocus(10811)</visible>
 						</control>
 					</control>
 				</focusedlayout>
@@ -1243,89 +1270,6 @@
 				<shadowcolor>text_shadow</shadowcolor>
 				<autoscroll time="3000" delay="5000" repeat="5000">true</autoscroll>
 				<label>$INFO[ListItem.Property(savestate.caption)]</label>
-			</control>
-		</control>
-	</include>
-	<include name="VideoSelectLayout">
-		<control type="group">
-			<centertop>50%</centertop>
-			<centerleft>50%</centerleft>
-			<height>750</height>
-			<width>1640</width>
-			<include content="DialogBackgroundCommons">
-				<param name="width" value="1640" />
-				<param name="height" value="750" />
-				<param name="header_id" value="1" />
-			</include>
-			<control type="image">
-				<left>20</left>
-				<width>400</width>
-				<height>630</height>
-				<top>100</top>
-				<texture>$VAR[VideoListPosterVar]</texture>
-				<aspectratio aligny="top">keep</aspectratio>
-			</control>
-			<control type="image">
-				<left>420</left>
-				<top>80</top>
-				<width>920</width>
-				<height>665</height>
-				<texture border="40">buttons/dialogbutton-nofo.png</texture>
-			</control>
-			<control type="list" id="3">
-			</control>
-			<control type="list" id="6">
-				<left>440</left>
-				<top>100</top>
-				<width>920</width>
-				<height>625</height>
-				<onup>6</onup>
-				<ondown>6</ondown>
-				<onleft>9001</onleft>
-				<onright>61</onright>
-				<pagecontrol>61</pagecontrol>
-				<scrolltime>200</scrolltime>
-				<include>MediaInfoListLayout</include>
-			</control>
-			<control type="scrollbar" id="61">
-				<left>1320</left>
-				<top>100</top>
-				<width>12</width>
-				<bottom>20</bottom>
-				<onleft>6</onleft>
-				<onright>9001</onright>
-				<orientation>vertical</orientation>
-			</control>
-			<control type="grouplist" id="9001">
-				<left>1340</left>
-				<top>80</top>
-				<onleft>61</onleft>
-				<itemgap>dialogbuttons_itemgap</itemgap>
-				<onright>6</onright>
-				<include content="DefaultDialogButton">
-					<param name="id" value="5" />
-					<param name="label" value="" />
-					<param name="visible" value="false" />
-				</include>
-				<include content="DefaultDialogButton">
-					<param name="id" value="8" />
-					<param name="label" value="" />
-					<param name="visible" value="false" />
-				</include>
-				<include content="DefaultDialogButton">
-					<param name="id" value="7" />
-					<param name="label" value="$LOCALIZE[222]" />
-					</include>
-			</control>
-			<control type="label">
-				<right>20</right>
-				<bottom>10</bottom>
-				<width>275</width>
-				<height>35</height>
-				<font>font12</font>
-				<align>right</align>
-				<textcolor>grey</textcolor>
-				<label>$VAR[SelectLabel]</label>
 			</control>
 		</control>
 	</include>

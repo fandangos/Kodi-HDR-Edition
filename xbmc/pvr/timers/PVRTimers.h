@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "pvr/settings/PVRSettings.h"
+#include "powermanagement/PowerState.h"
 #include "threads/Thread.h"
 
 #include <map>
@@ -21,11 +21,11 @@ class CDateTime;
 namespace PVR
 {
 enum class TimerOperationResult;
-enum class PVREvent;
 
 class CPVRChannel;
 class CPVRClient;
 class CPVREpgInfoTag;
+class CPVRSettings;
 class CPVRTimerInfoTag;
 class CPVRTimersPath;
 
@@ -48,8 +48,8 @@ public:
    */
   std::shared_ptr<CPVRTimerInfoTag> GetByClient(int iClientId, int iClientIndex) const;
 
-  typedef std::vector<std::shared_ptr<CPVRTimerInfoTag>> VecTimerInfoTag;
-  typedef std::map<CDateTime, VecTimerInfoTag> MapTags;
+  using VecTimerInfoTag = std::vector<std::shared_ptr<CPVRTimerInfoTag>>;
+  using MapTags = std::map<CDateTime, VecTimerInfoTag>;
 
   /*!
    * @brief Get the timertags map.
@@ -65,7 +65,7 @@ protected:
   MapTags m_tags;
 };
 
-class CPVRTimers : public CPVRTimersContainer, private CThread
+class CPVRTimers : public CPVRTimersContainer, private CThread, public CPowerState
 {
 public:
   CPVRTimers();
@@ -80,6 +80,16 @@ public:
      * @brief stop the timer update thread.
      */
   void Stop();
+
+  /*!
+   * @brief Propagate event on system sleep
+   */
+  void OnSleep() override;
+
+  /*!
+   * @brief Propagate event on system wake
+   */
+  void OnWake() override;
 
   /*!
    * @brief Update all timers from PVR database and from given clients.
@@ -266,12 +276,6 @@ public:
   void UpdateChannels();
 
   /*!
-     * @brief CEventStream callback for PVR events.
-     * @param event The event.
-     */
-  void Notify(const PVREvent& event);
-
-  /*!
    * @brief Get a timer tag given it's unique ID
    * @param iTimerId The ID to find
    * @return The tag, or an empty one when not found
@@ -300,7 +304,7 @@ private:
   std::shared_ptr<CPVRTimerInfoTag> PersistAndUpdateLocalTimer(
       const std::shared_ptr<CPVRTimerInfoTag>& timer,
       const std::shared_ptr<CPVRTimerInfoTag>& parentTimer);
-  void NotifyTimersEvent(bool bAddedOrDeleted = true);
+  void NotifyTimersEvent(bool bAddedOrDeleted = true) const;
 
   enum TimerKind
   {
@@ -323,7 +327,7 @@ private:
                                        bool bDeleted) const;
 
   bool m_bIsUpdating = false;
-  CPVRSettings m_settings;
+  std::unique_ptr<CPVRSettings> m_settings;
   std::queue<std::shared_ptr<CPVRTimerInfoTag>> m_remindersToAnnounce;
   bool m_bReminderRulesUpdatePending = false;
 

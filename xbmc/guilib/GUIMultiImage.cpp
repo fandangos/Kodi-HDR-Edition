@@ -16,11 +16,12 @@
 #include "TextureManager.h"
 #include "WindowIDs.h"
 #include "filesystem/Directory.h"
+#include "jobs/JobManager.h"
 #include "utils/FileExtensionProvider.h"
-#include "utils/JobManager.h"
 #include "utils/Random.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "windowing/WinSystem.h"
 
 #include <mutex>
 
@@ -241,7 +242,7 @@ void CGUIMultiImage::LoadDirectory()
     return;
   }
   // slow(er) checks necessary - do them in the background
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_directoryStatus = LOADING;
   m_jobID = CServiceBroker::GetJobManager()->AddJob(new CMultiImageJob(m_currentPath), this,
                                                     CJob::PRIORITY_NORMAL);
@@ -262,7 +263,7 @@ void CGUIMultiImage::OnDirectoryLoaded()
 
 void CGUIMultiImage::CancelLoading()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (m_directoryStatus == LOADING)
     CServiceBroker::GetJobManager()->CancelJob(m_jobID);
   m_directoryStatus = UNLOADED;
@@ -277,7 +278,7 @@ void CGUIMultiImage::ResetMultiImage()
 
 void CGUIMultiImage::OnJobComplete(unsigned int jobID, bool success, CJob *job)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   if (m_directoryStatus == LOADING && strncmp(job->GetType(), "multiimage", 10) == 0)
   {
     m_files = ((CMultiImageJob *)job)->m_files;

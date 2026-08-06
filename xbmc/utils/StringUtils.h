@@ -19,8 +19,10 @@
 //
 //------------------------------------------------------------------------
 
+#include <algorithm>
 #include <chrono>
 #include <locale>
+#include <span>
 #include <sstream>
 #include <stdarg.h>
 #include <stdint.h>
@@ -93,42 +95,46 @@ public:
     return fmt::format(fmt::runtime(format), EnumToInt(std::forward<Args>(args))...);
   }
 
-  static std::string FormatV(PRINTF_FORMAT_STRING const char *fmt, va_list args);
-  static std::wstring FormatV(PRINTF_FORMAT_STRING const wchar_t *fmt, va_list args);
-  static std::string ToUpper(const std::string& str);
-  static std::wstring ToUpper(const std::wstring& str);
-  static void ToUpper(std::string &str);
-  static void ToUpper(std::wstring &str);
-  static std::string ToLower(const std::string& str);
-  static std::wstring ToLower(const std::wstring& str);
-  static void ToLower(std::string &str);
-  static void ToLower(std::wstring &str);
-  static void ToCapitalize(std::string &str);
-  static void ToCapitalize(std::wstring &str);
-  static bool EqualsNoCase(const std::string &str1, const std::string &str2);
-  static bool EqualsNoCase(const std::string &str1, const char *s2);
-  static bool EqualsNoCase(const char *s1, const char *s2);
-  static int CompareNoCase(const std::wstring& str1, const std::wstring& str2, size_t n = 0);
-  static int CompareNoCase(const wchar_t* s1, const wchar_t* s2, size_t n = 0);
-  static int CompareNoCase(const std::string& str1, const std::string& str2, size_t n = 0);
-  static int CompareNoCase(const char* s1, const char* s2, size_t n = 0);
-  static int ReturnDigits(const std::string &str);
-  static std::wstring WLeft(const std::wstring& str, size_t count);
-  static std::string Left(const std::string &str, size_t count);
-  static std::string Mid(const std::string &str, size_t first, size_t count = std::string::npos);
-  static std::string Right(const std::string &str, size_t count);
-  //wide
+  [[nodiscard]] static std::string FormatV(PRINTF_FORMAT_STRING const char* fmt, va_list args);
+  [[nodiscard]] static std::wstring FormatV(PRINTF_FORMAT_STRING const wchar_t* fmt, va_list args);
+  [[nodiscard]] static std::string ToUpper(std::string_view str);
+  [[nodiscard]] static std::wstring ToUpper(std::wstring_view str);
+  static void ToUpper(std::string& str) noexcept;
+  static void ToUpper(std::wstring& str) noexcept;
+  [[nodiscard]] static std::string ToLower(std::string_view str);
+  [[nodiscard]] static std::wstring ToLower(std::wstring_view str);
+  static void ToLower(std::string& str) noexcept;
+  static void ToLower(std::wstring& str) noexcept;
+  static void ToCapitalize(std::string& str) noexcept;
+  static void ToCapitalize(std::wstring& str) noexcept;
+  [[nodiscard]] static bool EqualsNoCase(std::string_view str1, std::string_view str2) noexcept;
+  [[nodiscard]] static constexpr int CompareNoCase(std::string_view str1,
+                                                   std::string_view str2,
+                                                   size_t n = 0) noexcept;
+  [[nodiscard]] static int ReturnDigits(std::string_view str) noexcept;
+  [[nodiscard]] static std::string Left(std::string_view str, size_t count);
+  [[nodiscard]] static std::string Mid(std::string_view str,
+                                       size_t first,
+                                       size_t count = std::string_view::npos);
+  [[nodiscard]] static std::string Right(std::string_view str, size_t count);
+  static std::string& Trim(std::string& str) noexcept;
+  static std::string& Trim(std::string& str, std::string_view chars) noexcept;
+  static std::string& TrimLeft(std::string& str) noexcept;
+  static std::string& TrimLeft(std::string& str, std::string_view chars) noexcept;
+  static std::string& TrimRight(std::string& str) noexcept;
+  static std::string& TrimRight(std::string& str, std::string_view chars) noexcept;
+  static std::string& RemoveDuplicatedSpacesAndTabs(std::string& str) noexcept;
+
+  // -- Wide-string helpers kept from the DSPlayer fork. DirectShow works in UTF-16, so these
+  // -- have callers that the string_view overloads above cannot serve.
+  [[nodiscard]] static int CompareNoCase(const std::wstring& str1,
+                                         const std::wstring& str2,
+                                         size_t n = 0);
+  [[nodiscard]] static int CompareNoCase(const wchar_t* s1, const wchar_t* s2, size_t n = 0);
+  [[nodiscard]] static std::wstring WLeft(const std::wstring& str, size_t count);
   static std::wstring& Trim(std::wstring& str);
   static std::wstring& TrimLeft(std::wstring& str);
-  static std::wstring& TrimRight(std::wstring &str);
-  
-  static std::string& Trim(std::string &str);
-  static std::string& Trim(std::string &str, const char* const chars);
-  static std::string& TrimLeft(std::string &str);
-  static std::string& TrimLeft(std::string &str, const char* const chars);
-  static std::string& TrimRight(std::string &str);
-  static std::string& TrimRight(std::string &str, const char* const chars);
-  static std::string& RemoveDuplicatedSpacesAndTabs(std::string& str);
+  static std::wstring& TrimRight(std::wstring& str);
 
   /*! \brief Check if the character is a special character.
 
@@ -136,29 +142,26 @@ public:
 
    \param c Input character to be checked
    */
-  static bool IsSpecialCharacter(char c);
+  [[nodiscard]] static bool IsSpecialCharacter(char c) noexcept;
 
-  static std::string ReplaceSpecialCharactersWithSpace(const std::string& str);
-  static int Replace(std::string &str, char oldChar, char newChar);
-  static int Replace(std::string &str, const std::string &oldStr, const std::string &newStr);
-  static int Replace(std::wstring &str, const std::wstring &oldStr, const std::wstring &newStr);
-  static bool StartsWith(const std::string &str1, const std::string &str2);
-  static bool StartsWith(const std::string &str1, const char *s2);
-  static bool StartsWith(const char *s1, const char *s2);
-  static bool StartsWithNoCase(const std::string &str1, const std::string &str2);
-  static bool StartsWithNoCase(const std::string &str1, const char *s2);
-  static bool StartsWithNoCase(const char *s1, const char *s2);
-  static bool EndsWith(const std::string &str1, const std::string &str2);
-  static bool EndsWith(const std::string &str1, const char *s2);
-  static bool EndsWithNoCase(const std::string &str1, const std::string &str2);
-  static bool EndsWithNoCase(const std::string &str1, const char *s2);
+  [[nodiscard]] static std::string ReplaceSpecialCharactersWithSpace(std::string_view str);
+  static int Replace(std::string& str, char oldChar, char newChar) noexcept;
+  static int Replace(std::string& str, std::string_view oldStr, std::string_view newStr);
+  static int Replace(std::wstring& str, std::wstring_view oldStr, std::wstring_view newStr);
+  [[nodiscard]] static bool StartsWith(std::string_view str1, std::string_view str2) noexcept;
+  [[nodiscard]] static bool StartsWithNoCase(std::string_view str1, std::string_view str2) noexcept;
+  [[nodiscard]] static bool EndsWith(std::string_view str1, std::string_view str2) noexcept;
+  [[nodiscard]] static bool EndsWithNoCase(std::string_view str1, std::string_view str2) noexcept;
 
   template<typename CONTAINER>
-  static std::string Join(const CONTAINER &strings, const std::string& delimiter)
+  [[nodiscard]] static std::string Join(const CONTAINER& strings, std::string_view delimiter)
   {
     std::string result;
     for (const auto& str : strings)
-      result += str + delimiter;
+    {
+      result += str;
+      result += delimiter;
+    }
 
     if (!result.empty())
       result.erase(result.size() - delimiter.size());
@@ -172,11 +175,18 @@ public:
 
    \param input Input string to be split
    \param delimiter Delimiter to be used to split the input string
-   \param iMaxStrings (optional) Maximum number of splitted strings
+   \param iMaxStrings (optional) Maximum number of split strings
    */
-  static std::vector<std::string> Split(const std::string& input, const std::string& delimiter, unsigned int iMaxStrings = 0);
-  static std::vector<std::string> Split(const std::string& input, const char delimiter, size_t iMaxStrings = 0);
-  static std::vector<std::string> Split(const std::string& input, const std::vector<std::string> &delimiters);
+  [[nodiscard]] static std::vector<std::string> Split(std::string_view input,
+                                                      std::string_view delimiter,
+                                                      unsigned int iMaxStrings = 0);
+  [[nodiscard]] static std::vector<std::string> Split(std::string_view input,
+                                                      char delimiter,
+                                                      size_t iMaxStrings = 0);
+  [[nodiscard]] static std::vector<std::string> Split(std::string_view input,
+                                                      std::span<const std::string> delimiters);
+  [[nodiscard]] static std::vector<std::string> Split(std::string_view input,
+                                                      std::span<const std::string_view> delimiters);
   /*! \brief Splits the given input string using the given delimiter into separate strings.
 
    If the given input string is empty nothing will be put into the target iterator.
@@ -184,12 +194,15 @@ public:
    \param d_first the beginning of the destination range
    \param input Input string to be split
    \param delimiter Delimiter to be used to split the input string
-   \param iMaxStrings (optional) Maximum number of splitted strings
+   \param iMaxStrings (optional) Maximum number of split strings
    \return output iterator to the element in the destination range, one past the last element
    *       that was put there
    */
   template<typename OutputIt>
-  static OutputIt SplitTo(OutputIt d_first, const std::string& input, const std::string& delimiter, unsigned int iMaxStrings = 0)
+  static OutputIt SplitTo(OutputIt d_first,
+                          std::string_view input,
+                          std::string_view delimiter,
+                          unsigned int iMaxStrings = 0)
   {
     OutputIt dest = d_first;
 
@@ -197,7 +210,7 @@ public:
       return dest;
     if (delimiter.empty())
     {
-      *d_first++ = input;
+      *d_first++ = std::string(input);
       return dest;
     }
 
@@ -208,23 +221,28 @@ public:
     {
       if (--iMaxStrings == 0)
       {
-        *dest++ = input.substr(textPos);
+        *dest++ = std::string(input.substr(textPos));
         break;
       }
       nextDelim = input.find(delimiter, textPos);
-      *dest++ = input.substr(textPos, nextDelim - textPos);
+      *dest++ = std::string(input.substr(textPos, nextDelim - textPos));
       textPos = nextDelim + delimLen;
     } while (nextDelim != std::string::npos);
 
     return dest;
   }
   template<typename OutputIt>
-  static OutputIt SplitTo(OutputIt d_first, const std::string& input, const char delimiter, size_t iMaxStrings = 0)
+  static OutputIt SplitTo(OutputIt d_first,
+                          std::string_view input,
+                          char delimiter,
+                          size_t iMaxStrings = 0)
   {
-    return SplitTo(d_first, input, std::string(1, delimiter), iMaxStrings);
+    return SplitTo(d_first, input, std::string_view(&delimiter, 1), iMaxStrings);
   }
-  template<typename OutputIt>
-  static OutputIt SplitTo(OutputIt d_first, const std::string& input, const std::vector<std::string> &delimiters)
+  template<typename OutputIt, typename StringLike>
+  static OutputIt SplitTo(OutputIt d_first,
+                          std::string_view input,
+                          std::span<StringLike> delimiters)
   {
     OutputIt dest = d_first;
     if (input.empty())
@@ -232,10 +250,10 @@ public:
 
     if (delimiters.empty())
     {
-      *dest++ = input;
+      *dest++ = std::string(input);
       return dest;
     }
-    std::string str = input;
+    std::string str(input);
     for (size_t di = 1; di < delimiters.size(); di++)
       StringUtils::Replace(str, delimiters[di], delimiters[0]);
     return SplitTo(dest, str, delimiters[0]);
@@ -255,20 +273,35 @@ public:
   \param delimiters Delimiter strings to be used to split the input strings
   \param iMaxStrings (optional) Maximum number of resulting split strings
   */
-  static std::vector<std::string> SplitMulti(const std::vector<std::string>& input,
-                                             const std::vector<std::string>& delimiters,
-                                             size_t iMaxStrings = 0);
-  static int FindNumber(const std::string& strInput, const std::string &strFind);
-  static int64_t AlphaNumericCompare(const wchar_t *left, const wchar_t *right);
-  static int AlphaNumericCollation(int nKey1, const void* pKey1, int nKey2, const void* pKey2);
-  static long TimeStringToSeconds(const std::string &timeString);
-  static void RemoveCRLF(std::string& strLine);
+  [[nodiscard]] static std::vector<std::string> SplitMulti(std::span<const std::string> input,
+                                                           std::span<const std::string> delimiters,
+                                                           size_t iMaxStrings = 0);
+  [[nodiscard]] static std::vector<std::string> SplitMulti(
+      std::span<const std::string_view> input,
+      std::span<const std::string_view> delimiters,
+      size_t iMaxStrings = 0);
+  [[nodiscard]] static std::vector<std::string> SplitMulti(
+      std::span<const std::string> input,
+      std::span<const std::string_view> delimiters,
+      size_t iMaxStrings = 0);
+  [[nodiscard]] static std::vector<std::string> SplitMulti(std::span<const std::string_view> input,
+                                                           std::span<const std::string> delimiters,
+                                                           size_t iMaxStrings = 0);
+  [[nodiscard]] static int FindNumber(std::string_view strInput, std::string_view strFind) noexcept;
+  [[nodiscard]] static int64_t AlphaNumericCompare(std::wstring_view left,
+                                                   std::wstring_view right) noexcept;
+  [[nodiscard]] static int AlphaNumericCollation(int nKey1,
+                                                 const void* pKey1,
+                                                 int nKey2,
+                                                 const void* pKey2) noexcept;
+  [[nodiscard]] static long TimeStringToSeconds(std::string_view timeString);
+  static void RemoveCRLF(std::string& strLine) noexcept;
 
   /*! \brief utf8 version of strlen - skips any non-starting bytes in the count, thus returning the number of utf8 characters
    \param s c-string to find the length of.
    \return the number of utf8 characters in the string.
    */
-  static size_t utf8_strlen(const char *s);
+  [[nodiscard]] static size_t utf8_strlen(std::string_view s) noexcept;
 
   /*! \brief convert a time in seconds to a string based on the given time format
    \param seconds time in seconds
@@ -276,66 +309,92 @@ public:
    \return the formatted time
    \sa TIME_FORMAT
    */
-  static std::string SecondsToTimeString(long seconds, TIME_FORMAT format = TIME_FORMAT_GUESS);
+  [[nodiscard]] static std::string SecondsToTimeString(long seconds,
+                                                       TIME_FORMAT format = TIME_FORMAT_GUESS);
 
   /*! \brief convert a milliseconds value to a time string in the TIME_FORMAT_HH_MM_SS format
    \param milliSeconds time in milliseconds
    \return the formatted time
    \sa TIME_FORMAT
    */
-  static std::string MillisecondsToTimeString(std::chrono::milliseconds milliSeconds);
+  [[nodiscard]] static std::string MillisecondsToTimeString(std::chrono::milliseconds milliSeconds);
 
   /*! \brief check whether a string is a natural number.
    Matches [ \t]*[0-9]+[ \t]*
    \param str the string to check
    \return true if the string is a natural number, false otherwise.
    */
-  static bool IsNaturalNumber(const std::string& str);
+  [[nodiscard]] static bool IsNaturalNumber(std::string_view str) noexcept;
 
   /*! \brief check whether a string is an integer.
    Matches [ \t]*[\-]*[0-9]+[ \t]*
    \param str the string to check
    \return true if the string is an integer, false otherwise.
    */
-  static bool IsInteger(const std::string& str);
+  [[nodiscard]] static bool IsInteger(std::string_view str) noexcept;
 
   /* The next several isasciiXX and asciiXXvalue functions are locale independent (US-ASCII only),
    * as opposed to standard ::isXX (::isalpha, ::isdigit...) which are locale dependent.
    * Next functions get parameter as char and don't need double cast ((int)(unsigned char) is required for standard functions). */
-  inline static bool isasciidigit(char chr) // locale independent
+  [[nodiscard]] inline static bool isasciidigit(char chr) noexcept // locale independent
   {
     return chr >= '0' && chr <= '9';
   }
-  inline static bool isasciixdigit(char chr) // locale independent
+  [[nodiscard]] inline static bool isasciixdigit(char chr) noexcept // locale independent
   {
     return (chr >= '0' && chr <= '9') || (chr >= 'a' && chr <= 'f') || (chr >= 'A' && chr <= 'F');
   }
-  static int asciidigitvalue(char chr); // locale independent
-  static int asciixdigitvalue(char chr); // locale independent
-  inline static bool isasciiuppercaseletter(char chr) // locale independent
+  [[nodiscard]] static int asciidigitvalue(char chr) noexcept; // locale independent
+  [[nodiscard]] static int asciixdigitvalue(char chr) noexcept; // locale independent
+  [[nodiscard]] inline static bool isasciiuppercaseletter(char chr) noexcept // locale independent
   {
     return (chr >= 'A' && chr <= 'Z');
   }
-  inline static bool isasciilowercaseletter(char chr) // locale independent
+  [[nodiscard]] inline static bool isasciilowercaseletter(char chr) noexcept // locale independent
   {
     return (chr >= 'a' && chr <= 'z');
   }
-  inline static bool isasciialphanum(char chr) // locale independent
+  [[nodiscard]] inline static bool isasciiletter(char chr) noexcept // locale independent
   {
-    return isasciiuppercaseletter(chr) || isasciilowercaseletter(chr) || isasciidigit(chr);
+    return isasciiuppercaseletter(chr) || isasciilowercaseletter(chr);
   }
-  static std::string SizeToString(int64_t size);
+  [[nodiscard]] inline static bool IsAsciiLetters(
+      std::string_view str) noexcept // locale independent
+  {
+    return std::ranges::all_of(str, [](char c) { return StringUtils::isasciiletter(c); }, {});
+  }
+  [[nodiscard]] inline static bool isasciialphanum(char chr) noexcept // locale independent
+  {
+    return isasciiletter(chr) || isasciidigit(chr);
+  }
+  [[nodiscard]] constexpr static char ToLowerAscii(char c) noexcept // locale independent
+  {
+    return 'A' <= c && c <= 'Z' ? c - 'A' + 'a' : c;
+  }
+  [[nodiscard]] static std::string SizeToString(int64_t size);
   static const std::string Empty;
-  static size_t FindWords(const char *str, const char *wordLowerCase);
-  static int FindEndBracket(const std::string &str, char opener, char closer, int startPos = 0);
-  static int DateStringToYYYYMMDD(const std::string &dateString);
-  static std::string ISODateToLocalizedDate (const std::string& strIsoDate);
-  static void WordToDigits(std::string &word);
-  static std::string CreateUUID();
-  static bool ValidateUUID(const std::string &uuid); // NB only validates syntax
-  static double CompareFuzzy(const std::string &left, const std::string &right);
-  static int FindBestMatch(const std::string &str, const std::vector<std::string> &strings, double &matchscore);
-  static bool ContainsKeyword(const std::string &str, const std::vector<std::string> &keywords);
+  [[nodiscard]] static size_t FindWords(std::string_view str,
+                                        std::string_view wordLowerCase) noexcept;
+  [[nodiscard]] static int FindEndBracket(std::string_view str,
+                                          char opener,
+                                          char closer,
+                                          int startPos = 0) noexcept;
+  [[nodiscard]] static int DateStringToYYYYMMDD(std::string_view dateString);
+  [[nodiscard]] static std::string ISODateToLocalizedDate(std::string_view strIsoDate);
+  static void WordToDigits(std::string& word) noexcept;
+  [[nodiscard]] static std::string CreateUUID();
+  [[nodiscard]] static bool ValidateUUID(const std::string& uuid); // NB only validates syntax
+  [[nodiscard]] static double CompareFuzzy(std::string_view left, std::string_view right) noexcept;
+  [[nodiscard]] static int FindBestMatch(std::string_view str,
+                                         std::span<const std::string_view> strings,
+                                         double& matchscore) noexcept;
+  [[nodiscard]] static int FindBestMatch(std::string_view str,
+                                         std::span<const std::string> strings,
+                                         double& matchscore) noexcept;
+  [[nodiscard]] static bool ContainsKeyword(std::string_view str,
+                                            std::span<const std::string_view> keywords) noexcept;
+  [[nodiscard]] static bool ContainsKeyword(std::string_view str,
+                                            std::span<const std::string> keywords) noexcept;
 
   /*! \brief Convert the string of binary chars to the actual string.
 
@@ -345,14 +404,14 @@ public:
   \param param String to convert
   \return Converted string
   */
-  static std::string BinaryStringToString(const std::string& in);
+  [[nodiscard]] static std::string BinaryStringToString(std::string_view in);
   /**
    * Convert each character in the string to its hexadecimal
    * representation and return the concatenated result
    *
    * example: "abc\n" -> "6162630a"
    */
-  static std::string ToHexadecimal(const std::string& in);
+  [[nodiscard]] static std::string ToHexadecimal(std::string_view in);
   /*! \brief Format the string with locale separators.
 
   Format the string with locale separators.
@@ -362,7 +421,7 @@ public:
   \return Formatted string
   */
   template<typename T>
-  static std::string FormatNumber(T num)
+  [[nodiscard]] static std::string FormatNumber(T num)
   {
     std::stringstream ss;
 // ifdef is needed because when you set _ITERATOR_DEBUG_LEVEL=0 and you use custom numpunct you will get runtime error in debug mode
@@ -372,7 +431,7 @@ public:
 #endif
     ss.precision(1);
     ss << std::fixed << num;
-    return ss.str();
+    return std::move(ss).str();
   }
 
   /*! \brief Escapes the given string to be able to be used as a parameter.
@@ -383,7 +442,7 @@ public:
    \param param String to escape/paramify
    \return Escaped/Paramified string
    */
-  static std::string Paramify(const std::string &param);
+  [[nodiscard]] static std::string Paramify(std::string param);
 
   /*! \brief Unescapes the given string.
 
@@ -392,7 +451,7 @@ public:
    \param param String to unescape/deparamify
    \return Unescaped/Deparamified string
    */
-  static std::string DeParamify(const std::string& param);
+  [[nodiscard]] static std::string DeParamify(std::string param);
 
   /*! \brief Split a string by the specified delimiters.
    Splits a string using one or more delimiting characters, ignoring empty tokens.
@@ -401,10 +460,16 @@ public:
     2. Empty tokens are ignored.
    \return a vector of tokens
    */
-  static std::vector<std::string> Tokenize(const std::string& input, const std::string& delimiters);
-  static void Tokenize(const std::string& input, std::vector<std::string>& tokens, const std::string& delimiters);
-  static std::vector<std::string> Tokenize(const std::string& input, const char delimiter);
-  static void Tokenize(const std::string& input, std::vector<std::string>& tokens, const char delimiter);
+  [[nodiscard]] static std::vector<std::string> Tokenize(std::string_view input,
+                                                         std::string_view delimiters);
+  static void Tokenize(std::string_view input,
+                       std::vector<std::string>& tokens,
+                       std::string_view delimiters);
+  [[nodiscard]] static std::vector<std::string> Tokenize(std::string_view input,
+                                                         const char delimiter);
+  static void Tokenize(std::string_view input,
+                       std::vector<std::string>& tokens,
+                       const char delimiter);
 
   /*!
    * \brief Converts a string to a unsigned int number.
@@ -412,7 +477,7 @@ public:
    * \param fallback [OPT] The number to return when the conversion fails
    * \return The converted number, otherwise fallback if conversion fails
    */
-  static uint32_t ToUint32(std::string_view str, uint32_t fallback = 0) noexcept;
+  [[nodiscard]] static uint32_t ToUint32(std::string_view str, uint32_t fallback = 0);
 
   /*!
    * \brief Converts a string to a unsigned long long number.
@@ -420,7 +485,7 @@ public:
    * \param fallback [OPT] The number to return when the conversion fails
    * \return The converted number, otherwise fallback if conversion fails
    */
-  static uint64_t ToUint64(std::string_view str, uint64_t fallback = 0) noexcept;
+  [[nodiscard]] static uint64_t ToUint64(std::string_view str, uint64_t fallback = 0);
 
   /*!
    * \brief Converts a string to a float number.
@@ -428,7 +493,7 @@ public:
    * \param fallback [OPT] The number to return when the conversion fails
    * \return The converted number, otherwise fallback if conversion fails
    */
-  static float ToFloat(std::string_view str, float fallback = 0.0f) noexcept;
+  [[nodiscard]] static float ToFloat(std::string_view str, float fallback = 0.0f);
 
   /*!
    * Returns bytes in a human readable format using the smallest unit that will fit `bytes` in at
@@ -438,14 +503,14 @@ public:
    * For example: 1024 bytes will be formatted as "1.00kB", 10240 bytes as "10.0kB" and
    * 102400 bytes as "100kB". See TestStringUtils for more examples.
    */
-  static std::string FormatFileSize(uint64_t bytes);
+  [[nodiscard]] static std::string FormatFileSize(uint64_t bytes);
 
   /*! \brief Converts a cstring pointer (const char*) to a std::string.
              In case nullptr is passed the result is an empty string.
       \param cstr the const pointer to char
       \return the resulting std::string or ""
    */
-  static std::string CreateFromCString(const char* cstr);
+  [[nodiscard]] static std::string CreateFromCString(const char* cstr);
 
   /*!
    * \brief Check if a keyword string is contained on another string.
@@ -453,9 +518,9 @@ public:
    * \param keyword The string to search for
    * \return True if the keyword if found.
    */
-  static bool Contains(std::string_view str,
-                       std::string_view keyword,
-                       bool isCaseInsensitive = true);
+  [[nodiscard]] static bool Contains(std::string_view str,
+                                     std::string_view keyword,
+                                     bool isCaseInsensitive = true) noexcept;
 
 private:
   /*!
@@ -471,7 +536,28 @@ struct sortstringbyname
   {
     return StringUtils::CompareNoCase(strItem1, strItem2) < 0;
   }
+  bool operator()(std::string_view strItem1, std::string_view strItem2) const
+  {
+    return StringUtils::CompareNoCase(strItem1, strItem2) < 0;
+  }
 };
+
+[[nodiscard]] constexpr int StringUtils::CompareNoCase(std::string_view str1,
+                                                       std::string_view str2,
+                                                       size_t n) noexcept
+{
+  str1 = n ? str1.substr(0, std::min(n, str1.length())) : str1;
+  str2 = n ? str2.substr(0, std::min(n, str2.length())) : str2;
+  auto diff = std::ranges::mismatch(str1, str2, [](char c1, char c2)
+                                    { return c1 == c2 || ToLowerAscii(c1) == ToLowerAscii(c2); });
+  if (diff.in1 == str1.end() && diff.in2 == str2.end())
+    return 0;
+  if (diff.in1 == str1.end())
+    return '\0' - ToLowerAscii(*diff.in2);
+  if (diff.in2 == str2.end())
+    return ToLowerAscii(*diff.in1) - '\0';
+  return ToLowerAscii(*diff.in1) - ToLowerAscii(*diff.in2);
+}
 
 } // namespace KODI::UTILS
 

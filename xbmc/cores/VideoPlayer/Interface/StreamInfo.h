@@ -28,7 +28,8 @@ enum StreamFlags
   FLAG_FORCED = 0x0040,
   FLAG_HEARING_IMPAIRED = 0x0080,
   FLAG_VISUAL_IMPAIRED = 0x0100,
-  FLAG_STILL_IMAGES = 0x100000
+  FLAG_STILL_IMAGES = 0x100000,
+  FLAG_WEBVTT_DATA_PACKETS = 0x200000, // WebVTT packages are derived from a data format
 };
 
 enum class StreamHdrType
@@ -36,7 +37,9 @@ enum class StreamHdrType
   HDR_TYPE_NONE, ///< <b>None</b>, returns an empty string when used in infolabels
   HDR_TYPE_HDR10, ///< <b>HDR10</b>, returns `hdr10` when used in infolabels
   HDR_TYPE_DOLBYVISION, ///< <b>Dolby Vision</b>, returns `dolbyvision` when used in infolabels
-  HDR_TYPE_HLG ///< <b>HLG</b>, returns `hlg` when used in infolabels
+  HDR_TYPE_HLG, ///< <b>HLG</b>, returns `hlg` when used in infolabels
+  HDR_TYPE_HDR10PLUS, ///< <b>HDR10+</b>, returns `hdr10plus` when used in infolabels
+  HDR_TYPE_COUNT, ///< Sentinel, keep last. Must mirror VIDEOCODEC_HDR_TYPE_COUNT in video_codec.h
 };
 
 struct StreamInfo
@@ -48,6 +51,8 @@ struct StreamInfo
   std::string codecName;
   std::string codecDesc;
   StreamFlags flags = StreamFlags::FLAG_NONE;
+
+  bool operator==(const StreamInfo&) const = default;
 
 protected:
   StreamInfo() = default;
@@ -77,6 +82,8 @@ struct VideoStreamInfo : StreamInfo
   std::string stereoMode;
   int angles = 0;
   StreamHdrType hdrType = StreamHdrType::HDR_TYPE_NONE;
+  StreamHdrType hdrTypeAlt = StreamHdrType::HDR_TYPE_NONE;
+  std::string hdrDetail;
   uint32_t fpsRate{0};
   uint32_t fpsScale{0};
 };

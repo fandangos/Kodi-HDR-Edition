@@ -11,6 +11,8 @@
 #include "FileItem.h"
 #include "PowerTypes.h"
 #include "ServiceBroker.h"
+#include "TextureCache.h"
+#include "addons/RepositoryUpdater.h"
 #include "application/AppParams.h"
 #include "application/Application.h"
 #include "application/ApplicationComponents.h"
@@ -22,10 +24,11 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "interfaces/AnnouncementManager.h"
 #include "network/Network.h"
 #include "pvr/PVRManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
@@ -33,6 +36,10 @@
 #include "settings/lib/SettingsManager.h"
 #include "utils/log.h"
 #include "weather/WeatherManager.h"
+
+#if defined(TARGET_DARWIN_OSX) || defined(TARGET_WINDOWS)
+#include "windowing/WinSystem.h"
+#endif
 
 #include <list>
 #include <memory>
@@ -198,6 +205,8 @@ void CPowerManager::OnSleep()
 
   g_application.StopPlaying();
   CServiceBroker::GetPVRManager().OnSleep();
+  CServiceBroker::GetRepositoryUpdater().OnSleep();
+  CServiceBroker::GetTextureCache()->OnSleep();
   auto& components = CServiceBroker::GetAppComponents();
   const auto appPower = components.GetComponent<CApplicationPowerHandling>();
   appPower->StopShutdownTimer();
@@ -237,6 +246,8 @@ void CPowerManager::OnWake()
   CServiceBroker::GetActiveAE()->Resume();
   g_application.UpdateLibraries();
   CServiceBroker::GetWeatherManager().Refresh();
+  CServiceBroker::GetTextureCache()->OnWake();
+  CServiceBroker::GetRepositoryUpdater().OnWake();
   CServiceBroker::GetPVRManager().OnWake();
   RestorePlayerState();
 
@@ -247,7 +258,9 @@ void CPowerManager::OnLowBattery()
 {
   CLog::Log(LOGINFO, "{}: Running low battery jobs", __FUNCTION__);
 
-  CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Warning, g_localizeStrings.Get(13050), "");
+  CGUIDialogKaiToast::QueueNotification(
+      CGUIDialogKaiToast::Warning,
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13050), "");
 
   CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::System, "OnLowBattery");
 }
@@ -266,10 +279,10 @@ void CPowerManager::StorePlayerState()
     const auto stackHelper = components.GetComponent<CApplicationStackHelper>();
     if (stackHelper->IsPlayingRegularStack())
       m_lastPlayedFileItem->SetStartOffset(m_lastPlayedFileItem->GetStartOffset() +
-                                           stackHelper->GetCurrentStackPartStartTimeMs());
+                                           stackHelper->GetCurrentStackPartStartTime().count());
     // in case of iso stack, keep track of part number
-    m_lastPlayedFileItem->m_lStartPartNumber =
-        stackHelper->IsPlayingISOStack() ? stackHelper->GetCurrentPartNumber() + 1 : 1;
+    m_lastPlayedFileItem->SetStartPartNumber(
+        stackHelper->IsPlayingDiscStack() ? stackHelper->GetCurrentPartNumber() + 1 : 1);
     // for iso and iso stacks, keep track of playerstate
     m_lastPlayedFileItem->SetProperty("savedplayerstate", appPlayer->GetPlayerState());
     CLog::Log(LOGDEBUG,
@@ -291,25 +304,31 @@ void CPowerManager::RestorePlayerState()
   CLog::Log(LOGDEBUG,
             "CPowerManager::RestorePlayerState - resume last played item (startOffset: {} ms)",
             m_lastPlayedFileItem->GetStartOffset());
-  g_application.PlayFile(*m_lastPlayedFileItem, m_lastUsedPlayer);
+  bool restartPlayer = m_settings->GetBool(CSettings::SETTING_POWERMANAGEMENT_RESTARTPLAYER);
+  if (restartPlayer)
+    g_application.PlayFile(*m_lastPlayedFileItem, m_lastUsedPlayer);
 }
 
 void CPowerManager::SettingOptionsShutdownStatesFiller(const SettingConstPtr& setting,
                                                        std::vector<IntegerSettingOption>& list,
-                                                       int& current,
-                                                       void* data)
+                                                       int& current)
 {
   if (CServiceBroker::GetPowerManager().CanPowerdown())
-    list.emplace_back(g_localizeStrings.Get(13005), POWERSTATE_SHUTDOWN);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13005),
+                      POWERSTATE_SHUTDOWN);
   if (CServiceBroker::GetPowerManager().CanHibernate())
-    list.emplace_back(g_localizeStrings.Get(13010), POWERSTATE_HIBERNATE);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13010),
+                      POWERSTATE_HIBERNATE);
   if (CServiceBroker::GetPowerManager().CanSuspend())
-    list.emplace_back(g_localizeStrings.Get(13011), POWERSTATE_SUSPEND);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13011),
+                      POWERSTATE_SUSPEND);
   if (!CServiceBroker::GetAppParams()->IsStandAlone())
   {
-    list.emplace_back(g_localizeStrings.Get(13009), POWERSTATE_QUIT);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13009),
+                      POWERSTATE_QUIT);
 #if !defined(TARGET_DARWIN_EMBEDDED)
-    list.emplace_back(g_localizeStrings.Get(13014), POWERSTATE_MINIMIZE);
+    list.emplace_back(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(13014),
+                      POWERSTATE_MINIMIZE);
 #endif
   }
 }

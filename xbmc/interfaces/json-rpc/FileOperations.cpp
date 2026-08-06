@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2020 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -22,6 +22,7 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSourceSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/Artwork.h"
 #include "utils/FileExtensionProvider.h"
 #include "utils/FileUtils.h"
 #include "utils/URIUtils.h"
@@ -31,6 +32,7 @@
 #include <memory>
 
 using namespace KODI;
+using namespace KODI::REGEXP;
 using namespace JSONRPC;
 using namespace XFILE;
 
@@ -46,7 +48,7 @@ JSONRPC_STATUS CFileOperations::GetRootDirectory(const std::string &method, ITra
     for (unsigned int i = 0; i < (unsigned int)sources->size(); i++)
     {
       // Do not show sources which are locked
-      if (sources->at(i).m_iHasLock == LOCK_STATE_LOCKED)
+      if (sources->at(i).GetLockInfo().IsLocked())
         continue;
 
       items.Add(std::make_shared<CFileItem>(sources->at(i)));
@@ -113,9 +115,10 @@ JSONRPC_STATUS CFileOperations::GetDirectory(const std::string &method, ITranspo
     }
 
     CFileItemList filteredFiles;
+    RegExpCache cache;
     for (unsigned int i = 0; i < (unsigned int)items.Size(); i++)
     {
-      if (CUtil::ExcludeFileOrFolder(items[i]->GetPath(), regexps))
+      if (CUtil::ExcludeFileOrFolder(items[i]->GetPath(), regexps, &cache))
         continue;
 
       if (items[i]->IsSmb())
@@ -261,7 +264,7 @@ JSONRPC_STATUS CFileOperations::SetFileDetails(const std::string &method, ITrans
   CVideoLibrary::UpdateResumePoint(parameterObject, infos, videodatabase);
 
   videodatabase.GetFileInfo("", infos, fileId);
-  CJSONRPCUtils::NotifyItemUpdated(infos, std::map<std::string, std::string>{});
+  CJSONRPCUtils::NotifyItemUpdated(infos, KODI::ART::Artwork{});
   return ACK;
 }
 
@@ -333,7 +336,7 @@ bool CFileOperations::FillFileItem(
 
         item->SetLabel(label);
         item->SetPath(strFilename);
-        item->m_bIsFolder = isDir;
+        item->SetFolder(isDir);
       }
       else
         *item = *originalItem;
@@ -382,15 +385,16 @@ bool CFileOperations::FillFileItemList(const CVariant &parameterObject, CFileIte
         // but leave items from a playlist, smartplaylist or upnp container in order supplied
         if (!PLAYLIST::IsPlayList(items) && !PLAYLIST::IsSmartPlayList(items) &&
             !URIUtils::IsUPnP(items.GetPath()))
-          items.Sort(SortByFile, SortOrderAscending);
+          items.Sort(SortBy::FILE, SortOrder::ASCENDING);
 
         CFileItemList filteredDirectories;
+        RegExpCache cache;
         for (unsigned int i = 0; i < (unsigned int)items.Size(); i++)
         {
-          if (CUtil::ExcludeFileOrFolder(items[i]->GetPath(), regexps))
+          if (CUtil::ExcludeFileOrFolder(items[i]->GetPath(), regexps, &cache))
             continue;
 
-          if (items[i]->m_bIsFolder)
+          if (items[i]->IsFolder())
             filteredDirectories.Add(items[i]);
           else if ((media == "video" && items[i]->HasVideoInfoTag()) ||
                    (media == "music" && items[i]->HasMusicInfoTag()))

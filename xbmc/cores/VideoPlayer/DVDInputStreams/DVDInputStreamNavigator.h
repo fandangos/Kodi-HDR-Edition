@@ -16,9 +16,13 @@
 #include "DVDStateSerializer.h"
 #include "DllDvdNav.h"
 #include "cores/MenuType.h"
+#include "threads/CriticalSection.h"
 #include "utils/Geometry.h"
+#include "video/VideoInfoTag.h"
 
+#include <chrono>
 #include <string>
+#include <vector>
 
 #define DVD_VIDEO_BLOCKSIZE         DVD_VIDEO_LB_LEN // 2048 bytes
 
@@ -148,8 +152,8 @@ public:
 
   int GetChapter() override { return m_iPart; } // the current part in the current title
   int GetChapterCount() override { return m_iPartCount; } // the number of parts in the current title
-  void GetChapterName(std::string& name, int idx=-1) override {};
-  int64_t GetChapterPos(int ch=-1) override;
+  void GetChapterName(std::string& name, int idx = -1) override {};
+  std::chrono::milliseconds GetChapterPos(int ch = -1) override;
   bool SeekChapter(int iChapter) override;
 
   CDVDInputStream::IDisplayTime* GetIDisplayTime() override { return this; }
@@ -175,6 +179,10 @@ public:
   void CheckButtons();
 
   VideoStreamInfo GetVideoStreamInfo();
+
+  void SaveCurrentState(const CStreamDetails& details) override;
+  UpdateState UpdateItemFromSavedStates(CFileItem& item, double time, bool& closed) override;
+  void UpdateStack(CFileItem& item) override;
 
 protected:
 
@@ -223,9 +231,16 @@ protected:
   uint8_t m_lastblock[DVD_VIDEO_BLOCKSIZE];
   int m_lastevent;
 
+  /*!
+   * \brief Chapters start timestamps in milliseconds, per title. Chapter numbers are 1-based.
+   */
   std::map<int, std::map<int, int64_t>> m_mapTitleChapters;
 
   /*! DVD state serializer handler */
   CDVDStateSerializer m_dvdStateSerializer;
+
+  std::chrono::steady_clock::time_point m_startWatchTime{};
+  std::vector<PlaylistInformation> m_playedPlaylists;
+  CCriticalSection m_statesLock;
 };
 

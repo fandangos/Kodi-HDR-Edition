@@ -48,15 +48,16 @@ void CRendererVAAPIGLES::Register(IVaapiWinSystem* winSystem,
     return;
   }
 
-  CVaapi2Texture::TestInterop(vaDpy, eglDisplay, general, deepColor);
-  CLog::Log(LOGDEBUG, "Vaapi2 EGL interop test results: general {}, deepColor {}",
-            general ? "yes" : "no", deepColor ? "yes" : "no");
-  if (!general)
-  {
-    CVaapi1Texture::TestInterop(vaDpy, eglDisplay, general, deepColor);
-    CLog::Log(LOGDEBUG, "Vaapi1 EGL interop test results: general {}, deepColor {}",
-              general ? "yes" : "no", deepColor ? "yes" : "no");
-  }
+  // Probe importable surface formats via vaExportSurfaceHandle.
+  CCapabilities& caps = CDecoder::GetCaps();
+  CVaapi2Texture::TestInteropFormats(vaDpy, eglDisplay, caps);
+
+  CLog::Log(LOGDEBUG, "VAAPI EGL interop: {}", caps.ToString());
+
+  // Bool out-params are views over caps for the OptionalsReg / WinSystem
+  // boundary that still expresses capability as the general/deepColor pair.
+  general = caps.Supports(AV_PIX_FMT_NV12);
+  deepColor = caps.Supports(AV_PIX_FMT_P010);
 
   vaTerminate(vaDpy);
 
@@ -85,32 +86,28 @@ bool CRendererVAAPIGLES::Configure(const VideoPicture& picture, float fps, unsig
   else
     m_isVAAPIBuffer = false;
 
-  InteropInfo interop;
-  interop.textureTarget = GL_TEXTURE_2D;
-  interop.eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
-  interop.eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
-  interop.glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
-  interop.eglDisplay = m_pWinSystem->GetEGLDisplay();
+  m_vaapiFourcc = pic->procPic.fourcc;
 
-  bool useVaapi2 = VAAPI::CVaapi2Texture::TestInteropGeneral(
-      pic->vadsp, CRendererVAAPIGLES::m_pWinSystem->GetEGLDisplay());
-
-  for (auto &tex : m_vaapiTextures)
+  if (m_isVAAPIBuffer)
   {
-    if (useVaapi2)
+    InteropInfo interop;
+    interop.textureTarget = GL_TEXTURE_2D;
+    interop.eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+    interop.eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+    interop.glEGLImageTargetTexture2DOES =
+        (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    interop.eglDisplay = m_pWinSystem->GetEGLDisplay();
+
+    for (auto& tex : m_vaapiTextures)
     {
       tex = std::make_unique<VAAPI::CVaapi2Texture>();
+      tex->Init(interop);
     }
-    else
-    {
-      tex = std::make_unique<VAAPI::CVaapi1Texture>();
-    }
-    tex->Init(interop);
-  }
 
-  for (auto& fence : m_fences)
-  {
-    fence = std::make_unique<CEGLFence>(CRendererVAAPIGLES::m_pWinSystem->GetEGLDisplay());
+    for (auto& fence : m_fences)
+    {
+      fence = std::make_unique<CEGLFence>(CRendererVAAPIGLES::m_pWinSystem->GetEGLDisplay());
+    }
   }
 
   return CLinuxRendererGLES::Configure(picture, fps, orientation);
@@ -119,7 +116,8 @@ bool CRendererVAAPIGLES::Configure(const VideoPicture& picture, float fps, unsig
 bool CRendererVAAPIGLES::ConfigChanged(const VideoPicture& picture)
 {
   CVaapiRenderPicture *pic = dynamic_cast<CVaapiRenderPicture*>(picture.videoBuffer);
-  if (pic->procPic.videoSurface != VA_INVALID_ID && !m_isVAAPIBuffer)
+  if ((pic->procPic.videoSurface != VA_INVALID_ID && !m_isVAAPIBuffer) ||
+      (pic->procPic.videoSurface == VA_INVALID_ID && m_isVAAPIBuffer))
     return true;
 
   return false;
@@ -127,14 +125,39 @@ bool CRendererVAAPIGLES::ConfigChanged(const VideoPicture& picture)
 
 EShaderFormat CRendererVAAPIGLES::GetShaderFormat()
 {
-  EShaderFormat ret = SHADER_NONE;
+  if (!m_isVAAPIBuffer)
+    return SHADER_NV12;
 
-  if (m_isVAAPIBuffer)
-    ret = SHADER_NV12_RRG;
-  else
-    ret = SHADER_NV12;
-
-  return ret;
+  // Per-fourcc sampling path. Semi-planar 4:2:0 surfaces (NV12 / P010 /
+  // P012 / P016) all share SHADER_NV12_RRG; Mesa imports their DMA-BUF as
+  // GL_R16 / GL_RG16 textures whose normalized 0..1 sampled floats span
+  // the full range regardless of underlying bit depth, so one shader
+  // covers all 4:2:0 bit depths. Packed 4:2:2 and 4:4:4 each have their
+  // own shader because their channel layouts differ.
+  switch (m_vaapiFourcc)
+  {
+    case VA_FOURCC_NV12:
+    case VA_FOURCC_P010:
+    case VA_FOURCC_P012:
+    case VA_FOURCC_P016:
+      return SHADER_NV12_RRG;
+    case VA_FOURCC_Y210:
+    case VA_FOURCC_Y212:
+    case VA_FOURCC_Y216:
+      return SHADER_Y210;
+    case VA_FOURCC_AYUV:
+    case VA_FOURCC_XYUV:
+      return SHADER_AYUV;
+    case VA_FOURCC_Y410:
+      return SHADER_Y410;
+    case VA_FOURCC_Y412:
+    case VA_FOURCC_Y416:
+      return SHADER_Y412;
+    default:
+      CLog::Log(LOGDEBUG, "CRendererVAAPIGLES::GetShaderFormat - unrecognized fourcc: {:#x}",
+                m_vaapiFourcc);
+      return SHADER_NV12_RRG;
+  }
 }
 
 bool CRendererVAAPIGLES::LoadShadersHook()
@@ -151,7 +174,20 @@ bool CRendererVAAPIGLES::CreateTexture(int index)
 {
   if (!m_isVAAPIBuffer)
   {
-    return CreateNV12Texture(index);
+    DeleteTexture(index);
+
+    if (!CreateNV12Texture(index))
+      return false;
+
+    // Allocate backing memory for NV12 plane copy (base class leaves planes null).
+    // CFFmpegPostproc AVFrame data may be recycled before upload, so we copy into
+    // stable buffers — matching the GL renderer's approach.
+    YuvImage& im = m_buffers[index].image;
+    for (int i = 0; i < 2; i++)
+      im.plane[i] = new uint8_t[im.planesize[i]];
+
+    m_nv12Allocated[index] = true;
+    return true;
   }
 
   CPictureBuffer &buf = m_buffers[index];
@@ -178,6 +214,16 @@ void CRendererVAAPIGLES::DeleteTexture(int index)
 
   if (!m_isVAAPIBuffer)
   {
+    if (m_nv12Allocated[index])
+    {
+      YuvImage& im = m_buffers[index].image;
+      for (int i = 0; i < 2; i++)
+      {
+        delete[] im.plane[i];
+        im.plane[i] = nullptr;
+      }
+      m_nv12Allocated[index] = false;
+    }
     DeleteNV12Texture(index);
     return;
   }
@@ -192,6 +238,20 @@ bool CRendererVAAPIGLES::UploadTexture(int index)
 {
   if (!m_isVAAPIBuffer)
   {
+    CPictureBuffer& buf = m_buffers[index];
+    CVaapiRenderPicture* pic = dynamic_cast<CVaapiRenderPicture*>(buf.videoBuffer);
+    if (!pic || !pic->valid)
+      return false;
+
+    if (!buf.loaded)
+    {
+      YuvImage& dst = buf.image;
+      YuvImage src;
+      pic->GetPlanes(src.plane);
+      pic->GetStrides(src.stride);
+      CVideoBuffer::CopyNV12Picture(&dst, &src);
+    }
+    CalculateTextureSourceRects(index, 3);
     return UploadNV12Texture(index);
   }
 
@@ -213,6 +273,16 @@ bool CRendererVAAPIGLES::UploadTexture(int index)
   planes[0].texwidth  = size.Width();
   planes[0].texheight = size.Height();
 
+  // Packed 4:2:2 fourccs (YUY2 / Y210 / Y212 / Y216) hold two luma per
+  // texel, so the GL texture covers half the source width with each texel
+  // representing a (Y0, Cb, Y1, Cr) macropixel. Match the LinuxRendererGLES
+  // YUYV path: halve texwidth (ceiling for odd widths) and tell the shader
+  // pixpertex_x = 2.
+  const bool packed422 = (m_vaapiFourcc == VA_FOURCC_Y210 || m_vaapiFourcc == VA_FOURCC_Y212 ||
+                          m_vaapiFourcc == VA_FOURCC_Y216);
+  if (packed422)
+    planes[0].texwidth = (planes[0].texwidth + 1) / 2;
+
   planes[1].texwidth  = planes[0].texwidth  >> im.cshift_x;
   planes[1].texheight = planes[0].texheight >> im.cshift_y;
   planes[2].texwidth  = planes[1].texwidth;
@@ -220,7 +290,7 @@ bool CRendererVAAPIGLES::UploadTexture(int index)
 
   for (int p = 0; p < 3; p++)
   {
-    planes[p].pixpertex_x = 1;
+    planes[p].pixpertex_x = packed422 ? 2 : 1;
     planes[p].pixpertex_y = 1;
   }
 
@@ -247,17 +317,22 @@ bool CRendererVAAPIGLES::UploadTexture(int index)
 
 void CRendererVAAPIGLES::AfterRenderHook(int index)
 {
-  m_fences[index]->CreateFence();
+  if (m_fences[index])
+    m_fences[index]->CreateFence();
 }
 
 bool CRendererVAAPIGLES::NeedBuffer(int index)
 {
-  return !m_fences[index]->IsSignaled();
+  if (m_fences[index])
+    return !m_fences[index]->IsSignaled();
+
+  return false;
 }
 
 void CRendererVAAPIGLES::ReleaseBuffer(int index)
 {
-  m_fences[index]->DestroyFence();
+  if (m_fences[index])
+    m_fences[index]->DestroyFence();
 
   if (m_isVAAPIBuffer)
   {

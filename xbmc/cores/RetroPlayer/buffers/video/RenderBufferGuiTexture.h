@@ -25,7 +25,7 @@ public:
   CRenderBufferGuiTexture(SCALINGMETHOD scalingMethod);
   ~CRenderBufferGuiTexture() override = default;
 
-  // implementation of IRenderBuffer via CBaseRenderBuffer
+  // Implementation of IRenderBuffer via CBaseRenderBuffer
   bool Allocate(AVPixelFormat format, unsigned int width, unsigned int height) override;
   size_t GetFrameSize() const override;
   uint8_t* GetMemory() override;

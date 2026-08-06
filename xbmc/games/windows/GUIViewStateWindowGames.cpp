@@ -11,13 +11,11 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "games/GameUtils.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/WindowIDs.h"
 #include "settings/MediaSourceSettings.h"
 #include "utils/StringUtils.h"
 #include "view/ViewState.h"
 #include "view/ViewStateSettings.h"
-#include "windowing/GraphicContext.h" // include before ViewState.h
 
 #include <assert.h>
 #include <set>
@@ -30,17 +28,17 @@ CGUIViewStateWindowGames::CGUIViewStateWindowGames(const CFileItemList& items)
 {
   if (items.IsVirtualDirectoryRoot())
   {
-    AddSortMethod(SortByLabel, 551, LABEL_MASKS());
-    AddSortMethod(SortByDriveType, 564, LABEL_MASKS());
-    SetSortMethod(SortByLabel);
-    SetSortOrder(SortOrderAscending);
+    AddSortMethod(SortBy::LABEL, 551, LABEL_MASKS());
+    AddSortMethod(SortBy::DRIVE_TYPE, 564, LABEL_MASKS());
+    SetSortMethod(SortBy::LABEL);
+    SetSortOrder(SortOrder::ASCENDING);
     SetViewAsControl(DEFAULT_VIEW_LIST);
   }
   else
   {
-    AddSortMethod(SortByFile, 561,
+    AddSortMethod(SortBy::FILE, 561,
                   LABEL_MASKS("%F", "%I", "%L", "")); // Filename, Size | Label, empty
-    AddSortMethod(SortBySize, 553,
+    AddSortMethod(SortBy::SIZE, 553,
                   LABEL_MASKS("%L", "%I", "%L", "%I")); // Filename, Size | Label, Size
 
     const CViewState* viewState = CViewStateSettings::GetInstance().Get("games");

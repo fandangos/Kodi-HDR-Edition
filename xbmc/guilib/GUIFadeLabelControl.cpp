@@ -9,7 +9,9 @@
 #include "GUIFadeLabelControl.h"
 
 #include "GUIMessage.h"
+#include "ServiceBroker.h"
 #include "utils/Random.h"
+#include "windowing/WinSystem.h"
 
 using namespace KODI::GUILIB;
 
@@ -120,8 +122,9 @@ void CGUIFadeLabelControl::Process(unsigned int currentTime, CDirtyRegionList &d
     else if (m_scrollInfo.m_pixelPos > m_scrollInfo.m_textWidth)
       moveToNextLabel = true;
 
-    if (m_scrollInfo.m_pixelSpeed || m_fadeAnim.GetState() == ANIM_STATE_IN_PROCESS)
-      MarkDirtyRegion();
+    // Track if any animation/scrolling is active for dirty marking
+    const bool animating =
+        m_scrollInfo.m_pixelSpeed || m_fadeAnim.GetState() == ANIM_STATE_IN_PROCESS;
 
     // apply the fading animation
     TransformMatrix matrix;
@@ -150,10 +153,11 @@ void CGUIFadeLabelControl::Process(unsigned int currentTime, CDirtyRegionList &d
     }
 
     if (m_scroll)
-    {
       m_textLayout.UpdateScrollinfo(m_scrollInfo);
+
+    // Mark dirty once if any animation or scrolling is active
+    if (animating)
       MarkDirtyRegion();
-    }
 
     CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
   }

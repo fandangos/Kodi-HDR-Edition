@@ -22,13 +22,14 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIWindowManager.h"
-#include "guilib/LocalizeStrings.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "music/MusicFileItemClassify.h"
 #include "music/tags/MusicInfoTag.h"
 #include "playlists/PlayListM3U.h"
 #include "profiles/ProfileManager.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/MediaSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -251,8 +252,6 @@ bool CGUIWindowMusicPlayList::OnAction(const CAction& action)
 
 bool CGUIWindowMusicPlayList::OnBack(int actionID)
 {
-  CancelUpdateItems();
-
   if (actionID == ACTION_NAV_BACK)
     return CGUIWindow::OnBack(actionID); // base class goes up a folder, but none to go up
   return CGUIWindowMusicBase::OnBack(actionID);
@@ -306,8 +305,9 @@ bool CGUIWindowMusicPlayList::MoveCurrentPlayListItem(int iItem,
 void CGUIWindowMusicPlayList::SavePlayList()
 {
   std::string strNewFileName;
-  if (CGUIKeyboardFactory::ShowAndGetInput(strNewFileName, CVariant{g_localizeStrings.Get(16012)},
-                                           false))
+  if (CGUIKeyboardFactory::ShowAndGetInput(
+          strNewFileName,
+          CVariant{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16012)}, false))
   {
     // need 2 rename it
     strNewFileName = CUtil::MakeLegalFileName(std::move(strNewFileName));
@@ -447,11 +447,14 @@ void CGUIWindowMusicPlayList::UpdateButtons()
   else
     iLocalizedString = 597; // Repeat: All
 
-  SET_CONTROL_LABEL(CONTROL_BTNREPEAT, g_localizeStrings.Get(iLocalizedString));
+  SET_CONTROL_LABEL(
+      CONTROL_BTNREPEAT,
+      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(iLocalizedString));
 
   // Update object count label
   std::string items =
-      StringUtils::Format("{} {}", m_vecItems->GetObjectCount(), g_localizeStrings.Get(127));
+      StringUtils::Format("{} {}", m_vecItems->GetObjectCount(),
+                          CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(127));
   SET_CONTROL_LABEL(CONTROL_LABELFILES, items);
 
   MarkPlaying();
@@ -507,15 +510,15 @@ void CGUIWindowMusicPlayList::OnItemLoaded(CFileItem* pItem)
       if (nDuration > 0)
         pItem->SetLabel2(StringUtils::SecondsToTimeString(nDuration));
     }
-    else if (pItem->GetLabel() == "") // pls labels come in preformatted
+    else if (pItem->GetLabel().empty()) // pls labels come in preformatted
     {
       // FIXME: get the position of the item in the playlist
-      //        currently it is hacked into m_iprogramCount
+      //        currently it is hacked into program count
 
       // No music info and it's not CDDA so we'll just show the filename
       std::string str;
       str = CUtil::GetTitleFromPath(pItem->GetPath());
-      str = StringUtils::Format("{:02}. {} ", pItem->m_iprogramCount, str);
+      str = StringUtils::Format("{:02}. {} ", pItem->GetProgramCount(), str);
       pItem->SetLabel(str);
     }
   }

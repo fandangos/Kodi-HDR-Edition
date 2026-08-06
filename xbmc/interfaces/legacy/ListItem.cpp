@@ -111,8 +111,9 @@ namespace XBMCAddon
       String ret;
       {
         XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
-        if (item->m_dateTime.IsValid())
-          ret = item->m_dateTime.GetAsW3CDateTime();
+        const CDateTime& dateTime{item->GetDateTime()};
+        if (dateTime.IsValid())
+          ret = dateTime.GetAsW3CDateTime();
       }
 
       return ret;
@@ -160,7 +161,7 @@ namespace XBMCAddon
       if (!item)
         return;
 
-      std::map<String, String> uniqueIDs;
+      std::map<String, String, std::less<>> uniqueIDs;
       for (const auto& it : dictionary)
         uniqueIDs.emplace(it.first, it.second);
 
@@ -313,7 +314,7 @@ namespace XBMCAddon
     bool ListItem::isFolder() const
     {
       XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
-      return item->m_bIsFolder;
+      return item->IsFolder();
     }
 
     String ListItem::getUniqueID(const char* key)
@@ -973,9 +974,9 @@ namespace XBMCAddon
       return item->GetMusicInfoTag();
     }
 
-    void ListItem::setTitleRaw(std::string title)
+    void ListItem::setTitleRaw(const std::string& title)
     {
-      item->m_strTitle = std::move(title);
+      item->SetTitle(title);
     }
 
     void ListItem::setPathRaw(const std::string& path)
@@ -985,12 +986,12 @@ namespace XBMCAddon
 
     void ListItem::setCountRaw(int count)
     {
-      item->m_iprogramCount = count;
+      item->SetProgramCount(count);
     }
 
     void ListItem::setSizeRaw(int64_t size)
     {
-      item->m_dwSize = size;
+      item->SetSize(size);
     }
 
     void ListItem::setDateTimeRaw(const std::string& dateTime)
@@ -1000,15 +1001,21 @@ namespace XBMCAddon
         int year = strtol(dateTime.substr(dateTime.size() - 4).c_str(), nullptr, 10);
         int month = strtol(dateTime.substr(3, 4).c_str(), nullptr, 10);
         int day = strtol(dateTime.substr(0, 2).c_str(), nullptr, 10);
-        item->m_dateTime.SetDate(year, month, day);
+        CDateTime dt{item->GetDateTime()};
+        dt.SetDate(year, month, day);
+        item->SetDateTime(dt);
       }
       else
-        item->m_dateTime.SetFromW3CDateTime(dateTime);
+      {
+        CDateTime dt;
+        dt.SetFromW3CDateTime(dateTime);
+        item->SetDateTime(dt);
+      }
     }
 
     void ListItem::setIsFolderRaw(bool isFolder)
     {
-      item->m_bIsFolder = isFolder;
+      item->SetFolder(isFolder);
     }
 
     void ListItem::setStartOffsetRaw(double startOffset)
@@ -1027,9 +1034,9 @@ namespace XBMCAddon
       StringUtils::ToLower(specialSort);
 
       if (specialSort == "bottom")
-        item->SetSpecialSort(SortSpecialOnBottom);
+        item->SetSpecialSort(SortSpecial::BOTTOM);
       else if (specialSort == "top")
-        item->SetSpecialSort(SortSpecialOnTop);
+        item->SetSpecialSort(SortSpecial::TOP);
     }
 
     void ListItem::setContentLookupRaw(bool enable)

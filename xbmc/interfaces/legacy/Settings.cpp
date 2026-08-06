@@ -51,14 +51,14 @@ bool GetSettingValueList(const std::shared_ptr<CSettingsBase>& settings,
     return false;
 
   const auto variantValues = settings->GetList(key);
-  std::transform(variantValues.begin(), variantValues.end(), std::back_inserter(values), transform);
+  std::ranges::transform(variantValues, std::back_inserter(values), std::move(transform));
   return true;
 }
 
 template<class TSetting>
 bool SetSettingValue(const std::shared_ptr<CSettingsBase>& settings,
                      const std::string& key,
-                     typename TSetting::Value value)
+                     const typename TSetting::Value& value)
 {
   if (key.empty() || !settings->IsLoaded())
     return false;
@@ -86,8 +86,8 @@ bool SetSettingValueList(const std::shared_ptr<CSettingsBase>& settings,
     return false;
 
   std::vector<CVariant> variantValues;
-  std::transform(values.begin(), values.end(), std::back_inserter(variantValues),
-                 [](typename TSetting::Value value) { return CVariant(value); });
+  std::ranges::transform(values, std::back_inserter(variantValues),
+                         [](const typename TSetting::Value& value) { return CVariant(value); });
 
   return settings->SetList(key, variantValues);
 }

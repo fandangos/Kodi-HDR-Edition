@@ -39,6 +39,11 @@
 #include <initguid.h>
 #include <sdkddkver.h>
 
+extern "C"
+{
+#include <libavcodec/defs.h>
+}
+
 using namespace DXVA;
 using namespace Microsoft::WRL;
 using namespace std::chrono_literals;
@@ -67,20 +72,20 @@ DEFINE_GUID(DXVA_NoEncrypt, 0x1b81beD0, 0xa0c7, 0x11d3, 0xb9, 0x84, 0x00, 0xc0, 
 
 namespace
 {
-constexpr int PROFILES_MPEG2_SIMPLE[] = {FF_PROFILE_MPEG2_SIMPLE, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_MPEG2_MAIN[] = {FF_PROFILE_MPEG2_SIMPLE, FF_PROFILE_MPEG2_MAIN,
-                                       FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_H264_HIGH[] = {FF_PROFILE_H264_BASELINE,
-                                      FF_PROFILE_H264_CONSTRAINED_BASELINE, FF_PROFILE_H264_MAIN,
-                                      FF_PROFILE_H264_HIGH, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_HEVC_MAIN[] = {FF_PROFILE_HEVC_MAIN, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_HEVC_MAIN10[] = {FF_PROFILE_HEVC_MAIN, FF_PROFILE_HEVC_MAIN_10,
-                                        FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_VP9_0[] = {FF_PROFILE_VP9_0, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_VP9_10_2[] = {FF_PROFILE_VP9_2, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_AV1_MAIN[] = {FF_PROFILE_AV1_MAIN, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_AV1_HIGH[] = {FF_PROFILE_AV1_HIGH, FF_PROFILE_UNKNOWN};
-constexpr int PROFILES_AV1_PROFESSIONAL[] = {FF_PROFILE_AV1_PROFESSIONAL, FF_PROFILE_UNKNOWN};
+constexpr int PROFILES_MPEG2_SIMPLE[] = {AV_PROFILE_MPEG2_SIMPLE, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_MPEG2_MAIN[] = {AV_PROFILE_MPEG2_SIMPLE, AV_PROFILE_MPEG2_MAIN,
+                                       AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_H264_HIGH[] = {AV_PROFILE_H264_BASELINE,
+                                      AV_PROFILE_H264_CONSTRAINED_BASELINE, AV_PROFILE_H264_MAIN,
+                                      AV_PROFILE_H264_HIGH, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_HEVC_MAIN[] = {AV_PROFILE_HEVC_MAIN, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_HEVC_MAIN10[] = {AV_PROFILE_HEVC_MAIN, AV_PROFILE_HEVC_MAIN_10,
+                                        AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_VP9_0[] = {AV_PROFILE_VP9_0, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_VP9_10_2[] = {AV_PROFILE_VP9_2, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_AV1_MAIN[] = {AV_PROFILE_AV1_MAIN, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_AV1_HIGH[] = {AV_PROFILE_AV1_HIGH, AV_PROFILE_UNKNOWN};
+constexpr int PROFILES_AV1_PROFESSIONAL[] = {AV_PROFILE_AV1_PROFESSIONAL, AV_PROFILE_UNKNOWN};
 } // namespace
 
 typedef struct
@@ -258,7 +263,7 @@ CContext::~CContext()
 
 void CContext::Release(CDecoder* decoder)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   const auto it = std::find(m_decoders.begin(), m_decoders.end(), decoder);
   if (it != m_decoders.end())
@@ -273,7 +278,7 @@ void CContext::Close()
 
 CContext::shared_ptr CContext::EnsureContext(CDecoder* decoder)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   auto context = m_context.lock();
   if (context)
@@ -462,10 +467,10 @@ bool CContext::GetFormatAndConfig(AVCodecContext* avctx, D3D11_VIDEO_DECODER_DES
       supported = false;
       if (mode.profiles == nullptr)
         supported = true;
-      else if (avctx->profile == FF_PROFILE_UNKNOWN)
+      else if (avctx->profile == AV_PROFILE_UNKNOWN)
         supported = true;
       else
-        for (const int* pProfile = &mode.profiles[0]; *pProfile != FF_PROFILE_UNKNOWN; ++pProfile)
+        for (const int* pProfile = &mode.profiles[0]; *pProfile != AV_PROFILE_UNKNOWN; ++pProfile)
         {
           if (*pProfile == avctx->profile)
           {
@@ -484,9 +489,9 @@ bool CContext::GetFormatAndConfig(AVCodecContext* avctx, D3D11_VIDEO_DECODER_DES
     {
       bool bHighBits =
           (avctx->codec_id == AV_CODEC_ID_HEVC && (avctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 ||
-                                                   avctx->profile == FF_PROFILE_HEVC_MAIN_10)) ||
+                                                   avctx->profile == AV_PROFILE_HEVC_MAIN_10)) ||
           (avctx->codec_id == AV_CODEC_ID_VP9 &&
-           (avctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 || avctx->profile == FF_PROFILE_VP9_2)) ||
+           (avctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10 || avctx->profile == AV_PROFILE_VP9_2)) ||
           (avctx->codec_id == AV_CODEC_ID_AV1 && avctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10);
 
       if (bHighBits && render_targets_dxgi[j] < DXGI_FORMAT_P010)
@@ -656,7 +661,7 @@ bool CContext::CreateSurfaces(const D3D11_VIDEO_DECODER_DESC& format, uint32_t c
 bool CContext::CreateDecoder(const D3D11_VIDEO_DECODER_DESC &format, const D3D11_VIDEO_DECODER_CONFIG &config
                                , ID3D11VideoDecoder **decoder, ID3D11VideoContext **context)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   int retry = 0;
   while (retry < 2)
@@ -1020,7 +1025,7 @@ CVideoBufferPool::~CVideoBufferPool()
 
 ::CVideoBuffer* CVideoBufferPool::Get()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   CVideoBuffer* retPic;
   if (!m_freeOut.empty())
@@ -1042,7 +1047,7 @@ CVideoBufferPool::~CVideoBufferPool()
 
 void CVideoBufferPool::Return(int id)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   auto buf = m_out[id];
   buf->Unref();
@@ -1052,7 +1057,7 @@ void CVideoBufferPool::Return(int id)
 
 void CVideoBufferPool::AddView(ID3D11View* view)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   const size_t idx = m_views.size();
   m_views.push_back(view);
   m_freeViews.push_back(idx);
@@ -1060,13 +1065,13 @@ void CVideoBufferPool::AddView(ID3D11View* view)
 
 bool CVideoBufferPool::IsValid(ID3D11View* view)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return std::find(m_views.begin(), m_views.end(), view) != m_views.end();
 }
 
 bool CVideoBufferPool::ReturnView(ID3D11View* view)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   const auto it = std::find(m_views.begin(), m_views.end(), view);
   if (it == m_views.end())
@@ -1079,7 +1084,7 @@ bool CVideoBufferPool::ReturnView(ID3D11View* view)
 
 ID3D11View* CVideoBufferPool::GetView()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (!m_freeViews.empty())
   {
@@ -1093,7 +1098,7 @@ ID3D11View* CVideoBufferPool::GetView()
 
 void CVideoBufferPool::Reset()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   for (auto v : m_views)
     if (v)
@@ -1110,13 +1115,13 @@ void CVideoBufferPool::Reset()
 
 size_t CVideoBufferPool::Size()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return m_views.size();
 }
 
 bool CVideoBufferPool::HasFree()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   return !m_freeViews.empty();
 }
 
@@ -1165,7 +1170,7 @@ CDecoder::~CDecoder()
 
 void CDecoder::Close()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_pD3D11Decoder = nullptr;
   m_pD3D11Context = nullptr;
 
@@ -1309,7 +1314,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, enum AVPixel
   if (avctx->codec_id == AV_CODEC_ID_MPEG2VIDEO && avctx->height <= 576)
     m_DVDWorkaround = true;
 
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   Close();
 
   if (m_state == DXVA_LOST)
@@ -1463,7 +1468,7 @@ bool CDecoder::Open(AVCodecContext* avctx, AVCodecContext* mainctx, enum AVPixel
 
 CDVDVideoCodec::VCReturn CDecoder::Decode(AVCodecContext* avctx, AVFrame* frame)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   const CDVDVideoCodec::VCReturn result = Check(avctx);
   if (result != CDVDVideoCodec::VC_NONE)
     return result;
@@ -1494,7 +1499,7 @@ CDVDVideoCodec::VCReturn CDecoder::Decode(AVCodecContext* avctx, AVFrame* frame)
 bool CDecoder::GetPicture(AVCodecContext* avctx, VideoPicture* picture)
 {
   static_cast<ICallbackHWAccel*>(avctx->opaque)->GetPictureCommon(picture);
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (picture->videoBuffer)
     picture->videoBuffer->Release();
@@ -1528,7 +1533,7 @@ void CDecoder::Reset()
 
 CDVDVideoCodec::VCReturn CDecoder::Check(AVCodecContext* avctx)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   // we may not have a hw decoder on systems (AMD HD2xxx, HD3xxx) which are only capable
   // of opening a single decoder and VideoPlayer opened a new stream without having flushed
@@ -1736,6 +1741,6 @@ unsigned CDecoder::GetAllowedReferences()
 
 void CDecoder::CloseDXVADecoder()
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
   m_pD3D11Decoder = nullptr;
 }

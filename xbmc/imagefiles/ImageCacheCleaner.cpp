@@ -26,10 +26,9 @@ std::optional<IMAGE_FILES::CImageCacheCleaner> CImageCacheCleaner::Create()
   return {};
 }
 
-CImageCacheCleaner::CImageCacheCleaner()
+CImageCacheCleaner::CImageCacheCleaner() : m_textureDB(std::make_unique<CTextureDatabase>())
 {
   bool valid = true;
-  m_textureDB = std::make_unique<CTextureDatabase>();
   if (!m_textureDB->Open())
   {
     valid = false;
@@ -94,12 +93,8 @@ CleanerResult CImageCacheCleaner::ScanOldestCache(unsigned int imageLimit)
   usedImages.insert(usedImages.end(), std::make_move_iterator(nextUsedImages.begin()),
                     std::make_move_iterator(nextUsedImages.end()));
 
-  images.erase(std::remove_if(images.begin(), images.end(),
-                              [&usedImages](const std::string& image) {
-                                return std::find(usedImages.cbegin(), usedImages.cend(), image) !=
-                                       usedImages.cend();
-                              }),
-               images.end());
+  std::erase_if(images, [&usedImages](const std::string& image)
+                { return std::ranges::find(usedImages, image) != usedImages.cend(); });
 
   m_textureDB->SetKeepCachedImages(usedImages);
 

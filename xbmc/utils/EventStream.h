@@ -9,25 +9,26 @@
 #pragma once
 
 #include "EventStreamDetail.h"
-#include "JobManager.h"
+#include "jobs/JobQueue.h"
 #include "threads/CriticalSection.h"
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
-
 
 template<typename Event>
 class CEventStream
 {
 public:
+  using EventHandler = std::function<void(const Event&)>;
 
   template<typename A>
-  void Subscribe(A* owner, void (A::*fn)(const Event&))
+  void Subscribe(A* owner, const EventHandler& eventHandler)
   {
-    auto subscription = std::make_shared<detail::CSubscription<Event, A>>(owner, fn);
-    std::unique_lock<CCriticalSection> lock(m_criticalSection);
+    auto subscription = std::make_shared<detail::CSubscription<Event, A>>(owner, eventHandler);
+    std::unique_lock lock(m_criticalSection);
     m_subscriptions.emplace_back(std::move(subscription));
   }
 
@@ -36,7 +37,7 @@ public:
   {
     std::vector<std::shared_ptr<detail::ISubscription<Event>>> toCancel;
     {
-      std::unique_lock<CCriticalSection> lock(m_criticalSection);
+      std::unique_lock lock(m_criticalSection);
       auto it = m_subscriptions.begin();
       while (it != m_subscriptions.end())
       {
@@ -68,9 +69,9 @@ public:
   explicit CEventSource() : m_queue(false, 1, CJob::PRIORITY_HIGH) {}
 
   template<typename A>
-  void Publish(A event)
+  void Publish(const A& event)
   {
-    std::unique_lock<CCriticalSection> lock(this->m_criticalSection);
+    std::unique_lock lock(this->m_criticalSection);
     auto& subscriptions = this->m_subscriptions;
     auto task = [subscriptions, event](){
       for (auto& s: subscriptions)
@@ -89,9 +90,9 @@ class CBlockingEventSource : public CEventStream<Event>
 {
 public:
   template<typename A>
-  void HandleEvent(A event)
+  void HandleEvent(const A& event)
   {
-    std::unique_lock<CCriticalSection> lock(this->m_criticalSection);
+    std::unique_lock lock(this->m_criticalSection);
     for (const auto& subscription : this->m_subscriptions)
     {
       subscription->HandleEvent(event);

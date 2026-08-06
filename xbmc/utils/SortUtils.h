@@ -11,6 +11,7 @@
 #include "DatabaseUtils.h"
 #include "LabelFormatter.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -18,25 +19,29 @@
 
 enum class SortMethod;
 
-typedef enum {
-  SortOrderNone = 0,
-  SortOrderAscending,
-  SortOrderDescending
-} SortOrder;
+enum class SortOrder
+{
+  NONE,
+  ASCENDING,
+  DESCENDING,
+};
 
-typedef enum {
-  SortAttributeNone           = 0x0,
-  SortAttributeIgnoreArticle  = 0x1,
-  SortAttributeIgnoreFolders  = 0x2,
+typedef enum
+{
+  SortAttributeNone = 0x0,
+  SortAttributeIgnoreArticle = 0x1,
+  SortAttributeIgnoreFolders = 0x2,
   SortAttributeUseArtistSortName = 0x4,
-  SortAttributeIgnoreLabel = 0x8
+  SortAttributeIgnoreLabel = 0x8,
+  SortAttributeForceConsiderFolders = 0x10, // overrides SortAttributeIgnoreFolders
 } SortAttribute;
 
-typedef enum {
-  SortSpecialNone     = 0,
-  SortSpecialOnTop    = 1,
-  SortSpecialOnBottom = 2
-} SortSpecial;
+enum class SortSpecial
+{
+  NONE,
+  TOP,
+  BOTTOM
+};
 
 ///
 /// \defgroup List_of_sort_methods List of sort methods
@@ -47,151 +52,151 @@ typedef enum {
 /// GUI to set this sort type.
 ///
 ///@{
-typedef enum
+enum class SortBy
 {
   /// __0__  :
-  SortByNone = 0,
+  NONE,
   /// __1__  : Sort by Name                       <em>(String: <b><c>Label</c></b>)</em>
-  SortByLabel,
+  LABEL,
   /// __2__  : Sort by Date                       <em>(String: <b><c>Date</c></b>)</em>
-  SortByDate,
+  DATE,
   /// __3__  : Sort by Size                       <em>(String: <b><c>Size</c></b>)</em>
-  SortBySize,
+  SIZE,
   /// __4__  : Sort by filename                   <em>(String: <b><c>File</c></b>)</em>
-  SortByFile,
+  FILE,
   /// __5__  : Sort by path                       <em>(String: <b><c>Path</c></b>)</em>
-  SortByPath,
+  PATH,
   /// __6__  : Sort by drive type                 <em>(String: <b><c>DriveType</c></b>)</em>
-  SortByDriveType,
+  DRIVE_TYPE,
   /// __7__  : Sort by title                      <em>(String: <b><c>Title</c></b>)</em>
-  SortByTitle,
+  TITLE,
   /// __8__  : Sort by track number               <em>(String: <b><c>TrackNumber</c></b>)</em>
-  SortByTrackNumber,
+  TRACK_NUMBER,
   /// __9__  : Sort by time                       <em>(String: <b><c>Time</c></b>)</em>
-  SortByTime,
+  TIME,
   /// __10__ : Sort by artist                     <em>(String: <b><c>Artist</c></b>)</em>
-  SortByArtist,
+  ARTIST,
   /// __11__ : Sort by first artist then year     <em>(String: <b><c>ArtistYear</c></b>)</em>
-  SortByArtistThenYear,
+  ARTIST_THEN_YEAR,
   /// __12__ : Sort by album                      <em>(String: <b><c>Album</c></b>)</em>
-  SortByAlbum,
+  ALBUM,
   /// __13__ : Sort by album type                 <em>(String: <b><c>AlbumType</c></b>)</em>
-  SortByAlbumType,
+  ALBUM_TYPE,
   /// __14__ : Sort by genre                      <em>(String: <b><c>Genre</c></b>)</em>
-  SortByGenre,
+  GENRE,
   /// __15__ : Sort by country                     <em>(String: <b><c>Country</c></b>)</em>
-  SortByCountry,
+  COUNTRY,
   /// __16__ : Sort by year                       <em>(String: <b><c>Year</c></b>)</em>
-  SortByYear,
+  YEAR,
   /// __17__ : Sort by rating                     <em>(String: <b><c>Rating</c></b>)</em>
-  SortByRating,
+  RATING,
   /// __18__ : Sort by user rating                <em>(String: <b><c>UserRating</c></b>)</em>
-  SortByUserRating,
+  USER_RATING,
   /// __19__ : Sort by votes                      <em>(String: <b><c>Votes</c></b>)</em>
-  SortByVotes,
+  VOTES,
   /// __20__ : Sort by top 250                    <em>(String: <b><c>Top250</c></b>)</em>
-  SortByTop250,
+  TOP250,
   /// __21__ : Sort by program count              <em>(String: <b><c>ProgramCount</c></b>)</em>
-  SortByProgramCount,
+  PROGRAM_COUNT,
   /// __22__ : Sort by playlist order             <em>(String: <b><c>Playlist</c></b>)</em>
-  SortByPlaylistOrder,
+  PLAYLIST_ORDER,
   /// __23__ : Sort by episode number             <em>(String: <b><c>Episode</c></b>)</em>
-  SortByEpisodeNumber,
+  EPISODE_NUMBER,
   /// __24__ : Sort by season                     <em>(String: <b><c>Season</c></b>)</em>
-  SortBySeason,
+  SEASON,
   /// __25__ : Sort by number of episodes         <em>(String: <b><c>TotalEpisodes</c></b>)</em>
-  SortByNumberOfEpisodes,
+  NUMBER_OF_EPISODES,
   /// __26__ : Sort by number of watched episodes <em>(String: <b><c>WatchedEpisodes</c></b>)</em>
-  SortByNumberOfWatchedEpisodes,
+  NUMBER_OF_WATCHED_EPISODES,
   /// __27__ : Sort by TV show status             <em>(String: <b><c>TvShowStatus</c></b>)</em>
-  SortByTvShowStatus,
+  TVSHOW_STATUS,
   /// __28__ : Sort by TV show title              <em>(String: <b><c>TvShowTitle</c></b>)</em>
-  SortByTvShowTitle,
+  TVSHOW_TITLE,
   /// __29__ : Sort by sort title                 <em>(String: <b><c>SortTitle</c></b>)</em>
-  SortBySortTitle,
+  SORT_TITLE,
   /// __30__ : Sort by production code            <em>(String: <b><c>ProductionCode</c></b>)</em>
-  SortByProductionCode,
+  PRODUCTION_CODE,
   /// __31__ : Sort by MPAA                       <em>(String: <b><c>MPAA</c></b>)</em>
-  SortByMPAA,
+  MPAA,
   /// __32__ : Sort by video resolution           <em>(String: <b><c>VideoResolution</c></b>)</em>
-  SortByVideoResolution,
+  VIDEO_RESOLUTION,
   /// __33__ : Sort by video codec                <em>(String: <b><c>VideoCodec</c></b>)</em>
-  SortByVideoCodec,
+  VIDEO_CODEC,
   /// __34__ : Sort by video aspect ratio         <em>(String: <b><c>VideoAspectRatio</c></b>)</em>
-  SortByVideoAspectRatio,
+  VIDEO_ASPECT_RATIO,
   /// __35__ : Sort by audio channels             <em>(String: <b><c>AudioChannels</c></b>)</em>
-  SortByAudioChannels,
+  AUDIO_CHANNELS,
   /// __36__ : Sort by audio codec                <em>(String: <b><c>AudioCodec</c></b>)</em>
-  SortByAudioCodec,
+  AUDIO_CODEC,
   /// __37__ : Sort by audio language             <em>(String: <b><c>AudioLanguage</c></b>)</em>
-  SortByAudioLanguage,
+  AUDIO_LANGUAGE,
   /// __38__ : Sort by subtitle language          <em>(String: <b><c>SubtitleLanguage</c></b>)</em>
-  SortBySubtitleLanguage,
+  SUBTITLE_LANGUAGE,
   /// __39__ : Sort by studio                     <em>(String: <b><c>Studio</c></b>)</em>
-  SortByStudio,
+  STUDIO,
   /// __40__ : Sort by date added                 <em>(String: <b><c>DateAdded</c></b>)</em>
-  SortByDateAdded,
+  DATE_ADDED,
   /// __41__ : Sort by last played                <em>(String: <b><c>LastPlayed</c></b>)</em>
-  SortByLastPlayed,
+  LAST_PLAYED,
   /// __42__ : Sort by playcount                  <em>(String: <b><c>PlayCount</c></b>)</em>
-  SortByPlaycount,
+  PLAYCOUNT,
   /// __43__ : Sort by listener                   <em>(String: <b><c>Listeners</c></b>)</em>
-  SortByListeners,
+  LISTENERS,
   /// __44__ : Sort by bitrate                    <em>(String: <b><c>Bitrate</c></b>)</em>
-  SortByBitrate,
+  BITRATE,
   /// __45__ : Sort by random                     <em>(String: <b><c>Random</c></b>)</em>
-  SortByRandom,
+  RANDOM,
   /// __46__ : Sort by channel                    <em>(String: <b><c>Channel</c></b>)</em>
-  SortByChannel,
+  CHANNEL,
   /// __47__ : Sort by channel number             <em>(String: <b><c>ChannelNumber</c></b>)</em>
-  SortByChannelNumber,
+  CHANNEL_NUMBER,
   /// __48__ : Sort by date taken                 <em>(String: <b><c>DateTaken</c></b>)</em>
-  SortByDateTaken,
+  DATE_TAKEN,
   /// __49__ : Sort by relevance
-  SortByRelevance,
+  RELEVANCE,
   /// __50__ : Sort by installation date          <en>(String: <b><c>installdate</c></b>)</em>
-  SortByInstallDate,
+  INSTALL_DATE,
   /// __51__ : Sort by last updated               <en>(String: <b><c>lastupdated</c></b>)</em>
-  SortByLastUpdated,
+  LAST_UPDATED,
   /// __52__ : Sort by last used                  <em>(String: <b><c>lastused</c></b>)</em>
-  SortByLastUsed,
+  LAST_USED,
   /// __53__ : Sort by client channel order       <em>(String: <b><c>ClientChannelOrder</c></b>)</em>
-  SortByClientChannelOrder,
+  CLIENT_CHANNEL_ORDER,
   /// __54__ : Sort by total number of discs      <em>(String: <b><c>totaldiscs</c></b>)</em>
-  SortByTotalDiscs,
+  TOTAL_DISCS,
   /// __55__ : Sort by original release date      <em>(String: <b><c>Originaldate</c></b>)</em>
-  SortByOrigDate,
+  ORIG_DATE,
   /// __56__ : Sort by BPM                        <em>(String: <b><c>bpm</c></b>)</em>
-  SortByBPM,
+  BPM,
   /// __57__ : Sort by original title             <em>(String: <b><c>OriginalTitle</c></b>)</em>
-  SortByOriginalTitle,
+  ORIGINAL_TITLE,
   /// __58__ : Sort by provider                   <em>(String: <b><c>Provider</c></b>)</em>
   /// @skinning_v20 <b>SortByProvider</b> New sort method added.
-  SortByProvider,
+  PROVIDER,
   /// __59__ : Sort by user preference            <em>(String: <b><c>UserPreference</c></b>)</em>
   /// @skinning_v20 <b>SortByUserPreference</b> New sort method added.
-  SortByUserPreference,
-} SortBy;
+  USER_PREFERENCE,
+};
 ///@}
 
-typedef struct SortDescription {
-  SortBy sortBy = SortByNone;
-  SortOrder sortOrder = SortOrderAscending;
+struct SortDescription
+{
+  SortBy sortBy = SortBy::NONE;
+  SortOrder sortOrder = SortOrder::ASCENDING;
   SortAttribute sortAttributes = SortAttributeNone;
   int limitStart = 0;
   int limitEnd = -1;
-} SortDescription;
+};
 
-typedef struct GUIViewSortDetails
+struct GUIViewSortDetails
 {
   SortDescription m_sortDescription;
   int m_buttonLabel;
   LABEL_MASKS m_labelMasks;
-} GUIViewSortDetails;
+};
 
-typedef DatabaseResult SortItem;
-typedef std::shared_ptr<SortItem> SortItemPtr;
-typedef std::vector<SortItemPtr> SortItems;
+using SortItem = DatabaseResult;
+using SortItems = std::vector<std::shared_ptr<SortItem>>;
 
 class SortUtils
 {
@@ -214,15 +219,19 @@ public:
   static void Sort(SortBy sortBy, SortOrder sortOrder, SortAttribute attributes, SortItems& items, int limitEnd = -1, int limitStart = 0);
   static void Sort(const SortDescription &sortDescription, DatabaseResults& items);
   static void Sort(const SortDescription &sortDescription, SortItems& items);
-  static bool SortFromDataset(const SortDescription &sortDescription, const MediaType &mediaType, const std::unique_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results);
+  static bool SortFromDataset(const SortDescription& sortDescription,
+                              const MediaType& mediaType,
+                              dbiplus::Dataset& dataset,
+                              DatabaseResults& results);
 
   static void GetFieldsForSQLSort(const MediaType& mediaType, SortBy sortMethod, FieldList& fields);
   static const Fields& GetFieldsForSorting(SortBy sortBy);
   static std::string RemoveArticles(const std::string &label);
 
-  typedef std::string (*SortPreparator) (SortAttribute, const SortItem&);
-  typedef bool (*Sorter) (const DatabaseResult &, const DatabaseResult &);
-  typedef bool (*SorterIndirect) (const SortItemPtr &, const SortItemPtr &);
+  using SortPreparator = std::function<std::string(SortAttribute, const SortItem&)>;
+  using Sorter = std::function<bool(const SortItem&, const SortItem&)>;
+  using SorterIndirect =
+      std::function<bool(const std::shared_ptr<SortItem>&, const std::shared_ptr<SortItem>&)>;
 
 private:
   static const SortPreparator& getPreparator(SortBy sortBy);

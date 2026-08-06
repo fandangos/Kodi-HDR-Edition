@@ -58,13 +58,13 @@ bool CCDDADirectory::GetDirectory(const CURL& url, CFileItemList &items)
     std::string strLabel = StringUtils::Format("Track {:02}", i);
 
     CFileItemPtr pItem(new CFileItem(strLabel));
-    pItem->m_bIsFolder = false;
+    pItem->SetFolder(false);
     std::string path = StringUtils::Format("cdda://local/{:02}.cdda", i);
     pItem->SetPath(path);
 
     struct __stat64 s64;
     if (CFile::Stat(pItem->GetPath(), &s64) == 0)
-      pItem->m_dwSize = s64.st_size;
+      pItem->SetSize(s64.st_size);
 
     items.Add(pItem);
   }

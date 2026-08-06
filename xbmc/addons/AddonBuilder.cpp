@@ -19,6 +19,7 @@
 #include "addons/Scraper.h"
 #include "addons/Service.h"
 #include "addons/Skin.h"
+#include "addons/SkinResource.h"
 #include "addons/UISoundsResource.h"
 #include "addons/Webinterface.h"
 #include "addons/addoninfo/AddonInfo.h"
@@ -74,6 +75,8 @@ AddonPtr CAddonBuilder::Generate(const AddonInfoPtr& info, AddonType type)
       return std::make_shared<CAddonDll>(info, type);
     case AddonType::GAMEDLL:
       return std::make_shared<GAME::CGameClient>(info);
+    case AddonType::SHADERDLL:
+      return std::make_shared<CAddonDll>(info, type);
     case AddonType::PLUGIN:
     case AddonType::SCRIPT:
       return std::make_shared<CPluginSource>(info, type);
@@ -106,6 +109,8 @@ AddonPtr CAddonBuilder::Generate(const AddonInfoPtr& info, AddonType type)
       return std::make_shared<CLanguageResource>(info);
     case AddonType::RESOURCE_UISOUNDS:
       return std::make_shared<CUISoundsResource>(info);
+    case AddonType::RESOURCE_SKIN:
+      return std::make_shared<CSkinResource>(info);
     case AddonType::REPOSITORY:
       return std::make_shared<CRepository>(info);
     case AddonType::CONTEXTMENU_ITEM:

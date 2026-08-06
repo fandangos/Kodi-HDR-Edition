@@ -9,5 +9,12 @@ else()
   message(SEND_ERROR "Currently only OpenGL rendering is supported. Please set APP_RENDER_SYSTEM to \"gl\"")
 endif()
 
-set(${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG NO_DEFAULT_PATH CACHE STRING "")
-list(APPEND PLATFORM_REQUIRED_DEPS Smctemp)
+set(${CORE_SYSTEM_NAME}_SEARCH_CONFIG NO_DEFAULT_PATH CACHE STRING "")
+list(APPEND PLATFORM_REQUIRED_DEPS Smctemp>=0.4.0)
+
+list(APPEND PLATFORM_OPTIONAL_PACKAGES LibAACS LibBDPlus)
+
+# Builds libbluray jar files to enable bluray menu support
+if(NOT DEFINED ENABLE_BLURAY_JAR)
+  set(ENABLE_BLURAY_JAR ON)
+endif()

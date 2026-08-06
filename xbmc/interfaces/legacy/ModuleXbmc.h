@@ -217,7 +217,7 @@ namespace XBMCAddon
     /// @throws PyExc_TypeError     If time is not an integer.
     ///
     /// @warning This is useful if you need to sleep for a small amount of time
-    /// (milisecond range) somewhere in your addon logic. Please note that Kodi
+    /// (millisecond range) somewhere in your addon logic. Please note that Kodi
     /// will attempt to stop any running scripts when signaled to exit and wait for a maximum
     /// of 5 seconds before trying to force stop your script. If your addon makes use
     /// of \ref xbmc_Sleep "xbmc.sleep()" incorrectly (long periods of time, e.g. that exceed
@@ -460,6 +460,32 @@ namespace XBMCAddon
     getInfoImage(...);
 #else
     String getInfoImage(const char * infotag);
+#endif
+
+#ifdef DOXYGEN_SHOULD_USE_THIS
+    ///
+    /// \ingroup python_xbmc
+    /// @brief \python_func{ xbmc.getDatabaseName(dbType) }
+    /// Get the name of the database of the supplied type.
+    ///
+    /// @param dbType                string - database type of the database name to be returned.
+    /// @return                      The database name currently in-use.
+    /// @note Database type values are: addons, epg, music, textures, tv, videos, viewmodes.
+    ///
+    ///
+    /// ------------------------------------------------------------------------
+    /// @python_v22 New function added.
+    ///
+    /// **Example:**
+    /// ~~~~~~~~~~~~~{.py}
+    /// ..
+    /// video_database = xbmc.getDatabaseName('videos')
+    /// ..
+    /// ~~~~~~~~~~~~~
+    ///
+    getDatabaseName(...);
+#else
+    String getDatabaseName(const char* dbType);
 #endif
 
 #ifdef DOXYGEN_SHOULD_USE_THIS

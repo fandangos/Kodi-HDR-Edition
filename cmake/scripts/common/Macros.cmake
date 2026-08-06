@@ -37,6 +37,11 @@ function(source_group_by_folder target)
     endif()
   endif()
   foreach(file ${files})
+    if(file MATCHES "^\\$<")
+      list(POP_FRONT files)
+      continue()
+    endif()
+
     if(NOT IS_ABSOLUTE ${file})
       set(file ${CMAKE_CURRENT_SOURCE_DIR}/${file})
     endif()
@@ -44,7 +49,7 @@ function(source_group_by_folder target)
     get_filename_component(dir "${relative_file}" DIRECTORY)
     if(NOT dir STREQUAL "${last_dir}")
       if(files)
-        source_group("${last_dir}" FILES ${files})
+        source_group(TREE "${relative_dir}" FILES ${files})
       endif()
       set(files "")
     endif()
@@ -52,7 +57,7 @@ function(source_group_by_folder target)
     set(last_dir "${dir}")
   endforeach(file)
   if(files)
-    source_group("${last_dir}" FILES ${files})
+    source_group(TREE "${relative_dir}" FILES ${files})
   endif()
 endfunction()
 
@@ -234,7 +239,7 @@ function(copy_file_to_buildtree file)
   endif()
 
   if(${CORE_SYSTEM_NAME} MATCHES "windows")
-    # if DEPENDS_PATH in fille
+    # if DEPENDS_PATH in file
     if(${file} MATCHES ${DEPENDS_PATH})
       file(APPEND ${CMAKE_BINARY_DIR}/${CORE_BUILD_DIR}/ExportFiles.cmake
 "file(GLOB filenames ${file})
@@ -453,6 +458,41 @@ function(core_optional_dep)
   set(final_message ${final_message} PARENT_SCOPE)
 endfunction()
 
+# Find optional libraries that we want to package with main app.
+# These libraries are not directly linked to the main app.
+# The function returns a list of TARGET names that are found based on the dep_list.
+#
+# Arguments:
+#   dep_list One or more dependency specifications (see split_dependency_specification)
+#            for syntax).
+# Return:
+#   package_libs - A variable that contains a list of TARGETS found from dep_list
+#
+function(core_optional_package_lib)
+  foreach(depspec ${ARGN})
+    set(_required False)
+    split_dependency_specification(${depspec} dep version)
+    setup_enable_switch()
+    if(${enable_switch} STREQUAL AUTO)
+      find_package_with_ver(${dep} ${version})
+    elseif(${${enable_switch}})
+      find_package_with_ver(${dep} ${version} REQUIRED)
+      set(_required True)
+    endif()
+
+    if(TARGET ${APP_NAME_LC}::${dep})
+      set(final_message ${final_message} "${depup} enabled: Yes")
+      list(APPEND package_libs ${APP_NAME_LC}::${dep})
+      set(package_libs ${package_libs} PARENT_SCOPE)
+    elseif(_required)
+      message(FATAL_ERROR "${depup} enabled but not found")
+    else()
+      set(final_message ${final_message} "${depup} enabled: No")
+    endif()
+  endforeach()
+  set(final_message ${final_message} PARENT_SCOPE)
+endfunction()
+
 function(core_file_read_filtered result filepattern)
   # Reads STRINGS from text files
   #  with comments filtered out
@@ -564,7 +604,7 @@ function(core_find_git_rev stamp)
     string(TIMESTAMP APP_BUILD_DATE "%Y%m%d" UTC)
     set(APP_BUILD_DATE ${APP_BUILD_DATE} PARENT_SCOPE)
   else()
-    find_package(Git)
+    find_package(Git ${SEARCH_QUIET})
     if(GIT_FOUND AND EXISTS ${CMAKE_SOURCE_DIR}/.git)
       # get tree status i.e. clean working tree vs dirty (uncommitted or unstashed changes, etc.)
       execute_process(COMMAND ${GIT_EXECUTABLE} update-index --ignore-submodules -q --refresh

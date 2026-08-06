@@ -9,12 +9,14 @@
 #pragma once
 
 #include "SettingConditions.h"
+#include "settings/SettingsContainer.h"
 #include "utils/BooleanLogic.h"
 #include "utils/logtypes.h"
 
 #include <list>
 #include <set>
 #include <string>
+#include <string_view>
 
 enum class SettingDependencyType {
   Unknown = 0,
@@ -61,9 +63,9 @@ public:
 
 private:
   CSettingDependencyCondition(CSettingsManager* settingsManager,
-                              const std::string& strProperty,
-                              const std::string& setting,
-                              const std::string& value,
+                              std::string_view strProperty,
+                              std::string_view setting,
+                              std::string_view value,
                               SettingDependencyTarget target = SettingDependencyTarget::Unknown,
                               SettingDependencyOperator op = SettingDependencyOperator::Equals,
                               bool negated = false);
@@ -97,7 +99,7 @@ public:
 
   bool Deserialize(const TiXmlNode *node) override;
 
-  const std::set<std::string>& GetSettings() const { return m_settings; }
+  const SettingsContainer& GetSettings() const { return m_settings; }
 
   CSettingDependencyConditionCombination* Add(const CSettingDependencyConditionPtr& condition);
   CSettingDependencyConditionCombination* Add(
@@ -107,7 +109,7 @@ private:
   CBooleanLogicOperation* newOperation() override { return new CSettingDependencyConditionCombination(m_settingsManager); }
   CBooleanLogicValue* newValue() override { return new CSettingDependencyCondition(m_settingsManager); }
 
-  std::set<std::string> m_settings;
+  SettingsContainer m_settings;
 };
 
 class CSettingDependency : public CSettingCondition
@@ -120,7 +122,7 @@ public:
   bool Deserialize(const TiXmlNode *node) override;
 
   SettingDependencyType GetType() const { return m_type; }
-  std::set<std::string> GetSettings() const;
+  SettingsContainer GetSettings() const;
 
   CSettingDependencyConditionCombinationPtr And();
   CSettingDependencyConditionCombinationPtr Or();
@@ -134,4 +136,4 @@ private:
 };
 
 using SettingDependencies = std::list<CSettingDependency>;
-using SettingDependencyMap = std::map<std::string, SettingDependencies>;
+using SettingDependencyMap = std::map<std::string, SettingDependencies, std::less<>>;

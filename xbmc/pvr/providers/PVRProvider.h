@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace PVR
@@ -43,7 +44,6 @@ public:
                const std::string& addonThumbPath);
 
   bool operator==(const CPVRProvider& right) const;
-  bool operator!=(const CPVRProvider& right) const;
 
   void Serialize(CVariant& value) const override;
 
@@ -92,7 +92,7 @@ public:
    * @param name The new name of the provider.
    * @return True if the something changed, false otherwise.
    */
-  bool SetName(const std::string& iName);
+  bool SetName(std::string_view iName);
 
   /*!
    * @brief Checks whether this provider has a known type
@@ -155,7 +155,7 @@ public:
    * @param strCountries The new ISO 3166 country codes for this provider.
    * @return true if the country codes were updated successfully
    */
-  bool SetCountriesFromDBString(const std::string& strCountries);
+  bool SetCountriesFromDBString(std::string_view strCountries);
 
   /*!
    * @brief Get this provider's language codes (RFC 5646).
@@ -181,7 +181,7 @@ public:
    * @param strLanguages The new RFC 5646 language codes for this provider.
    * @return true if the language codes were updated successfully
    */
-  bool SetLanguagesFromDBString(const std::string& strLanguages);
+  bool SetLanguagesFromDBString(std::string_view strLanguages);
 
   /*!
    * @brief Get if this provider has a thumb image path.
@@ -232,16 +232,21 @@ private:
   CPVRProvider(const CPVRProvider& provider) = delete;
   CPVRProvider& operator=(const CPVRProvider& orig) = delete;
 
-  int m_iDatabaseId = PVR_PROVIDER_INVALID_DB_ID; /*!< the identifier given to this provider by the TV database */
+  int m_iDatabaseId =
+      PVR_PROVIDER_INVALID_DB_ID; /*!< the identifier given to this provider by the TV database */
 
   int m_iUniqueId = PVR_PROVIDER_ADDON_UID; /*!< @brief unique ID of the provider on the backend */
   int m_iClientId; /*!< @brief ID of the backend */
   std::string m_strName; /*!< @brief name of this provider */
-  PVR_PROVIDER_TYPE m_type = PVR_PROVIDER_TYPE_UNKNOWN; /*!< @brief service type for this provider */
+  PVR_PROVIDER_TYPE m_type =
+      PVR_PROVIDER_TYPE_UNKNOWN; /*!< @brief service type for this provider */
   CPVRCachedImage m_iconPath; /*!< @brief the path to the icon for this provider */
-  std::string m_strCountries; /*!< @brief the country codes for this provider (empty if undefined) */
-  std::string m_strLanguages; /*!< @brief the language codes for this provider (empty if undefined) */
-  bool m_bIsClientProvider = false; /*!< the provider is a default provider of a PVR Client add-on */
+  std::string
+      m_strCountries; /*!< @brief the country codes for this provider (empty if undefined) */
+  std::string
+      m_strLanguages; /*!< @brief the language codes for this provider (empty if undefined) */
+  bool m_bIsClientProvider =
+      false; /*!< the provider is a default provider of a PVR Client add-on */
   CPVRCachedImage m_thumbPath; /*!< a thumb image path for providers that are PVR add-ons */
 
   mutable CCriticalSection m_critSection;

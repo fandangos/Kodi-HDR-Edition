@@ -43,7 +43,8 @@ constexpr auto POST_MAPPING_WAIT_TIME_MS = 5000ms;
 } // namespace
 
 CGUIConfigurationWizard::CGUIConfigurationWizard()
-  : CThread("GUIConfigurationWizard"), m_actionMap(new KEYMAP::CKeyboardActionMap)
+  : CThread("GUIConfigurationWizard"),
+    m_actionMap(std::make_unique<KEYMAP::CKeyboardActionMap>())
 {
   InitializeState();
 }
@@ -67,7 +68,7 @@ void CGUIConfigurationWizard::Run(const std::string& strControllerId,
   Abort();
 
   {
-    std::unique_lock<CCriticalSection> lock(m_stateMutex);
+    std::unique_lock lock(m_stateMutex);
 
     // Set Run() parameters
     m_strControllerId = strControllerId;
@@ -87,7 +88,7 @@ void CGUIConfigurationWizard::Run(const std::string& strControllerId,
 
 void CGUIConfigurationWizard::OnUnfocus(IFeatureButton* button)
 {
-  std::unique_lock<CCriticalSection> lock(m_stateMutex);
+  std::unique_lock lock(m_stateMutex);
 
   if (button == m_currentButton)
     Abort(false);
@@ -128,7 +129,7 @@ void CGUIConfigurationWizard::Process(void)
   bool bLateAxisDetected = false;
 
   {
-    std::unique_lock<CCriticalSection> lock(m_stateMutex);
+    std::unique_lock lock(m_stateMutex);
     for (IFeatureButton* button : m_buttons)
     {
       // Allow other threads to access the button we're using
@@ -188,7 +189,7 @@ void CGUIConfigurationWizard::Process(void)
     bool bInMotion;
 
     {
-      std::unique_lock<CCriticalSection> lock(m_motionMutex);
+      std::unique_lock lock(m_motionMutex);
       bInMotion = !m_bInMotion.empty();
     }
 
@@ -236,7 +237,7 @@ bool CGUIConfigurationWizard::MapPrimitive(JOYSTICK::IButtonMap* buttonMap,
     // Discard input
     bHandled = true;
   }
-  else if (m_history.find(primitive) != m_history.end())
+  else if (m_history.contains(primitive))
   {
     // Primitive has already been mapped this round, ignore it
     bHandled = true;
@@ -253,7 +254,7 @@ bool CGUIConfigurationWizard::MapPrimitive(JOYSTICK::IButtonMap* buttonMap,
     WHEEL_DIRECTION wheelDirection;
     THROTTLE_DIRECTION throttleDirection;
     {
-      std::unique_lock<CCriticalSection> lock(m_stateMutex);
+      std::unique_lock lock(m_stateMutex);
       currentButton = m_currentButton;
       cardinalDirection = m_cardinalDirection;
       wheelDirection = m_wheelDirection;
@@ -364,16 +365,16 @@ bool CGUIConfigurationWizard::MapPrimitive(JOYSTICK::IButtonMap* buttonMap,
 
 void CGUIConfigurationWizard::OnEventFrame(const JOYSTICK::IButtonMap* buttonMap, bool bMotion)
 {
-  std::unique_lock<CCriticalSection> lock(m_motionMutex);
+  std::unique_lock lock(m_motionMutex);
 
-  if (m_bInMotion.find(buttonMap) != m_bInMotion.end() && !bMotion)
+  if (m_bInMotion.contains(buttonMap) && !bMotion)
     OnMotionless(buttonMap);
 }
 
 void CGUIConfigurationWizard::OnLateAxis(const JOYSTICK::IButtonMap* buttonMap,
                                          unsigned int axisIndex)
 {
-  std::unique_lock<CCriticalSection> lock(m_stateMutex);
+  std::unique_lock lock(m_stateMutex);
 
   m_lateAxisDetected = true;
   Abort(false);
@@ -381,7 +382,7 @@ void CGUIConfigurationWizard::OnLateAxis(const JOYSTICK::IButtonMap* buttonMap,
 
 void CGUIConfigurationWizard::OnMotion(const JOYSTICK::IButtonMap* buttonMap)
 {
-  std::unique_lock<CCriticalSection> lock(m_motionMutex);
+  std::unique_lock lock(m_motionMutex);
 
   m_motionlessEvent.Reset();
   m_bInMotion.insert(buttonMap);

@@ -28,69 +28,70 @@ CGUIViewStateWindowPVRChannels::CGUIViewStateWindowPVRChannels(const int windowI
                                                                const CFileItemList& items)
   : CGUIViewStatePVR(windowId, items)
 {
-  AddSortMethod(SortByChannelNumber, 549, // "Number"
+  AddSortMethod(SortBy::CHANNEL_NUMBER, 549, // "Number"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
-  AddSortMethod(SortByChannel, 551, // "Name"
+  AddSortMethod(SortBy::CHANNEL, 551, // "Name"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
   AddSortMethod(
-      SortByLastPlayed, 568, // "Last played"
+      SortBy::LAST_PLAYED, 568, // "Last played"
       LABEL_MASKS("%L", "%p", "%L", "%p")); // Filename, LastPlayed | Foldername, LastPlayed
-  AddSortMethod(SortByDateAdded, 570, // "Date added"
+  AddSortMethod(SortBy::DATE_ADDED, 570, // "Date added"
                 LABEL_MASKS("%L", "%a", "%L", "%a"), // Filename, DateAdded | Foldername, DateAdded
-                SortAttributeNone, SortOrderDescending);
-  AddSortMethod(SortByClientChannelOrder, 19315, // "Backend number"
+                SortAttributeNone, SortOrder::DESCENDING);
+  AddSortMethod(SortBy::CLIENT_CHANNEL_ORDER, 19315, // "Backend number"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
-  AddSortMethod(SortByProvider, 19348, // "Provider"
+  AddSortMethod(SortBy::PROVIDER, 19348, // "Provider"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
 
   // Default sorting
-  SetSortMethod(SortByChannelNumber);
+  SetSortMethod(SortBy::CHANNEL_NUMBER);
 
-  LoadViewState("pvr://channels/", m_windowId);
+  LoadViewState("pvr://channels/", GetWindowId());
 }
 
 void CGUIViewStateWindowPVRChannels::SaveViewState()
 {
-  SaveViewToDb("pvr://channels/", m_windowId, CViewStateSettings::GetInstance().Get("pvrchannels"));
+  SaveViewToDb("pvr://channels/", GetWindowId(),
+               CViewStateSettings::GetInstance().Get("pvrchannels"));
 }
 
 CGUIViewStateWindowPVRRecordings::CGUIViewStateWindowPVRRecordings(const int windowId,
                                                                    const CFileItemList& items)
   : CGUIViewStatePVR(windowId, items)
 {
-  AddSortMethod(SortByLabel, 551, // "Name"
+  AddSortMethod(SortBy::LABEL, 551, // "Name"
                 LABEL_MASKS("%L", "%d", "%L", ""), // Filename, DateTime | Foldername, empty
                 CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                     CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING)
                     ? SortAttributeIgnoreArticle
                     : SortAttributeNone);
-  AddSortMethod(SortByDate, 552, // "Date"
+  AddSortMethod(SortBy::DATE, 552, // "Date"
                 LABEL_MASKS("%L", "%d", "%L", "%d")); // Filename, DateTime | Foldername, DateTime
-  AddSortMethod(SortByTime, 180, // "Duration"
+  AddSortMethod(SortBy::TIME, 180, // "Duration"
                 LABEL_MASKS("%L", "%D", "%L", "")); // Filename, Duration | Foldername, empty
-  AddSortMethod(SortByFile, 561, // "File"
+  AddSortMethod(SortBy::FILE, 561, // "File"
                 LABEL_MASKS("%L", "%d", "%L", "")); // Filename, DateTime | Foldername, empty
 
   if (CServiceBroker::GetPVRManager().Clients()->AnyClientSupportingRecordingsSize())
   {
     // "Size" : Filename, Size | Foldername, Size
-    AddSortMethod(SortBySize, 553, LABEL_MASKS("%L", "%I", "%L", "%I"));
+    AddSortMethod(SortBy::SIZE, 553, LABEL_MASKS("%L", "%I", "%L", "%I"));
   }
 
-  AddSortMethod(SortByEpisodeNumber, 20359, // "Episode"
+  AddSortMethod(SortBy::EPISODE_NUMBER, 20359, // "Episode"
                 LABEL_MASKS("%L", "%d", "%L", "")); // Filename, DateTime | Foldername, empty
-  AddSortMethod(SortByProvider, 19348, // "Provider"
+  AddSortMethod(SortBy::PROVIDER, 19348, // "Provider"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
 
   SetSortMethod(
       CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_PVRDefaultSortOrder);
 
-  LoadViewState(items.GetPath(), m_windowId);
+  LoadViewState(items.GetPath(), GetWindowId());
 }
 
 void CGUIViewStateWindowPVRRecordings::SaveViewState()
 {
-  SaveViewToDb(m_items.GetPath(), m_windowId,
+  SaveViewToDb(m_items.GetPath(), GetWindowId(),
                CViewStateSettings::GetInstance().Get("pvrrecordings"));
 }
 
@@ -104,30 +105,30 @@ CGUIViewStateWindowPVRGuide::CGUIViewStateWindowPVRGuide(const int windowId,
                                                          const CFileItemList& items)
   : CGUIViewStatePVR(windowId, items)
 {
-  AddSortMethod(SortByChannelNumber, 549, // "Number"
+  AddSortMethod(SortBy::CHANNEL_NUMBER, 549, // "Number"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
-  AddSortMethod(SortByChannel, 551, // "Name"
+  AddSortMethod(SortBy::CHANNEL, 551, // "Name"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
   AddSortMethod(
-      SortByLastPlayed, SortAttributeIgnoreLabel, 568, // "Last played"
+      SortBy::LAST_PLAYED, SortAttributeIgnoreLabel, 568, // "Last played"
       LABEL_MASKS("%L", "%p", "%L", "%p")); // Filename, LastPlayed | Foldername, LastPlayed
-  AddSortMethod(SortByDateAdded, 570, // "Date added"
+  AddSortMethod(SortBy::DATE_ADDED, 570, // "Date added"
                 LABEL_MASKS("%L", "%a", "%L", "%a"), // Filename, DateAdded | Foldername, DateAdded
-                SortAttributeNone, SortOrderDescending);
-  AddSortMethod(SortByClientChannelOrder, 19315, // "Backend number"
+                SortAttributeNone, SortOrder::DESCENDING);
+  AddSortMethod(SortBy::CLIENT_CHANNEL_ORDER, 19315, // "Backend number"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
-  AddSortMethod(SortByProvider, 19348, // "Provider"
+  AddSortMethod(SortBy::PROVIDER, 19348, // "Provider"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
 
   // Default sorting
-  SetSortMethod(SortByChannelNumber);
+  SetSortMethod(SortBy::CHANNEL_NUMBER);
 
-  LoadViewState("pvr://guide/", m_windowId);
+  LoadViewState("pvr://guide/", GetWindowId());
 }
 
 void CGUIViewStateWindowPVRGuide::SaveViewState()
 {
-  SaveViewToDb("pvr://guide/", m_windowId, CViewStateSettings::GetInstance().Get("pvrguide"));
+  SaveViewToDb("pvr://guide/", GetWindowId(), CViewStateSettings::GetInstance().Get("pvrguide"));
 }
 
 CGUIViewStateWindowPVRTimers::CGUIViewStateWindowPVRTimers(const int windowId,
@@ -139,20 +140,20 @@ CGUIViewStateWindowPVRTimers::CGUIViewStateWindowPVRTimers(const int windowId,
                          ? SortAttributeIgnoreArticle
                          : SortAttributeNone);
   sortAttributes |= SortAttributeIgnoreFolders;
-  AddSortMethod(SortByLabel, static_cast<SortAttribute>(sortAttributes), 551, // "Name"
+  AddSortMethod(SortBy::LABEL, static_cast<SortAttribute>(sortAttributes), 551, // "Name"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
-  AddSortMethod(SortByDate, static_cast<SortAttribute>(sortAttributes), 552, // "Date"
+  AddSortMethod(SortBy::DATE, static_cast<SortAttribute>(sortAttributes), 552, // "Date"
                 LABEL_MASKS("%L", "%d", "%L", "%d")); // Filename, DateTime | Foldername, DateTime
 
   // Default sorting
-  SetSortMethod(SortByDate);
+  SetSortMethod(SortBy::DATE);
 
-  LoadViewState("pvr://timers/", m_windowId);
+  LoadViewState("pvr://timers/", GetWindowId());
 }
 
 void CGUIViewStateWindowPVRTimers::SaveViewState()
 {
-  SaveViewToDb("pvr://timers/", m_windowId, CViewStateSettings::GetInstance().Get("pvrtimers"));
+  SaveViewToDb("pvr://timers/", GetWindowId(), CViewStateSettings::GetInstance().Get("pvrtimers"));
 }
 
 bool CGUIViewStateWindowPVRTimers::HideParentDirItems()
@@ -164,23 +165,24 @@ CGUIViewStateWindowPVRSearch::CGUIViewStateWindowPVRSearch(const int windowId,
                                                            const CFileItemList& items)
   : CGUIViewStatePVR(windowId, items)
 {
-  AddSortMethod(SortByLabel, 551, // "Name"
+  AddSortMethod(SortBy::LABEL, 551, // "Name"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
-  AddSortMethod(SortByDate, 552, // "Date"
+  AddSortMethod(SortBy::DATE, 552, // "Date"
                 LABEL_MASKS("%L", "%d", "%L", "%d")); // Filename, DateTime | Foldername, DateTime
 
   // Default sorting
   if (CPVREpgSearchPath(m_items.GetPath()).IsSavedSearchesRoot())
-    SetSortMethod(SortByDate, SortOrderDescending);
+    SetSortMethod(SortBy::DATE, SortOrder::DESCENDING);
   else
-    SetSortMethod(SortByDate, SortOrderAscending);
+    SetSortMethod(SortBy::DATE, SortOrder::ASCENDING);
 
-  LoadViewState(m_items.GetPath(), m_windowId);
+  LoadViewState(m_items.GetPath(), GetWindowId());
 }
 
 void CGUIViewStateWindowPVRSearch::SaveViewState()
 {
-  SaveViewToDb(m_items.GetPath(), m_windowId, CViewStateSettings::GetInstance().Get("pvrsearch"));
+  SaveViewToDb(m_items.GetPath(), GetWindowId(),
+               CViewStateSettings::GetInstance().Get("pvrsearch"));
 }
 
 bool CGUIViewStateWindowPVRSearch::HideParentDirItems()
@@ -193,27 +195,27 @@ CGUIViewStateWindowPVRProviders::CGUIViewStateWindowPVRProviders(const int windo
                                                                  const CFileItemList& items)
   : CGUIViewStatePVR(windowId, items)
 {
-  AddSortMethod(SortByLabel, 551, // "Name"
+  AddSortMethod(SortBy::LABEL, 551, // "Name"
                 LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
 
   if (CPVRProvidersPath(m_items.GetPath()).IsProvidersRoot())
   {
-    AddSortMethod(SortByProvider, 19348, // "Provider"
+    AddSortMethod(SortBy::PROVIDER, 19348, // "Provider"
                   LABEL_MASKS("%L", "", "%L", "")); // Filename, empty | Foldername, empty
 
-    SetSortMethod(SortByProvider, SortOrderAscending);
+    SetSortMethod(SortBy::PROVIDER, SortOrder::ASCENDING);
   }
   else
   {
-    SetSortMethod(SortByLabel, SortOrderAscending);
+    SetSortMethod(SortBy::LABEL, SortOrder::ASCENDING);
   }
 
-  LoadViewState(m_items.GetPath(), m_windowId);
+  LoadViewState(m_items.GetPath(), GetWindowId());
 }
 
 void CGUIViewStateWindowPVRProviders::SaveViewState()
 {
-  SaveViewToDb(m_items.GetPath(), m_windowId,
+  SaveViewToDb(m_items.GetPath(), GetWindowId(),
                CViewStateSettings::GetInstance().Get("pvrproviders"));
 }
 

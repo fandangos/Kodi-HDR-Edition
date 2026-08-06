@@ -11,7 +11,9 @@
 #include "GUIInfoManager.h"
 #include "GUIListItem.h"
 #include "GUIMessage.h"
+#include "ServiceBroker.h"
 #include "utils/StringUtils.h"
+#include "windowing/WinSystem.h"
 
 CGUIProgressControl::CGUIProgressControl(int parentID,
                                          int controlID,
@@ -85,7 +87,12 @@ void CGUIProgressControl::Render()
 {
   if (!IsDisabled())
   {
-    m_guiBackground->Render();
+    const bool renderFrontToBack =
+        CServiceBroker::GetWinSystem()->GetGfxContext().GetRenderOrder() ==
+        RENDER_ORDER_FRONT_TO_BACK;
+
+    if (!renderFrontToBack)
+      m_guiBackground->Render(-1);
 
     if (m_guiLeft->GetFileName().empty() && m_guiRight->GetFileName().empty())
     {
@@ -115,6 +122,9 @@ void CGUIProgressControl::Render()
 
       m_guiRight->Render();
     }
+
+    if (renderFrontToBack)
+      m_guiBackground->Render(-1);
 
     m_guiOverlay->Render();
   }

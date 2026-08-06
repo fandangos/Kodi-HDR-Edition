@@ -29,7 +29,9 @@ struct VideoDriverInfo
   void Log();
 };
 
-class CURL; // forward declaration
+// forward declarations
+class CURL;
+enum class UserDirectoriesLocation;
 
 class CWIN32Util
 {
@@ -43,7 +45,7 @@ public:
   static std::string GetResInfoString();
   static size_t GetSystemMemorySize();
 
-  static std::string GetProfilePath(const bool platformDirectories);
+  static std::string GetProfilePath(UserDirectoriesLocation loc);
   static std::string UncToSmb(const std::string &strPath);
   static std::string SmbToUnc(const std::string &strPath);
   static bool AddExtraLongPathPrefix(std::wstring& path);
@@ -84,7 +86,7 @@ public:
   static VideoDriverInfo GetVideoDriverInfo(const UINT vendorId, const std::wstring& driverDesc);
   static VideoDriverInfo GetVideoDriverInfoDX(const UINT vendorId, LUID adapterLuid);
   static VideoDriverInfo FormatVideoDriverInfo(const UINT vendorId, uint64_t rawVersion);
-  static VideoDriverInfo FormatVideoDriverInfo(const UINT vendorId, const std::string version);
+  static VideoDriverInfo FormatVideoDriverInfo(const UINT vendorId, const std::string& version);
   static std::wstring GetDisplayFriendlyName(const std::wstring& GdiDeviceName);
   /*!
    * \brief Set the thread name using SetThreadDescription when available

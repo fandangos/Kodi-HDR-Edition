@@ -7,7 +7,7 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: translations@kodi.tv\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2024-10-19 07:10+0000\n"
+"PO-Revision-Date: 2026-06-11 02:16+0000\n"
 "Last-Translator: Massimo Pissarello <mapi68@gmail.com>\n"
 "Language-Team: Italian <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/it_it/>\n"
 "Language: it_it\n"
@@ -15,7 +15,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 5.7.2\n"
+"X-Generator: Weblate 2026.6.1\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -130,11 +130,11 @@ msgstr "Tipo di vista"
 
 msgctxt "#31024"
 msgid "Choose rating to display for media items"
-msgstr "Scegli la valutazione da mostrare per gli elementi multimediali"
+msgstr "Scegli valutazione da mostrare per gli elementi multimediali"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "Nessun preferito trovato. Puoi aggiungere qualunque elemento dalle viste multimediali a questa lista usando il menu contestuale."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr "Nessun preferito trovato. Puoi aggiungere elementi dai media e da altre viste utilizzando il menu contestuale."
 
 msgctxt "#31026"
 msgid "Timeshift"
@@ -221,9 +221,25 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "Elimina gruppo"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr "Formato del titolo del film"
+
 msgctxt "#31048"
 msgid "Available"
 msgstr "Disponibile"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr "Titolo originale"
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr "Titolo originale (titolo localizzato)"
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr "Titolo localizzato (titolo originale)"
 
 msgctxt "#31052"
 msgid "filtered"
@@ -313,6 +329,11 @@ msgctxt "#31080"
 msgid "Ends at"
 msgstr "Termina alle"
 
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr "Live"
+
 msgctxt "#31082"
 msgid "Lyrics add-on"
 msgstr "Add-on testi"
@@ -392,7 +413,12 @@ msgstr "Televideo"
 #. viewtype name
 msgctxt "#31107"
 msgid "WideList"
-msgstr "Elenco ampio"
+msgstr "ElencoAmpio"
+
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr "ElencoMedia"
 
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
@@ -454,6 +480,10 @@ msgstr "Serie TV non viste"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "Stesso regista"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr "Dettagli media"
 
 msgctxt "#31125"
 msgid "Press up for actor info"
@@ -556,8 +586,8 @@ msgid "Categories"
 msgstr "Categorie"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "Scegli pacchetto fanart per genere"
+msgid "Choose genre fanart pack"
+msgstr "Scegli genere del pacchetto fanart"
 
 msgctxt "#31150"
 msgid "Origin"
@@ -680,6 +710,26 @@ msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
 msgstr "Azione di selezione predefinita per le saghe nella schermata principale"
 
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr "Scegli pacchetto di icone meteo"
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr "Informazioni lettore"
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr "Cache lettore"
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr "Decodificatore audio"
+
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
@@ -745,6 +795,29 @@ msgstr "Sistema"
 msgctxt "#31612"
 msgid "channels"
 msgstr "canali"
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr "Decodificatore sottotitoli"
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr "Codec sottotitoli"
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr "Lingua sottotitoli"
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "Nessun preferito trovato. Puoi aggiungere qualunque elemento dalle viste multimediali a questa lista usando il menu contestuale."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "Scegli pacchetto fanart per genere"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

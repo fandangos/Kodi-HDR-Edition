@@ -11,13 +11,15 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "SavestateFlatBuffer.h"
+#include "ServiceBroker.h"
 #include "URL.h"
 #include "XBDateTime.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "filesystem/IFileTypes.h"
 #include "games/dialogs/DialogGameDefines.h"
-#include "guilib/LocalizeStrings.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
@@ -171,7 +173,7 @@ void CSavestateDatabase::GetSavestateItem(const ISavestate& savestate,
   if (savestate.Type() == SAVE_TYPE::AUTO)
   {
     label2 = std::move(label);
-    label = g_localizeStrings.Get(15316); // "Autosave"
+    label = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(15316); // "Autosave"
   }
 
   item.SetLabel(label);
@@ -182,7 +184,7 @@ void CSavestateDatabase::GetSavestateItem(const ISavestate& savestate,
   item.SetProperty(SAVESTATE_CAPTION, savestate.Caption());
   item.SetProperty(SAVESTATE_GAME_CLIENT, savestate.GameClientID());
   item.SetProperty(SAVESTATE_GAME_CLIENT_VERSION, savestate.GameClientVersion());
-  item.m_dateTime = dateUTC;
+  item.SetDateTime(dateUTC);
 }
 
 std::unique_ptr<ISavestate> CSavestateDatabase::RenameSavestate(const std::string& savestatePath,

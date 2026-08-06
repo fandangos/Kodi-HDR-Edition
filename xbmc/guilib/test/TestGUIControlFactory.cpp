@@ -8,14 +8,16 @@
 
 #include "GUIInfoManager.h"
 #include "LangInfo.h"
+#include "ServiceBroker.h"
 #include "guilib/GUIAction.h"
 #include "guilib/GUIColorManager.h"
 #include "guilib/GUIControlFactory.h"
 #include "guilib/GUIFont.h"
 #include "guilib/GUILabelControl.h"
 #include "guilib/GUITexture.h"
-#include "guilib/LocalizeStrings.h"
 #include "guilib/guiinfo/GUIInfoLabel.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/SystemInfo.h"
 #include "utils/XBMCTinyXML.h"
 
@@ -177,11 +179,13 @@ const auto AlignmentTests = std::array{
     AlignmentTest{R"(<root/>)"s, 0, false},
 };
 
-class TestGetAlignmentY : public testing::WithParamInterface<AlignmentTest>, public testing::Test
+class TestGetLabelAlignmentY : public testing::WithParamInterface<AlignmentTest>,
+                               public testing::Test
 {
 };
 
-const auto AlignmentYTests = std::array{
+const auto LabelAlignmentYTests = std::array{
+    AlignmentTest{R"(<root><test>top</test></root>)"s, 0},
     AlignmentTest{R"(<root><test>center</test></root>)"s, XBFONT_CENTER_Y},
     AlignmentTest{R"(<root><test>bottom</test></root>)"s, 0},
     AlignmentTest{R"(<root><test/></root>)"s, std::numeric_limits<uint32_t>::max(), false},
@@ -693,18 +697,18 @@ INSTANTIATE_TEST_SUITE_P(TestGUIControlFactory,
                          TestGetAlignment,
                          testing::ValuesIn(AlignmentTests));
 
-TEST_P(TestGetAlignmentY, GetAlignmentY)
+TEST_P(TestGetLabelAlignmentY, GetAlignmentY)
 {
   CXBMCTinyXML doc;
   doc.Parse(GetParam().def);
   uint32_t align = std::numeric_limits<uint32_t>::max();
-  EXPECT_EQ(CGFTestable::GetAlignmentY(doc.RootElement(), "test", align), GetParam().result);
+  EXPECT_EQ(CGFTestable::GetLabelAlignmentY(doc.RootElement(), "test", align), GetParam().result);
   EXPECT_EQ(align, GetParam().align);
 }
 
 INSTANTIATE_TEST_SUITE_P(TestGUIControlFactory,
-                         TestGetAlignmentY,
-                         testing::ValuesIn(AlignmentYTests));
+                         TestGetLabelAlignmentY,
+                         testing::ValuesIn(LabelAlignmentYTests));
 
 TEST_P(TestAspectRatio, GetAspectRatio)
 {
@@ -798,7 +802,8 @@ INSTANTIATE_TEST_SUITE_P(TestGUIControlFactory, TestGetHitRect, testing::ValuesI
 TEST_P(TestGetInfoLabel, GetInfoLabel)
 {
   CGUITestComponent comp;
-  ASSERT_TRUE(g_localizeStrings.Load(g_langInfo.GetLanguagePath(), "resource.language.en_gb"));
+  ASSERT_TRUE(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Load(
+      g_langInfo.GetLanguagePath(), "resource.language.en_gb"));
   CXBMCTinyXML doc;
   doc.Parse(GetParam().def);
   KODI::GUILIB::GUIINFO::CGUIInfoLabel infoLabel;
@@ -815,7 +820,8 @@ INSTANTIATE_TEST_SUITE_P(TestGUIControlFactory,
 TEST_P(TestGetInfoLabels, GetInfoLabels)
 {
   CGUITestComponent comp;
-  ASSERT_TRUE(g_localizeStrings.Load(g_langInfo.GetLanguagePath(), "resource.language.en_gb"));
+  ASSERT_TRUE(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Load(
+      g_langInfo.GetLanguagePath(), "resource.language.en_gb"));
   CXBMCTinyXML doc;
   doc.Parse(GetParam().def);
   std::vector<KODI::GUILIB::GUIINFO::CGUIInfoLabel> infoLabel;
@@ -896,7 +902,8 @@ INSTANTIATE_TEST_SUITE_P(TestGUIControlFactory, TestGetScroller, testing::Values
 
 TEST_P(TestGetString, GetString)
 {
-  ASSERT_TRUE(g_localizeStrings.Load(g_langInfo.GetLanguagePath(), "resource.language.en_gb"));
+  ASSERT_TRUE(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Load(
+      g_langInfo.GetLanguagePath(), "resource.language.en_gb"));
   CXBMCTinyXML doc;
   doc.Parse(GetParam().def);
   std::string value;

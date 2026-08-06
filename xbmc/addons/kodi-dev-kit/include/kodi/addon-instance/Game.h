@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2014-2018 Team Kodi
+ *  Copyright (C) 2014-2025 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -12,6 +12,7 @@
 #include "../c-api/addon-instance/game.h"
 
 #include <algorithm>
+#include <functional>
 
 #ifdef __cplusplus
 
@@ -23,11 +24,11 @@ namespace addon
 //==============================================================================
 /// @addtogroup cpp_kodi_addon_game
 ///
-/// To use on Libretro and for stand-alone games or emulators that does not use
-/// the Libretro API.
+/// For use with Libretro cores and with stand-alone games or emulators that do
+/// not use the Libretro API.
 ///
-/// Possible examples could be, Nvidia GameStream via Limelight or WINE capture
-/// could possible through the Game API.
+/// Possible examples include Nvidia GameStream via Limelight or capturing WINE
+/// games through the Game API.
 ///
 
 //==============================================================================
@@ -70,36 +71,36 @@ public:
   }
   /*! @endcond */
 
-  /// @brief Controller identifier.
+  /// @brief Controller identifier
   std::string controller_id;
 
-  /// @brief Provides input.
+  /// @brief Provides input
   ///
   /// False for multitaps
   bool provides_input{false};
 
-  /// @brief Digital buttons.
+  /// @brief Digital buttons
   std::vector<std::string> digital_buttons;
 
-  /// @brief Analog buttons.
+  /// @brief Analog buttons
   std::vector<std::string> analog_buttons;
 
-  /// @brief Analog sticks.
+  /// @brief Analog sticks
   std::vector<std::string> analog_sticks;
 
-  /// @brief Accelerometers.
+  /// @brief Accelerometers
   std::vector<std::string> accelerometers;
 
-  /// @brief Keys.
+  /// @brief Keys
   std::vector<std::string> keys;
 
-  /// @brief Relative pointers.
+  /// @brief Relative pointers
   std::vector<std::string> rel_pointers;
 
-  /// @brief Absolute pointers.
+  /// @brief Absolute pointers
   std::vector<std::string> abs_pointers;
 
-  /// @brief Motors.
+  /// @brief Motors
   std::vector<std::string> motors;
 };
 ///@}
@@ -112,7 +113,7 @@ public:
 /// This class provides the basic game processing system for use as an add-on in
 /// Kodi.
 ///
-/// This class is created at addon by Kodi.
+/// Kodi creates this class in the add-on.
 ///
 class ATTR_DLL_LOCAL CInstanceGame : public IAddonInstance
 {
@@ -127,15 +128,13 @@ public:
   //============================================================================
   /// @brief Game class constructor
   ///
-  /// Used by an add-on that only supports only Game and only in one instance.
+  /// Used by an add-on that supports only one game instance.
   ///
-  /// This class is created at addon by Kodi.
-  ///
+  /// Kodi creates this class in the add-on.
   ///
   /// --------------------------------------------------------------------------
   ///
-  ///
-  /// **Here's example about the use of this:**
+  /// **Here's an example of how to use this:**
   /// ~~~~~~~~~~~~~{.cpp}
   /// #include <kodi/addon-instance/Game.h>
   /// ...
@@ -162,9 +161,10 @@ public:
   CInstanceGame() : IAddonInstance(IInstanceInfo(CPrivateBase::m_interface->firstKodiInstance))
   {
     if (CPrivateBase::m_interface->globalSingleInstance != nullptr)
-      throw std::logic_error("kodi::addon::CInstanceGame: Creation of more as one in single "
-                             "instance way is not allowed!");
-
+    {
+      throw std::logic_error(
+          "kodi::addon::CInstanceGame: Cannot create more than one game instance!");
+    }
     SetAddonStruct(CPrivateBase::m_interface->firstKodiInstance);
     CPrivateBase::m_interface->globalSingleInstance = this;
   }
@@ -180,9 +180,9 @@ public:
   /// @brief **Callback to Kodi Function**\n
   /// The path of the game client being loaded.
   ///
-  /// @return the used game client Dll path
+  /// @return The game client DLL path
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   std::string GameClientDllPath() const { return m_instanceData->props->game_client_dll_path; }
   //----------------------------------------------------------------------------
@@ -191,10 +191,11 @@ public:
   /// @brief **Callback to Kodi Function**\n
   /// Paths to proxy DLLs used to load the game client.
   ///
-  /// @param[out] paths vector list to store available dll paths
-  /// @return true if success and dll paths present
+  /// @param[out] paths Vector list to store available DLL paths
   ///
-  /// @remarks Only called from addon itself
+  /// @return True if DLL paths were found, false otherwise
+  ///
+  /// @remarks Only called from the add-on itself
   ///
   bool ProxyDllPaths(std::vector<std::string>& paths)
   {
@@ -214,9 +215,11 @@ public:
   /// These directories can be used to store system-specific ROMs such as
   /// BIOSes, configuration data, etc.
   ///
-  /// @return the used resource directory
+  /// @param[out] dirs Vector list to store available resource directories
   ///
-  /// @remarks Only called from addon itself
+  /// @return True if resource directories were found, false otherwise
+  ///
+  /// @remarks Only called from the add-on itself
   ///
   bool ResourceDirectories(std::vector<std::string>& dirs)
   {
@@ -237,9 +240,9 @@ public:
   /// etc, if the game client cannot use the regular memory interface,
   /// GetMemoryData().
   ///
-  /// @return the used profile directory
+  /// @return The profile directory
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   std::string ProfileDirectory() const { return m_instanceData->props->profile_directory; }
   //----------------------------------------------------------------------------
@@ -248,9 +251,9 @@ public:
   /// @brief **Callback to Kodi Function**\n
   /// The value of the <supports_vfs> property from addon.xml.
   ///
-  /// @return true if VFS is supported
+  /// @return True if VFS is supported, false otherwise
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   bool SupportsVFS() const { return m_instanceData->props->supports_vfs; }
   //----------------------------------------------------------------------------
@@ -259,10 +262,11 @@ public:
   /// @brief **Callback to Kodi Function**\n
   /// The extensions in the <extensions> property from addon.xml.
   ///
-  /// @param[out] extensions vector list to store available extension
-  /// @return true if success and extensions present
+  /// @param[out] extensions Vector list to store available extensions
   ///
-  /// @remarks Only called from addon itself
+  /// @return True if successful and extensions were found, false otherwise
+  ///
+  /// @remarks Only called from the add-on itself
   ///
   bool Extensions(std::vector<std::string>& extensions)
   {
@@ -285,9 +289,8 @@ public:
   /// @ingroup cpp_kodi_addon_game
   /// @brief **Game operations**
   ///
-  /// These are mandatory functions for using this addon to get the available
-  /// channels.
-  ///
+  /// These are mandatory functions for using this add-on for gameplay
+  /// functionality.
   ///
   ///---------------------------------------------------------------------------
   ///
@@ -304,7 +307,8 @@ public:
   /// @brief Load a game
   ///
   /// @param[in] url The URL to load
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game was loaded
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game was loaded
   ///
   virtual GAME_ERROR LoadGame(const std::string& url) { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -314,7 +318,8 @@ public:
   ///
   /// @param[in] type The game type
   /// @param[in] urls An array of urls
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game was loaded
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game was loaded
   ///
   virtual GAME_ERROR LoadGameSpecial(SPECIAL_GAME_TYPE type, const std::vector<std::string>& urls)
   {
@@ -330,7 +335,7 @@ public:
   ///
   ///     <supports_no_game>false</supports_no_game>
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game add-on was loaded
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game add-on was loaded
   ///
   virtual GAME_ERROR LoadStandalone() { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -340,7 +345,7 @@ public:
   ///
   /// Unloads a currently loaded game
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game was unloaded
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game was unloaded
   ///
   virtual GAME_ERROR UnloadGame() { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -350,7 +355,7 @@ public:
   ///
   /// @param[out] timing_info The info structure to fill
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if info was filled
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if info was filled
   ///
   virtual GAME_ERROR GetGameTiming(game_system_timing& timing_info)
   {
@@ -361,7 +366,7 @@ public:
   //============================================================================
   /// @brief Get region of the loaded game
   ///
-  /// @return the region, or @ref GAME_REGION_UNKNOWN if unknown or no game is loaded
+  /// @return The region, or @ref GAME_REGION_UNKNOWN if unknown or no game is loaded
   ///
   virtual GAME_REGION GetRegion() { return GAME_REGION_UNKNOWN; }
   //----------------------------------------------------------------------------
@@ -372,7 +377,7 @@ public:
   /// The game loop is a thread that calls RunFrame() in a loop at a rate
   /// determined by the playback speed and the client's FPS.
   ///
-  /// @return true if the frontend should provide a game loop, false otherwise
+  /// @return True if the frontend should provide a game loop, false otherwise
   ///
   virtual bool RequiresGameLoop() { return false; }
   //----------------------------------------------------------------------------
@@ -380,7 +385,7 @@ public:
   //============================================================================
   /// @brief Run a single frame for add-ons that use a game loop
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if there was no error
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if there was no error
   ///
   virtual GAME_ERROR RunFrame() { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -388,7 +393,7 @@ public:
   //============================================================================
   /// @brief Reset the current game
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game was reset
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game was reset
   ///
   virtual GAME_ERROR Reset() { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -397,7 +402,7 @@ public:
   /// @brief **Callback to Kodi Function**\n
   /// Requests the frontend to stop the current game
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   void CloseGame(void) { m_instanceData->toKodi->CloseGame(m_instanceData->toKodi->kodiInstance); }
   //----------------------------------------------------------------------------
@@ -410,7 +415,6 @@ public:
   ///
   /// This class will be integrated into the addon, which can then open it if
   /// necessary for the processing of an audio or video stream.
-  ///
   ///
   /// @note Callback to Kodi class
   ///@{
@@ -428,9 +432,10 @@ public:
     /// @brief Create a stream for gameplay data
     ///
     /// @param[in] properties The stream properties
+    ///
     /// @return A stream handle, or `nullptr` on failure
     ///
-    /// @remarks Only called from addon itself
+    /// @remarks Only called from the add-on itself
     ///
     bool Open(const game_stream_properties& properties)
     {
@@ -439,7 +444,7 @@ public:
 
       if (m_handle)
       {
-        kodi::Log(ADDON_LOG_INFO, "kodi::addon::CInstanceGame::CStream already becomes reopened");
+        kodi::Log(ADDON_LOG_INFO, "kodi::addon::CInstanceGame::CStream already reopened");
         Close();
       }
 
@@ -455,7 +460,7 @@ public:
     /// @ingroup cpp_kodi_addon_game_Operation_CStream
     /// @brief Free the specified stream
     ///
-    /// @remarks Only called from addon itself
+    /// @remarks Only called from the add-on itself
     ///
     void Close()
     {
@@ -477,11 +482,12 @@ public:
     /// @param[in] width The framebuffer width, or 0 for no width specified
     /// @param[in] height The framebuffer height, or 0 for no height specified
     /// @param[out] buffer The buffer, or unmodified if false is returned
+    ///
     /// @return True if buffer was set, false otherwise
     ///
-    /// @note If this returns true, buffer must be freed using @ref ReleaseBuffer().
+    /// @note If this returns true, buffer must be freed using @ref ReleaseBuffer()
     ///
-    /// @remarks Only called from addon itself
+    /// @remarks Only called from the add-on itself
     ///
     bool GetBuffer(unsigned int width, unsigned int height, game_stream_buffer& buffer)
     {
@@ -501,7 +507,7 @@ public:
     ///
     /// @param[in] packet The data packet
     ///
-    /// @remarks Only called from addon itself
+    /// @remarks Only called from the add-on itself
     ///
     void AddData(const game_stream_packet& packet)
     {
@@ -521,7 +527,7 @@ public:
     ///
     /// @param[in] buffer The buffer returned from GetStreamBuffer()
     ///
-    /// @remarks Only called from addon itself
+    /// @remarks Only called from the add-on itself
     ///
     void ReleaseBuffer(game_stream_buffer& buffer)
     {
@@ -537,11 +543,11 @@ public:
 
     //==========================================================================
     /// @ingroup cpp_kodi_addon_game_Operation_CStream
-    /// @brief To check stream open was OK, e.g. after use of constructor
+    /// @brief Check if the stream opened correctly, e.g. after calling the constructor
     ///
-    /// @return true if stream was successfully opened
+    /// @return True if stream was successfully opened, false otherwise
     ///
-    /// @remarks Only called from addon itself
+    /// @remarks Only called from the add-on itself
     ///
     bool IsOpen() const { return m_handle != nullptr; }
     //--------------------------------------------------------------------------
@@ -561,7 +567,6 @@ public:
   /// @ingroup cpp_kodi_addon_game
   /// @brief **Hardware rendering operations**
   ///
-  ///
   ///---------------------------------------------------------------------------
   ///
   /// **Hardware rendering operation parts in interface:**\n
@@ -579,7 +584,7 @@ public:
   ///
   /// @return True if hardware rendering was enabled, false otherwise
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   bool EnableHardwareRendering(const game_hw_rendering_properties& properties)
   {
@@ -593,7 +598,7 @@ public:
   ///
   /// Any GL state is lost, and must not be deinitialized explicitly.
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the HW context was reset
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the HW context was reset
   ///
   virtual GAME_ERROR HwContextReset() { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -603,7 +608,7 @@ public:
   ///
   /// Resources can be deinitialized at this step.
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the HW context was destroyed
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the HW context was destroyed
   ///
   virtual GAME_ERROR HwContextDestroy() { return GAME_ERROR_NOT_IMPLEMENTED; }
 
@@ -614,7 +619,7 @@ public:
   ///
   /// @return A function pointer for the specified symbol
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   game_proc_address_t HwGetProcAddress(const char* sym)
   {
@@ -630,7 +635,6 @@ public:
   /// @defgroup cpp_kodi_addon_game_InputOperations 4. Input operations
   /// @ingroup cpp_kodi_addon_game
   /// @brief **Input operations**
-  ///
   ///
   ///---------------------------------------------------------------------------
   ///
@@ -653,7 +657,7 @@ public:
   ///
   /// @param[in] controller_id The ID of the controller profile
   /// @param[in] feature_name The name of a feature in that profile
-  /// @return true if input is accepted for the feature, false otherwise
+  /// @return True if input is accepted for the feature, false otherwise
   ///
   virtual bool HasFeature(const std::string& controller_id, const std::string& feature_name)
   {
@@ -725,7 +729,8 @@ public:
   /// @param[in] connect True to connect a controller, false to disconnect
   /// @param[in] port_address The address of the port
   /// @param[in] controller_id The controller ID if connecting, or unused if disconnecting
-  /// @return True if the \p controller was (dis-)connected to the port, false otherwise
+  ///
+  /// @return True if the \p controller_id was (dis-)connected to the port, false otherwise
   ///
   /// The address is a string that allows traversal of the controller topology.
   /// It is formed by alternating port IDs and controller IDs separated by "/".
@@ -775,21 +780,22 @@ public:
   ///
   /// @param[in] event The input event
   ///
-  /// @return true if the event was handled, false otherwise
+  /// @return True if the event was handled, false otherwise
   ///
   virtual bool InputEvent(const game_input_event& event) { return false; }
   //----------------------------------------------------------------------------
 
   //============================================================================
-  /// @brief **Callback to Kodi Function**<br>Notify the port of an input event
+  /// @brief **Callback to Kodi Function**\n
+  /// Notify the port of an input event
   ///
   /// @param[in] event The input event
-  /// @return true if the event was handled, false otherwise
+  /// @return True if the event was handled, false otherwise
   ///
   /// @note Input events can arrive for the following sources:
   ///   - @ref GAME_INPUT_EVENT_MOTOR
   ///
-  /// @remarks Only called from addon itself
+  /// @remarks Only called from the add-on itself
   ///
   bool KodiInputEvent(const game_input_event& event)
   {
@@ -806,7 +812,6 @@ public:
   /// @ingroup cpp_kodi_addon_game
   /// @brief **Serialization operations**
   ///
-  ///
   ///---------------------------------------------------------------------------
   ///
   /// **Serialization operation parts in interface:**\n
@@ -821,7 +826,7 @@ public:
   //============================================================================
   /// @brief Get the number of bytes required to serialize the game
   ///
-  /// @return the number of bytes, or 0 if serialization is not supported
+  /// @return The number of bytes, or 0 if serialization is not supported
   ///
   virtual size_t SerializeSize() { return 0; }
   //----------------------------------------------------------------------------
@@ -832,7 +837,7 @@ public:
   /// @param[in] data The buffer receiving the serialized game data
   /// @param[in] size The size of the buffer
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game was serialized into the buffer
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game was serialized into the buffer
   ///
   virtual GAME_ERROR Serialize(uint8_t* data, size_t size) { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -843,7 +848,7 @@ public:
   /// @param[in] data A buffer containing the game's new state
   /// @param[in] size The size of the buffer
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the game deserialized
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the game deserialized
   ///
   virtual GAME_ERROR Deserialize(const uint8_t* data, size_t size)
   {
@@ -875,7 +880,7 @@ public:
   //============================================================================
   /// @brief Reset the cheat system
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the cheat system was reset
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the cheat system was reset
   ///
   virtual GAME_ERROR CheatReset() { return GAME_ERROR_NOT_IMPLEMENTED; }
   //----------------------------------------------------------------------------
@@ -887,7 +892,7 @@ public:
   /// @param[in] data Set to the region of memory; must remain valid until UnloadGame() is called
   /// @param[in] size Set to the size of the region of memory
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if data was set to a valid buffer
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if data was set to a valid buffer
   ///
   virtual GAME_ERROR GetMemory(GAME_MEMORY type, uint8_t*& data, size_t& size)
   {
@@ -902,7 +907,7 @@ public:
   /// @param[in] enabled
   /// @param[in] code
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the cheat was set
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the cheat was set
   ///
   virtual GAME_ERROR SetCheat(unsigned int index, bool enabled, const std::string& code)
   {
@@ -913,12 +918,12 @@ public:
   /// @brief Generates a RetroAchievements hash for a given game that
   ///        can be used to identify the game by RetroAchievements
   ///
-  /// @param[out] hash The hash of the file. Its size must be >=33 characters
+  /// @param[out] hash The generated hash of the file
   /// @param[in] consoleID The console ID as it is defined by rcheevos for
   ///                      the console the ROM is made for
   /// @param[in] filePath The path of the rom
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the hash was generated
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the hash was generated
   ///         successfully
   ///
   virtual GAME_ERROR RCGenerateHashFromFile(std::string& hash,
@@ -932,10 +937,9 @@ public:
   /// @brief Gets a URL to the endpoint that returns the game ID
   ///
   /// @param[out] url The URL to GET the game ID
-  /// @param[in] size The size of the URL char array
   /// @param[in] hash The hash of the rom
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the URL was created
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the URL was created
   ///
   virtual GAME_ERROR RCGetGameIDUrl(std::string& url, const std::string& hash)
   {
@@ -946,12 +950,11 @@ public:
   /// @brief Gets a URL to the endpoint that returns the patch file
   ///
   /// @param[out] url The URL to GET the game patch file
-  /// @param[in] size The size of the URL char array
   /// @param[in] username The RetroAchievements username of the user
   /// @param[in] token The login token to RetroAchievements of the user
   /// @param[in] gameID The ID of the game in RetroAchievements API
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the URL was created
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the URL was created
   ///
   virtual GAME_ERROR RCGetPatchFileUrl(std::string& url,
                                        const std::string& username,
@@ -962,19 +965,31 @@ public:
   }
 
   //============================================================================
+  /// @brief Set the credentials of the RetroAchievements user
+  ///
+  /// @param[in] username The RetroAchievements username of the user
+  /// @param[in] token The login token to RetroAchievements of the user
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the call was successful
+  ///
+  virtual GAME_ERROR SetRetroAchievementsCredentials(const std::string& username,
+                                                     const std::string& token)
+  {
+    return GAME_ERROR_NOT_IMPLEMENTED;
+  }
+
+  //============================================================================
   /// @brief Gets a URL to the endpoint that updates the rich presence
   ///        in the user's RetroAchievements profile
   ///
   /// @param[out] url The URL to POST the rich presence to RetroAchievements
-  /// @param[in] urlSize The size of the URL char array
   /// @param[out] postData The post data of the request
-  /// @param[in] postSize The size of the post data char array
   /// @param[in] username The RetroAchievements username of the user
   /// @param[in] token The login token to RetroAchievements of the user
   /// @param[in] gameID The ID of the game in RetroAchievements API
   /// @param[in] richPresence The rich presence evaluation to POST
   ///
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the URL and post data
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the URL and post data
   ///         were created
   ///
   virtual GAME_ERROR RCPostRichPresenceUrl(std::string& url,
@@ -992,7 +1007,7 @@ public:
   ///
   /// @param[in] script The rich presence script from RetroAchievements
   ///
-  /// @return the error, or GAME_ERROR_NO_ERROR if rich presence was enabled
+  /// @return The error, or GAME_ERROR_NO_ERROR if rich presence was enabled
   ///
   virtual GAME_ERROR RCEnableRichPresence(const std::string& script)
   {
@@ -1005,10 +1020,10 @@ public:
   ///
   /// @param[out] evaluation The evaluation of what the player is doing in
   ///                        the game this frame
-  /// @param[in] size The size of the evaluation char pointer
   /// @param[in] consoleID The console ID as it is defined by rcheevos for
   ///                      the console the rom is made for
-  /// @return the error, or @ref GAME_ERROR_NO_ERROR if the evaluation was
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the evaluation was
   ///         created successfully
   ///
   virtual GAME_ERROR RCGetRichPresenceEvaluation(std::string& evaluation, unsigned int consoleID)
@@ -1017,14 +1032,195 @@ public:
   }
 
   //============================================================================
+  /// @brief Activate an achievement
+  ///
+  /// @param[in] cheevoId The achievement ID
+  /// @param[in] memAddrExpression Achievement memory expression from patch data
+  ///                              as a string
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the call was successful
+  ///
+  virtual GAME_ERROR ActivateAchievement(unsigned int cheevoId,
+                                         const std::string& memAddrExpression)
+  {
+    return GAME_ERROR_NOT_IMPLEMENTED;
+  }
+
+  //============================================================================
+  /// @brief Get triggered achievement URL and ID pairs
+  ///
+  /// @param[in] callback Callback invoked once per triggered achievement during
+  ///                     this call. It may be called zero or more times before
+  ///                     the function returns. Implementations must not
+  ///                     retain/copy the callback for later use. The URL string
+  ///                     reference is valid only for the callback invocation and
+  ///                     must be copied if needed afterwards.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the call was successful
+  ///
+  virtual GAME_ERROR GetCheevoUrlId(
+      const std::function<void(const std::string& achievementUrl, unsigned int cheevoId)>& callback)
+  {
+    return GAME_ERROR_NOT_IMPLEMENTED;
+  }
+
+  //============================================================================
   /// @brief Resets the runtime. Must be called each time a new rom is starting
   ///        and when the savestate is changed
   ///
-  /// @return the error, or GAME_ERROR_NO_ERROR if the runtim was reseted
+  /// @return The error, or GAME_ERROR_NO_ERROR if the runtime was reset
   ///         successfully
   ///
   virtual GAME_ERROR RCResetRuntime() { return GAME_ERROR_NOT_IMPLEMENTED; }
 
+  //----------------------------------------------------------------------------
+
+  ///@}
+
+  //--==----==----==----==----==----==----==----==----==----==----==----==----==--
+
+  //============================================================================
+  /// @defgroup cpp_kodi_addon_game_DiscOperations 5. Disc operations
+  /// @ingroup cpp_kodi_addon_game
+  /// @brief **Disc operations**
+  ///
+  ///---------------------------------------------------------------------------
+  ///
+  /// **Disc operation parts in interface:**\n
+  /// Copy this to your project and extend with your parts or leave functions
+  /// complete away where not used or supported.
+  ///
+  /// @copydetails cpp_kodi_addon_game_DiscOperations_header_addon_auto_check
+  /// @copydetails cpp_kodi_addon_game_DiscOperations_source_addon_auto_check
+  ///
+  ///@{
+
+  //============================================================================
+  /// @brief Returns whether the virtual disk tray is currently ejected.
+  ///
+  /// The initial state should be closed (`false`) unless changed by the game
+  /// implementation.
+  ///
+  /// @return `true` if the tray is ejected (open), otherwise `false`.
+  ///
+  virtual bool GetEjectState() { return false; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Opens or closes the virtual disk tray.
+  ///
+  /// The image index should only be changed while the tray is ejected.
+  ///
+  /// @param[in] ejected `true` to eject/open the tray, `false` to close it.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the tray state was
+  ///         changed successfully.
+  ///
+  virtual GAME_ERROR SetEjectState(bool ejected) { return GAME_ERROR_NOT_IMPLEMENTED; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Gets the index of the currently inserted disk image.
+  ///
+  /// @return Current disk image index. A value greater than or equal to
+  ///         @ref GetImageCount() indicates that no image is inserted.
+  ///
+  virtual unsigned int GetImageIndex() { return 0; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Inserts the disk image at the given index.
+  ///
+  /// This should only succeed when the tray is ejected.
+  ///
+  /// @param[in] imageIndex The image index to insert.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the image was set.
+  ///
+  virtual GAME_ERROR SetImageIndex(unsigned int imageIndex) { return GAME_ERROR_NOT_IMPLEMENTED; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Gets the number of available disk images.
+  ///
+  /// @return The total number of selectable disk images.
+  ///
+  virtual unsigned int GetImageCount() { return 0; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Adds a new disk image slot.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if a new image index was
+  ///         added.
+  ///
+  virtual GAME_ERROR AddImageIndex() { return GAME_ERROR_NOT_IMPLEMENTED; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Replaces the disk image at the given index.
+  ///
+  /// The tray must be ejected for this operation.
+  ///
+  /// @param[in] imageIndex The image index to replace.
+  /// @param[in] filePath Path to the new disk image.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the image was replaced.
+  ///
+  virtual GAME_ERROR ReplaceImageIndex(unsigned int imageIndex, const std::string& filePath)
+  {
+    return GAME_ERROR_NOT_IMPLEMENTED;
+  }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Removes the disk image at the given index.
+  ///
+  /// The tray must be ejected for this operation.
+  ///
+  /// @param[in] imageIndex The image index to remove.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the image was removed.
+  ///
+  virtual GAME_ERROR RemoveImageIndex(unsigned int imageIndex)
+  {
+    return GAME_ERROR_NOT_IMPLEMENTED;
+  }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Sets which image should be initially inserted on load.
+  ///
+  /// @param[in] imageIndex The initial image index.
+  /// @param[in] filePath Path used to validate the selected image.
+  ///
+  /// @return The error, or @ref GAME_ERROR_NO_ERROR if the initial image was
+  ///         accepted.
+  ///
+  virtual GAME_ERROR SetInitialImage(unsigned int imageIndex, const std::string& filePath)
+  {
+    return GAME_ERROR_NOT_IMPLEMENTED;
+  }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Gets the full path of a disk image.
+  ///
+  /// @param[in] imageIndex The image index to query.
+  ///
+  /// @return The image path, or an empty string if unavailable.
+  ///
+  virtual std::string GetImagePath(unsigned int imageIndex) { return ""; }
+  //----------------------------------------------------------------------------
+
+  //============================================================================
+  /// @brief Gets a user-friendly label for a disk image.
+  ///
+  /// @param[in] imageIndex The image index to query.
+  ///
+  /// @return The image label, or an empty string if unavailable.
+  ///
+  virtual std::string GetImageLabel(unsigned int imageIndex) { return ""; }
   //----------------------------------------------------------------------------
 
   ///@}
@@ -1067,10 +1263,26 @@ private:
     instance->game->toAddon->RCGenerateHashFromFile = ADDON_RCGenerateHashFromFile;
     instance->game->toAddon->RCGetGameIDUrl = ADDON_RCGetGameIDUrl;
     instance->game->toAddon->RCGetPatchFileUrl = ADDON_RCGetPatchFileUrl;
+    instance->game->toAddon->SetRetroAchievementsCredentials =
+        ADDON_SetRetroAchievementsCredentials;
     instance->game->toAddon->RCPostRichPresenceUrl = ADDON_RCPostRichPresenceUrl;
     instance->game->toAddon->RCEnableRichPresence = ADDON_RCEnableRichPresence;
     instance->game->toAddon->RCGetRichPresenceEvaluation = ADDON_RCGetRichPresenceEvaluation;
+    instance->game->toAddon->ActivateAchievement = ADDON_ActivateAchievement;
+    instance->game->toAddon->GetCheevoUrlId = ADDON_GetCheevoUrlId;
     instance->game->toAddon->RCResetRuntime = ADDON_RCResetRuntime;
+
+    instance->game->toAddon->GetEjectState = ADDON_GetEjectState;
+    instance->game->toAddon->SetEjectState = ADDON_SetEjectState;
+    instance->game->toAddon->GetImageIndex = ADDON_GetImageIndex;
+    instance->game->toAddon->SetImageIndex = ADDON_SetImageIndex;
+    instance->game->toAddon->GetImageCount = ADDON_GetImageCount;
+    instance->game->toAddon->AddImageIndex = ADDON_AddImageIndex;
+    instance->game->toAddon->ReplaceImageIndex = ADDON_ReplaceImageIndex;
+    instance->game->toAddon->RemoveImageIndex = ADDON_RemoveImageIndex;
+    instance->game->toAddon->SetInitialImage = ADDON_SetInitialImage;
+    instance->game->toAddon->GetImagePath = ADDON_GetImagePath;
+    instance->game->toAddon->GetImageLabel = ADDON_GetImageLabel;
 
     instance->game->toAddon->FreeString = ADDON_FreeString;
 
@@ -1179,6 +1391,7 @@ private:
       return;
 
     std::vector<GameControllerLayout> controllerList;
+    controllerList.reserve(controller_count);
     for (unsigned int i = 0; i < controller_count; ++i)
       controllerList.emplace_back(controllers[i]);
 
@@ -1268,16 +1481,23 @@ private:
                                                         unsigned int consoleID,
                                                         const char* filePath)
   {
+    if (hash == nullptr || filePath == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    *hash = nullptr;
+
     std::string cppHash;
 
     GAME_ERROR ret = static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
                          ->RCGenerateHashFromFile(cppHash, consoleID, filePath);
-    if (!cppHash.empty() && hash)
+
+    if (ret == GAME_ERROR_NO_ERROR)
     {
       *hash = new char[cppHash.size() + 1];
       std::copy(cppHash.begin(), cppHash.end(), *hash);
       (*hash)[cppHash.size()] = '\0';
     }
+
     return ret;
   }
 
@@ -1285,15 +1505,22 @@ private:
                                                 char** url,
                                                 const char* hash)
   {
+    if (url == nullptr || hash == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    *url = nullptr;
+
     std::string cppUrl;
     GAME_ERROR ret =
         static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->RCGetGameIDUrl(cppUrl, hash);
-    if (!cppUrl.empty() && url)
+
+    if (ret == GAME_ERROR_NO_ERROR)
     {
       *url = new char[cppUrl.size() + 1];
       std::copy(cppUrl.begin(), cppUrl.end(), *url);
       (*url)[cppUrl.size()] = '\0';
     }
+
     return ret;
   }
 
@@ -1303,17 +1530,35 @@ private:
                                                    const char* token,
                                                    unsigned int gameID)
   {
+    if (url == nullptr || username == nullptr || token == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    *url = nullptr;
+
     std::string cppUrl;
 
     GAME_ERROR ret = static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
                          ->RCGetPatchFileUrl(cppUrl, username, token, gameID);
-    if (!cppUrl.empty() && url)
+
+    if (ret == GAME_ERROR_NO_ERROR)
     {
       *url = new char[cppUrl.size() + 1];
       std::copy(cppUrl.begin(), cppUrl.end(), *url);
       (*url)[cppUrl.size()] = '\0';
     }
+
     return ret;
+  }
+
+  inline static GAME_ERROR ADDON_SetRetroAchievementsCredentials(const AddonInstance_Game* instance,
+                                                                 const char* username,
+                                                                 const char* token)
+  {
+    if (username == nullptr || token == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
+        ->SetRetroAchievementsCredentials(username, token);
   }
 
   inline static GAME_ERROR ADDON_RCPostRichPresenceUrl(const AddonInstance_Game* instance,
@@ -1324,19 +1569,26 @@ private:
                                                        unsigned int gameID,
                                                        const char* richPresence)
   {
+    if (url == nullptr || postData == nullptr || username == nullptr || token == nullptr ||
+        richPresence == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    *url = nullptr;
+    *postData = nullptr;
+
     std::string cppUrl;
     std::string cppPostData;
+
     GAME_ERROR ret =
         static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
             ->RCPostRichPresenceUrl(cppUrl, cppPostData, username, token, gameID, richPresence);
-    if (!cppUrl.empty())
+
+    if (ret == GAME_ERROR_NO_ERROR)
     {
       *url = new char[cppUrl.size() + 1];
       std::copy(cppUrl.begin(), cppUrl.end(), *url);
       (*url)[cppUrl.size()] = '\0';
-    }
-    if (!cppPostData.empty())
-    {
+
       *postData = new char[cppPostData.size() + 1];
       std::copy(cppPostData.begin(), cppPostData.end(), *postData);
       (*postData)[cppPostData.size()] = '\0';
@@ -1348,6 +1600,9 @@ private:
   inline static GAME_ERROR ADDON_RCEnableRichPresence(const AddonInstance_Game* instance,
                                                       const char* script)
   {
+    if (script == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
     return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
         ->RCEnableRichPresence(script);
   }
@@ -1356,10 +1611,16 @@ private:
                                                              char** evaluation,
                                                              unsigned int consoleID)
   {
+    if (evaluation == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    *evaluation = nullptr;
+
     std::string cppEvaluation;
     GAME_ERROR ret = static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
                          ->RCGetRichPresenceEvaluation(cppEvaluation, consoleID);
-    if (!cppEvaluation.empty())
+
+    if (ret == GAME_ERROR_NO_ERROR)
     {
       *evaluation = new char[cppEvaluation.size() + 1];
       std::copy(cppEvaluation.begin(), cppEvaluation.end(), *evaluation);
@@ -1369,9 +1630,119 @@ private:
     return ret;
   }
 
+  inline static GAME_ERROR ADDON_ActivateAchievement(const AddonInstance_Game* instance,
+                                                     unsigned int cheevoId,
+                                                     const char* memAddrExpression)
+  {
+    if (memAddrExpression == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
+        ->ActivateAchievement(cheevoId, memAddrExpression);
+  }
+
+  inline static GAME_ERROR ADDON_GetCheevoUrlId(const AddonInstance_Game* instance,
+                                                void(__cdecl* callback)(const void* context,
+                                                                        const char* achievementUrl,
+                                                                        unsigned int cheevoId),
+                                                const void* context)
+  {
+    if (callback == nullptr)
+      return GAME_ERROR_INVALID_PARAMETERS;
+
+    const auto cppCallback =
+        [callback, context](const std::string& achievementUrl, unsigned int cheevoId)
+    { callback(context, achievementUrl.c_str(), cheevoId); };
+
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
+        ->GetCheevoUrlId(cppCallback);
+  }
+
   inline static GAME_ERROR ADDON_RCResetRuntime(const AddonInstance_Game* instance)
   {
     return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->RCResetRuntime();
+  }
+
+  inline static bool ADDON_GetEjectState(const AddonInstance_Game* instance)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->GetEjectState();
+  }
+
+  inline static GAME_ERROR ADDON_SetEjectState(const AddonInstance_Game* instance, bool ejected)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->SetEjectState(ejected);
+  }
+
+  inline static unsigned int ADDON_GetImageIndex(const AddonInstance_Game* instance)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->GetImageIndex();
+  }
+
+  inline static GAME_ERROR ADDON_SetImageIndex(const AddonInstance_Game* instance,
+                                               unsigned int imageIndex)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->SetImageIndex(imageIndex);
+  }
+
+  inline static unsigned int ADDON_GetImageCount(const AddonInstance_Game* instance)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->GetImageCount();
+  }
+
+  inline static GAME_ERROR ADDON_AddImageIndex(const AddonInstance_Game* instance)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->AddImageIndex();
+  }
+
+  inline static GAME_ERROR ADDON_ReplaceImageIndex(const AddonInstance_Game* instance,
+                                                   unsigned int imageIndex,
+                                                   const char* filePath)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
+        ->ReplaceImageIndex(imageIndex, filePath ? filePath : "");
+  }
+
+  inline static GAME_ERROR ADDON_RemoveImageIndex(const AddonInstance_Game* instance,
+                                                  unsigned int imageIndex)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
+        ->RemoveImageIndex(imageIndex);
+  }
+
+  inline static GAME_ERROR ADDON_SetInitialImage(const AddonInstance_Game* instance,
+                                                 unsigned int imageIndex,
+                                                 const char* filePath)
+  {
+    return static_cast<CInstanceGame*>(instance->toAddon->addonInstance)
+        ->SetInitialImage(imageIndex, filePath ? filePath : "");
+  }
+
+  inline static char* ADDON_GetImagePath(const AddonInstance_Game* instance,
+                                         unsigned int imageIndex)
+  {
+    std::string cppPath =
+        static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->GetImagePath(imageIndex);
+    if (cppPath.empty())
+      return nullptr;
+
+    char* path = new char[cppPath.size() + 1];
+    std::copy(cppPath.begin(), cppPath.end(), path);
+    path[cppPath.size()] = '\0';
+    return path;
+  }
+
+  inline static char* ADDON_GetImageLabel(const AddonInstance_Game* instance,
+                                          unsigned int imageIndex)
+  {
+    std::string cppLabel =
+        static_cast<CInstanceGame*>(instance->toAddon->addonInstance)->GetImageLabel(imageIndex);
+    if (cppLabel.empty())
+      return nullptr;
+
+    char* label = new char[cppLabel.size() + 1];
+    std::copy(cppLabel.begin(), cppLabel.end(), label);
+    label[cppLabel.size()] = '\0';
+    return label;
   }
 
   inline static void ADDON_FreeString(const AddonInstance_Game* instance, char* str)

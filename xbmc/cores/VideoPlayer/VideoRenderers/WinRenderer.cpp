@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,10 +8,9 @@
 
 #include "WinRenderer.h"
 
-#include "RenderCapture.h"
-#include "RenderCaptureDX.h"
 #include "RenderFactory.h"
 #include "RenderFlags.h"
+#include "guilib/GUITextureD3D.h"
 #include "rendering/dx/RenderContext.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
@@ -143,14 +142,14 @@ CRect CWinRenderer::GetScreenRect() const
 
   switch (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoMode())
   {
-  case RENDER_STEREO_MODE_SPLIT_HORIZONTAL:
-    screenRect.y2 *= 2;
-    break;
-  case RENDER_STEREO_MODE_SPLIT_VERTICAL:
-    screenRect.x2 *= 2;
-    break;
-  default:
-    break;
+    case RenderStereoMode::SPLIT_HORIZONTAL:
+      screenRect.y2 *= 2;
+      break;
+    case RenderStereoMode::SPLIT_VERTICAL:
+      screenRect.x2 *= 2;
+      break;
+    default:
+      break;
   }
 
   return screenRect;
@@ -209,34 +208,14 @@ void CWinRenderer::RenderUpdate(int index, int index2, bool clear, unsigned int 
     return;
 
   if (clear)
-    CServiceBroker::GetWinSystem()->GetGfxContext().Clear(DX::Windowing()->UseLimitedColor() ? 0x101010 : 0);
+    ClearBackBuffer();
+
   DX::Windowing()->SetAlphaBlendEnable(alpha < 255);
 
   ManageRenderArea();
   m_renderer->Render(index, index2, DX::Windowing()->GetBackBuffer(), m_sourceRect, m_destRect,
                      GetScreenRect(), flags);
   DX::Windowing()->SetAlphaBlendEnable(true);
-}
-
-bool CWinRenderer::RenderCapture(int index, CRenderCapture* capture)
-{
-  if (!m_bConfigured)
-    return false;
-
-  capture->BeginRender();
-  if (capture->GetState() != CAPTURESTATE_FAILED)
-  {
-    const CRect destRect(0, 0, static_cast<float>(capture->GetWidth()), static_cast<float>(capture->GetHeight()));
-
-    auto cap = static_cast<CRenderCaptureDX*>(capture);
-
-    m_renderer->Render(cap->GetTarget(), m_sourceRect, destRect, GetScreenRect());
-    capture->EndRender();
-
-    return true;
-  }
-
-  return false;
 }
 
 void CWinRenderer::SetBufferSize(int numBuffers)
@@ -249,14 +228,14 @@ void CWinRenderer::SetBufferSize(int numBuffers)
 
 void CWinRenderer::PreInit()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
   m_bConfigured = false;
   UnInit();
 }
 
 void CWinRenderer::UnInit()
 {
-  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
   m_renderer.reset();
   m_bConfigured = false;
@@ -334,7 +313,27 @@ DEBUG_INFO_VIDEO CWinRenderer::GetDebugInfo(int idx)
   return m_renderer->GetDebugInfo(idx);
 }
 
-CRenderCapture* CWinRenderer::GetRenderCapture()
+void CWinRenderer::ClearBackBuffer() const
 {
-  return new CRenderCaptureDX;
+  // Set the entire backbuffer to black
+  // If we do a two pass render, we have to draw a quad. else we might occlude OSD elements.
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetRenderOrder() ==
+      RENDER_ORDER_ALL_BACK_TO_FRONT)
+  {
+    CServiceBroker::GetWinSystem()->GetGfxContext().Clear(0xff000000);
+  }
+  else
+  {
+    ClearBackBufferQuad();
+  }
+}
+
+void CWinRenderer::ClearBackBufferQuad() const
+{
+  CRect windowRect(0, 0, CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
+                   CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight());
+
+  DX::Windowing()->SetAlphaBlendEnable(false);
+  CGUITextureD3D::DrawQuad(windowRect, DX::Windowing()->UseLimitedColor() ? 0x101010 : 0, nullptr,
+                           nullptr, -1.f);
 }

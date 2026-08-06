@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2010-2018 Team Kodi
+ *  Copyright (C) 2010-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -38,6 +38,7 @@ struct SinkConfig
 struct SinkReply
 {
   AEAudioFormat format;
+  const std::string* device;
   float cacheTotal;
   float latency;
   bool hasVolume;
@@ -109,8 +110,10 @@ public:
   CSinkDataProtocol m_dataPort;
 
 protected:
+  void OnStartup() override;
   void Process() override;
-  void StateMachine(int signal, Protocol *port, Message *msg);
+  void OnExit() override;
+  void StateMachine(int signal, Protocol* port, Message* msg);
   void PrintSinks(std::string& driver);
   void GetDeviceFriendlyName(const std::string& device);
   void OpenSink();

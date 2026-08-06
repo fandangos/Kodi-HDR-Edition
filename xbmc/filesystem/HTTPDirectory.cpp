@@ -74,7 +74,7 @@ bool CHTTPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 
   /* read response from server into string buffer */
   std::string strBuffer;
-  if (http.ReadData(strBuffer) && strBuffer.length() > 0)
+  if (http.ReadData(strBuffer) && !strBuffer.empty())
   {
     /* if Content-Length is found and its not text/html, URL is pointing to file so don't treat URL as HTTPDirectory */
     if (!http.GetHttpHeader().GetValue("Content-Length").empty() &&
@@ -179,7 +179,7 @@ bool CHTTPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
 
       // we detect http directory items by its display name and its stripped link
       // if same, we consider it as a valid item.
-      if (strLinkTemp != ".." && strLinkTemp != "" && NameMatchesLink(strNameTemp, strLinkTemp))
+      if (strLinkTemp != ".." && !strLinkTemp.empty() && NameMatchesLink(strNameTemp, strLinkTemp))
       {
         CFileItemPtr pItem(new CFileItem(strNameTemp));
         pItem->SetProperty("IsHTTPDirectory", true);
@@ -190,7 +190,7 @@ bool CHTTPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
         pItem->SetURL(url2);
 
         if(URIUtils::HasSlashAtEnd(pItem->GetPath(), true))
-          pItem->m_bIsFolder = true;
+          pItem->SetFolder(true);
 
         std::string day, month, year, hour, minute;
         int monthNum = 0;
@@ -244,15 +244,18 @@ bool CHTTPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
           minute = reDateTime.GetMatch(5);
         }
 
-        if (month.length() > 0)
+        if (!month.empty())
           monthNum = CDateTime::MonthStringToMonthNum(month);
 
-        if (day.length() > 0 && monthNum > 0 && year.length() > 0)
+        if (!day.empty() && monthNum > 0 && !year.empty())
         {
-          pItem->m_dateTime = CDateTime(atoi(year.c_str()), monthNum, atoi(day.c_str()), atoi(hour.c_str()), atoi(minute.c_str()), 0);
+          const CDateTime dt{std::atoi(year.c_str()),   monthNum,
+                             std::atoi(day.c_str()),    std::atoi(hour.c_str()),
+                             std::atoi(minute.c_str()), 0};
+          pItem->SetDateTime(dt);
         }
 
-        if (!pItem->m_bIsFolder)
+        if (!pItem->IsFolder())
         {
           if (reSizeHtml.RegFind(strMetadata.c_str()) >= 0)
           {
@@ -266,7 +269,7 @@ bool CHTTPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
             else if (strUnit == "G")
               Size = Size * 1024 * 1024 * 1024;
 
-            pItem->m_dwSize = (int64_t)Size;
+            pItem->SetSize(static_cast<int64_t>(Size));
           }
           else if (reSize.RegFind(strMetadata.c_str()) >= 0)
           {
@@ -280,14 +283,14 @@ bool CHTTPDirectory::GetDirectory(const CURL& url, CFileItemList &items)
             else if (strUnit == "G")
               Size = Size * 1024 * 1024 * 1024;
 
-            pItem->m_dwSize = (int64_t)Size;
+            pItem->SetSize(static_cast<int64_t>(Size));
           }
           else
           if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bHTTPDirectoryStatFilesize) // As a fallback get the size by stat-ing the file (slow)
           {
             CCurlFile file;
             file.Open(url);
-            pItem->m_dwSize=file.GetLength();
+            pItem->SetSize(file.GetLength());
             file.Close();
           }
         }

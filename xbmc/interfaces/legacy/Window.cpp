@@ -22,6 +22,7 @@
 #include "messaging/ApplicationMessenger.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
+#include "windowing/WinSystem.h"
 
 #define ACTIVE_WINDOW CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow()
 
@@ -310,6 +311,9 @@ namespace XBMCAddon
       case CGUIControl::GUICONTROL_SLIDER:
         pControl = new ControlSlider();
         break;
+      case CGUIControl::GUICONTROL_VIDEO:
+        pControl = new ControlVideoWindow();
+        break;
       case CGUIControl::GUICONTAINER_LIST:
       case CGUIControl::GUICONTAINER_WRAPLIST:
       case CGUIControl::GUICONTAINER_FIXEDLIST:
@@ -518,7 +522,7 @@ namespace XBMCAddon
       int iControlId = ref(window)->GetFocusedControlID();
       if(iControlId == -1)
         throw WindowException("No control in this window has focus");
-      // Sine I'm already holding the lock theres no reason to give it to GetFocusedControlID
+      // Since I'm already holding the lock there's no reason to give it to GetFocusedControlID
       return GetControlById(iControlId,NULL);
     }
 

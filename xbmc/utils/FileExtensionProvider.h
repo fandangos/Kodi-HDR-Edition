@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012-2018 Team Kodi
+ *  Copyright (C) 2012-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -8,8 +8,12 @@
 
 #pragma once
 
+#include "threads/CriticalSection.h"
+
 #include <map>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -17,7 +21,6 @@ namespace ADDON
 {
 enum class AddonType;
 class CAddonMgr;
-struct AddonEvent;
 }
 
 class CAdvancedSettings;
@@ -25,8 +28,11 @@ class CAdvancedSettings;
 class CFileExtensionProvider
 {
 public:
-  CFileExtensionProvider(ADDON::CAddonMgr& addonManager);
-  ~CFileExtensionProvider();
+  CFileExtensionProvider() = default;
+  ~CFileExtensionProvider() = default;
+
+  void Initialize(ADDON::CAddonMgr& addonManager);
+  void Deinitialize();
 
   /*!
    * @brief Returns a list of picture extensions
@@ -54,6 +60,16 @@ public:
   std::string GetDiscStubExtensions() const;
 
   /*!
+   * @brief Returns a list of archive extensions with a single dot (eg. .zip)
+   */
+  std::string GetArchiveExtensions() const;
+
+  /*!
+   * @brief Returns a list of archive extensions with a multiple dots (eg. .tar.gz)
+   */
+  std::string GetCompoundArchiveExtensions() const;
+
+  /*!
    * @brief Returns a file folder extensions
    */
   std::string GetFileFolderExtensions() const;
@@ -68,7 +84,22 @@ public:
    *
    * @note Thought for cases e.g. by ISO, where can be a video or also a SACD.
    */
-  bool CanOperateExtension(const std::string& path) const;
+  static bool CanOperateExtension(const std::string& path);
+
+  /*!
+   * @brief Register game extensions
+   */
+  void RegisterGameExtensions(const std::set<std::string>& extensions);
+
+  /*!
+   * @brief Unregister game extensions
+   */
+  void UnregisterGameExtensions(const std::set<std::string>& extensions);
+
+  /*!
+   * @brief Returns a pipe-separated list of game extensions
+   */
+  std::string GetGameExtensions() const;
 
 private:
   std::string GetAddonExtensions(ADDON::AddonType type) const;
@@ -76,16 +107,36 @@ private:
   void SetAddonExtensions();
   void SetAddonExtensions(ADDON::AddonType type);
 
-  void OnAddonEvent(const ADDON::AddonEvent& event);
+  void OnAdvancedSettingsLoaded();
 
   // Construction properties
   std::shared_ptr<CAdvancedSettings> m_advancedSettings;
-  ADDON::CAddonMgr &m_addonManager;
+  ADDON::CAddonMgr* m_addonManager{nullptr};
+  std::optional<int> m_callbackId;
+
+  mutable CCriticalSection m_critSection;
 
   // File extension properties
   std::map<ADDON::AddonType, std::string> m_addonExtensions;
   std::map<ADDON::AddonType, std::string> m_addonFileFolderExtensions;
 
+  // Game extension registry
+  std::set<std::string> m_gameExtensions;
+
   // Protocols from add-ons with encoded host names
   std::vector<std::string> m_encoded;
+
+  // Cached extensions lists - use through atomic operations only
+  //
+  // @todo: use the safer C++20 std::atomic<std::shared_ptr<std::string>> partial specialization
+  // once available for all platform builders
+  // std::atomic_load/store of std::shared_ptr<T> is deprecated in C++20 and removed in C++26
+  mutable std::shared_ptr<const std::string> m_discStubExtensions;
+  mutable std::shared_ptr<const std::string> m_musicExtensions;
+  mutable std::shared_ptr<const std::string> m_pictureExtensions;
+  mutable std::shared_ptr<const std::string> m_subtitlesExtensions;
+  mutable std::shared_ptr<const std::string> m_videoExtensions;
+  mutable std::shared_ptr<const std::string> m_archiveExtensions;
+  mutable std::shared_ptr<const std::string> m_compoundArchiveExtensions;
+  mutable std::shared_ptr<const std::string> m_fileFolderExtensions;
 };

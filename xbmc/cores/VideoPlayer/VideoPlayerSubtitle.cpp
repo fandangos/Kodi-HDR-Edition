@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -37,9 +37,24 @@ void CVideoPlayerSubtitle::Flush()
   SendMessage(std::make_shared<CDVDMsg>(CDVDMsg::GENERAL_FLUSH), 0);
 }
 
+namespace
+{
+std::shared_ptr<CDVDOverlayGroup> InitialiseNewOverlayGroup(std::shared_ptr<CDVDOverlay>& overlay)
+{
+  auto group{std::make_shared<CDVDOverlayGroup>()};
+  group->iPTSStartTime = overlay->iPTSStartTime;
+  group->iPTSStopTime = overlay->iPTSStopTime;
+  group->bForced = overlay->bForced;
+  group->replace = overlay->replace;
+  group->SetOverlayContainerFlushable(overlay->IsOverlayContainerFlushable());
+  group->m_overlays.emplace_back(overlay);
+  return group;
+}
+} // namespace
+
 void CVideoPlayerSubtitle::SendMessage(std::shared_ptr<CDVDMsg> pMsg, int priority)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (pMsg->IsType(CDVDMsg::DEMUXER_PACKET))
   {
@@ -52,11 +67,20 @@ void CVideoPlayerSubtitle::SendMessage(std::shared_ptr<CDVDMsg> pMsg, int priori
 
       if (result == OverlayMessage::OC_OVERLAY)
       {
-        std::shared_ptr<CDVDOverlay> overlay;
-
-        while ((overlay = m_pOverlayCodec->GetOverlay()))
+        if (std::shared_ptr<CDVDOverlay> overlay{m_pOverlayCodec->GetOverlay()}; overlay != nullptr)
         {
-          m_pOverlayContainer->ProcessAndAddOverlayIfValid(overlay);
+          auto group{InitialiseNewOverlayGroup(overlay)};
+          while ((overlay = m_pOverlayCodec->GetOverlay()) != nullptr)
+          {
+            if (*group->m_overlays.back() == *overlay)
+              group->m_overlays.emplace_back(overlay);
+            else
+            {
+              m_pOverlayContainer->ProcessAndAddOverlayIfValid(group);
+              group = InitialiseNewOverlayGroup(overlay);
+            }
+          }
+          m_pOverlayContainer->ProcessAndAddOverlayIfValid(group);
         }
       }
     }
@@ -115,13 +139,14 @@ void CVideoPlayerSubtitle::SendMessage(std::shared_ptr<CDVDMsg> pMsg, int priori
 
 bool CVideoPlayerSubtitle::OpenStream(CDVDStreamInfo &hints, std::string &filename)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
+  m_processInfo.ResetSubtitleCodecInfo();
   CloseStream(false);
   m_streaminfo = hints;
 
   // okey check if this is a filesubtitle
-  if(filename.size() && filename != "dvd" )
+  if (!filename.empty() && filename != "dvd")
   {
     m_pSubtitleFileParser.reset(CDVDFactorySubtitle::CreateParser(filename));
     if (!m_pSubtitleFileParser)
@@ -150,7 +175,9 @@ bool CVideoPlayerSubtitle::OpenStream(CDVDStreamInfo &hints, std::string &filena
   m_pOverlayCodec = CDVDFactoryCodec::CreateOverlayCodec(hints);
   if (m_pOverlayCodec)
   {
-    CLog::Log(LOGDEBUG, "Created subtitles overlay codec: {}", m_pOverlayCodec->GetName());
+    const std::string& name = m_pOverlayCodec->GetName();
+    CLog::Log(LOGDEBUG, "Created subtitles overlay codec: {}", name);
+    m_processInfo.SetSubtitleDecoderName(name);
     return true;
   }
 
@@ -160,7 +187,7 @@ bool CVideoPlayerSubtitle::OpenStream(CDVDStreamInfo &hints, std::string &filena
 
 void CVideoPlayerSubtitle::CloseStream(bool bWaitForBuffers)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   m_pSubtitleFileParser.reset();
   m_pOverlayCodec.reset();
@@ -173,7 +200,7 @@ void CVideoPlayerSubtitle::CloseStream(bool bWaitForBuffers)
 
 void CVideoPlayerSubtitle::Process(double pts, double offset)
 {
-  std::unique_lock<CCriticalSection> lock(m_section);
+  std::unique_lock lock(m_section);
 
   if (m_pSubtitleFileParser)
   {

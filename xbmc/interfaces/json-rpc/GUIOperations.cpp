@@ -14,6 +14,8 @@
 #include "addons/IAddon.h"
 #include "addons/addoninfo/AddonType.h"
 #include "application/Application.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationPlayer.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
@@ -25,6 +27,7 @@
 #include "rendering/RenderSystem.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/Screenshot.h"
 #include "utils/Variant.h"
 
 using namespace JSONRPC;
@@ -119,9 +122,10 @@ JSONRPC_STATUS CGUIOperations::SetStereoscopicMode(const std::string &method, IT
 
 JSONRPC_STATUS CGUIOperations::GetStereoscopicModes(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
 {
-  for (int i = RENDER_STEREO_MODE_OFF; i < RENDER_STEREO_MODE_COUNT; i++)
+  for (int i = static_cast<int>(RenderStereoMode::OFF);
+       i < static_cast<int>(RenderStereoMode::COUNT); i++)
   {
-    RENDER_STEREO_MODE mode = (RENDER_STEREO_MODE) i;
+    RenderStereoMode mode = static_cast<RenderStereoMode>(i);
     if (CServiceBroker::GetRenderSystem()->SupportsStereo(mode))
       result["stereoscopicmodes"].push_back(GetStereoModeObjectFromGuiMode(mode));
   }
@@ -136,6 +140,34 @@ JSONRPC_STATUS CGUIOperations::ActivateScreenSaver(const std::string& method,
                                                    CVariant& result)
 {
   CServiceBroker::GetAppMessenger()->SendMsg(TMSG_ACTIVATESCREENSAVER);
+  return ACK;
+}
+
+JSONRPC_STATUS CGUIOperations::TakeScreenshot(const std::string& method,
+                                              ITransportLayer* transport,
+                                              IClient* client,
+                                              const CVariant& parameterObject,
+                                              CVariant& result)
+{
+  using KODI::RENDERING::CAPTURE::CaptureContent;
+
+  const std::string content = parameterObject["content"].asString();
+
+  if (content == "video" || content == "both")
+  {
+    const auto& components = CServiceBroker::GetAppComponents();
+    const auto appPlayer = components.GetComponent<CApplicationPlayer>();
+    if (!appPlayer->IsRenderingVideo())
+      return FailedToExecute;
+  }
+
+  if (content == "video")
+    CScreenShot::TakeScreenshot(CaptureContent::VIDEO);
+  else if (content == "both")
+    CScreenShot::TakeScreenshotBoth();
+  else
+    CScreenShot::TakeScreenshot(CaptureContent::COMPOSITE);
+
   return ACK;
 }
 
@@ -178,7 +210,7 @@ JSONRPC_STATUS CGUIOperations::GetPropertyValue(const std::string &property, CVa
   return OK;
 }
 
-CVariant CGUIOperations::GetStereoModeObjectFromGuiMode(const RENDER_STEREO_MODE &mode)
+CVariant CGUIOperations::GetStereoModeObjectFromGuiMode(const RenderStereoMode mode)
 {
   const CStereoscopicsManager &stereoscopicsManager = CServiceBroker::GetGUI()->GetStereoscopicsManager();
 

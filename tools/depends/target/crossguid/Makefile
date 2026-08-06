@@ -17,7 +17,7 @@ else
     CXXFLAGS += -std=c++17
     PLATFORM = native
     TARBALLS_LOCATION = $(ROOT_DIR)
-    BASE_URL := http://mirrors.kodi.tv/build-deps/sources
+    BASE_URL ?= https://mirrors.kodi.tv/build-deps/sources
     RETRIEVE_TOOL := curl
     RETRIEVE_TOOL_FLAGS := -LsS --create-dirs --retry 10 --retry-connrefused -o
     ARCHIVE_TOOL := tar
@@ -37,7 +37,7 @@ include ../../download-files.include
 
 all: .installed-$(PLATFORM)
 
-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
+.configured-$(PLATFORM): $(DEPS) | $(TARBALLS_LOCATION)/$(ARCHIVE).$(HASH_TYPE)
 ifeq ($(PREFIX),)
 	@echo
 	@echo "ERROR: please set PREFIX to the kodi install path e.g. make PREFIX=/usr/local"
@@ -49,14 +49,15 @@ endif
 	cd $(PLATFORM); patch -p1 -i ../002-disable-Wall-error.patch
 	cd $(PLATFORM); patch -p1 -i ../003-add-cstdint-include.patch
 	cd $(PLATFORM)/build; $(CMAKE) $(CMAKE_OPTIONS) ..
+	touch $@
 
-.installed-$(PLATFORM): $(PLATFORM)
+.installed-$(PLATFORM): .configured-$(PLATFORM)
 	$(MAKE) -C $(PLATFORM)/build install
 	touch $@
 
 clean:
 	$(MAKE) -C $(PLATFORM)/build clean
-	rm -f .installed-$(PLATFORM)
+	rm -f .installed-$(PLATFORM) .configured-$(PLATFORM)
 
 distclean:
-	rm -rf $(PLATFORM) .installed-$(PLATFORM)
+	rm -rf $(PLATFORM) .installed-$(PLATFORM) .configured-$(PLATFORM)

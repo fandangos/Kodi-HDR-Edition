@@ -21,6 +21,8 @@
 #include "platform/win32/WIN32Util.h"
 #include "platform/win32/network/WSDiscoveryWin32.h"
 
+#include <cstdint>
+
 #include <Windows.h>
 #include <Winnetwk.h>
 #pragma comment(lib, "mpr.lib")
@@ -144,6 +146,7 @@ bool CWin32SMBDirectory::GetDirectory(const CURL& url, CFileItemList &items)
   if (pathWithSlash.back() != '/')
     pathWithSlash.push_back('/');
 
+  std::vector<std::shared_ptr<CFileItem>> fileItems;
   do
   {
     std::wstring itemNameW(findData.cFileName);
@@ -157,34 +160,38 @@ bool CWin32SMBDirectory::GetDirectory(const CURL& url, CFileItemList &items)
       continue;
     }
 
-    CFileItemPtr pItem(new CFileItem(itemName));
+    const bool isDir = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    const bool isHidden =
+        (findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0 ||
+        itemName.starts_with('.'); // mark files starting from dot as hidden
 
-    pItem->m_bIsFolder = ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
-    if (pItem->m_bIsFolder)
-      pItem->SetPath(pathWithSlash + itemName + '/');
-    else
-      pItem->SetPath(pathWithSlash + itemName);
-
-    if ((findData.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0
-          || itemName.front() == '.') // mark files starting from dot as hidden
-      pItem->SetProperty("file:hidden", true);
+    std::string itemPath(pathWithSlash + itemName);
+    if (isDir)
+      itemPath.push_back('/');
 
     // calculation of size and date costs a little on win32
     // so DIR_FLAG_NO_FILE_INFO flag is ignored
-    KODI::TIME::FileTime fileTime;
-    fileTime.lowDateTime = findData.ftLastWriteTime.dwLowDateTime;
-    fileTime.highDateTime = findData.ftLastWriteTime.dwHighDateTime;
-    KODI::TIME::FileTime localTime;
-    if (KODI::TIME::FileTimeToLocalFileTime(&fileTime, &localTime) == TRUE)
-      pItem->m_dateTime = localTime;
-    else
-      pItem->m_dateTime.SetValid(false);
+    const auto& item = fileItems.emplace_back(std::make_shared<CFileItem>(itemName));
 
-    if (!pItem->m_bIsFolder)
-        pItem->m_dwSize = (__int64(findData.nFileSizeHigh) << 32) + findData.nFileSizeLow;
+    item->SetFolder(isDir);
+    item->SetPath(itemPath);
 
-    items.Add(pItem);
+    using KODI::TIME::FileTime;
+    FileTime localTime{};
+
+    if (FileTimeToLocalFileTime(reinterpret_cast<const FileTime*>(&findData.ftLastWriteTime),
+                                &localTime) == TRUE)
+      item->SetDateTime(localTime);
+
+    if (!isDir)
+      item->SetSize((static_cast<int64_t>(findData.nFileSizeHigh) << 32) + findData.nFileSizeLow);
+
+    if (isHidden)
+      item->SetProperty("file:hidden", true);
+
   } while (FindNextFileW(hSearch, &findData));
+
+  items.AddItems(std::move(fileItems));
 
   FindClose(hSearch);
 
@@ -292,7 +299,7 @@ bool CWin32SMBDirectory::RealExists(const CURL& url, bool tryToConnect)
       return false;
     }
     const std::string& searchStr = (url.GetShareName().empty()) ? url.GetHostName() : url.GetShareName();
-    const VECFILEITEMS entrVec = entries.GetList();
+    const auto entrVec = entries.GetList();
     for (const auto& it : entrVec)
     {
       if (it->GetLabel() == searchStr)
@@ -468,7 +475,7 @@ static bool localGetNetworkResources(struct _NETRESOURCEW* basePathToScanPtr, co
               {
                 CFileItemPtr pItem(new CFileItem(remoteNameUtf8));
                 pItem->SetPath(urlPrefixForItems + remoteNameUtf8 + '/');
-                pItem->m_bIsFolder = true;
+                pItem->SetFolder(true);
                 items.Add(pItem);
               }
               else
@@ -502,7 +509,7 @@ static bool localGetNetworkResources(struct _NETRESOURCEW* basePathToScanPtr, co
                 {
                   CFileItemPtr pItem(new CFileItem(shareNameUtf8));
                   pItem->SetPath(urlPrefixForItems + shareNameUtf8 + '/');
-                  pItem->m_bIsFolder = true;
+                  pItem->SetFolder(true);
                   if (curResource.dwDisplayType == RESOURCEDISPLAYTYPE_SHAREADMIN)
                     pItem->SetProperty("file:hidden", true);
 
@@ -614,7 +621,7 @@ static bool localGetShares(const std::wstring& serverNameToScan, const std::stri
           {
             CFileItemPtr pItem(new CFileItem(shareNameUtf8));
             pItem->SetPath(urlPrefixForItems + shareNameUtf8 + '/');
-            pItem->m_bIsFolder = true;
+            pItem->SetFolder(true);
             if ((curShare.shi1_type & STYPE_SPECIAL) != 0 || shareNameUtf8.back() == '$')
               pItem->SetProperty("file:hidden", true);
 
@@ -652,7 +659,7 @@ static bool localGetServers(const std::string& urlPrefixForItems, CFileItemList&
       {
         CFileItemPtr pItem = std::make_shared<CFileItem>(shareNameUtf8);
         pItem->SetPath(urlPrefixForItems + shareNameUtf8 + '/');
-        pItem->m_bIsFolder = true;
+        pItem->SetFolder(true);
         items.Add(pItem);
       }
     }

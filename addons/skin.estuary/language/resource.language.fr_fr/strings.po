@@ -7,15 +7,15 @@ msgstr ""
 "Project-Id-Version: KODI Main\n"
 "Report-Msgid-Bugs-To: https://github.com/xbmc/xbmc/issues/\n"
 "POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"PO-Revision-Date: 2023-12-04 09:42+0000\n"
-"Last-Translator: Christian Gade <gade@kodi.tv>\n"
+"PO-Revision-Date: 2025-09-23 04:33+0000\n"
+"Last-Translator: Cutter <CutterXYZ@users.noreply.github.com>\n"
 "Language-Team: French (France) <https://kodi.weblate.cloud/projects/kodi-add-ons-skins/skin-estuary/fr_fr/>\n"
 "Language: fr_fr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n > 1;\n"
-"X-Generator: Weblate 5.2.1\n"
+"X-Generator: Weblate 5.13.3\n"
 
 msgctxt "Addon Summary"
 msgid "Estuary skin by phil65. (Kodi's default skin)"
@@ -97,7 +97,7 @@ msgstr "Enregistrements récents"
 #. home screen channel widget: recently played tv channels. (please note that in some non-english languages #31018 and #31016 might not be equal)
 msgctxt "#31016"
 msgid "Recently played channels"
-msgstr "Chaînes vues récemment"
+msgstr "Chaînes regardées récemment"
 
 msgctxt "#31017"
 msgid "Rated"
@@ -106,7 +106,7 @@ msgstr "Classé"
 #. home screen channel widget: recently played radio channels. (please note that in some non-english languages #31018 and #31016 might not be equal)
 msgctxt "#31018"
 msgid "Recently played channels"
-msgstr "Chaînes vues récemment"
+msgstr "Chaînes regardées récemment"
 
 msgctxt "#31019"
 msgid "Forecast"
@@ -130,11 +130,11 @@ msgstr "Type de vue"
 
 msgctxt "#31024"
 msgid "Choose rating to display for media items"
-msgstr "Choisir la notation à afficher pour les éléments de média"
+msgstr "Choisir la note à afficher pour les médias"
 
 msgctxt "#31025"
-msgid "No favourites found. You can add any item from media views to this list by using the context menu."
-msgstr "Aucun favori trouvé. Il est possible d'ajouter n'importe quel élément à cette liste à partir des vues média à l'aide du menu contextuel."
+msgid "No favourites found. You can add items from media and other views by using the context menu."
+msgstr "Aucun favori n'a été trouvé. Vous pouvez ajouter des favoris à partir des médias et des autres vues depuis le menu contextuel."
 
 msgctxt "#31026"
 msgid "Timeshift"
@@ -163,11 +163,11 @@ msgstr "Informations de version"
 
 msgctxt "#31032"
 msgid "Order"
-msgstr "Trier"
+msgstr "Ordre"
 
 msgctxt "#31033"
 msgid "Your rating"
-msgstr "Votre notation"
+msgstr "Votre note"
 
 msgctxt "#31034"
 msgid "Extended info"
@@ -221,9 +221,25 @@ msgctxt "#31046"
 msgid "Delete group"
 msgstr "Supprimer groupe"
 
+msgctxt "#31047"
+msgid "Movie title format"
+msgstr ""
+
 msgctxt "#31048"
 msgid "Available"
 msgstr "Disponible"
+
+msgctxt "#31049"
+msgid "Original title"
+msgstr ""
+
+msgctxt "#31050"
+msgid "Original title (Localised title)"
+msgstr ""
+
+msgctxt "#31051"
+msgid "Localised title (Original title)"
+msgstr ""
 
 msgctxt "#31052"
 msgid "filtered"
@@ -313,6 +329,11 @@ msgctxt "#31080"
 msgid "Ends at"
 msgstr "Fin à"
 
+#. Label to highlight that live stream is being played
+msgctxt "#31081"
+msgid "Live"
+msgstr ""
+
 msgctxt "#31082"
 msgid "Lyrics add-on"
 msgstr "Extension de paroles"
@@ -394,6 +415,11 @@ msgctxt "#31107"
 msgid "WideList"
 msgstr "Liste large"
 
+#. viewtype name
+msgctxt "#31108"
+msgid "MediaList"
+msgstr ""
+
 # empty strings from id 31108 to 31108
 msgctxt "#31109"
 msgid "Video streams"
@@ -454,6 +480,10 @@ msgstr "Séries TV non vues"
 msgctxt "#31123"
 msgid "Same director"
 msgstr "Même réalisateur"
+
+msgctxt "#31124"
+msgid "Media Details"
+msgstr ""
 
 msgctxt "#31125"
 msgid "Press up for actor info"
@@ -556,8 +586,8 @@ msgid "Categories"
 msgstr "Catégories"
 
 msgctxt "#31149"
-msgid "Select genre fanart pack"
-msgstr "Choisir le paquet Fanart de genres"
+msgid "Choose genre fanart pack"
+msgstr ""
 
 msgctxt "#31150"
 msgid "Origin"
@@ -680,6 +710,26 @@ msgctxt "#31176"
 msgid "Default select action for movie sets on the home screen"
 msgstr "Action par défaut lors de la sélection des sagas sur l'écran d'accueil"
 
+msgctxt "#31177"
+msgid "Choose weather icon pack"
+msgstr ""
+
+# empty strings from id 31177 to 31596
+#. Button to select Player Process Info window
+msgctxt "#31597"
+msgid "Player info"
+msgstr ""
+
+#. Label to show player cache
+msgctxt "#31598"
+msgid "Player cache"
+msgstr ""
+
+#. Label to show the video codec name
+msgctxt "#31599"
+msgid "Audio decoder"
+msgstr ""
+
 # empty strings from id 31170 to 31599
 #. Label to show the video codec name
 msgctxt "#31600"
@@ -745,6 +795,29 @@ msgstr "Système"
 msgctxt "#31612"
 msgid "channels"
 msgstr ""
+
+#. Label to show the subtitle decoder name
+msgctxt "#31613"
+msgid "Subtitle decoder"
+msgstr ""
+
+#. Label to show the subtitle codec name
+msgctxt "#31614"
+msgid "Subtitle codec"
+msgstr ""
+
+#. Label to show the subtitle language
+msgctxt "#31615"
+msgid "Subtitle language"
+msgstr ""
+
+#~ msgctxt "#31025"
+#~ msgid "No favourites found. You can add any item from media views to this list by using the context menu."
+#~ msgstr "Aucun favori trouvé. Il est possible d'ajouter n'importe quel élément à cette liste à partir des vues média à l'aide du menu contextuel."
+
+#~ msgctxt "#31149"
+#~ msgid "Select genre fanart pack"
+#~ msgstr "Choisir le paquet Fanart de genres"
 
 #~ msgctxt "#31112"
 #~ msgid "Toggle audio stream"

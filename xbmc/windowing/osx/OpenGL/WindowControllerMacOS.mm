@@ -20,6 +20,16 @@
 #include "windowing/osx/WinEventsOSX.h"
 #import "windowing/osx/WinSystemOSX.h"
 
+namespace
+{
+void EnableRenderGUI(bool enable)
+{
+  const std::shared_ptr<CAppInboundProtocol> appPort(CServiceBroker::GetAppPort());
+  if (appPort)
+    appPort->SetRenderGUI(enable);
+}
+} // unnamed namespace
+
 @implementation XBMCWindowControllerMacOS
 
 - (nullable instancetype)initWithTitle:(NSString*)title defaultSize:(NSSize)size
@@ -52,7 +62,6 @@
   g_application.m_AppFocused = true;
   return self;
 }
-
 - (void)windowDidResize:(NSNotification*)aNotification
 {
   if ((self.window.styleMask & NSWindowStyleMaskFullScreen) != NSWindowStyleMaskFullScreen)
@@ -80,36 +89,34 @@
 
 - (void)windowWillStartLiveResize:(NSNotification*)notification
 {
-  std::shared_ptr<CAppInboundProtocol> appPort = CServiceBroker::GetAppPort();
-  if (appPort)
-  {
-    appPort->SetRenderGUI(false);
-  }
+  EnableRenderGUI(false);
 }
 
 - (void)windowDidEndLiveResize:(NSNotification*)notification
 {
-  std::shared_ptr<CAppInboundProtocol> appPort = CServiceBroker::GetAppPort();
-  if (appPort)
-  {
-    appPort->SetRenderGUI(true);
-  }
+  EnableRenderGUI(true);
 }
 
 - (void)windowDidMiniaturize:(NSNotification*)aNotification
 {
   g_application.m_AppFocused = false;
+
+  EnableRenderGUI(false);
 }
 
 - (void)windowDidDeminiaturize:(NSNotification*)aNotification
 {
   g_application.m_AppFocused = true;
+
+  EnableRenderGUI(true);
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)aNotification
 {
   g_application.m_AppFocused = true;
   CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::GUI, "WindowFocused");
+
+  EnableRenderGUI([self isWindowVisible]);
 
   auto winSystem = dynamic_cast<CWinSystemOSX*>(CServiceBroker::GetWinSystem());
   if (winSystem)
@@ -141,6 +148,13 @@
 - (void)windowDidExpose:(NSNotification*)aNotification
 {
   g_application.m_AppFocused = true;
+
+  EnableRenderGUI([self isWindowVisible]);
+}
+
+- (void)windowDidChangeOcclusionState:(NSNotification*)aNotification
+{
+  EnableRenderGUI([self isWindowVisible]);
 }
 
 - (void)windowDidMove:(NSNotification*)aNotification
@@ -259,4 +273,10 @@
     return;
   winSystem->SignalFullScreenStateChanged(true);
 }
+
+- (BOOL)isWindowVisible
+{
+  return (self.window.occlusionState & NSWindowOcclusionStateVisible) != 0;
+}
+
 @end

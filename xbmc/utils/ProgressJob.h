@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "utils/Job.h"
+#include "jobs/Job.h"
 
 #include <string>
 
@@ -25,8 +25,7 @@ public:
   ~CProgressJob() override;
 
   // implementation of CJob
-  const char *GetType() const override { return "ProgressJob"; }
-  bool operator==(const CJob* job) const override { return false; }
+  const char* GetType() const override { return "ProgressJob"; }
   bool ShouldCancel(unsigned int progress, unsigned int total) const override;
 
   /*!
@@ -51,7 +50,7 @@ public:
   bool HasProgressIndicator() const;
 
 protected:
-  CProgressJob();
+  CProgressJob() = default;
   explicit CProgressJob(CGUIDialogProgressBarHandle* progressBar);
 
   /*!
@@ -154,10 +153,10 @@ protected:
   bool IsCancelled() const;
 
 private:
-  bool m_modal = false;
-  bool m_autoClose = true;
-  bool m_updateProgress = true;
-  bool m_updateInformation = true;
-  mutable CGUIDialogProgressBarHandle* m_progress;
-  mutable CGUIDialogProgress* m_progressDialog;
+  bool m_modal{false};
+  bool m_autoClose{true};
+  bool m_updateProgress{true};
+  bool m_updateInformation{true};
+  CGUIDialogProgressBarHandle* m_progress{nullptr};
+  CGUIDialogProgress* m_progressDialog{nullptr};
 };

@@ -1,7 +1,7 @@
 ![Kodi Logo](resources/banner_slim.png)
 
 # Windows build guide
-This guide has been tested with Windows 10 Pro x64, version 22H2, build 19045.4529. Please read it in full before you proceed to familiarize yourself with the build procedure.
+This guide has been tested with Windows 11 Pro x64, version 25H2. Please read it in full before you proceed to familiarize yourself with the build procedure.
 
 ## Table of Contents
 1. **[Document conventions](#1-document-conventions)**
@@ -10,9 +10,11 @@ This guide has been tested with Windows 10 Pro x64, version 22H2, build 19045.45
 4. **[Set up the build environment](#4-set-up-the-build-environment)**
 5. **[Build Kodi automagically](#5-build-kodi-automagically)**
 6. **[Build Kodi manually](#6-build-kodi-manually)**
+7. **[Build binary add-ons manually](#7-build-binary-add-ons-manually)**  
+  7.1. **[In-tree building of binary add-ons](#71-in-tree-building-of-binary-add-ons)**  
 
 ## 1. Document conventions
-This guide assumes you are using `Developer Command Prompt for VS 2022`, also known as `terminal`, `console`, `command-line` or simply `cli`. Commands need to be run at the terminal, one at a time and in the provided order.
+This guide assumes you are using `Developer Command Prompt for VS 2022` (or VS 2026), also known as `terminal`, `console`, `command-line` or simply `cli`. Commands need to be run at the terminal, one at a time and in the provided order.
 
 This is a comment that provides context:
 ```
@@ -51,12 +53,12 @@ Several different strategies are used to draw your attention to certain pieces o
 
 ## 2. Prerequisites
 To build Kodi:
-* **Windows** 64bit OS, Windows 8.1 or above (allows build of x64, win32, uwp, arm)
-* **[CMake](https://cmake.org/download/)** (version 3.20 or greater is required to build Kodi, version 3.21 or greater to build with Visual Studio 2022)
+* **Windows** 64bit OS, Windows 10 or above (allows build of x64, win32, ARM64 and UWP-64)
+* **[CMake](https://cmake.org/download/)** version 3.30.6 or greater for Visual Studio 2022, version 4.2 or greater for Visual Studio 2026 (or version 4.1.1-msvc included with the initial release)
 * **[Git for Windows](https://gitforwindows.org/)**
-* **[Java Runtime Environment (JRE)](http://www.oracle.com/technetwork/java/javase/downloads/index.html)**
-* **[Nullsoft scriptable install system (NSIS)](http://nsis.sourceforge.net/Download)** (Only needed if you want to generate an installer file)
-* **[Visual Studio 2022](https://visualstudio.microsoft.com/downloads/)** or **[Visual Studio 2019](https://visualstudio.microsoft.com/vs/older-downloads/)** (Community Edition is fine)
+* **[Java Development Kit (JDK)](https://www.oracle.com/java/technologies/downloads/)** current release of JDK 21 (JDK 8 still works though old)
+* **[Nullsoft scriptable install system (NSIS)](http://nsis.sourceforge.net/Download)** version 3.04 or greater (Only needed if you want to generate an installer file)
+* **[Visual Studio 2022](https://aka.ms/vs/17/release/vs_community.exe)** or **[Visual Studio 2026](https://visualstudio.microsoft.com/downloads/)** (Community Edition is fine)
 
 To run Kodi you need a relatively recent CPU with integrated GPU or discrete GPU with up-to-date graphics device-drivers installed from the manufacturer's website.
 * **[AMD](https://support.amd.com/en-us/download)**
@@ -72,25 +74,31 @@ All install screens should remain at their default values with the exception of 
 * Under **Choosing the default editor used by Git** change default to `Use Notepad++ as Git's default editor` or your favorite editor.
 * Under **Adjust your PATH environment** change default to `Use Git and optional Unix tools from the Windows Command Prompt`.
 
-### JRE install notes
+### JDK install notes
 Default options are fine.
-After install finishes, add java's executable file path to your `PATH` **[environment variable](http://www.java.com/en/download/help/path.xml)**. Should be similar to `C:\Program Files\Java\jre1.8.0_311\bin`.
+After the install finishes, add the file path to java's executables to your `PATH` **[environment variable](http://www.java.com/en/download/help/path.xml)**. Should be similar to `C:\Program Files\Java\jdk-21.0.10\bin`.
+Setting the `JAVA_HOME` environment variable may help in rare situations, information is available on the internet.
 
 ### NSIS install notes
 Default options are fine.
 
-### Visual Studio 2022/2019 install notes
+### Visual Studio 2022/2026 install notes
 Start the Visual Studio installer and click **Workloads** select
 * Under **Desktop & Mobile** section select
   * `Desktop development with C++`
-    * Select the optional element Windows 11 SDK (10.0.22621.0)
-  * `Universal Windows Platform development` (if compiling for UWP or UWP-ARM)
+    * Select the optional component: `Windows 11 SDK (10.0.22621.0)` (or higher version)
+  * `WinUI application development` (if compiling for UWP)
+    * Select the optional component: `Universal Windows Platform tools`
+    * Select the optional component:
+      * `C++ (v143) Universal Windows Platform tools` (VS 2022)
+      * `C++ Universal Windows Platform tools (Latest)` (VS 2026)
 
-Click in **Individual components** select
+Click in **Individual components**
 * Under **Compilers, build tools and runtimes** section select
-  * `MSVC v142/3 - VS 2019/22 C++ ARM build tools (Latest)` (if compiling for UWP-ARM)
+  * `MSVC v143 - VS 2022 C++ ARM64 build tools (Latest)` (if compiling the ARM64 desktop version with VS 2022)
+  * `MSVC Build Tools for ARM64/ARM64EC (Latest)` (if compiling the ARM64 desktop version with VS 2026)
 
-Hit `Install`. Yes, it will download and install almost 8GB of stuff for x64 only or up to 20GB if everything is selected for UWP / UWP-ARM as well.
+Hit `Install`. Yes, it will download and install almost 8GB of stuff for x64 only or up to 24GB if everything is selected for UWP / ARM64 as well.
 
 **[back to top](#table-of-contents)** | **[back to section top](#2-prerequisites)**
 
@@ -110,10 +118,10 @@ git clone https://github.com/xbmc/xbmc kodi
 ## 4. Set up the build environment
 To set up the build environment, several scripts must be called.
 
-> [!WARNING]  
+> [!WARNING]
 > The scripts may fail if you have a space in the path to the bat files.
 
-Kodi can be built as either a normal 32bit or 64bit program, UWP 32bit and 64bit and UWP ARM 32bit. Unless there is a reason to prefer 32bit builds, we advise you to build Kodi for 64bit.
+Kodi can be built as either a normal 64bit, 32bit or ARM64 program and UWP 64bit. Unless there is a reason to prefer 32bit builds, we advise you to build Kodi for 64bit.
 
 > [!TIP]
 > Look for comments starting with `Or ...` and only execute the command(s) you need.
@@ -128,19 +136,14 @@ Or change to the 32bit build directory:
 cd %userprofile%\kodi\tools\buildsteps\windows\win32
 ```
 
+Or change to the ARM 64bit build directory:
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\arm64
+```
+
 Or change to the UWP 64bit build directory:
 ```
 cd %userprofile%\kodi\tools\buildsteps\windows\x64-uwp
-```
-
-Or change to the UWP 32bit build directory:
-```
-cd %userprofile%\kodi\tools\buildsteps\windows\win32-uwp
-```
-
-Or change to the UWP ARM 32bit build directory:
-```
-cd %userprofile%\kodi\tools\buildsteps\windows\arm-uwp
 ```
 
 Download dependencies:
@@ -156,11 +159,6 @@ Download and setup the build environment for libraries:
 download-msys2.bat
 ```
 
-Build FFmpeg:
-```
-make-mingwlibs.bat
-```
-
 **[back to top](#table-of-contents)** | **[back to section top](#4-set-up-the-build-environment)**
 
 ## 5. Build Kodi automagically
@@ -171,14 +169,14 @@ Build a package ready to install:
 BuildSetup.bat
 ```
 
-*Normal* 32bit and 64bit builds generate an `exe` file ready to run, located at `%userprofile%\kodi\kodi-build\Debug` or `%userprofile%\kodi\kodi-build\Release`, depending on the build config. An installer `exe` file, located at `%userprofile%\kodi\project\Win32BuildSetup`, is also generated.
+*Normal* 32bit, 64bit and ARM 64bit builds generate an `exe` file ready to run, located at `%userprofile%\kodi\kodi-build\Debug` or `%userprofile%\kodi\kodi-build\Release`, depending on the build config. An installer `exe` file, located at `%userprofile%\kodi\project\Win32BuildSetup`, is also generated.
 
 UWP builds generate `msix`, `appxsym` and `cer` files, located at `%userprofile%\kodi\project\UWPBuildSetup`. You can install them following this **[guide](https://kodi.wiki/view/HOW-TO:Install_Kodi_for_Universal_Windows_Platform)**.
 
 > [!NOTE]  
 > To generate an exact replica of the official Kodi Windows installer, some additional steps are required:
 
-Build built-in add-ons (peripheral.joystick only) with command line:
+Build built-in binary add-ons (peripheral.joystick only) with command line:
 ```
 make-addons.bat peripheral.joystick
 ```
@@ -188,7 +186,7 @@ Build the installer with the command line:
 BuildSetup.bat nobinaryaddons clean
 ```
 
-`BuildSetup.bat` without parameters also builds all the Kodi add-ons that are not needed because they are not included in the installer and the process is very time consuming.
+`BuildSetup.bat` without parameters also builds all the Kodi binary add-ons and is not necessary because they are not required to be included in the installer (except on Xbox) and the process is very time consuming.
 
 **[back to top](#table-of-contents)**
 
@@ -208,41 +206,26 @@ Change to build directory:
 cd kodi-build
 ```
 
+*Note:* For *Visual Studio 2026* substitute "Visual Studio 18 2026" for "Visual Studio 17 2022" below.
+
 Configure build for 64bit (**recommended**):
 ```
-cmake -G "Visual Studio 17 2022" -A x64 -T host=x64 %userprofile%\kodi
+cmake -G "Visual Studio 17 2022" -A x64 %userprofile%\kodi
 ```
 
 Or configure build for 32bit:
 ```
-cmake -G "Visual Studio 17 2022" -A Win32 -T host=x64 %userprofile%\kodi
+cmake -G "Visual Studio 17 2022" -A Win32 %userprofile%\kodi
+```
+
+Or configure build for ARM 64bit:
+```
+cmake -G "Visual Studio 17 2022" -A arm64 %userprofile%\kodi
 ```
 
 Or configure build for UWP 64bit:
 ```
-cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 -T host=x64 %userprofile%\kodi
-```
-
-Or configure build for UWP 32bit:
-```
-cmake -G "Visual Studio 17 2022" -A Win32 -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 -T host=x64 %userprofile%\kodi
-```
-
-Or configure build for UWP ARM 32bit:
-```
-cmake -G "Visual Studio 17 2022" -A ARM -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 -T host=x64 %userprofile%\kodi
-```
-
-**Visual Studio 2019:**
-
-Replace:
-```
--G "Visual Studio 17 2022"
-```
-
-With:
-```
--G "Visual Studio 16 2019"
+cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_NAME=WindowsStore -DCMAKE_SYSTEM_VERSION=10.0 %userprofile%\kodi
 ```
 
 Build Kodi:
@@ -256,8 +239,28 @@ Or build a `Release` binary:
 cmake --build . --config "Release"
 ```
 
-*Normal* 32bit and 64bit builds generate an `exe` file ready to run, located at `%userprofile%\kodi-build\Debug` or `%userprofile%\kodi-build\Release`, depending on the build config.
+*Normal* 32bit, 64bit and ARM 64bit builds generate an `exe` file ready to run, located at `%userprofile%\kodi-build\Debug` or `%userprofile%\kodi-build\Release`, depending on the build config.
 UWP builds generate `msix`, `appxsym` and `cer` files, located inside directories at `%userprofile%\kodi-build\AppPackages\kodi\`. You can install them following this **[guide](https://kodi.wiki/view/HOW-TO:Install_Kodi_for_Universal_Windows_Platform)**.
 
-
 **[back to top](#table-of-contents)** | **[back to section top](#6-build-kodi-manually)**
+
+## 7. Build binary add-ons manually
+You can find a complete list of available binary add-ons **[here](https://github.com/xbmc/repo-binary-addons)**.
+
+There are two approaches to build binary add-ons: _In-tree_ building that is automated, but doesn't support building from sources (forks, PRs, branches) other than the [Kodi binary addon repo](https://github.com/xbmc/repo-binary-addons), and _out-of-tree_ building that allows building from any source. Please refer to each add-on repository for out-of-tree build instructions.
+
+### 7.1. In-tree building of binary add-ons
+Change to the architecture platform you wish to build for (examples use x64):
+```
+cd %userprofile%\kodi\tools\buildsteps\windows\x64
+```
+Build specific add-on:
+```
+make-addons.bat package audioencoder.flac
+```
+Built files are under the folder `kodi\addons\<add-on name>`.
+
+Clean-up binary add-ons:
+```
+make-addons.bat clean
+```

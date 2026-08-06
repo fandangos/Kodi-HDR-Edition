@@ -9,66 +9,86 @@
 
 if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
-  find_package(PkgConfig QUIET)
+  include(cmake/scripts/common/ModuleHelpers.cmake)
 
-  if(PKG_CONFIG_FOUND AND NOT (WIN32 OR WINDOWS_STORE))
-    if(MicroHttpd_FIND_VERSION)
-      if(MicroHttpd_FIND_VERSION_EXACT)
-        set(MicroHttpd_FIND_SPEC "=${MicroHttpd_FIND_VERSION_COMPLETE}")
-      else()
-        set(MicroHttpd_FIND_SPEC ">=${MicroHttpd_FIND_VERSION_COMPLETE}")
+  macro(buildmacroMicroHttpd)
+
+    if(WIN32 OR WINDOWS_STORE)
+
+      set(patches "${CMAKE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/01-win-cmake.patch")
+
+      generate_patchcommand("${patches}")
+      unset(patches)
+
+      set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_DEBUG_POSTFIX _d)
+
+      set(CMAKE_ARGS -DDUMMY_ARGS=ON)
+
+    else()
+      # Todo: gnutls libgcrypt libgpg-error
+      # find_package(xxx)
+
+      if (CMAKE_HOST_SYSTEM_NAME MATCHES "(Free|Net|Open)BSD")
+        find_program(MAKE_EXECUTABLE gmake)
       endif()
+      find_program(MAKE_EXECUTABLE make REQUIRED)
+
+      if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+        # blanket disable timespec_get use for apple platforms. timespec_get was introduced in
+        # __API_AVAILABLE(macosx(10.15), ios(13.0), tvos(13.0), watchos(6.0)) but older platforms
+        # are failing to run.
+        set(EXTRA_ARGS mhd_cv_func_timespec_get=no)
+      endif()
+
+      set(CONFIGURE_COMMAND ./configure --prefix ${DEPENDS_PATH}
+                                        --disable-shared
+                                        --disable-doc
+                                        --disable-examples
+                                        --disable-curl
+                                        --enable-https
+                                        ${EXTRA_ARGS})
+
+      set(BUILD_COMMAND ${MAKE_EXECUTABLE})
+      set(INSTALL_COMMAND ${MAKE_EXECUTABLE} install)
+
+      set(BUILD_IN_SOURCE 1)
+
     endif()
 
-    pkg_check_modules(MICROHTTPD libmicrohttpd${MicroHttpd_FIND_SPEC} QUIET)
+    BUILD_DEP_TARGET()
+  endmacro()
 
-    # First item is the full path of the library file found
-    # pkg_check_modules does not populate a variable of the found library explicitly
-    list(GET MICROHTTPD_LINK_LIBRARIES 0 MICROHTTPD_LIBRARY)
+  set(${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC libmicrohttpd)
 
-    # Add link libraries for static lib usage
-    if(${MICROHTTPD_LIBRARY} MATCHES ".+\.a$" AND MICROHTTPD_LINK_LIBRARIES)
-      # Remove duplicates
-      list(REMOVE_DUPLICATES MICROHTTPD_LINK_LIBRARIES)
+  SETUP_BUILD_VARS()
 
-      # Remove own library - eg libmicrohttpd.a
-      list(FILTER MICROHTTPD_LINK_LIBRARIES EXCLUDE REGEX ".*microhttpd.*\.a$")
-      set(PC_MICROHTTPD_LINK_LIBRARIES ${MICROHTTPD_LINK_LIBRARIES})
-    endif()
+  SETUP_FIND_SPECS()
 
-    # pkgconfig sets MICROHTTPD_INCLUDEDIR, map this to our "standard" variable name
-    set(MICROHTTPD_INCLUDE_DIR ${MICROHTTPD_INCLUDEDIR})
-  else()
+  SEARCH_EXISTING_PACKAGES()
 
-    find_path(MICROHTTPD_INCLUDE_DIR NAMES microhttpd.h
-                                     HINTS ${DEPENDS_PATH}/include
-                                     ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
-
-    find_library(MICROHTTPD_LIBRARY NAMES microhttpd libmicrohttpd
-                                    HINTS ${DEPENDS_PATH}/lib
-                                    ${${CORE_PLATFORM_NAME_LC}_SEARCH_CONFIG})
+  if(("${${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_VERSION}" VERSION_LESS ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER} AND ENABLE_INTERNAL_LIBMICROHTTPD) OR
+     (((CORE_SYSTEM_NAME STREQUAL linux AND NOT "webos" IN_LIST CORE_PLATFORM_NAME_LC) OR CORE_SYSTEM_NAME STREQUAL freebsd) AND ENABLE_INTERNAL_LIBMICROHTTPD))
+    message(STATUS "Building ${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}: \(version \"${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_VER}\"\)")
+    cmake_language(EVAL CODE "
+      buildmacro${CMAKE_FIND_PACKAGE_NAME}()
+    ")
   endif()
 
-  include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(MicroHttpd
-                                    REQUIRED_VARS MICROHTTPD_LIBRARY MICROHTTPD_INCLUDE_DIR
-                                    VERSION_VAR MICROHTTPD_VERSION)
+  if(${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME}_FOUND)
+    if(TARGET PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME} AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS PkgConfig::${${CMAKE_FIND_PACKAGE_NAME}_SEARCH_NAME_PC})
+    elseif(TARGET libmicrohttpd::libmicrohttpd AND NOT TARGET ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
+      # Kodi target - windows prebuilt lib
+      add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ALIAS libmicrohttpd::libmicrohttpd)
+    else()
+      SETUP_BUILD_TARGET()
 
-  if(MICROHTTPD_FOUND)
-    add_library(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} UNKNOWN IMPORTED)
-    set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                     IMPORTED_LOCATION "${MICROHTTPD_LIBRARY}"
-                                                                     INTERFACE_INCLUDE_DIRECTORIES "${MICROHTTPD_INCLUDE_DIR}"
-                                                                     INTERFACE_COMPILE_DEFINITIONS "HAS_WEB_SERVER;HAS_WEB_INTERFACE")
-
-      # Add link libraries for static lib usage found from pkg-config
-      if(PC_MICROHTTPD_LINK_LIBRARIES)
-        set_target_properties(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} PROPERTIES
-                                                                         INTERFACE_LINK_LIBRARIES "${PC_MICROHTTPD_LINK_LIBRARIES}")
-      endif()
-
-    if(${MICROHTTPD_LIBRARY} MATCHES ".+\.a$" AND PC_MICROHTTPD_STATIC_LIBRARIES)
-      list(APPEND MICROHTTPD_LIBRARIES ${PC_MICROHTTPD_STATIC_LIBRARIES})
+      add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
     endif()
+
+    set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS "HAS_WEB_SERVER;HAS_WEB_INTERFACE")
+    ADD_TARGET_COMPILE_DEFINITION()
+
+    ADD_MULTICONFIG_BUILDMACRO()
   endif()
 endif()

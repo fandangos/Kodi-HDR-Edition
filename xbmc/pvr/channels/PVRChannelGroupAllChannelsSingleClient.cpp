@@ -9,11 +9,12 @@
 #include "PVRChannelGroupAllChannelsSingleClient.h"
 
 #include "ServiceBroker.h"
-#include "guilib/LocalizeStrings.h"
 #include "pvr/PVRManager.h"
 #include "pvr/addons/PVRClient.h"
 #include "pvr/channels/PVRChannelGroupMember.h"
 #include "pvr/channels/PVRChannelsPath.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
@@ -46,25 +47,26 @@ std::vector<std::shared_ptr<CPVRChannelGroup>> CPVRChannelGroupAllChannelsSingle
   for (int clientId : clientIds)
   {
     const std::shared_ptr<const CPVRClient> client{
-        CServiceBroker().GetPVRManager().GetClient(clientId)};
+        CServiceBroker::GetPVRManager().GetClient(clientId)};
     if (!client)
     {
       CLog::LogFC(LOGERROR, LOGPVR, "Failed to get client instance for client id {}", clientId);
       continue;
     }
 
-    // Create a group containg all channels for this client, if not yet existing.
-    const auto it = std::find_if(allChannelGroups.cbegin(), allChannelGroups.cend(),
-                                 [&client](const auto& group)
-                                 {
-                                   return (group->GroupType() ==
-                                           PVR_GROUP_TYPE_SYSTEM_ALL_CHANNELS_SINGLE_CLIENT) &&
-                                          (group->GetClientID() == client->GetID());
-                                 });
+    // Create a group containing all channels for this client, if not yet existing.
+    const auto it = std::ranges::find_if(
+        allChannelGroups,
+        [&client](const auto& group)
+        {
+          return (group->GroupType() == PVR_GROUP_TYPE_SYSTEM_ALL_CHANNELS_SINGLE_CLIENT) &&
+                 (group->GetClientID() == client->GetID());
+        });
     if (it == allChannelGroups.cend())
     {
       const std::string name{
-          StringUtils::Format(g_localizeStrings.Get(859), client->GetFullClientName())};
+          StringUtils::Format(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(859),
+                              client->GetFullClientName())};
       const CPVRChannelsPath path{allChannelsGroup->IsRadio(), name, client->GetID()};
       addedGroups.emplace_back(
           std::make_shared<CPVRChannelGroupAllChannelsSingleClient>(path, allChannelsGroup));

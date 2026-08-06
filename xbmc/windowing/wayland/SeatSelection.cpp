@@ -73,7 +73,7 @@ CSeatSelection::CSeatSelection(CConnection& connection, wayland::seat_t const& s
   };
   m_dataDevice.on_selection() = [this](const wayland::data_offer_t& offer)
   {
-    std::unique_lock<CCriticalSection> lock(m_currentSelectionMutex);
+    std::unique_lock lock(m_currentSelectionMutex);
     m_matchedMimeType.clear();
 
     if (offer != m_currentOffer)
@@ -92,7 +92,7 @@ CSeatSelection::CSeatSelection(CConnection& connection, wayland::seat_t const& s
       auto mimeIt = std::find_first_of(MIME_TYPES_PREFERENCE.cbegin(), MIME_TYPES_PREFERENCE.cend(),
                                        m_mimeTypeOffers.cbegin(), m_mimeTypeOffers.cend(),
                                        // static_cast needed for overload resolution
-                                       static_cast<bool (*)(std::string const&, std::string const&)> (&StringUtils::EqualsNoCase));
+                                       StringUtils::EqualsNoCase);
       if (mimeIt != MIME_TYPES_PREFERENCE.cend())
       {
         m_matchedMimeType = *mimeIt;
@@ -110,7 +110,7 @@ CSeatSelection::CSeatSelection(CConnection& connection, wayland::seat_t const& s
 
 std::string CSeatSelection::GetSelectionText() const
 {
-  std::unique_lock<CCriticalSection> lock(m_currentSelectionMutex);
+  std::unique_lock lock(m_currentSelectionMutex);
   if (!m_currentSelection || m_matchedMimeType.empty())
   {
     return "";

@@ -10,7 +10,6 @@
 
 #include "settings/lib/ISettingCallback.h"
 
-#include <map>
 #include <memory>
 #include <string>
 
@@ -42,9 +41,9 @@ public:
   void OnSettingAction(const std::shared_ptr<const CSetting>& setting) override;
   void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
 
-  bool GetActive(AddonType type, AddonPtr& addon);
-  bool SetActive(AddonType type, const std::string& addonID);
-  bool IsActive(const IAddon& addon);
+  bool GetActive(AddonType type, AddonPtr& addon) const;
+  bool SetActive(AddonType type, const std::string& addonID) const;
+  bool IsActive(const IAddon& addon) const;
 
   /*!
    * Gets Kodi addon auto update mode
@@ -65,14 +64,12 @@ public:
    * Attempt to unset addon as active. Returns true if addon is no longer active,
    * false if it could not be unset (e.g. if the addon is the default)
    */
-  bool UnsetActive(const AddonInfoPtr& addon);
+  bool UnsetActive(const AddonInfoPtr& addon) const;
 
 private:
-  CAddonSystemSettings();
+  CAddonSystemSettings() = default;
   CAddonSystemSettings(const CAddonSystemSettings&) = delete;
   CAddonSystemSettings& operator=(const CAddonSystemSettings&) = delete;
   ~CAddonSystemSettings() override = default;
-
-  const std::map<AddonType, std::string> m_activeSettings;
 };
 };

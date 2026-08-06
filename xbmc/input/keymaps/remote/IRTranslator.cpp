@@ -9,7 +9,7 @@
 #include "IRTranslator.h"
 
 #include "ServiceBroker.h"
-#include "input/remote/IRRemote.h"
+#include "input/keymaps/remote/IRRemoteIDs.h"
 #include "profiles/ProfileManager.h"
 #include "settings/SettingsComponent.h"
 #include "utils/FileUtils.h"
@@ -139,8 +139,7 @@ void CIRTranslator::Clear()
   m_irRemotesMap.clear();
 }
 
-unsigned int CIRTranslator::TranslateButton(const std::string& szDevice,
-                                            const std::string& szButton)
+uint32_t CIRTranslator::TranslateButton(const std::string& szDevice, const std::string& szButton)
 {
   // Find the device
   auto it = m_irRemotesMap.find(szDevice);
@@ -299,6 +298,10 @@ uint32_t CIRTranslator::TranslateString(std::string strButton)
     buttonCode = XINPUT_IR_REMOTE_DVD_MENU;
   else if (strButton == "print")
     buttonCode = XINPUT_IR_REMOTE_PRINT;
+  else if (strButton == "favorites")
+    buttonCode = XINPUT_IR_REMOTE_FAVORITE_MENU;
+  else if (strButton == "last")
+    buttonCode = XINPUT_IR_REMOTE_LAST;
   else
     CLog::Log(LOGERROR, "Remote Translator: Can't find button {}", strButton);
   return buttonCode;

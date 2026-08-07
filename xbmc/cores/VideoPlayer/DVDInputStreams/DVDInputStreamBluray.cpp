@@ -756,6 +756,7 @@ void CDVDInputStreamBluray::OverlayClose()
   group->bForced = true;
   m_player->OnDiscNavResult(static_cast<void*>(&group), BD_EVENT_MENU_OVERLAY);
   m_hasOverlay = false;
+  m_menuGoneAt = {}; // an explicit close is not a flicker, take it immediately
 #endif
 }
 
@@ -822,7 +823,25 @@ void CDVDInputStreamBluray::OverlayFlush(int64_t pts)
   }
 
   m_player->OnDiscNavResult(static_cast<void*>(&group), BD_EVENT_MENU_OVERLAY);
-  m_hasOverlay = true;
+
+  // Honest menu-on-screen detection (replaces the old "any overlay == a menu"). Believe a
+  // menu the instant a pixel is opaque; let a menu that has gone blank hold for MENU_GONE_AFTER,
+  // because animated menus empty their plane between frames and would otherwise flicker
+  // dozens of times a second - which flaps the keymap window and the seek guard.
+  constexpr auto MENU_GONE_AFTER = std::chrono::milliseconds(500);
+  if (AnythingVisible())
+  {
+    m_hasOverlay = true;
+    m_menuGoneAt = {};
+  }
+  else if (m_hasOverlay)
+  {
+    const auto now = std::chrono::steady_clock::now();
+    if (m_menuGoneAt == std::chrono::steady_clock::time_point{})
+      m_menuGoneAt = now;
+    else if (now - m_menuGoneAt >= MENU_GONE_AFTER)
+      m_hasOverlay = false;
+  }
 #endif
 }
 
@@ -1206,17 +1225,48 @@ bool CDVDInputStreamBluray::OnMenu()
   return true;
 }
 
+bool CDVDInputStreamBluray::AnythingVisible()
+{
+  // The disc keeps its graphics plane up for the whole feature and simply empties the pixels,
+  // so "an overlay is registered" is not the same as "a menu is visible". Ask the honest
+  // question: is any sampled pixel opaque? Sample every 8th pixel in x and y (a 64th of the
+  // plane - a button is far larger than an 8x8 block) and treat alpha < 8 as invisible.
+  // Handles BD-J (ARGB, palette empty, 4 bytes/pixel) and HDMV (paletted, 1 byte/pixel).
+  for (const SPlane& plane : m_planes)
+  {
+    for (const SOverlay& overlay : plane.o)
+    {
+      if (!overlay || overlay->pixels.empty())
+        continue;
+
+      const bool paletted = !overlay->palette.empty();
+      for (int y = 0; y < overlay->height; y += 8)
+      {
+        const uint8_t* row =
+            overlay->pixels.data() + static_cast<size_t>(y) * overlay->linesize;
+        for (int x = 0; x < overlay->width; x += 8)
+        {
+          const uint32_t argb =
+              paletted ? overlay->palette[row[x]] : reinterpret_cast<const uint32_t*>(row)[x];
+          if (((argb >> PIXEL_ASHIFT) & 0xff) >= 8)
+            return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 bool CDVDInputStreamBluray::IsInMenu()
 {
   if(m_bd == nullptr || !m_navmode)
     return false;
 
-  // since there is no way to tell in a BD-J blu-ray when a popup menu actually is visible,
-  // we have to assume that the blu-ray is in menu/navigation mode when there is an overlay
-  // on screen, even if it might be invisible (which is impossible to detect)
-  if(m_menu || m_hasOverlay)
-    return true;
-  return false;
+  // m_hasOverlay is now an honest, debounced "a menu is actually on screen" flag maintained in
+  // OverlayFlush()/OverlayClose() via AnythingVisible(). m_menu (libbluray's BD_EVENT_MENU) is
+  // deliberately NOT consulted: some discs fire it once when the title loads and never clear
+  // it, which pins the player "in a menu" for the whole feature and disables seeking.
+  return m_hasOverlay;
 }
 
 void CDVDInputStreamBluray::SkipStill()

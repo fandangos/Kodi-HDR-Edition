@@ -144,6 +144,14 @@ protected:
 
   StreamHdrType DetermineHdrType(AVStream* pStream);
 
+#ifdef HAVE_LIBDOVI
+  // Dolby Vision profile 7 UHD Blu-ray: merge the enhancement-layer RPU into the base
+  // layer and present it as single-layer profile 8.1 so Android MediaCodec outputs real
+  // Dolby Vision instead of the HDR10 base layer. See ReadInternal() for the packet flow.
+  void SetupDoviProfile7Merge(int elStreamIndex);
+  bool ExtractConvertedDoviRpu(const uint8_t* elData, int elSize, std::vector<uint8_t>& rpuNal);
+#endif
+
   CCriticalSection m_critSection;
   std::map<int, CDemuxStream*> m_streams;
   std::map<int, std::unique_ptr<CDemuxParserFFmpeg>> m_parsers;
@@ -171,6 +179,20 @@ protected:
     AVPacket pkt;       // packet ffmpeg returned
     int      result;    // result from av_read_packet
   }m_pkt;
+
+#ifdef HAVE_LIBDOVI
+  // Dolby Vision profile 7 -> 8.1 enhancement-layer RPU merge state
+  bool m_dvP7Merge = false;
+  int m_dvP7BlIndex = -1; // ffmpeg stream index of the Dolby Vision base layer
+  int m_dvP7ElIndex = -1; // ffmpeg stream index of the Dolby Vision enhancement layer
+  DemuxPacket* m_dvP7HeldBl = nullptr; // base-layer packet awaiting its paired EL RPU
+  // diagnostics for the merge
+  uint64_t m_dvP7MergedCount = 0;  // BL frames emitted with a converted RPU merged in
+  uint64_t m_dvP7NoRpuCount = 0;   // BL frames emitted, paired EL had no usable RPU
+  uint64_t m_dvP7BlNoElCount = 0;  // BL frames emitted unpaired (no EL followed)
+  uint64_t m_dvP7ElNoBlCount = 0;  // EL frames dropped with no BL held
+  uint64_t m_dvP7LastLogCount = 0;
+#endif
 
   bool m_streaminfo;
   bool m_reopen = false;

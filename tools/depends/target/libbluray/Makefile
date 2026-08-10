@@ -5,6 +5,7 @@ DEPS = ../../Makefile.include LIBBLURAY-VERSION Makefile ../../download-files.in
                                   003-all-libxml_searchname.patch \
                                   004-win-remove-lib-version.patch \
                                   005-aarch64-java-arch.patch \
+                                  006-all-hdmv-bc-compare.patch \
                                   tvos.patch
 
 MESON_BUILD_TYPE=release
@@ -52,6 +53,7 @@ endif
 	cd $(PLATFORM); patch -p1 -i ../002-darwin-dlopen_searchpath.patch
 	cd $(PLATFORM); patch -p1 -i ../003-all-libxml_searchname.patch
 	cd $(PLATFORM); patch -p1 -i ../005-aarch64-java-arch.patch
+	cd $(PLATFORM); patch -p1 -i ../006-all-hdmv-bc-compare.patch
 ifeq ($(findstring appletv,$(TARGET_PLATFORM)),appletv)
 	cd $(PLATFORM); patch -p1 -i ../tvos.patch
 endif

@@ -1,0 +1,33 @@
+From: Kodi Android Blu-ray
+Subject: [PATCH] HDMV VM: fix the BC (bit compare) instruction to spec semantics
+
+BC executed the next instruction iff (dst & ~src) == 0 - a subset test
+that never checks whether the requested bits are SET, only that no bits
+outside the mask are. The BD-ROM spec defines BC as a plain bitwise AND:
+the condition passes when any tested bit is set.
+
+Real authoring confirms it: UHD benchmark discs enumerate the UHD
+capability PSR bits one at a time (BC PSR25,0x01 / 0x02 / 0x04 / 0x20).
+That per-bit enumeration is only meaningful under "is this bit set" -
+under the subset test a multi-bit capability register (Kodi reports
+UHD_CAP / UHD_DISPLAY_CAP / HDR_PREFERENCE as 0xffffffff genuine OR sets)
+fails every single-bit test, so capability queries branched the wrong way.
+
+Analysis credit: Hendrik Leppkes (via SamuriHL/CoreELEC).
+
+--- a/src/libbluray/hdmv/hdmv_vm.c
++++ b/src/libbluray/hdmv/hdmv_vm.c
+@@ -1134,7 +1134,12 @@
+                 BD_DEBUG(DBG_HDMV|DBG_CRIT, "missing operand in BRANCH/JUMP opcode 0x%08x\n", *(uint32_t*)insn);
+             }
+             switch (insn->cmp_opt) {
+-                case INSN_BC: p->pc += !!(dst & ~src); break;
++                /* spec: plain bitwise AND - the condition passes when any
++                 * tested bit is set. The previous (dst & ~src) subset test
++                 * never checked the requested bits at all and broke
++                 * capability-set registers (PSR25/26) for every disc that
++                 * enumerates them one bit at a time. */
++                case INSN_BC: p->pc += !(dst & src); break;
+                 case INSN_EQ: p->pc += !(dst == src); break;
+                 case INSN_NE: p->pc += !(dst != src); break;
+                 case INSN_GE: p->pc += !(dst >= src); break;

@@ -506,6 +506,11 @@
           </constraints>
           <control type="slider" format="integer" range="0,1000" />
         </setting>
+        <setting id="disc.limitmenuguiupdate" type="boolean" label="39215" help="39216">
+          <level>1</level>
+          <default>false</default>
+          <control type="toggle" />
+        </setting>
       </group>
       <group id="3" label="620">
         <setting id="audiocds.autoaction" type="integer" label="14097" help="36283">

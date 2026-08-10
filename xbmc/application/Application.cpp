@@ -1623,8 +1623,16 @@ void CApplication::FrameMove(bool processEvents, bool processGUI)
          CServiceBroker::GetWinSystem()->GetGfxContext().IsTransferPQ()) &&
         !appPlayer->IsPausedPlayback() && appPlayer->IsRenderingVideoLayer())
     {
-      const int fps = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
-          CSettings::SETTING_VIDEOPLAYER_LIMITGUIUPDATE);
+      const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+
+      // The cap is opt-in and off by default: it trades OSD/menu smoothness for HDMI stability
+      // and only some displays need that trade, so it is gated by a master switch next to the
+      // other disc-menu settings (Settings / Player / Discs) while the rate itself stays with
+      // the other video settings. Both must be set for the limiter to engage.
+      // NOTE the switch lives in a group marked HAVE_LIBBLURAY, which only hides it from the
+      // settings UI - the setting itself always exists, so this read is safe on any build.
+      const bool enabled = settings->GetBool(CSettings::SETTING_DISC_LIMITMENUGUIUPDATE);
+      const int fps = settings->GetInt(CSettings::SETTING_VIDEOPLAYER_LIMITGUIUPDATE);
 
       // Only engage when the display is actually running faster than the requested cap. When
       // "adjust display refresh rate" has already matched the output to the video (e.g. a 23.976
@@ -1637,7 +1645,8 @@ void CApplication::FrameMove(bool processEvents, bool processGUI)
       const auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - m_lastRenderTime)
                                  .count();
-      if (fps > 0 && static_cast<float>(fps) < displayRefreshRate && frameTime * fps < 1000)
+      if (enabled && fps > 0 && static_cast<float>(fps) < displayRefreshRate &&
+          frameTime * fps < 1000)
         m_skipGuiRender = true;
     }
 

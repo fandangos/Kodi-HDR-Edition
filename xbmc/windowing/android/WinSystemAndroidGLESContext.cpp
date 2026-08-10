@@ -233,7 +233,14 @@ bool CWinSystemAndroidGLESContext::SetHDR(const VideoPicture* videoPicture)
   if (m_hasHDRConfig && m_hasEGL_BT2020_PQ_Colorspace_Extension && m_hasEGL_ST2086_Extension)
   {
     HDRColorSpace = EGL_NONE;
-    if (videoPicture && videoPicture->hasDisplayMetadata)
+    // The colorspace decision is driven purely by the picture's primaries/transfer, NOT by the
+    // presence of mastering metadata. This lets a caller request a BT2020-PQ surface that carries
+    // NO SMPTE2086 metadata (the Android disc-menu GUI/overlay surface): attaching a mastering
+    // volume there would advertise an HDR envelope that conflicts with the separate video
+    // surface's own metadata, so the HDMI HDR infoframe changes whenever the overlay becomes
+    // visible (e.g. the OSD) and the TV re-syncs. Metadata is attached below only when the source
+    // actually supplies it (real video HDR passthrough), leaving that path unchanged.
+    if (videoPicture)
     {
       switch (videoPicture->color_space)
       {
@@ -243,14 +250,8 @@ bool CWinSystemAndroidGLESContext::SetHDR(const VideoPicture* videoPicture)
         HDRColorSpace = EGL_GL_COLORSPACE_BT2020_PQ_EXT;
         break;
       default:
-        m_displayMetadata = nullptr;
-        m_lightMetadata = nullptr;
+        break;
       }
-    }
-    else
-    {
-      m_displayMetadata = nullptr;
-      m_lightMetadata = nullptr;
     }
 
     if (HDRColorSpace != m_HDRColorSpace)
@@ -259,11 +260,16 @@ bool CWinSystemAndroidGLESContext::SetHDR(const VideoPicture* videoPicture)
 
       m_HDRColorSpace = HDRColorSpace;
       m_displayMetadata =
-          m_HDRColorSpace == EGL_NONE
+          (m_HDRColorSpace == EGL_NONE || !videoPicture || !videoPicture->hasDisplayMetadata)
               ? nullptr
               : std::make_unique<AVMasteringDisplayMetadata>(videoPicture->displayMetadata);
-      // TODO: discuss with NVIDIA why this prevent turning HDR display off
-      //m_lightMetadata = !videoPicture || m_HDRColorSpace == EGL_NONE ? nullptr : std::unique_ptr<AVContentLightMetadata>(new AVContentLightMetadata(videoPicture->lightMetadata));
+      // Attach content-light metadata (CTA861.3 MaxCLL/MaxFALL) too when supplied, so an HDR
+      // GUI/overlay surface advertises the same envelope as the video plane and the compositor
+      // has no reason to re-derive the HDMI HDR infoframe on GUI redraws.
+      m_lightMetadata =
+          (m_HDRColorSpace == EGL_NONE || !videoPicture || !videoPicture->hasLightMetadata)
+              ? nullptr
+              : std::make_unique<AVContentLightMetadata>(videoPicture->lightMetadata);
       m_pGLContext.DestroySurface();
       CreateSurface();
       m_pGLContext.BindContext();

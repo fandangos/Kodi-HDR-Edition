@@ -1808,6 +1808,18 @@ void CDVDVideoCodecAndroidMediaCodec::ConfigureOutputFormat(CJNIMediaFormat& med
   m_videobuffer.color_space = m_hints.colorSpace;
   m_videobuffer.color_primaries = m_hints.colorPrimaries;
   m_videobuffer.color_transfer = m_hints.colorTransferCharacteristic;
+
+  // Propagate the stream's HDR10 mastering-display / content-light metadata onto the picture.
+  // The video plane already signals exactly these values to the display as HDR static info
+  // (see GetHDRStaticMetadata), so carrying them here lets the HDR GUI/overlay surface advertise
+  // the identical HDR envelope - otherwise the GUI layer's differing (or absent) metadata makes
+  // the compositor re-derive the HDMI HDR infoframe whenever the GUI redraws and the TV re-syncs.
+  m_videobuffer.hasDisplayMetadata = static_cast<bool>(m_hints.masteringMetadata);
+  if (m_videobuffer.hasDisplayMetadata)
+    m_videobuffer.displayMetadata = *m_hints.masteringMetadata;
+  m_videobuffer.hasLightMetadata = static_cast<bool>(m_hints.contentLightMetadata);
+  if (m_videobuffer.hasLightMetadata)
+    m_videobuffer.lightMetadata = *m_hints.contentLightMetadata;
 }
 
 void CDVDVideoCodecAndroidMediaCodec::CallbackInitSurfaceTexture(void *userdata)

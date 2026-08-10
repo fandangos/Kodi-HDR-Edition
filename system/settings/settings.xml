@@ -482,6 +482,20 @@
           </constraints>
           <control type="list" format="string" />
         </setting>
+        <setting id="disc.menuoverlaypeakluminance" type="integer" label="39211" help="39212">
+          <requirement>HAS_MEDIACODEC</requirement>
+          <dependencies>
+            <dependency type="visible" on="property" name="ishdrdisplay"/>
+          </dependencies>
+          <level>1</level>
+          <default>700</default>
+          <constraints>
+            <minimum>0</minimum>
+            <step>10</step>
+            <maximum>1000</maximum>
+          </constraints>
+          <control type="slider" format="integer" range="0,1000" />
+        </setting>
       </group>
       <group id="3" label="620">
         <setting id="audiocds.autoaction" type="integer" label="14097" help="36283">

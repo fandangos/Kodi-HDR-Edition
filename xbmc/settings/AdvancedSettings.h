@@ -202,6 +202,11 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     std::string m_videoDefaultPlayer;
     float m_videoPlayCountMinimumPercent;
     bool m_videoBypassCodecProfile = false; // Android only to bypass reported codec capabilities
+    // Android only, experimental: on the MediaCodec surface path, render the GUI/overlay to a
+    // BT2020-PQ EGL surface (SetHDR + per-shader PQ) over HDR video instead of relying on
+    // SurfaceFlinger's SDR->HDR tonemap, which desaturates Blu-ray disc-menu overlays. Default
+    // off (keeps the known-good sRGB overlay path); tune brightness with the GUI SDR peak setting.
+    bool m_videoAndroidHDRGuiSurface = false;
 
     float m_slideshowBlackBarCompensation;
     float m_slideshowZoomAmount;

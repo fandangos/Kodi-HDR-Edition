@@ -20,9 +20,12 @@
 #include "rendering/GLExtensions.h"
 #include "rendering/MatrixGL.h"
 #include "rendering/gles/RenderSystemGLES.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/GLUtils.h"
 #include "utils/MathUtils.h"
 #include "utils/log.h"
+#include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
 
 #include <cmath>
@@ -33,6 +36,30 @@
 #define USE_PREMULTIPLIED_ALPHA 1
 
 using namespace OVERLAY;
+
+namespace
+{
+// When the GUI surface is BT2020-PQ (Android MediaCodec disc-menu HDR path), the overlay shaders
+// PQ-scale each texel by m_sdrPeak. A disc menu sits over full-brightness HDR video, so override
+// m_sdrPeak from the dedicated "disc menu overlay brightness" slider to push it brighter than the
+// OSD. Read every frame, so the slider adjusts the live menu in real time. No-op unless PQ active.
+void ApplyOverlayHdrCompensation(CRenderSystemGLES* renderSystem)
+{
+  if (!CServiceBroker::GetWinSystem()->GetGfxContext().IsTransferPQ())
+    return;
+
+  const GLint loc = renderSystem->GUIShaderGetSdrPeak();
+  if (loc < 0)
+    return;
+
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  const int level =
+      settings ? settings->GetInt(CSettings::SETTING_DISC_MENUOVERLAYPEAKLUMINANCE) : 700;
+  // Slider 0..1000 maps linearly to a PQ peak scale of 0..2.0, so 500 matches the GUI's own
+  // maximum (m_sdrPeak == 1.0) and values above push the overlay brighter than the OSD.
+  glUniform1f(loc, static_cast<float>(level) / 500.0f);
+}
+} // namespace
 
 static void LoadTexture(GLenum target,
                         GLsizei width,
@@ -374,6 +401,7 @@ void COverlayGlyphGLES::Render(SRenderState& state)
   CRenderSystemGLES* renderSystem =
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
   renderSystem->EnableGUIShader(ShaderMethodGLES::SM_FONTS);
+  ApplyOverlayHdrCompensation(renderSystem);
   GLint posLoc = renderSystem->GUIShaderGetPos();
   GLint colLoc = renderSystem->GUIShaderGetCol();
   GLint tex0Loc = renderSystem->GUIShaderGetCoord0();
@@ -460,6 +488,7 @@ void COverlayTextureGLES::Render(SRenderState& state)
   CRenderSystemGLES* renderSystem =
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
   renderSystem->EnableGUIShader(ShaderMethodGLES::SM_TEXTURE_NOBLEND);
+  ApplyOverlayHdrCompensation(renderSystem);
   GLint posLoc = renderSystem->GUIShaderGetPos();
   GLint tex0Loc = renderSystem->GUIShaderGetCoord0();
   GLint depthLoc = renderSystem->GUIShaderGetDepth();

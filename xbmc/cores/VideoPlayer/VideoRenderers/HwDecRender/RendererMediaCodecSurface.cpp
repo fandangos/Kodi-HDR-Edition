@@ -13,7 +13,9 @@
 #include "DVDCodecs/Video/DVDVideoCodecAndroidMediaCodec.h"
 #include "ServiceBroker.h"
 #include "rendering/RenderSystem.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/MediaSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
 #include "windowing/GraphicContext.h"
@@ -64,15 +66,51 @@ bool CRendererMediaCodecSurface::Configure(const VideoPicture &picture, float fp
   CalculateFrameAspectRatio(picture.iDisplayWidth, picture.iDisplayHeight);
   SetViewMode(m_videoSettings.m_ViewMode);
 
-  // NOTE: The per-shader PQ path (GraphicContext::SetTransferPQ -> KODI_TRANSFER_PQ,
-  // "rgb *= m_sdrPeak") only produces correct output when the GUI EGL surface is
-  // itself created as EGL_GL_COLORSPACE_BT2020_PQ (CWinSystemAndroidGLESContext::SetHDR).
-  // On the MediaCodec surface path the video is a separate Android surface and SetHDR
-  // is never called, so the GUI surface stays sRGB. Enabling SetTransferPQ here therefore
-  // scales the GUI/overlay with no matching surface encoding, which leaves BD-J menu
-  // overlays desaturated over HDR video (e.g. Blu-ray disc menus). Leave the GUI in sRGB
-  // and let SurfaceFlinger composite/tonemap it onto the HDR output.
-  CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(false);
+  // Overlay-over-HDR compositing.
+  //
+  // The per-shader PQ path (GraphicContext::SetTransferPQ -> KODI_TRANSFER_PQ,
+  // "rgb *= m_sdrPeak") only produces correct output when the GUI EGL surface is itself
+  // created as EGL_GL_COLORSPACE_BT2020_PQ (CWinSystemAndroidGLESContext::SetHDR). On the
+  // MediaCodec surface path the video is a separate Android surface, so by default SetHDR
+  // is never called and the GUI surface stays sRGB: SurfaceFlinger then tonemaps the SDR
+  // overlay onto the HDR output, which desaturates BD-J/HDMV disc-menu overlays.
+  //
+  // Default behaviour (known good): keep the GUI in sRGB and let SurfaceFlinger composite.
+  // Experimental opt-in (advancedsettings <video><androidhdrguisurface>true): promote the
+  // GUI surface to BT2020-PQ and enable the per-shader PQ encode so the overlay is
+  // composited in HDR space with no SDR tonemap. Self-gates: SetHDR only succeeds when the
+  // HDR display setting is on and the EGL BT2020-PQ/ST2086 extensions are present, otherwise
+  // it returns false and we transparently fall back to the sRGB path.
+  bool pqGuiSurface = false;
+  const auto advancedSettings = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings();
+  if (advancedSettings && advancedSettings->m_videoAndroidHDRGuiSurface &&
+      CServiceBroker::GetWinSystem()->IsHDRDisplaySettingEnabled())
+  {
+    const bool pictureIsHdr = picture.color_transfer == AVCOL_TRC_SMPTE2084 ||
+                              picture.color_transfer == AVCOL_TRC_ARIB_STD_B67 ||
+                              picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION;
+    if (pictureIsHdr)
+    {
+      // Make the GUI surface BT2020-PQ and give it the SAME HDR mastering / content-light
+      // metadata the video plane signals to the display. Matching exactly means adding the GUI
+      // layer to composition doesn't change the HDMI HDR envelope, so the Shield doesn't
+      // re-negotiate (and re-sync) the display every time the GUI/overlay redraws. VideoPicture
+      // is non-copyable, so copy just the fields SetHDR reads into a stand-in.
+      VideoPicture hdrPicture;
+      hdrPicture.color_space = picture.color_space;
+      hdrPicture.hasDisplayMetadata = picture.hasDisplayMetadata;
+      hdrPicture.displayMetadata = picture.displayMetadata;
+      hdrPicture.hasLightMetadata = picture.hasLightMetadata;
+      hdrPicture.lightMetadata = picture.lightMetadata;
+      pqGuiSurface = CServiceBroker::GetWinSystem()->SetHDR(&hdrPicture);
+      CLog::Log(LOGINFO,
+                "CRendererMediaCodecSurface::Configure: experimental HDR GUI surface {} (metadata: {})",
+                pqGuiSurface ? "enabled (BT2020-PQ)" : "requested but unavailable, using sRGB",
+                picture.hasDisplayMetadata ? "matched to video" : "none in stream");
+    }
+  }
+
+  CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(pqGuiSurface);
 
   return true;
 }
@@ -136,6 +174,9 @@ void CRendererMediaCodecSurface::Reset()
   m_lastIndex = -1;
 
   CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(false);
+  // Revert an experimental BT2020-PQ GUI surface back to sRGB. No-op when it was never
+  // promoted (SetHDR only recreates the surface if the colorspace actually changes).
+  CServiceBroker::GetWinSystem()->SetHDR(nullptr);
 }
 
 void CRendererMediaCodecSurface::RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha)

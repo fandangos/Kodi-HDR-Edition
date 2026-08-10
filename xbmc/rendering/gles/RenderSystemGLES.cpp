@@ -762,6 +762,14 @@ GLint CRenderSystemGLES::GUIShaderGetPma()
   return -1;
 }
 
+GLint CRenderSystemGLES::GUIShaderGetSdrPeak()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetSdrPeakLoc();
+
+  return -1;
+}
+
 GLint CRenderSystemGLES::GUIShaderGetUniCol()
 {
   if (m_pShader[m_method])

@@ -76,6 +76,14 @@ public:
 
   virtual bool WantsDoublePass() { return false; }
 
+  /*! \brief Tell the renderer it is about to be destroyed only so a replacement can
+             immediately take its place (a stream/clip change), not because playback is
+             ending. A renderer that owns display-wide state - e.g. the HDR GUI surface on
+             Android - can then leave that state alone instead of tearing it down and
+             rebuilding it a few milliseconds later, which churns the compositor.
+  */
+  virtual void SetTransientRelease(bool transient) {}
+
   void SetFps(float fps) { m_fps = fps; }
   void SetViewMode(int viewMode);
 

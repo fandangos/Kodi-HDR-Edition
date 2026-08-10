@@ -182,6 +182,13 @@ bool CWinSystemAndroidGLESContext::CreateSurface()
   {
     if (m_HDRColorSpace != EGL_NONE)
     {
+      // Loud on purpose: this silently drops the GUI back to sRGB while callers that asked
+      // for HDR carry on. Without it, an HDR GUI surface can disappear at any surface rebuild
+      // (a display mode change, an HDMI state flip) with nothing in the log to say so.
+      CLog::Log(LOGWARNING,
+                "CWinSystemAndroidGLESContext::CreateSurface: could not create the surface with "
+                "colorspace {}, falling back to sRGB",
+                m_HDRColorSpace);
       m_HDRColorSpace = EGL_NONE;
       m_displayMetadata = nullptr;
       m_lightMetadata = nullptr;

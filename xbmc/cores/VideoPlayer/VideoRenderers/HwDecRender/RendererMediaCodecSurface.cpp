@@ -91,22 +91,46 @@ bool CRendererMediaCodecSurface::Configure(const VideoPicture &picture, float fp
                               picture.hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION;
     if (pictureIsHdr)
     {
-      // Make the GUI surface BT2020-PQ and give it the SAME HDR mastering / content-light
-      // metadata the video plane signals to the display. Matching exactly means adding the GUI
-      // layer to composition doesn't change the HDMI HDR envelope, so the Shield doesn't
-      // re-negotiate (and re-sync) the display every time the GUI/overlay redraws. VideoPicture
-      // is non-copyable, so copy just the fields SetHDR reads into a stand-in.
+      // Give the GUI surface the SAME HDR mastering / content-light metadata the video plane
+      // signals to the display. Matching exactly means adding the GUI layer to composition
+      // doesn't change the HDMI HDR envelope, so the Shield doesn't re-negotiate (and re-sync)
+      // the display every time the GUI/overlay redraws. VideoPicture is non-copyable, so copy
+      // just the fields SetHDR reads into a stand-in.
+      //
+      // This is done HERE, synchronously, and not deferred to a later frame. Deferring it was
+      // tried (to stop the display being driven into plain HDR10 before the Dolby Vision plane
+      // came up, which costs an extra HDMI handshake at playback start) and made colour
+      // WORSE: a clip change drops the HDMI link for a few seconds, and a deferred promotion
+      // lands the EGL surface rebuild in the middle of that renegotiation, so the display
+      // latches its mode from an intermediate state and Dolby Vision does not re-engage.
+      // Rebuilding the surface before the link drops is what keeps the negotiation clean.
       VideoPicture hdrPicture;
-      hdrPicture.color_space = picture.color_space;
+      // Always ask for BT2020. SetHDR derives the surface colorspace from color_space and only
+      // takes its PQ branch for BT2020/BT709; anything else (an m2ts clip that carries no VUI
+      // colour description reaches us as AVCOL_SPC_UNSPECIFIED, which is common on Blu-ray menu
+      // clips and on the Dolby Vision base layer) made it silently leave the surface sRGB - and,
+      // because it then compared EGL_NONE against EGL_NONE, still report success. The GUI surface
+      // is ours, not a passthrough of the video's matrix: an HDR picture always wants BT2020-PQ.
+      hdrPicture.color_space = AVCOL_SPC_BT2020_NCL;
       hdrPicture.hasDisplayMetadata = picture.hasDisplayMetadata;
       hdrPicture.displayMetadata = picture.displayMetadata;
       hdrPicture.hasLightMetadata = picture.hasLightMetadata;
       hdrPicture.lightMetadata = picture.lightMetadata;
       pqGuiSurface = CServiceBroker::GetWinSystem()->SetHDR(&hdrPicture);
       CLog::Log(LOGINFO,
-                "CRendererMediaCodecSurface::Configure: experimental HDR GUI surface {} (metadata: {})",
+                "CRendererMediaCodecSurface::Configure: experimental HDR GUI surface {} (source "
+                "colorspace {}, transfer {}, hdrType {}, metadata: {})",
                 pqGuiSurface ? "enabled (BT2020-PQ)" : "requested but unavailable, using sRGB",
+                static_cast<int>(picture.color_space), static_cast<int>(picture.color_transfer),
+                static_cast<int>(picture.hdrType),
                 picture.hasDisplayMetadata ? "matched to video" : "none in stream");
+    }
+    else
+    {
+      // An SDR clip after an HDR one: the surface is no longer torn down between clips
+      // (see Reset), so it has to be handed back explicitly or SDR GUI content would be
+      // drawn into a leftover PQ surface.
+      CServiceBroker::GetWinSystem()->SetHDR(nullptr);
     }
   }
 
@@ -174,9 +198,20 @@ void CRendererMediaCodecSurface::Reset()
   m_lastIndex = -1;
 
   CServiceBroker::GetWinSystem()->GetGfxContext().SetTransferPQ(false);
+
   // Revert an experimental BT2020-PQ GUI surface back to sRGB. No-op when it was never
   // promoted (SetHDR only recreates the surface if the colorspace actually changes).
-  CServiceBroker::GetWinSystem()->SetHDR(nullptr);
+  //
+  // Skipped when this renderer is only being replaced by one for the next clip: a Blu-ray
+  // playlist tears the renderer down and rebuilds it at every m2ts boundary, and reverting
+  // here meant the GUI EGL surface was destroyed and recreated TWICE per transition
+  // (PQ -> sRGB -> PQ), each rebuild re-registering the only HDR layer SurfaceFlinger sees,
+  // in the same few milliseconds the video decoder is being re-instantiated. The next
+  // Configure() re-asserts the correct colorspace either way, and runs under the render
+  // manager's locks with no frame in between, so leaving it alone across a clip change costs
+  // nothing and keeps that state still.
+  if (!m_transientRelease)
+    CServiceBroker::GetWinSystem()->SetHDR(nullptr);
 }
 
 void CRendererMediaCodecSurface::RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha)

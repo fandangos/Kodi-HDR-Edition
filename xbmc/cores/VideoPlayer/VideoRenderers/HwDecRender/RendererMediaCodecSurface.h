@@ -31,6 +31,7 @@ public:
   void Update() override{};
   void RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha) override;
   bool SupportsMultiPassRendering() override { return false; }
+  void SetTransientRelease(bool transient) override { m_transientRelease = transient; }
 
   // Player functions
   bool IsGuiLayer() override { return false; }
@@ -47,6 +48,7 @@ private:
   void ReleaseVideoBuffer(int idx, bool render);
 
   bool m_bConfigured = false;
+  bool m_transientRelease = false;
   CRect m_surfDestRect;
   int m_lastIndex = -1;
 

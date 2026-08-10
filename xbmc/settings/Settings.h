@@ -190,6 +190,8 @@ public:
   static constexpr auto SETTING_DISC_PLAYBACK = "disc.playback";
   static constexpr auto SETTING_DISC_MENUOVERLAYPEAKLUMINANCE = "disc.menuoverlaypeakluminance";
   static constexpr auto SETTING_DISC_LIMITMENUGUIUPDATE = "disc.limitmenuguiupdate";
+  static constexpr auto SETTING_DISC_CACHEMENUASSETS = "disc.cachemenuassets";
+  static constexpr auto SETTING_DISC_CACHEMENUASSETSLIMIT = "disc.cachemenuassetslimit";
   static constexpr auto SETTING_BLURAY_PLAYERREGION = "bluray.playerregion";
   static constexpr auto SETTING_ACCESSIBILITY_AUDIOVISUAL = "accessibility.audiovisual";
   static constexpr auto SETTING_ACCESSIBILITY_AUDIOHEARING = "accessibility.audiohearing";

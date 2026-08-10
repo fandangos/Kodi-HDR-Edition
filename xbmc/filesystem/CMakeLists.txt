@@ -148,10 +148,12 @@ endif()
 
 if(TARGET ${APP_NAME_LC}::Bluray)
   list(APPEND SOURCES BlurayCallback.cpp
+		      BlurayDiscAssetCache.cpp
 		      BlurayDiscCache.cpp
                       BlurayDirectory.cpp
                       BlurayFile.cpp)
   list(APPEND HEADERS BlurayCallback.h
+		      BlurayDiscAssetCache.h
 		      BlurayDiscCache.h
                       BlurayDirectory.h
                       BlurayFile.h)

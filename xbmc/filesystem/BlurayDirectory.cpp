@@ -889,7 +889,9 @@ bool CBlurayDirectory::EnsureBlurayOpen()
   g_LangCodeExpander.ConvertToISO6392T(g_langInfo.GetDVDMenuLanguage(), langCode);
   bd_set_player_setting_str(m_bd, BLURAY_PLAYER_SETTING_MENU_LANG, langCode.c_str());
 
-  if (!bd_open_files(m_bd, &m_realPath, CBlurayCallback::dir_open, CBlurayCallback::file_open))
+  m_discAccess.basePath = m_realPath;
+
+  if (!bd_open_files(m_bd, &m_discAccess, CBlurayCallback::dir_open, CBlurayCallback::file_open))
   {
     CLog::LogF(LOGERROR, "Failed to open {}", CURL::GetRedacted(m_realPath));
     Dispose();

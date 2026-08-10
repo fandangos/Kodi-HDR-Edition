@@ -220,6 +220,11 @@ bool CDVDInputStreamBluray::Open()
   // root should not have trailing slash
   URIUtils::RemoveSlashAtEnd(root);
 
+  // Start every disc from a cold cache. Both roots are scratch - the disc's persistent storage is
+  // a separate one and is untouched - and leaving either populated between discs would serve one
+  // disc's files to the next and make the asset cache impossible to measure.
+  CBlurayDiscAssetCache::Purge();
+
   bd_set_debug_handler(CBlurayCallback::bluray_logger);
   bd_set_debug_mask(DBG_CRIT | DBG_BLURAY | DBG_NAV);
 
@@ -259,6 +264,7 @@ bool CDVDInputStreamBluray::Open()
   else
   {
     m_rootPath = root;
+    m_discAccess.basePath = root;
 
 #if defined(HAS_UDFREAD)
     // Only in files mode does libbluray reach the disc through Kodi's filesystem, opening a dozen
@@ -268,7 +274,13 @@ bool CDVDInputStreamBluray::Open()
     m_udfMount.emplace(root);
 #endif
 
-    if (!bd_open_files(m_bd, &m_rootPath, CBlurayCallback::dir_open, CBlurayCallback::file_open))
+    // Only files mode reaches the disc through the callbacks the mirror hooks into, so it is the
+    // only mode it can help. Started before bd_open_files so the copying overlaps the opening
+    // rather than following it; anything not mirrored yet is read from the disc as usual.
+    if (m_assetCache.Start(root))
+      m_discAccess.cache = &m_assetCache;
+
+    if (!bd_open_files(m_bd, &m_discAccess, CBlurayCallback::dir_open, CBlurayCallback::file_open))
     {
       CLog::Log(LOGERROR, "CDVDInputStreamBluray::Open - failed to open {} in files mode",
                 CURL::GetRedacted(root));
@@ -422,6 +434,11 @@ void CDVDInputStreamBluray::Close()
   m_bd = nullptr;
   m_pstream.reset();
   m_rootPath.clear();
+
+  // After bd_close(), so nothing is reading from the mirror when it is deleted
+  m_discAccess.cache = nullptr;
+  m_discAccess.basePath.clear();
+  m_assetCache.Stop();
 
 #if defined(HAS_UDFREAD)
   // Released last, as the files opened from the volume are closed above

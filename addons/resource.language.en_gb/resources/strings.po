@@ -24542,7 +24542,23 @@ msgctxt "#39216"
 msgid "Enables the \"Limit GUI updates during playback\" cap set under Player / Videos. Some displays briefly lose sync when the GUI redraws while 24p disc content is shown on a 60Hz output; capping the GUI redraw rate stops that. It has no effect when the display refresh rate already matches the video, and it is not a universal fix - leave it off unless your display shows the problem."
 msgstr ""
 
-#empty strings from id 39217 to 39899
+msgctxt "#39217"
+msgid "Cache disc menu assets"
+msgstr ""
+
+msgctxt "#39218"
+msgid "Copy a disc's menu graphics and metadata to local storage in the background when playback starts, so that opening a menu page for the first time does not have to fetch them. Most useful for discs played from a network share. The video itself is never copied, and everything copied is deleted when playback ends."
+msgstr ""
+
+msgctxt "#39219"
+msgid "Disc menu asset cache limit (MB)"
+msgstr ""
+
+msgctxt "#39220"
+msgid "Most space a single disc's cached menu assets may use. Copying stops once the limit is reached, and whatever was copied is still used - menu graphics are copied first, so a smaller limit keeps the part that matters most. A typical disc needs around 10 MB."
+msgstr ""
+
+#empty strings from id 39221 to 39899
 
 #. List formatting: pattern used to join a list of exactly two items, e.g. "A and B"
 #. STR_LIST_AND_TWO

@@ -10,6 +10,7 @@
 
 #include "FileItem.h"
 #include "FileItemList.h"
+#include "filesystem/BlurayDiscAssetCache.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "utils/URIUtils.h"
@@ -41,14 +42,14 @@ void CBlurayCallback::dir_close(BD_DIR_H *dir)
 BD_DIR_H* CBlurayCallback::dir_open(void *handle, const char* rel_path)
 {
   std::string strRelPath(rel_path);
-  std::string* strBasePath = reinterpret_cast<std::string*>(handle);
-  if (!strBasePath)
+  BlurayDiscAccess* access = reinterpret_cast<BlurayDiscAccess*>(handle);
+  if (!access)
   {
     CLog::Log(LOGDEBUG, "CBlurayCallback - Error opening dir, null handle!");
     return nullptr;
   }
 
-  std::string strDirname = URIUtils::AddFileToFolder(*strBasePath, strRelPath);
+  std::string strDirname = URIUtils::AddFileToFolder(access->basePath, strRelPath);
   if (URIUtils::HasSlashAtEnd(strDirname))
     URIUtils::RemoveSlashAtEnd(strDirname);
 
@@ -106,14 +107,19 @@ int CBlurayCallback::file_eof(BD_FILE_H *file)
 BD_FILE_H * CBlurayCallback::file_open(void *handle, const char *rel_path)
 {
   std::string strRelPath(rel_path);
-  std::string* strBasePath = reinterpret_cast<std::string*>(handle);
-  if (!strBasePath)
+  BlurayDiscAccess* access = reinterpret_cast<BlurayDiscAccess*>(handle);
+  if (!access)
   {
     CLog::Log(LOGDEBUG, "CBlurayCallback - Error opening dir, null handle!");
     return nullptr;
   }
 
-  std::string strFilename = URIUtils::AddFileToFolder(*strBasePath, strRelPath);
+  const std::string strFilename = URIUtils::AddFileToFolder(access->basePath, strRelPath);
+
+  // A mirrored copy is byte-identical and local, so read it in preference to the disc. It is only
+  // ever an optimisation: if it is missing, or disappeared because playback ended underneath us,
+  // the disc itself is still there to read.
+  const std::string strCached = access->cache ? access->cache->ResolveFile(strRelPath) : "";
 
   BD_FILE_H *file = new BD_FILE_H;
 
@@ -124,16 +130,22 @@ BD_FILE_H * CBlurayCallback::file_open(void *handle, const char *rel_path)
   file->tell = file_tell;
   file->eof = file_eof;
 
-  CFile* fp = new CFile();
-  if (fp->Open(strFilename))
+  for (const auto& path : {strCached, strFilename})
   {
-    file->internal = (void*)fp;
-    return file;
+    if (path.empty())
+      continue;
+
+    CFile* fp = new CFile();
+    if (fp->Open(path))
+    {
+      file->internal = (void*)fp;
+      return file;
+    }
+    delete fp;
   }
 
   CLog::Log(LOGDEBUG, "CBlurayCallback - Error opening file! ({})", CURL::GetRedacted(strFilename));
 
-  delete fp;
   delete file;
 
   return nullptr;

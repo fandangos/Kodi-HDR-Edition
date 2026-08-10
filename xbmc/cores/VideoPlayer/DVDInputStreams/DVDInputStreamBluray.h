@@ -10,6 +10,8 @@
 
 #include "BlurayStateSerializer.h"
 #include "DVDInputStream.h"
+#include "filesystem/BlurayCallback.h"
+#include "filesystem/BlurayDiscAssetCache.h"
 #include "threads/CriticalSection.h"
 #if defined(HAS_UDFREAD)
 #include "filesystem/UDFContext.h"
@@ -209,6 +211,13 @@ protected:
     void FreeTitleInfo();
     std::unique_ptr<CDVDInputStreamFile> m_pstream;
     std::string m_rootPath;
+
+    /*! Where libbluray reads the disc from, and the local mirror it may read instead */
+    BlurayDiscAccess m_discAccess;
+
+    /*! Background copy of the disc's menu assets to local storage. Files mode only - the other
+        modes do not reach the disc through the file callbacks it hooks into. */
+    CBlurayDiscAssetCache m_assetCache;
 
 #if defined(HAS_UDFREAD)
     // Keeps a disc image's UDF volume mounted for as long as the disc is open

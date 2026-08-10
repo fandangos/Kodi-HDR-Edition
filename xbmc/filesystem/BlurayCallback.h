@@ -8,7 +8,24 @@
 
 #pragma once
 
+#include <string>
+
 #include <libbluray/filesystem.h>
+
+class CBlurayDiscAssetCache;
+
+/*!
+ * \brief The handle libbluray hands back to the callbacks below.
+ *
+ * Holds where the disc is, and optionally a local mirror of its non-video files to read from
+ * instead. Directory listings deliberately always go to the disc itself: the mirror may still be
+ * filling, and a short listing would look to libbluray like a disc missing files.
+ */
+struct BlurayDiscAccess
+{
+  std::string basePath;
+  const CBlurayDiscAssetCache* cache{nullptr};
+};
 
 class CBlurayCallback
 {

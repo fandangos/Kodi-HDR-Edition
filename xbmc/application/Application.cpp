@@ -926,11 +926,20 @@ void CApplication::Render()
     {
       hasRendered |= CServiceBroker::GetGUI()->GetWindowManager().Render();
     }
-    // execute post rendering actions (finalize window closing)
-    CServiceBroker::GetGUI()->GetWindowManager().AfterRender();
-
     m_lastRenderTime = std::chrono::steady_clock::now();
   }
+
+  // Execute post rendering actions (finalize window closing).
+  //
+  // This MUST run even on a frame whose GUI render was skipped. CGUIWindow::AfterRender() is
+  // the only place a closing window actually closes ("m_closing && !IsAnimating(CLOSE) ->
+  // Close(true)"), so gating it on guiWillRender means the GUI rate limiter
+  // (videoplayer.limitguiupdate) stalls every window transition until something else forces a
+  // render - observed as the OSD/Settings freezing for tens of seconds. Window animations are
+  // advanced by Process() on the app thread, which runs regardless of render skipping, so this
+  // is safe to call without having drawn.
+  if (appPower->GetRenderGUI())
+    CServiceBroker::GetGUI()->GetWindowManager().AfterRender();
 
   if (compositing)
     CServiceBroker::GetWinSystem()->EndGuiComposite();
@@ -1596,20 +1605,41 @@ void CApplication::FrameMove(bool processEvents, bool processGUI)
         captureService && captureService->LatchFrame())
       CServiceBroker::GetGUI()->GetWindowManager().MarkDirty();
 
-    /*! @todo look into the possibility to use this for GBM
-    int fps = 0;
-
     // This code reduces rendering fps of the GUI layer when playing videos in fullscreen mode
-    // it makes only sense on architectures with multiple layers
-    if (CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() && !m_appPlayer.IsPausedPlayback() && m_appPlayer.IsRenderingVideoLayer())
-      fps = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOPLAYER_LIMITGUIUPDATE);
+    // it makes only sense on architectures with multiple layers.
+    //
+    // On the Android MediaCodec-surface path the GUI is a separate composited layer, and when it
+    // is promoted to BT2020-PQ for HDR disc menus every buffer we present makes the compositor
+    // rewrite the HDMI HDR infoframe (measured on a Shield: 0/s with a static GUI, ~2/s per
+    // disc-menu keypress, 60/s with the OSD open - and only the 60/s case makes the display
+    // re-sync). Capping the GUI rate caps that churn. 0 = unlimited, i.e. previous behaviour.
+    // NOTE the gate is deliberately wider than upstream's fullscreen-video-only test. While a
+    // BT2020-PQ GUI surface is live the layer keeps its HDR tagging even when the GUI is NOT
+    // fullscreen video - SetHDR(nullptr) only runs on renderer teardown - so leaving fullscreen
+    // video for Home/Settings with a disc still playing is precisely when an unthrottled
+    // full-screen skin repaint hammers the compositor's HDR path. IsTransferPQ() is exactly
+    // "the GUI surface is currently HDR", so it brings that case under the same cap.
+    if ((CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenVideo() ||
+         CServiceBroker::GetWinSystem()->GetGfxContext().IsTransferPQ()) &&
+        !appPlayer->IsPausedPlayback() && appPlayer->IsRenderingVideoLayer())
+    {
+      const int fps = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+          CSettings::SETTING_VIDEOPLAYER_LIMITGUIUPDATE);
 
-    auto now = std::chrono::steady_clock::now();
+      // Only engage when the display is actually running faster than the requested cap. When
+      // "adjust display refresh rate" has already matched the output to the video (e.g. a 23.976
+      // mode for 23.976 content) vsync alone holds the GUI at that rate, the display never
+      // re-syncs, and throttling further would only cost OSD smoothness for nothing. The cap is
+      // for the mismatched case - 24p content presented on a 60Hz output, or a display that
+      // refuses to switch modes at all.
+      const float displayRefreshRate = CServiceBroker::GetWinSystem()->GetGfxContext().GetFPS();
 
-    auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastRenderTime).count();
-    if (fps > 0 && frameTime * fps < 1000)
-      m_skipGuiRender = true;
-    */
+      const auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - m_lastRenderTime)
+                                 .count();
+      if (fps > 0 && static_cast<float>(fps) < displayRefreshRate && frameTime * fps < 1000)
+        m_skipGuiRender = true;
+    }
 
     if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiSmartRedraw && m_guiRefreshTimer.IsTimePast())
     {

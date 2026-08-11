@@ -357,8 +357,14 @@ if(TARGET ${APP_NAME_LC}::Alsa AND TARGET ${APP_NAME_LC}::PulseAudio)
 endif()
 
 # Compile Info
+# APP_PACKAGE must be forwarded: this runs cmake -P in a fresh process, so core_find_versions()
+# there cannot see an APP_PACKAGE overridden on our command line and would silently fall back to
+# version.txt. On Android that is not cosmetic - CCompileInfo::GetClass() derives the JNI class
+# path from it, so a mismatch makes FindClass("<package>/Main") fail and the app abort in
+# JNI_OnLoad, while gradle still builds the Java classes under the overridden package.
 add_custom_command(OUTPUT ${CORE_BUILD_DIR}/xbmc/CompileInfo.cpp
                    COMMAND ${CMAKE_COMMAND} -DCORE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                                            -DAPP_PACKAGE=${APP_PACKAGE}
                                             -DCORE_SYSTEM_NAME=${CORE_SYSTEM_NAME}
                                             -DCORE_PLATFORM_NAME_LC="${CORE_PLATFORM_NAME_LC}"
                                             -DAUDIO_BACKENDS="${AUDIO_BACKENDS_LIST}"

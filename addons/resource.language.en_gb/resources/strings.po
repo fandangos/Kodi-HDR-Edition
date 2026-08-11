@@ -24555,7 +24555,7 @@ msgid "Disc menu asset cache limit (MB)"
 msgstr ""
 
 msgctxt "#39220"
-msgid "Most space a single disc's cached menu assets may use. Copying stops once the limit is reached, and whatever was copied is still used - menu graphics are copied first, so a smaller limit keeps the part that matters most. A typical disc needs around 10 MB."
+msgid "Most space a single disc's cached menu assets may use. Copying stops once the limit is reached, and whatever was copied is still used - menu graphics are copied first, so a smaller limit keeps the part that matters most. A typical disc needs around 10 MB. Set to 0 to turn caching off."
 msgstr ""
 
 #empty strings from id 39221 to 39899

@@ -48,7 +48,13 @@ CMediaCodecDecoderFilterManager::CMediaCodecDecoderFilterManager()
       continue;
 
     std::string codecname = codec_info.getName();
-    uint32_t flags = CDecoderFilter::FLAG_GENERAL_ALLOWED | CDecoderFilter::FLAG_DVD_ALLOWED;
+    // FLAG_STILLS_ALLOWED is granted here as well. VideoPlayer sets CDVDStreamInfo::stills for
+    // any stream opened while a disc menu is on screen, and without this flag isValid() rejects
+    // every hardware decoder for that stream, so a Blu-ray's 4K HEVC menu background falls back
+    // to software decoding. A userdata decoderfilter.xml still overrides this: the base class
+    // constructor Load()s it first and add() will not replace an entry that already exists.
+    uint32_t flags = CDecoderFilter::FLAG_GENERAL_ALLOWED | CDecoderFilter::FLAG_DVD_ALLOWED |
+                     CDecoderFilter::FLAG_STILLS_ALLOWED;
     for (const char **ptr = blacklisted_decoders; *ptr && flags; ptr++)
     {
       if (!StringUtils::CompareNoCase(*ptr, codecname, strlen(*ptr)))

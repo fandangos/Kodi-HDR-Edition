@@ -24558,7 +24558,15 @@ msgctxt "#39220"
 msgid "Most space a single disc's cached menu assets may use. Copying stops once the limit is reached, and whatever was copied is still used - menu graphics are copied first, so a smaller limit keeps the part that matters most. A typical disc needs around 10 MB. Set to 0 to turn caching off."
 msgstr ""
 
-#empty strings from id 39221 to 39899
+msgctxt "#39221"
+msgid "Disc subtitle brightness (HDR)"
+msgstr ""
+
+msgctxt "#39222"
+msgid "Brightness of disc (PGS) subtitles composited over HDR video. Only takes effect when the Android HDR GUI surface is enabled. 500 leaves them at the same brightness as the rest of the interface; raise until they are as readable as you want over the film; adjusts in real time. The disc menu has its own separate setting."
+msgstr ""
+
+#empty strings from id 39223 to 39899
 
 #. List formatting: pattern used to join a list of exactly two items, e.g. "A and B"
 #. STR_LIST_AND_TWO

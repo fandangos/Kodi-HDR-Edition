@@ -189,6 +189,7 @@ public:
   static constexpr auto SETTING_DVDS_AUTOMENU = "dvds.automenu";
   static constexpr auto SETTING_DISC_PLAYBACK = "disc.playback";
   static constexpr auto SETTING_DISC_MENUOVERLAYPEAKLUMINANCE = "disc.menuoverlaypeakluminance";
+  static constexpr auto SETTING_DISC_SUBTITLEPEAKLUMINANCE = "disc.subtitlepeakluminance";
   static constexpr auto SETTING_DISC_LIMITMENUGUIUPDATE = "disc.limitmenuguiupdate";
   static constexpr auto SETTING_DISC_CACHEMENUASSETS = "disc.cachemenuassets";
   static constexpr auto SETTING_DISC_CACHEMENUASSETSLIMIT = "disc.cachemenuassetslimit";

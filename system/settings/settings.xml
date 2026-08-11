@@ -506,6 +506,20 @@
           </constraints>
           <control type="slider" format="integer" range="0,1000" />
         </setting>
+        <setting id="disc.subtitlepeakluminance" type="integer" label="39221" help="39222">
+          <requirement>HAS_MEDIACODEC</requirement>
+          <dependencies>
+            <dependency type="visible" on="property" name="ishdrdisplay"/>
+          </dependencies>
+          <level>1</level>
+          <default>500</default>
+          <constraints>
+            <minimum>0</minimum>
+            <step>10</step>
+            <maximum>1000</maximum>
+          </constraints>
+          <control type="slider" format="integer" range="0,1000" />
+        </setting>
         <setting id="disc.limitmenuguiupdate" type="boolean" label="39215" help="39216">
           <level>1</level>
           <default>false</default>

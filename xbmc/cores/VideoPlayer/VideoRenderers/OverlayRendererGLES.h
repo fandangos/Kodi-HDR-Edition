@@ -38,6 +38,9 @@ public:
   float m_u;
   float m_v;
   bool m_pma; /*< is alpha in texture premultiplied in the values */
+  /*< disc menu graphic rather than a subtitle; selects which HDR brightness slider applies.
+      DVD SPU overlays are subtitles, so the default is what that constructor wants. */
+  bool m_isDiscMenuGraphic = false;
 };
 
 class COverlayGlyphGLES : public COverlay

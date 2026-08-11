@@ -83,6 +83,14 @@ std::string CBlurayDiscAssetCache::GetMirrorRoot()
 
 void CBlurayDiscAssetCache::Purge()
 {
+  // Honour the off-switch. LIBBLURAY_CACHE_ROOT is libbluray's own BLURAY_PLAYER_CACHE_ROOT - the
+  // BD-J VFSCache/BUDA area - so clearing it is a side effect of this feature, not of playing a
+  // disc. With the feature disabled it must be left alone, otherwise turning the setting off does
+  // not actually take the feature out of the picture and cannot be used to rule it out.
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  if (settings && !settings->GetBool(CSettings::SETTING_DISC_CACHEMENUASSETS))
+    return;
+
   for (const auto& dir : {MIRROR_ROOT, LIBBLURAY_CACHE_ROOT})
   {
     if (CDirectory::Exists(dir) && !CDirectory::RemoveRecursive(dir))

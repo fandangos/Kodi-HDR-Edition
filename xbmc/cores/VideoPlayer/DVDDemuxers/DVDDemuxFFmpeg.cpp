@@ -691,6 +691,8 @@ void CDVDDemuxFFmpeg::Flush()
     CDVDDemuxUtils::FreeDemuxPacket(m_dvP7HeldBl);
     m_dvP7HeldBl = nullptr;
   }
+  m_dvP7PendingRpu.clear();
+  m_dvP7PendingRpuPts = DVD_NOPTS_VALUE;
 #endif
 
   m_displayTime = 0;
@@ -1169,30 +1171,39 @@ DemuxPacket* CDVDDemuxFFmpeg::ReadInternal(bool keep)
             {
               std::vector<uint8_t> rpuNal;
               ExtractConvertedDoviRpu(pPacket->pData, pPacket->iSize, rpuNal);
+              const double elPts = pPacket->pts;
               CDVDDemuxUtils::FreeDemuxPacket(pPacket);
               pPacket = nullptr;
 
-              if (m_dvP7HeldBl)
+              // Pair on the timestamp, not on arrival order. The two layers are supposed to
+              // arrive BL-then-EL with identical timestamps, but a clip change can deliver an
+              // EL first, and pairing positionally then stays one frame out for the rest of the
+              // stream - every later base layer is emitted with the WRONG frame's RPU or with
+              // none at all. The counters show that happening: blNoEl and elNoBl come out
+              // exactly equal, which is a sustained one-frame slip rather than an occasional
+              // gap. A base layer handed to a Dolby Vision decoder with no RPU is a frame whose
+              // metadata the display pipeline then has to go looking for and cannot find.
+              if (m_dvP7HeldBl && elPts != DVD_NOPTS_VALUE &&
+                  m_dvP7HeldBl->pts != DVD_NOPTS_VALUE && elPts != m_dvP7HeldBl->pts)
+              {
+                m_dvP7ResyncCount++;
+                if (elPts > m_dvP7HeldBl->pts)
+                {
+                  // belongs to a later frame - keep it for the base layer it matches
+                  m_dvP7PendingRpu = rpuNal;
+                  m_dvP7PendingRpuPts = elPts;
+                }
+                // else: an older RPU, stale - drop it
+                rpuNal.clear();
+
+                // the held base layer keeps waiting for its own EL; do not consume it here
+                bReturnEmpty = true;
+              }
+              else if (m_dvP7HeldBl)
               {
                 if (!rpuNal.empty())
                 {
-                  pPacket = CDVDDemuxUtils::AllocateDemuxPacket(
-                      static_cast<int>(m_dvP7HeldBl->iSize + rpuNal.size()));
-                  memcpy(pPacket->pData, m_dvP7HeldBl->pData, m_dvP7HeldBl->iSize);
-                  memcpy(pPacket->pData + m_dvP7HeldBl->iSize, rpuNal.data(), rpuNal.size());
-                  pPacket->iSize = m_dvP7HeldBl->iSize + static_cast<int>(rpuNal.size());
-                  pPacket->pts = m_dvP7HeldBl->pts;
-                  pPacket->dts = m_dvP7HeldBl->dts;
-                  pPacket->duration = m_dvP7HeldBl->duration;
-                  pPacket->dispTime = m_dvP7HeldBl->dispTime;
-                  pPacket->recoveryPoint = m_dvP7HeldBl->recoveryPoint;
-                  pPacket->iStreamId = m_dvP7HeldBl->iStreamId;
-                  // carry over any side data owned by the held base-layer packet
-                  pPacket->pSideData = m_dvP7HeldBl->pSideData;
-                  pPacket->iSideDataElems = m_dvP7HeldBl->iSideDataElems;
-                  m_dvP7HeldBl->pSideData = nullptr;
-                  m_dvP7HeldBl->iSideDataElems = 0;
-                  CDVDDemuxUtils::FreeDemuxPacket(m_dvP7HeldBl);
+                  pPacket = MergeDoviRpu(m_dvP7HeldBl, rpuNal);
                   m_dvP7MergedCount++;
                 }
                 else
@@ -1205,6 +1216,12 @@ DemuxPacket* CDVDDemuxFFmpeg::ReadInternal(bool keep)
               }
               else
               {
+                // no base layer held - this RPU may belong to the next one
+                if (!rpuNal.empty() && elPts != DVD_NOPTS_VALUE)
+                {
+                  m_dvP7PendingRpu = rpuNal;
+                  m_dvP7PendingRpuPts = elPts;
+                }
                 m_dvP7ElNoBlCount++;
               }
 
@@ -1213,20 +1230,43 @@ DemuxPacket* CDVDDemuxFFmpeg::ReadInternal(bool keep)
             }
             else if (m_pkt.pkt.stream_index == m_dvP7BlIndex)
             {
-              // Hold the base layer until its enhancement-layer RPU arrives. If a
-              // previous base layer is still held (its EL never came), emit that one
-              // unchanged now so the video stream keeps advancing and can never starve.
-              DemuxPacket* previousBl = m_dvP7HeldBl;
-              m_dvP7HeldBl = pPacket;
-              if (previousBl)
+              // An RPU that arrived ahead of its base layer: if this is the frame it
+              // belongs to, splice it now rather than emitting the frame bare.
+              if (!m_dvP7PendingRpu.empty() && pPacket->pts != DVD_NOPTS_VALUE &&
+                  pPacket->pts == m_dvP7PendingRpuPts)
               {
-                pPacket = previousBl;
-                m_dvP7BlNoElCount++;
+                DemuxPacket* previousBl = m_dvP7HeldBl;
+                m_dvP7HeldBl = nullptr;
+                pPacket = MergeDoviRpu(pPacket, m_dvP7PendingRpu);
+                m_dvP7MergedCount++;
+                m_dvP7PendingRpu.clear();
+                m_dvP7PendingRpuPts = DVD_NOPTS_VALUE;
+
+                if (previousBl)
+                {
+                  // the older frame never got its own RPU - emit it first, this one is held
+                  m_dvP7HeldBl = pPacket;
+                  pPacket = previousBl;
+                  m_dvP7BlNoElCount++;
+                }
               }
               else
               {
-                pPacket = nullptr;
-                bReturnEmpty = true;
+                // Hold the base layer until its enhancement-layer RPU arrives. If a
+                // previous base layer is still held (its EL never came), emit that one
+                // unchanged now so the video stream keeps advancing and can never starve.
+                DemuxPacket* previousBl = m_dvP7HeldBl;
+                m_dvP7HeldBl = pPacket;
+                if (previousBl)
+                {
+                  pPacket = previousBl;
+                  m_dvP7BlNoElCount++;
+                }
+                else
+                {
+                  pPacket = nullptr;
+                  bReturnEmpty = true;
+                }
               }
             }
 
@@ -1236,8 +1276,9 @@ DemuxPacket* CDVDDemuxFFmpeg::ReadInternal(bool keep)
               m_dvP7LastLogCount = m_dvP7MergedCount + m_dvP7NoRpuCount + m_dvP7BlNoElCount;
               CLog::Log(LOGINFO,
                         "CDVDDemuxFFmpeg DoVi P7 merge stats: merged={} noRpu={} blNoEl={} "
-                        "elNoBl={}",
-                        m_dvP7MergedCount, m_dvP7NoRpuCount, m_dvP7BlNoElCount, m_dvP7ElNoBlCount);
+                        "elNoBl={} resync={}",
+                        m_dvP7MergedCount, m_dvP7NoRpuCount, m_dvP7BlNoElCount,
+                        m_dvP7ElNoBlCount, m_dvP7ResyncCount);
             }
           }
 #endif
@@ -1617,6 +1658,8 @@ void CDVDDemuxFFmpeg::CreateStreams(unsigned int program)
     CDVDDemuxUtils::FreeDemuxPacket(m_dvP7HeldBl);
     m_dvP7HeldBl = nullptr;
   }
+  m_dvP7PendingRpu.clear();
+  m_dvP7PendingRpuPts = DVD_NOPTS_VALUE;
 #endif
 
   // add the ffmpeg streams to our own stream map
@@ -2708,6 +2751,30 @@ void CDVDDemuxFFmpeg::GetL16Parameters(int &channels, int &samplerate)
     }
   }
 }
+
+#ifdef HAVE_LIBDOVI
+DemuxPacket* CDVDDemuxFFmpeg::MergeDoviRpu(DemuxPacket* bl, const std::vector<uint8_t>& rpuNal)
+{
+  DemuxPacket* merged =
+      CDVDDemuxUtils::AllocateDemuxPacket(static_cast<int>(bl->iSize + rpuNal.size()));
+  memcpy(merged->pData, bl->pData, bl->iSize);
+  memcpy(merged->pData + bl->iSize, rpuNal.data(), rpuNal.size());
+  merged->iSize = bl->iSize + static_cast<int>(rpuNal.size());
+  merged->pts = bl->pts;
+  merged->dts = bl->dts;
+  merged->duration = bl->duration;
+  merged->dispTime = bl->dispTime;
+  merged->recoveryPoint = bl->recoveryPoint;
+  merged->iStreamId = bl->iStreamId;
+  // carry over any side data owned by the base-layer packet
+  merged->pSideData = bl->pSideData;
+  merged->iSideDataElems = bl->iSideDataElems;
+  bl->pSideData = nullptr;
+  bl->iSideDataElems = 0;
+  CDVDDemuxUtils::FreeDemuxPacket(bl);
+  return merged;
+}
+#endif
 
 StreamHdrType CDVDDemuxFFmpeg::DetermineHdrType(AVStream* pStream)
 {

@@ -75,12 +75,12 @@ bool CRendererMediaCodecSurface::Configure(const VideoPicture &picture, float fp
   // is never called and the GUI surface stays sRGB: SurfaceFlinger then tonemaps the SDR
   // overlay onto the HDR output, which desaturates BD-J/HDMV disc-menu overlays.
   //
-  // Default behaviour (known good): keep the GUI in sRGB and let SurfaceFlinger composite.
-  // Experimental opt-in (advancedsettings <video><androidhdrguisurface>true): promote the
-  // GUI surface to BT2020-PQ and enable the per-shader PQ encode so the overlay is
-  // composited in HDR space with no SDR tonemap. Self-gates: SetHDR only succeeds when the
-  // HDR display setting is on and the EGL BT2020-PQ/ST2086 extensions are present, otherwise
-  // it returns false and we transparently fall back to the sRGB path.
+  // So by default we promote the GUI surface to BT2020-PQ and enable the per-shader PQ encode,
+  // compositing the overlay in HDR space with no SDR tonemap. Self-gates: SetHDR only succeeds
+  // when the HDR display setting is on and the EGL BT2020-PQ/ST2086 extensions are present,
+  // otherwise it returns false and we transparently fall back to the sRGB path.
+  // advancedsettings <video><androidhdrguisurface>false</> forces the old sRGB path back, for a
+  // device that advertises the extensions but composites them wrongly.
   bool pqGuiSurface = false;
   const auto advancedSettings = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings();
   if (advancedSettings && advancedSettings->m_videoAndroidHDRGuiSurface &&
@@ -118,7 +118,7 @@ bool CRendererMediaCodecSurface::Configure(const VideoPicture &picture, float fp
       hdrPicture.lightMetadata = picture.lightMetadata;
       pqGuiSurface = CServiceBroker::GetWinSystem()->SetHDR(&hdrPicture);
       CLog::Log(LOGINFO,
-                "CRendererMediaCodecSurface::Configure: experimental HDR GUI surface {} (source "
+                "CRendererMediaCodecSurface::Configure: HDR GUI surface {} (source "
                 "colorspace {}, transfer {}, hdrType {}, metadata: {})",
                 pqGuiSurface ? "enabled (BT2020-PQ)" : "requested but unavailable, using sRGB",
                 static_cast<int>(picture.color_space), static_cast<int>(picture.color_transfer),

@@ -24563,7 +24563,7 @@ msgid "Disc subtitle brightness (HDR)"
 msgstr ""
 
 msgctxt "#39222"
-msgid "Brightness of disc (PGS) subtitles composited over HDR video. Only takes effect when the Android HDR GUI surface is enabled. 500 leaves them at the same brightness as the rest of the interface; raise until they are as readable as you want over the film; adjusts in real time. The disc menu has its own separate setting."
+msgid "Brightness of disc (PGS) subtitles composited over HDR video. 500 matches the rest of the interface, lower is dimmer and higher pushes them above it; adjust until they are comfortable to read over the film. Takes effect in real time while subtitles are on screen. The disc menu has its own separate setting."
 msgstr ""
 
 #empty strings from id 39223 to 39899

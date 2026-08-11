@@ -498,7 +498,7 @@
             <dependency type="visible" on="property" name="ishdrdisplay"/>
           </dependencies>
           <level>1</level>
-          <default>700</default>
+          <default>600</default>
           <constraints>
             <minimum>0</minimum>
             <step>10</step>
@@ -512,7 +512,7 @@
             <dependency type="visible" on="property" name="ishdrdisplay"/>
           </dependencies>
           <level>1</level>
-          <default>500</default>
+          <default>300</default>
           <constraints>
             <minimum>0</minimum>
             <step>10</step>

@@ -11,8 +11,10 @@
 #include "DVDDemux.h"
 #include "threads/CriticalSection.h"
 #include "threads/SystemClock.h"
+#include <deque>
 #include <map>
 #include <memory>
+#include <utility>
 #include <vector>
 
 extern "C" {
@@ -150,6 +152,16 @@ protected:
   // Dolby Vision instead of the HDR10 base layer. See ReadInternal() for the packet flow.
   void SetupDoviProfile7Merge(int elStreamIndex);
   bool ExtractConvertedDoviRpu(const uint8_t* elData, int elSize, std::vector<uint8_t>& rpuNal);
+  // Splices rpuNal onto the end of bl's access unit. Consumes bl, returns the merged packet.
+  DemuxPacket* MergeDoviRpu(DemuxPacket* bl, const std::vector<uint8_t>& rpuNal);
+  // Marks the queued base layer that this timestamp belongs to as resolved. Returns false
+  // if that frame has not been demuxed yet.
+  bool ResolveDoviPending(double key, std::vector<uint8_t>& rpuNal);
+  // Emits the oldest base layer once its enhancement layer has been seen (or once the
+  // queue is too deep to keep waiting). Returns nullptr while the front is still waiting.
+  DemuxPacket* DrainDoviPending();
+  // Frees every queued base layer and RPU.
+  void ClearDoviPending();
 #endif
 
   CCriticalSection m_critSection;
@@ -185,12 +197,29 @@ protected:
   bool m_dvP7Merge = false;
   int m_dvP7BlIndex = -1; // ffmpeg stream index of the Dolby Vision base layer
   int m_dvP7ElIndex = -1; // ffmpeg stream index of the Dolby Vision enhancement layer
-  DemuxPacket* m_dvP7HeldBl = nullptr; // base-layer packet awaiting its paired EL RPU
+
+  // A base-layer frame waiting for the enhancement layer that carries its RPU.
+  struct DvP7Pending
+  {
+    DemuxPacket* bl = nullptr;
+    std::vector<uint8_t> rpu; // empty once resolved = its EL carried no usable RPU
+    bool resolved = false; // its enhancement layer has been seen
+  };
+  // Base layers in demux order. Only the FRONT is ever emitted, so the merge can
+  // never reorder the stream. Depth is what lets it survive a disc that delivers the
+  // layers in bursts (BL BL EL EL) instead of strictly interleaved.
+  std::deque<DvP7Pending> m_dvP7Pending;
+  // RPUs whose base layer has not been demuxed yet, keyed by timestamp.
+  std::deque<std::pair<double, std::vector<uint8_t>>> m_dvP7EarlyRpu;
+  // Deep enough for any real interleave; past this the oldest frame is emitted
+  // unpaired rather than let the video stream starve.
+  static constexpr size_t DVP7_MAX_PENDING = 8;
+
   // diagnostics for the merge
-  uint64_t m_dvP7MergedCount = 0;  // BL frames emitted with a converted RPU merged in
-  uint64_t m_dvP7NoRpuCount = 0;   // BL frames emitted, paired EL had no usable RPU
-  uint64_t m_dvP7BlNoElCount = 0;  // BL frames emitted unpaired (no EL followed)
-  uint64_t m_dvP7ElNoBlCount = 0;  // EL frames dropped with no BL held
+  uint64_t m_dvP7MergedCount = 0;  // BL frames emitted with their own converted RPU
+  uint64_t m_dvP7NoRpuCount = 0;   // BL frames whose paired EL carried no usable RPU
+  uint64_t m_dvP7BlNoElCount = 0;  // BL frames emitted unpaired - the defect metric
+  uint64_t m_dvP7ElNoBlCount = 0;  // RPUs discarded without ever finding their frame
   uint64_t m_dvP7LastLogCount = 0;
 #endif
 

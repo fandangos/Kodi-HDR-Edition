@@ -73,6 +73,7 @@ public:
   std::string GetPlayerInfo() override;
   int GetVideoBitrate() override;
   void SetSpeed(int iSpeed) override;
+  void SetKeepCodecOnClose(bool keep) override { m_keepCodecOnClose = keep; }
 
   // classes
   CDVDOverlayContainer* m_pOverlayContainer;
@@ -101,6 +102,7 @@ protected:
   EOutputState OutputPicture(const VideoPicture* src);
   void ProcessOverlays(const VideoPicture* pSource, double pts);
   void OpenStream(CDVDStreamInfo& hint, std::unique_ptr<CDVDVideoCodec> codec);
+  std::unique_ptr<CDVDVideoCodec> TakeParkedCodec(CDVDStreamInfo& hint);
 
   void ResetFrameRateCalc();
   void CalcFrameRate();
@@ -136,6 +138,9 @@ protected:
   CDVDMessageQueue& m_messageParent;
   CDVDStreamInfo m_hints;
   std::unique_ptr<CDVDVideoCodec> m_pVideoCodec;
+  // decoder held over a stream change, see SetKeepCodecOnClose()
+  std::unique_ptr<CDVDVideoCodec> m_parkedVideoCodec;
+  bool m_keepCodecOnClose = false;
   CPtsTracker m_ptsTracker;
   std::list<DVDMessageListItem> m_packets;
   CDroppingStats m_droppingStats;

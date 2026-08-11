@@ -1738,7 +1738,15 @@ void CVideoPlayer::Process()
         SetCaching(CACHESTATE_DONE);
         CLog::Log(LOGINFO, "VideoPlayer: next stream, wait for old streams to be finished");
         CloseStream(m_CurrentAudio, true);
+
+        // The clips of a disc almost always share one video format, so hold on to
+        // the decoder here: the OpenStream() for the next clip can then adopt it
+        // rather than build and configure a new one. Beyond being faster, that
+        // matters on Android, where every fresh Dolby Vision MediaCodec configure
+        // is a chance to take the vendor display pipeline down with it.
+        m_VideoPlayerVideo->SetKeepCodecOnClose(true);
         CloseStream(m_CurrentVideo, true);
+        m_VideoPlayerVideo->SetKeepCodecOnClose(false);
 
         m_CurrentAudio.Clear();
         m_CurrentVideo.Clear();

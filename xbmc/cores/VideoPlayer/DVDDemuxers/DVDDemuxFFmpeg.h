@@ -9,7 +9,6 @@
 #pragma once
 
 #include "DVDDemux.h"
-#include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "threads/CriticalSection.h"
 #include "threads/SystemClock.h"
 #include <map>
@@ -186,17 +185,7 @@ protected:
   bool m_dvP7Merge = false;
   int m_dvP7BlIndex = -1; // ffmpeg stream index of the Dolby Vision base layer
   int m_dvP7ElIndex = -1; // ffmpeg stream index of the Dolby Vision enhancement layer
-  /*!
-   * \brief Splice a converted Dolby Vision RPU onto a base-layer packet.
-   * Takes ownership of \p bl and returns the merged packet.
-   */
-  static DemuxPacket* MergeDoviRpu(DemuxPacket* bl, const std::vector<uint8_t>& rpuNal);
-
   DemuxPacket* m_dvP7HeldBl = nullptr; // base-layer packet awaiting its paired EL RPU
-  // RPU of an EL that arrived before its base layer, kept for the BL with this timestamp
-  std::vector<uint8_t> m_dvP7PendingRpu;
-  double m_dvP7PendingRpuPts = DVD_NOPTS_VALUE;
-  uint64_t m_dvP7ResyncCount = 0; // times BL/EL pairing was resynchronised by timestamp
   // diagnostics for the merge
   uint64_t m_dvP7MergedCount = 0;  // BL frames emitted with a converted RPU merged in
   uint64_t m_dvP7NoRpuCount = 0;   // BL frames emitted, paired EL had no usable RPU

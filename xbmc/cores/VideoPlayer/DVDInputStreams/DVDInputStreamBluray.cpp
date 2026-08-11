@@ -226,7 +226,10 @@ bool CDVDInputStreamBluray::Open()
   CBlurayDiscAssetCache::Purge();
 
   bd_set_debug_handler(CBlurayCallback::bluray_logger);
-  bd_set_debug_mask(DBG_CRIT | DBG_BLURAY | DBG_NAV);
+  // DBG_BDJ carries the BD-J side: Xlet lifecycle, the graphics plane, and persistent storage.
+  // Without it only BD-J *errors* arrive (through DBG_CRIT), so a disc whose Xlet stalls rather
+  // than fails logs nothing at all at the point of interest.
+  bd_set_debug_mask(DBG_CRIT | DBG_BLURAY | DBG_NAV | DBG_BDJ);
 
   m_bd = bd_init();
 

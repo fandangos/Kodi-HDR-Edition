@@ -4316,9 +4316,30 @@ bool CVideoPlayer::OpenVideoStream(CDVDStreamInfo& hint, bool reset)
                                                    (double)DVD_TIME_BASE * hint.fpsscale /
                                                    (hint.fpsrate * (hint.interlaced ? 2 : 1)));
 
-      RESOLUTION res = CResolutionUtils::ChooseBestResolution(static_cast<float>(framerate), hint.width, hint.height, !hint.stereo_mode.empty());
-      CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(res, false);
-      m_renderManager.TriggerUpdateResolution(framerate, hint.width, hint.height, hint.stereo_mode);
+      // A disc hands us the next clip before ffmpeg has parsed it, so the hints can arrive
+      // carrying the 90kHz mpegts timebase in place of a frame rate (fpsrate 90000, fpsscale 1).
+      // That passes the fpsrate != 0 test above but describes nothing, and this code runs at
+      // every clip change, not just playback start - m_CurrentVideo.Clear() on NEXTSTREAM_OPEN
+      // puts the id back to -1.
+      //
+      // Choosing a display mode from it is worse than doing nothing: the whitelist cannot match
+      // 90000 fps, so with "adjust refresh rate" on start/stop it silently falls back to the
+      // current mode, and on "always" it is free to switch the display for a rate the video does
+      // not have - a mode change driven by a placeholder, in the middle of a clip transition.
+      // Kodi already treats this range as the sane one for a frame rate (see
+      // CVideoPlayerVideo::OpenStream, which forces 25fps outside it); leave the display alone
+      // instead and let the next OpenStream, with real parameters, set it.
+      if (framerate >= 5.0 && framerate <= 120.0)
+      {
+        RESOLUTION res = CResolutionUtils::ChooseBestResolution(static_cast<float>(framerate), hint.width, hint.height, !hint.stereo_mode.empty());
+        CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(res, false);
+        m_renderManager.TriggerUpdateResolution(framerate, hint.width, hint.height, hint.stereo_mode);
+      }
+      else
+        CLog::Log(LOGDEBUG,
+                  "CVideoPlayer::OpenStream - not changing the display mode for an implausible "
+                  "frame rate ({:0.3f}, from fpsrate {} / fpsscale {}); the clip is not parsed yet",
+                  framerate, hint.fpsrate, hint.fpsscale);
     }
   }
 

@@ -226,8 +226,25 @@ adding `insecure-registries` to the daemon config here for no benefit.
 
 Cost: one always-running 25 MB container and ~1 GB of registry storage on the Unraid box.
 
-Re-running the script later updates the images in place. Unraid does not notice on its own —
-hit *Check for Updates* on the Docker tab, or Edit + Apply a container, to pick the new image up.
+Re-running the script later updates the images in place — but **`deploy-to-unraid.sh` only
+ships, it does not build**. Run `docker build` (or `publish.sh`) first, or it will faithfully
+ship the images you already had and nothing will change. The cheap proof that the right thing
+arrived, run on the Unraid box:
+
+```sh
+docker pull localhost:5000/kodi-android-builder:armeabi-v7a   # Downloaded newer image?
+docker run --rm --entrypoint sh localhost:5000/kodi-android-builder:armeabi-v7a \
+  -c "grep -c 'Evicting cached libbluray' /usr/local/bin/build-kodi-android"
+```
+
+To pick the new image up: click the container → **Edit** → **Apply**. That recreates it against
+the pulled image; `/data` is a bind mount, so `src/`, `state/` and `release/` — the SDK, NDK,
+tarballs, gradle cache and the whole depends tree — all survive untouched.
+
+**Start alone does nothing here**: the container was created from the old image ID and
+`docker start` reuses it. Neither does *Check for Updates* — that check queries Docker Hub's
+API and cannot read a private `localhost:5000` registry, so it reports `not available` with a
+broken-image icon. That is the expected answer for this setup, not a fault to debug.
 
 Every ssh, scp and the registry port forward share one connection, so a box without key auth
 asks for the password once. To stop being asked at all, note that Unraid's `/root` is a tmpfs:

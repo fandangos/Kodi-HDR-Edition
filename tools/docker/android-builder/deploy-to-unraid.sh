@@ -88,6 +88,27 @@ for tag in "${TAGS[@]}"; do
   docker image inspect "${IMAGE}:${tag}" >/dev/null \
     || { echo "no local image ${IMAGE}:${tag} - build it first (see publish.sh or README)" >&2; exit 1; }
   REFS+=("${IMAGE}:${tag}")
+
+  # This script SHIPS images, it does not build them, and a stale one ships
+  # perfectly happily: the bytes arrive, the registry accepts them, Unraid
+  # correctly reports no update, and the change you came here to deploy is
+  # simply not in it. The entrypoint is COPYed into the image, so editing it
+  # without rebuilding is exactly the case that looks like a deploy problem
+  # and is not one.
+  IMG_EPOCH="$(docker image inspect -f '{{.Created}}' "${IMAGE}:${tag}" | xargs -I{} date -d {} +%s 2>/dev/null || echo 0)"
+  for f in build-kodi-android.sh Dockerfile; do
+    SRC_EPOCH="$(stat -c %Y "$(dirname "$0")/${f}" 2>/dev/null || echo 0)"
+    if [[ "${SRC_EPOCH}" -gt "${IMG_EPOCH}" && "${IMG_EPOCH}" != "0" ]]; then
+      echo
+      echo "WARNING: ${f} is newer than the image ${IMAGE}:${tag}." >&2
+      echo "         Shipping it will deploy the OLD ${f}. Rebuild first:" >&2
+      echo "           docker build --build-arg KODI_ARCH=${tag} --build-arg BAKE_ANDROID_SDK=0 \\" >&2
+      echo "                        -t ${IMAGE}:${tag} $(dirname "$0")" >&2
+      echo
+      [[ "${KODI_DEPLOY_STALE_OK:-0}" == "1" ]] \
+        || { echo "set KODI_DEPLOY_STALE_OK=1 to ship it anyway" >&2; exit 1; }
+    fi
+  done
 done
 
 # --- the images -------------------------------------------------------------
@@ -194,9 +215,14 @@ Leave the "Keystore password" field EMPTY - the password is read from the .pass 
 next to the keystore, which keeps it out of docker inspect and out of the template on
 the flash drive.
 
-Re-running this script later updates the images in place. Unraid will not notice on its
-own: hit "Check for Updates" on the Docker tab, or Edit + Apply the container, to pick
-the new image up.
+Re-running this script later updates the images in place. To pick a new image up, click
+the container -> Edit -> Apply, which recreates it against the pulled image. /data is a
+bind mount, so src/, state/ and release/ survive untouched.
+
+Start alone will NOT do it: the container was created from the old image ID and docker
+start reuses it. Neither will "Check for Updates" - that check cannot read a private
+localhost:5000 registry and reports "not available" with a broken-image icon. Expected
+for this setup, not a fault.
 EOF
 else
 cat <<EOF

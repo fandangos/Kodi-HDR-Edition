@@ -21,6 +21,7 @@
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "input/mouse/MouseEvent.h"
+#include "messaging/ApplicationMessenger.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
@@ -91,6 +92,36 @@ bool CGUIWindowFullScreen::OnAction(const CAction &action)
   case ACTION_TRIGGER_OSD:
     TriggerOSD();
     return true;
+
+  case ACTION_PAUSE:
+  case ACTION_PLAYER_PLAY:
+    // Bring up the full OSD on play/pause, not just the skin's seek bar.
+    //
+    // On a disc with menus there is otherwise no route to it from a plain infrared
+    // remote. CWindowTranslator::GetVirtualWindow() keeps us in <VideoMenu> for as
+    // long as CApplicationPlayer::IsInMenu() is true - for BD-J that is effectively
+    // the whole title, since libbluray keeps an overlay plane present - and there
+    // OK/Select belongs to the disc's own menu while the OSD sits on a long-press,
+    // which an IR remote cannot generate. Play/pause is one of the few keys such a
+    // remote has that the disc does not want for itself.
+    //
+    // ACTION_PLAYER_PLAYPAUSE is deliberately absent: CApplication::OnAction
+    // rewrites it to one of these two before any window sees it.
+    //
+    // Deliberately NOT consuming the action - the pause itself is handled further
+    // down the chain in CApplication::OnAction, and swallowing it here would show
+    // the OSD while leaving playback running.
+    //
+    // Nor may TriggerOSD() be called directly here. The video OSD is a MODAL
+    // dialog, so CGUIDialog::Open() runs a NESTED RENDER LOOP and does not return
+    // until the dialog closes. Calling it inline would park us inside this OnAction
+    // for the OSD's whole lifetime and only apply the pause afterwards - the video
+    // would keep playing under the OSD and pause when it disappeared. Post the
+    // action instead: it is handled on the next pump, once the pause has landed,
+    // and takes the ordinary ACTION_TRIGGER_OSD path above.
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1,
+                                               static_cast<void*>(new CAction(ACTION_TRIGGER_OSD)));
+    break;
 
   case ACTION_MOUSE_MOVE:
     if (action.GetAmount(2) || action.GetAmount(3))

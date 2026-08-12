@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>kodi-build-armeabi-v7a</Name>
+  <Repository>localhost:5000/kodi-android-builder:armeabi-v7a</Repository>
+  <Registry>https://hub.docker.com/r/fandangos/kodi-android-builder</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>
+    Cross-builds Kodi for Android armeabi-v7a (32-bit) and signs the APK.
+
+    32-bit caveat: Blu-ray BD-J menus are covered - the image carries the 32-bit OpenJDK JRE and
+    the correctly named libbluray 1.5.0 BD-J jars. Dolby Vision, the MediaCodec DOVI path and the
+    HDR GUI surface have only ever been developed and tested on 64-bit Android TV hardware. They
+    will build; whether they work on a 32-bit device is untested.
+
+    This container runs ONE build and then exits - a stopped container is the normal end state,
+    not a crash. Watch the log; the finished APK is written to release/ inside the data directory.
+
+    Everything lives under a single data directory: src/ (the checkout, cloned on first run),
+    state/ (Android SDK, depends prefix, Gradle home), release/ (the APKs) and keys/ (the
+    signing keystore, which you put there yourself). Put it on a cache-only share - the build
+    writes tens of thousands of small files and the array is slow for that.
+
+    Budget about 22 GB: roughly 14 GB of source tree once depends has built inside it, 8 GB of
+    state. The first run additionally downloads about 3 GB of Android SDK and NDK, and rebuilds
+    the whole dependency toolchain, so expect an hour or so. Later builds are incremental,
+    typically 5-15 minutes.
+
+    With "Update from git" on, the loop is: push to GitHub, press Start.
+
+    The signing key is irreplaceable: without it an installed org.xbmc.fandangos can never be
+    updated, only uninstalled and reinstalled. Keep a copy somewhere other than this machine.
+  </Overview>
+  <Category>Tools:</Category>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon>https://kodi.tv/favicon.ico</Icon>
+  <ExtraParams>--restart=no</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+
+  <Config Name="Data directory" Target="/data" Default="/mnt/cache/appdata/kodi-android-builder32"
+          Mode="rw" Description="Holds src/, state/, release/ and keys/. Put the signing keystore in keys/ before the first build. Use a cache-only share."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/kodi-android-builder32</Config>
+
+  <Config Name="Data root (container side)" Target="KODI_DATA" Default="/data"
+          Description="Derives /data/src, /data/state and /data/release. Leave as is."
+          Type="Variable" Display="advanced" Required="true" Mask="false">/data</Config>
+
+  <Config Name="ABI" Target="KODI_ARCH" Default="armeabi-v7a"
+          Description="arm64-v8a (64-bit) or armeabi-v7a (32-bit)."
+          Type="Variable" Display="always" Required="true" Mask="false">armeabi-v7a</Config>
+
+  <Config Name="Android package id" Target="KODI_APP_PACKAGE" Default="org.xbmc.fandangos"
+          Description="Package id baked into the APK. A different id installs alongside stock Kodi with its own data. Changing it changes which installed app the build can update."
+          Type="Variable" Display="always" Required="true" Mask="false">org.xbmc.fandangos</Config>
+
+  <Config Name="Build configuration" Target="KODI_BUILD_CONFIG" Default="Release"
+          Description="Release, Debug or RelWithDebInfo."
+          Type="Variable" Display="always" Required="true" Mask="false">Release</Config>
+
+  <Config Name="Keystore file" Target="KODI_ANDROID_STORE_FILE" Default="/data/keys/fandangos-release.keystore"
+          Description="Path inside the container. Put the keystore in keys/ within the data directory. If a file of the same name with .pass appended sits next to it, the password is read from that and you can leave the password field below empty."
+          Type="Variable" Display="always" Required="true" Mask="false">/data/keys/fandangos-release.keystore</Config>
+
+  <Config Name="Key alias" Target="KODI_ANDROID_KEY_ALIAS" Default="fandangos"
+          Description="Alias inside the keystore. Checked with keytool before the build starts."
+          Type="Variable" Display="always" Required="true" Mask="false">fandangos</Config>
+
+  <Config Name="Keystore password" Target="KODI_ANDROID_STORE_PASSWORD" Default=""
+          Description="Leave EMPTY if you put a .pass file next to the keystore - that keeps the password out of docker inspect and out of this template file on the flash drive."
+          Type="Variable" Display="always" Required="false" Mask="true"/>
+
+  <Config Name="Key password" Target="KODI_ANDROID_KEY_PASSWORD" Default=""
+          Description="Leave empty if it is the same as the store password."
+          Type="Variable" Display="advanced" Required="false" Mask="true"/>
+
+  <Config Name="Git URL" Target="KODI_GIT_URL" Default="https://github.com/fandangos/Kodi-HDR-Edition.git"
+          Description="Cloned when src/ is empty. Ignored once a checkout exists."
+          Type="Variable" Display="always" Required="false" Mask="false">https://github.com/fandangos/Kodi-HDR-Edition.git</Config>
+
+  <Config Name="Git branch or tag" Target="KODI_GIT_REF" Default="android-bluray-disc-menus"
+          Description="Branch or tag to build, and the branch the update below follows."
+          Type="Variable" Display="always" Required="false" Mask="false">android-bluray-disc-menus</Config>
+
+  <Config Name="Update from git before building" Target="KODI_GIT_PULL" Default="1"
+          Description="1 fetches and fast-forwards before every build, so pressing Start after pushing to GitHub builds the new commit. It refuses to build over local edits rather than discarding them."
+          Type="Variable" Display="always" Required="false" Mask="false">1</Config>
+
+  <Config Name="Git remote" Target="KODI_GIT_REMOTE" Default="origin"
+          Description="Remote to fetch from."
+          Type="Variable" Display="advanced" Required="false" Mask="false">origin</Config>
+
+  <Config Name="Discard local changes on update" Target="KODI_GIT_RESET" Default="0"
+          Description="1 hard-resets to the remote branch every build. Untracked files are never deleted either way - the build tree lives inside the source directory."
+          Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+
+  <Config Name="Parallel jobs" Target="KODI_JOBS" Default=""
+          Description="make -j value. Empty means all cores."
+          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="Bundle BD-J JRE" Target="KODI_BUNDLE_BDJ" Default="1"
+          Description="1 bundles the OpenJDK JRE and libbluray BD-J jars needed for Blu-ray disc menus. 0 produces a smaller APK with no disc menus."
+          Type="Variable" Display="advanced" Required="false" Mask="false">1</Config>
+
+  <Config Name="Force reconfigure" Target="KODI_RECONFIGURE" Default="0"
+          Description="1 re-runs the depends configure step. Needed after changing the API level or depends build type."
+          Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+
+  <Config Name="Skip depends" Target="KODI_SKIP_DEPENDS" Default="0"
+          Description="1 goes straight to the Kodi build. Only valid once depends has been built at least once."
+          Type="Variable" Display="advanced" Required="false" Mask="false">0</Config>
+
+  <Config Name="Extra CMake arguments" Target="KODI_EXTRA_CMAKE_ARGS" Default=""
+          Description="Appended to CMAKE_EXTRA_ARGUMENTS."
+          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="PUID" Target="PUID" Default="99"
+          Description="User the build runs as. 99 is Unraid's nobody."
+          Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+
+  <Config Name="PGID" Target="PGID" Default="100"
+          Description="Group the build runs as. 100 is Unraid's users."
+          Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>

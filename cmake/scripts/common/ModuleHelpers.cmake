@@ -841,7 +841,12 @@ function(create_mesonhostmachine)
   # https://mesonbuild.com/Reference-tables.html#cpu-families
   if("${UPPER_C_ARCH}" MATCHES "ARM64" OR "${UPPER_C_ARCH}" MATCHES "AARCH64")
     set(meson_cpu_family aarch64)
-  elseif("${UPPER_C_ARCH}" MATCHES "ARMV.")
+  elseif("${UPPER_C_ARCH}" MATCHES "ARMV." OR "${UPPER_C_ARCH}" MATCHES "^ARM")
+    # Android's CPU is "armeabi-v7a", which contains no "ARMV" - without the second
+    # pattern it matched nothing and cpu_family was written to the cross file as an
+    # empty string. Meson accepts that silently, and libbluray then derived
+    # JAVA_ARCH="" and searched lib//server for libjvm.so, so BD-J never started.
+    # ARM64/AARCH64 is handled above, so a leading-ARM match is safe here.
     set(meson_cpu_family arm)
   elseif("${UPPER_C_ARCH}" STREQUAL "X64" OR "${UPPER_C_ARCH}" STREQUAL "X86_64")
     set(meson_cpu_family x86_64)

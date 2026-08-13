@@ -54,7 +54,16 @@ bool CPlatformAndroid::InitStageOne()
   // aborts the whole process ("exiting due to SIG_DFL handler for signal 11") when a BD-J
   // Xlet exercises JIT-compiled code (e.g. a disc's chapter-select menu). The interpreter
   // uses explicit null checks (proper NullPointerExceptions), avoiding the SEGV traps.
-  setenv("_JAVA_OPTIONS", ("-Xint -Djava.io.tmpdir=" + jreHome).c_str(), 1);
+  // Diagnostic only, no behaviour change: when HotSpot dies it writes its fatal error report
+  // to hs_err_pid<pid>.log in the CWD, falling back to the temp dir - neither is writable on
+  // Android, and an app's stderr goes to /dev/null, so a JVM abort currently leaves nothing
+  // behind but a two-frame tombstone (abort -> libjvm.so) that cannot distinguish an internal
+  // error from a native OOM from a signal the JVM caught. Point it at special://temp, next to
+  // kodi.log, so the report is pullable with the logs. %p is expanded by HotSpot to the pid.
+  const std::string errorFile =
+      CSpecialProtocol::TranslatePath("special://temp/hs_err_pid%p.log");
+  setenv("_JAVA_OPTIONS",
+         ("-Xint -Djava.io.tmpdir=" + jreHome + " -XX:ErrorFile=" + errorFile).c_str(), 1);
 
   CWinSystemAndroidGLESContext::Register();
 

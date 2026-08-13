@@ -1,0 +1,49 @@
+Fix out-of-bounds read in _fill_mark when the title angle exceeds a play item's angle count
+
+MPLS_PI.clip is a per-play-item array sized by that item's angle_count. _fill_mark indexed
+it with the title-level title->angle, which is not a valid index for an item that has fewer
+angles than the title maximum, so it read past the end of the array:
+
+    SIGSEGV (0xb), si_code 1 (SEGV_MAPERR), si_addr = R3 + 11
+    ldrb r3, [r3, #11]          <- MPLS_CLIP.stc_id, offset 11, sizeof(MPLS_CLIP) == 12
+    _fill_mark          navigation.c:552
+    _extrapolate_title  navigation.c:604
+
+libbluray already resolves this per play item. _fill_clip() clamps the title angle against
+that item's own angle_count and stores the result in NAV_CLIP.angle:
+
+    if (title->angle >= pi_angle_count) {
+        clip->angle = 0;
+    } else {
+        clip->angle = title->angle;
+    }
+
+Every other clip[] indexing site uses that resolved value, including nav_clip_time_search(),
+which makes the identical clpi_lookup_spn() call with clip[clip->angle]. _fill_mark was the
+only site using the raw title->angle, and it already has the resolved NAV_CLIP in scope.
+
+Two further details make it reliably reachable rather than theoretical:
+
+  - nav_title_open() stores the caller's angle verbatim and only clamps it to the title
+    maximum *after* _extrapolate_title() has already built the marks, so _fill_mark observes
+    a completely unvalidated value.
+  - On BD-J discs the angle is under Xlet control via selectAngleN() -> bd_select_angle().
+    nav_set_angle() rejects angle > 8, but the nav_title_open() path performs no such check.
+
+Since _extrapolate_title() runs on every title open and every angle change, this fires at
+title transitions and not during steady playback.
+
+Using clip->angle preserves multi-angle navigation: where the play item genuinely has the
+requested angle, clip->angle == title->angle and behaviour is unchanged.
+
+--- a/src/libbluray/bdnav/navigation.c
++++ b/src/libbluray/bdnav/navigation.c
+@@ -549,7 +549,7 @@
+     clip = &title->clip_list.clip[mark->clip_ref];
+     if (clip->cl != NULL && mark->clip_ref < title->pl->list_count) {
+         mark->clip_pkt = clpi_lookup_spn(clip->cl, plm->time, 1,
+-            title->pl->play_item[mark->clip_ref].clip[title->angle].stc_id);
++            title->pl->play_item[mark->clip_ref].clip[clip->angle].stc_id);
+     } else {
+         mark->clip_pkt = clip->start_pkt;
+     }

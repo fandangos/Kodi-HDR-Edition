@@ -482,14 +482,43 @@ export M4="${NATIVEPREFIX}/bin/m4"
 # until the cached library was removed.
 #
 # Cheap to check, so check it every run and evict rather than trust.
+#
+# The same staleness applies to EVERY patch under tools/depends/target/libbluray,
+# not just the JVM path one. libbluray is NOT in the depends DEPENDS list, so the
+# depends Makefile - whose DEPS does list the patch files, and which would there-
+# fore rebuild on a patch change - never runs for it. The internal cmake build
+# takes over, and that one is gated on the ExternalProject stamp and the installed
+# archive, neither of which notices a new patch. So adding a patch and pressing
+# Start produces a build that silently does NOT contain it.
+#
+# 2026-08-13: 007-all-navigation-angle-oob.patch fixes an out-of-bounds read that
+# crashes BD-J discs at title transitions. Without the patch-set check below, the
+# first clean-room build of that fix is precisely the one that would not have it.
+#
+# So hash the patch set and evict when it moves. A missing stamp counts as a
+# mismatch, which makes existing state volumes rebuild libbluray exactly once.
 # ---------------------------------------------------------------------------
 if [[ "${KODI_BUNDLE_BDJ}" == "1" ]]; then
   DEPS_PREFIX="${PREFIX}/${DEPS_DIR}"
   CACHED_BLURAY="${DEPS_PREFIX}/lib/libbluray.a"
-  if [[ -f "${CACHED_BLURAY}" ]] && ! grep -aq "lib/${BDJ_JAVA_ARCH}/server" "${CACHED_BLURAY}"; then
-    log "Evicting cached libbluray - its JVM search path is not lib/${BDJ_JAVA_ARCH}"
+  BLURAY_PATCH_STAMP="${DEPS_PREFIX}/lib/.libbluray-patchset.sha256"
+  BLURAY_PATCHSET="$(cat "${KODI_SRC}"/tools/depends/target/libbluray/*.patch 2>/dev/null \
+                     | sha256sum | cut -d' ' -f1)"
+
+  evict_why=""
+  if [[ -f "${CACHED_BLURAY}" ]]; then
+    if ! grep -aq "lib/${BDJ_JAVA_ARCH}/server" "${CACHED_BLURAY}"; then
+      evict_why="its JVM search path is not lib/${BDJ_JAVA_ARCH}"
+    elif [[ "$(cat "${BLURAY_PATCH_STAMP}" 2>/dev/null)" != "${BLURAY_PATCHSET}" ]]; then
+      evict_why="the libbluray patch set changed since it was built"
+    fi
+  fi
+
+  if [[ -n "${evict_why}" ]]; then
+    log "Evicting cached libbluray - ${evict_why}"
     rm -f  "${DEPS_PREFIX}"/lib/libbluray.a \
-           "${DEPS_PREFIX}"/lib/pkgconfig/libbluray.pc
+           "${DEPS_PREFIX}"/lib/pkgconfig/libbluray.pc \
+           "${BLURAY_PATCH_STAMP}"
     rm -rf "${DEPS_PREFIX}"/include/libbluray \
            "${BUILD_DIR}/build/build-libbluray" \
            "${BUILD_DIR}/CMakeFiles/build-libbluray-complete"
@@ -517,6 +546,13 @@ info "CMakeCache.txt verified: APP_PACKAGE and CMAKE_BUILD_TYPE are as requested
 # ---------------------------------------------------------------------------
 log "Building libkodi.so"
 make -C "${BUILD_DIR}" -j"${KODI_JOBS}"
+
+# Record which libbluray patch set the now-installed archive was built from, so
+# the guard above can evict it when a patch is added, changed or removed. Written
+# only after a successful build, so a failed run cannot stamp a stale archive.
+if [[ "${KODI_BUNDLE_BDJ}" == "1" && -f "${CACHED_BLURAY}" ]]; then
+  printf '%s\n' "${BLURAY_PATCHSET}" > "${BLURAY_PATCH_STAMP}"
+fi
 
 log "Packaging and signing the APK"
 # Gradle's file-watcher is useless in a throwaway container and breaks on some

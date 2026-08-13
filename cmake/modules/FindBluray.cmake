@@ -92,13 +92,15 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
     list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/003-all-libxml_searchname.patch")
 
-    # These two are applied unconditionally by tools/depends/target/libbluray/Makefile.
+    # These three are applied unconditionally by tools/depends/target/libbluray/Makefile.
     # libbluray is not in the depends DEPENDS list, so on any platform that does not have a
     # hand-built libbluray sitting in the depends prefix this internal build is what ends up
     # linked - and without them the JVM search path is wrong on aarch64 (BD-J menus never
-    # start) and the HDMV BC comparison is off-spec.
+    # start), the HDMV BC comparison is off-spec, and _fill_mark reads past the end of a
+    # play item's clip[] array on any disc whose title angle exceeds that item's angle count.
     list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/005-aarch64-java-arch.patch"
-                        "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/006-all-hdmv-bc-compare.patch")
+                        "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/006-all-hdmv-bc-compare.patch"
+                        "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/007-all-navigation-angle-oob.patch")
 
     if(WIN32 OR WINDOWS_STORE)
       set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType shared)

@@ -95,7 +95,7 @@ for you, and an empty `src/` is cloned from `KODI_GIT_URL`:
 
 ```bash
 docker run --rm \
-  -v /mnt/cache/appdata/kodi-android-builder64:/data \
+  -v /mnt/user/appdata/kodi-android-builder64:/data \
   -e KODI_DATA=/data \
   -e KODI_ARCH=arm64-v8a \
   -e KODI_APP_PACKAGE=org.xbmc.fandangos \

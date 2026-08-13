@@ -24,7 +24,7 @@ HOST="${1:-}"
 shift || true
 
 KEYSTORE=""
-KEY_DEST="${KEY_DEST:-/mnt/cache/appdata}"
+KEY_DEST="${KEY_DEST:-/mnt/user/appdata}"
 USE_REGISTRY=0
 
 while [[ "${1:-}" == --* ]]; do
@@ -113,7 +113,7 @@ done
 
 # --- the images -------------------------------------------------------------
 if [[ "${USE_REGISTRY}" == "1" ]]; then
-  REG_DATA="${REG_DATA:-/mnt/cache/appdata/registry}"
+  REG_DATA="${REG_DATA:-/mnt/user/appdata/registry}"
   LOCAL_PORT="${LOCAL_PORT:-5000}"
 
   echo "==> ensuring a registry is running on ${HOST}"
@@ -234,7 +234,7 @@ working Start/Stop/Logs:
   for abi in arm64-v8a armeabi-v7a; do
     [ "\$abi" = arm64-v8a ] && bits=64 || bits=32
     docker create --name kodi-build-\${abi} \\
-      -v /mnt/cache/appdata/kodi-android-builder\${bits}:/data \\
+      -v /mnt/user/appdata/kodi-android-builder\${bits}:/data \\
       -e KODI_DATA=/data \\
       -e KODI_ARCH=\${abi} \\
       -e KODI_APP_PACKAGE=org.xbmc.fandangos \\

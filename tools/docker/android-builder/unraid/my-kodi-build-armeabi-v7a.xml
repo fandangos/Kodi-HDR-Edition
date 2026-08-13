@@ -47,9 +47,9 @@
   <DonateLink/>
   <Requires/>
 
-  <Config Name="Data directory" Target="/data" Default="/mnt/cache/appdata/kodi-android-builder32"
+  <Config Name="Data directory" Target="/data" Default="/mnt/user/appdata/kodi-android-builder32"
           Mode="rw" Description="Holds src/, state/, release/ and keys/. Put the signing keystore in keys/ before the first build. Use a cache-only share."
-          Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/kodi-android-builder32</Config>
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/kodi-android-builder32</Config>
 
   <Config Name="Data root (container side)" Target="KODI_DATA" Default="/data"
           Description="Derives /data/src, /data/state and /data/release. Leave as is."

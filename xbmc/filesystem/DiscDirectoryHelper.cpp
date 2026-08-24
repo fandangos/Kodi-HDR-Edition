@@ -1819,7 +1819,11 @@ bool CDiscDirectoryHelper::GetOrShowPlaylistSelection(const CFileItem& item,
         newItem->SetDynPath(selectedItem.GetDynPath());
         const auto tag{newItem->GetVideoInfoTag()};
         tag->SetFileNameAndPath(selectedItem.GetDynPath());
-        tag->m_streamDetails = selectedItem.GetVideoInfoTag()->m_streamDetails;
+        // The "Menu" entry is a pseudo item without a video info tag
+        if (const CVideoInfoTag* sourceTag{selectedItem.GetVideoInfoTag()})
+          tag->m_streamDetails = sourceTag->m_streamDetails;
+        else
+          tag->m_streamDetails = CStreamDetails{};
         if (tag->GetAssetInfo().GetTitle().empty())
           tag->GetAssetInfo().SetTitle(
               CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(

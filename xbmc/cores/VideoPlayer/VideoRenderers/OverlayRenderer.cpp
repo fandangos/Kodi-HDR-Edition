@@ -578,8 +578,22 @@ void CRenderer::PrepareOverlays(int idx)
 
     // Pull the libass output for this PTS. Cached on the SElement until
     // ConvertLibass consumes it later in this frame's GUI walk.
+    //
+    // Asked for in the track's own timeline, not the picture's. A libass overlay is built to
+    // cover a whole track - both the file parser and the embedded codec set iPTSStartTime to
+    // 0 and iPTSStopTime to DVD_NOPTS_VALUE - so the only thing that ever moves its start is
+    // CVideoPlayerSubtitle::Process, which subtracts the player's time offset to put the
+    // overlay in the same space as the picture pts that CVideoPlayerVideo::ProcessOverlays
+    // tests it against. On an ordinary file that offset is zero and the two spaces are one.
+    // On a disc it is not: a Blu-ray's picture pts is the m2ts stream's own timestamp while
+    // the film is minutes from its start, so handing that pts to libass asks a subtitle file
+    // for a line more than an hour past anything it contains, and nothing is ever drawn.
+    // Subtracting the start puts the question back in the track's terms, and is a no-op
+    // wherever the start is still zero.
+    const double assPts = e.pts - o.iPTSStartTime;
+
     int currentChange = 0;
-    e.renderedImages = ovAss.GetLibassHandler()->RenderImage(e.pts, rOpts, updateStyle,
+    e.renderedImages = ovAss.GetLibassHandler()->RenderImage(assPts, rOpts, updateStyle,
                                                              m_overlayStyle, &currentChange);
     if (currentChange > 0)
     {

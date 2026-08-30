@@ -2161,12 +2161,135 @@ void CUtil::ScanForExternalSubtitles(const std::string& strMovie, std::vector<st
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
   CLog::Log(LOGDEBUG, "{}: END (total time: {} ms)", __FUNCTION__, duration.count());
 }
+namespace
+{
+//! \brief Whether a file is part of a disc rather than something sitting beside one
+bool IsTheDiscsOwnFile(const std::string& path)
+{
+  std::string extension = URIUtils::GetExtension(path);
+  StringUtils::ToLower(extension);
+
+  return extension == ".ifo" || extension == ".bup" || extension == ".vob" ||
+         extension == ".bdmv" || extension == ".clpi" || extension == ".mpls" ||
+         extension == ".m2ts";
+}
+
+//! \brief Add every subtitle file in a disc folder, whatever it is called
+void CollectEverySubtitleIn(const std::string& folder, std::vector<std::string>& subtitles)
+{
+  // Every subtitle extension Kodi knows, less two that are only subtitles when a name
+  // says so: ".ifo" is a disc's own tables (IsTheDiscsOwnFile), ".txt" is more often a
+  // note left beside a disc than a subtitle
+  std::string extensions = CServiceBroker::GetFileExtensionProvider().GetSubtitleExtensions();
+  for (const std::string& ambiguous : {"|.txt|", "|.ifo|"})
+    StringUtils::Replace(extensions, ambiguous, "|");
+
+  const std::vector<std::string> subFolders = {"subs", "subtitles", "vobsubs",
+                                               "sub", "vobsub", "subtitle"};
+
+  constexpr int flags = XFILE::DIR_FLAG_NO_FILE_DIRS | XFILE::DIR_FLAG_NO_FILE_INFO;
+
+  CFileItemList items;
+  XFILE::CDirectory::GetDirectory(folder, items, extensions, flags);
+
+  // The common subtitle sub-folders, since a viewer who put their files in Subs/ meant
+  // the same thing either way
+  CFileItemList inSubFolders;
+  for (const auto& item : items)
+  {
+    if (!item->IsFolder())
+      continue;
+
+    for (const auto& subFolder : subFolders)
+    {
+      if (StringUtils::EqualsNoCase(item->GetLabel(), subFolder))
+      {
+        CFileItemList more;
+        XFILE::CDirectory::GetDirectory(item->GetPath(), more, extensions, flags);
+        inSubFolders.Append(more);
+        break;
+      }
+    }
+  }
+  items.Append(inSubFolders);
+
+  for (const auto& item : items)
+  {
+    if (item->IsFolder())
+      continue;
+
+    const std::string& path = item->GetPath();
+
+    // Archives are left alone: opening one is only worth it when a name says the
+    // subtitles inside are the ones wanted, and nothing here is matched by name
+    if (URIUtils::IsRAR(path) || URIUtils::IsZIP(path))
+      continue;
+
+    if (IsTheDiscsOwnFile(path))
+      continue;
+
+    if (std::find(subtitles.begin(), subtitles.end(), path) != subtitles.end())
+      continue;
+
+    subtitles.push_back(path);
+    CLog::Log(LOGINFO, "{} - found a subtitle file beside the disc: {}", __FUNCTION__,
+              CURL::GetRedacted(path));
+  }
+}
+} // namespace
+
+void CUtil::ScanForBlurayExternalSubtitles(const std::string& strMovie, std::vector<std::string>& vecSubtitles)
+{
+  const std::string discFile = URIUtils::GetDiscFile(strMovie);
+  if (discFile.empty())
+  {
+    // Not a disc after all, fall back to the ordinary answer
+    CUtil::ScanForExternalSubtitles(strMovie, vecSubtitles);
+    return;
+  }
+
+  // A disc image sits beside its subtitles under one name -- "Film.srt", "Film.en.srt"
+  // next to "Film.iso" -- exactly like any other video file
+  if (URIUtils::IsDiscImage(discFile))
+  {
+    CUtil::ScanForExternalSubtitles(discFile, vecSubtitles);
+    return;
+  }
+
+  // An unpacked disc is played by choosing a file buried inside it (BDMV/index.bdmv),
+  // so a scan for subtitles named after the played file finds nothing. The right
+  // directories are the disc's own, and a disc folder holds exactly one disc, so a
+  // subtitle file sitting in it belongs to that disc whatever it is called
+  std::string structure = URIUtils::GetDirectory(discFile);
+  URIUtils::RemoveSlashAtEnd(structure);
+  std::string root = URIUtils::GetDirectory(structure);
+  URIUtils::RemoveSlashAtEnd(root);
+  if (root.empty())
+    return;
+
+  CollectEverySubtitleIn(root, vecSubtitles);
+  if (!StringUtils::EqualsNoCase(structure, root))
+    CollectEverySubtitleIn(structure, vecSubtitles);
+
+  CLog::Log(LOGDEBUG, "{} - an unpacked disc: {} subtitle file(s) beside it", __FUNCTION__,
+            vecSubtitles.size());
+}
 
 ExternalStreamInfo CUtil::GetExternalStreamDetailsFromFilename(const std::string& videoPath, const std::string& associatedFile)
 {
   ExternalStreamInfo info;
 
-  std::string videoBaseName = URIUtils::GetFileName(videoPath);
+  // What the subtitle is named after. For a disc that is not the file being
+  // played (a playlist inside the disc, or the disc's own index file), but the
+  // disc itself, which is what a viewer names its subtitles after
+  std::string basePath = videoPath;
+  if (URIUtils::IsBlurayPath(videoPath))
+  {
+    const std::string discFile = URIUtils::GetDiscFile(videoPath);
+    basePath = URIUtils::IsDiscImage(discFile) ? discFile : URIUtils::RemoveDiscPath(discFile);
+  }
+
+  std::string videoBaseName = URIUtils::GetFileName(basePath);
   URIUtils::RemoveExtension(videoBaseName);
 
   std::string toParse = URIUtils::GetFileName(associatedFile);

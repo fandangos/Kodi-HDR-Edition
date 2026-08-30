@@ -100,6 +100,20 @@ public:
 
   static void ClearSubtitles();
   static void ScanForExternalSubtitles(const std::string& strMovie, std::vector<std::string>& vecSubtitles );
+  /*!
+   * \brief Find the subtitle files that belong to a disc, image or unpacked
+   *
+   * CUtil::ScanForExternalSubtitles answers for a video file sitting beside its
+   * subtitles under one name. A disc image gets that for free, but an unpacked
+   * disc is played by choosing a file buried inside it (BDMV/index.bdmv), so a
+   * scan for subtitles named after the played file finds nothing. This resolves
+   * the disc first and, for an unpacked one, sweeps the disc's own folders
+   * instead, where a subtitle file belongs to the disc whatever it is called.
+   *
+   * \param strMovie The item being played, usually a bluray:// URL
+   * \param vecSubtitles Receives the full paths of the subtitle files found
+   */
+  static void ScanForBlurayExternalSubtitles(const std::string& strMovie, std::vector<std::string>& vecSubtitles);
 
   /** \brief Retrieves stream info of external associated files, e.g., subtitles, for a given video.
   *   \param[in] videoPath The full path of the video file.

@@ -935,7 +935,15 @@ bool CVideoPlayer::OpenInputStream()
 
     if (!URIUtils::IsUPnP(m_item.GetPath()) &&
         !m_item.GetProperty("no-ext-subs-scan").asBoolean(false))
-      CUtil::ScanForExternalSubtitles(m_item.GetDynPath(), filenames);
+    {
+      // A disc is played through a bluray:// URL whose name (a playlist, or "menu"
+      // for the disc's own menus) is not what its subtitle files are named after,
+      // so the disc gets the disc-aware scan
+      if (URIUtils::IsBlurayPath(m_item.GetDynPath()))
+        CUtil::ScanForBlurayExternalSubtitles(m_item.GetDynPath(), filenames);
+      else
+        CUtil::ScanForExternalSubtitles(m_item.GetDynPath(), filenames);
+    }
 
     // load any subtitles from file item
     std::string key("subtitle:1");

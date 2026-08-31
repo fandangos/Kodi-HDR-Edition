@@ -180,6 +180,17 @@ ARG LIBBLURAY_VERSION=1.5.0
 
 COPY --from=bdj-jars /opt/bdj-jars /opt/bdj-jars
 
+# The JDK 8 that built those jars is kept so the runtime build can recompile the
+# BD-J classes our libbluray patches touch.  Without it a patch under
+# tools/depends/target/libbluray/ that changes bdj/java/** would be silently
+# inert in the APK: the jars above are built here from a pristine tarball, long
+# before the Kodi source (and therefore the patches) exists.  See
+# tools/android/packaging/jre/rebuild-bdj-jars.sh.  JDK 17 cannot stand in - the
+# BD-J classes override java.* packages, so --release is unusable, and the
+# bundled JRE is Java 8.
+COPY --from=bdj-jars /opt/java/openjdk /opt/jdk8
+ENV BDJ_JDK8_HOME=/opt/jdk8
+
 RUN set -eux; \
     for spec in "arm64-v8a=${JRE_ARM64_URL}=aarch64" "armeabi-v7a=${JRE_ARM32_URL}=arm"; do \
       abi="${spec%%=*}"; rest="${spec#*=}"; url="${rest%=*}"; jvmdir="${rest##*=}"; \

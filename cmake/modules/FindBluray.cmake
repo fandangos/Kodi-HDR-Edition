@@ -92,15 +92,23 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
 
     list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/003-all-libxml_searchname.patch")
 
-    # These three are applied unconditionally by tools/depends/target/libbluray/Makefile.
+    # These four are applied unconditionally by tools/depends/target/libbluray/Makefile.
     # libbluray is not in the depends DEPENDS list, so on any platform that does not have a
     # hand-built libbluray sitting in the depends prefix this internal build is what ends up
     # linked - and without them the JVM search path is wrong on aarch64 (BD-J menus never
     # start), the HDMV BC comparison is off-spec, and _fill_mark reads past the end of a
-    # play item's clip[] array on any disc whose title angle exceeds that item's angle count.
+    # play item's clip[] array on any disc whose title angle exceeds that item's angle count,
+    # and BD-J image draws are dropped before the decode finishes, which leaves discs whose
+    # Xlet paints with a null ImageObserver (Avatar 2) with a permanently black menu.
+    #
+    # 008 only touches bdj/java/**, so it changes the BD-J jars rather than libbluray.a.
+    # Those jars ship prebuilt inside the JRE image and are NOT produced here - see
+    # tools/android/packaging/jre/rebuild-bdj-jars.sh. The patch is still listed so the
+    # source this build extracts is patched, which is what that script compiles from.
     list(APPEND patches "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/005-aarch64-java-arch.patch"
                         "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/006-all-hdmv-bc-compare.patch"
-                        "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/007-all-navigation-angle-oob.patch")
+                        "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/007-all-navigation-angle-oob.patch"
+                        "${CORE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/008-all-bdj-await-image-decode.patch")
 
     if(WIN32 OR WINDOWS_STORE)
       set(${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_libType shared)

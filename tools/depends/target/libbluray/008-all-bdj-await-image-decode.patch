@@ -1,0 +1,92 @@
+--- a/src/libbluray/bdj/java/java/awt/BDGraphicsBase.java
++++ b/src/libbluray/bdj/java/java/awt/BDGraphicsBase.java
+@@ -1287,6 +1287,15 @@
+                           flipX, flipY, bg, observer);
+     }
+ 
++    /* How long a draw may wait for an image to finish decoding.  BD-J assets
++       are local files of a few MB, so this only ever covers the decode. */
++    private static final long IMAGE_WAIT_MS = 2000;
++
++    protected static void awaitImage(Image img) {
++        if (img instanceof BDImageConsumer)
++            ((BDImageConsumer)img).waitForCompletion(IMAGE_WAIT_MS);
++    }
++
+     /**
+      * Draws a subrectangle of an image scaled to a destination rectangle in
+      * nonblocking mode with a solid background color and a callback object.
+@@ -1315,6 +1324,12 @@
+ 
+         if (bdImage instanceof BDImageConsumer) {
+             BDImageConsumer consumer = (BDImageConsumer)bdImage;
++            /* Let the decode finish rather than dropping the draw - see
++               BDImageConsumer.waitForCompletion().  On the window path
++               BDWindowGraphics has already waited outside the window monitor,
++               so this is a no-op there; here no window lock is held. */
++            if (!consumer.isComplete(null))
++                consumer.waitForCompletion(IMAGE_WAIT_MS);
+             if (!consumer.isComplete(observer)) {
+                 return false;
+             }
+--- a/src/libbluray/bdj/java/java/awt/BDImageConsumer.java
++++ b/src/libbluray/bdj/java/java/awt/BDImageConsumer.java
+@@ -94,7 +94,43 @@
+         BDToolkit.clearCache(this);
+     }
+ 
+-    public void imageComplete(int stat) {
++    /*
++     * Block until the producer has delivered the whole image, or the timeout
++     * expires.  The JDK image fetcher decodes on its own thread, so an Xlet
++     * that draws immediately after getImage() sees an incomplete image; the
++     * draw is then dropped, and with the null ImageObserver that the common
++     * AWT idiom allows there is nothing to repaint it, so the picture is lost
++     * for good.  Waiting here is what a real player's synchronous decode
++     * effectively gives the disc.
++     *
++     * Must not be called while holding the BDRootWindow monitor: the fetcher
++     * notifies observers, which can reach back into the component tree.
++     */
++    public synchronized boolean waitForCompletion(long timeoutMs) {
++        startProduction();
++        final int done = ImageObserver.ALLBITS | ImageObserver.ERROR | ImageObserver.ABORT;
++        long deadline = System.currentTimeMillis() + timeoutMs;
++        while ((status & done) == 0) {
++            long left = deadline - System.currentTimeMillis();
++            if (left <= 0)
++                break;
++            try {
++                wait(left);
++            } catch (InterruptedException ie) {
++                Thread.currentThread().interrupt();
++                break;
++            }
++        }
++        return (status & ImageObserver.ALLBITS) != 0;
++    }
++
++    public synchronized void imageComplete(int stat) {
++        imageCompleteImpl(stat);
++        /* wake waitForCompletion() */
++        notifyAll();
++    }
++
++    private void imageCompleteImpl(int stat) {
+         switch (stat) {
+         case IMAGEERROR:
+             status |= ImageObserver.ERROR;
+--- a/src/libbluray/bdj/java/java/awt/BDWindowGraphics.java
++++ b/src/libbluray/bdj/java/java/awt/BDWindowGraphics.java
+@@ -171,6 +171,11 @@
+ 
+         if (window == null) return true;
+ 
++        /* Wait for the image outside the window monitor: the image fetcher
++           notifies observers, and an observer can reach back into the
++           component tree, so waiting under the window lock could deadlock. */
++        awaitImage(img);
++
+         synchronized (window) {
+             boolean complete = super.drawImageN(
+                 img, dx, dy, dw, dh, sx, sy, sw, sh,

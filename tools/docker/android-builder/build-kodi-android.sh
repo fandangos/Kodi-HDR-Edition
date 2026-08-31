@@ -382,8 +382,19 @@ info "source rev     : ${SRC_DESC}"
 # ---------------------------------------------------------------------------
 if [[ "${KODI_BUNDLE_BDJ}" == "1" ]]; then
   [[ -d "${JRE_IMAGE_DIR}" ]] || die "No BD-J JRE for ${KODI_ARCH} at ${JRE_IMAGE_DIR}"
+
+  # Work on a copy, not on the image's own tree.  The BD-J jars inside it get
+  # rebuilt below from our libbluray patches, and this container is long lived
+  # on Unraid - patching the image copy in place would leave the last run's
+  # classes behind if a patch were later dropped.  Refreshed every run so the
+  # base is always the jars the image shipped.
+  BDJ_JRE_PRISTINE="${JRE_IMAGE_DIR}"
+  JRE_IMAGE_DIR="${KODI_STATE}/bdj-jre/${KODI_ARCH}/j2re-image"
+  rm -rf "${KODI_STATE}/bdj-jre/${KODI_ARCH}"
+  mkdir -p "$(dirname "${JRE_IMAGE_DIR}")"
+  cp -a "${BDJ_JRE_PRISTINE}" "${JRE_IMAGE_DIR}"
   export JRE_IMAGE_DIR
-  info "BD-J JRE       : ${JRE_IMAGE_DIR}"
+  info "BD-J JRE       : ${JRE_IMAGE_DIR} (copy of ${BDJ_JRE_PRISTINE})"
 
   # The directory libbluray will look in for libjvm.so. It is baked into the
   # library at compile time (JAVA_ARCH, derived from the meson cross file's
@@ -554,6 +565,36 @@ if [[ "${KODI_BUNDLE_BDJ}" == "1" && -f "${CACHED_BLURAY}" ]]; then
   printf '%s\n' "${BLURAY_PATCHSET}" > "${BLURAY_PATCH_STAMP}"
 fi
 
+# ---------------------------------------------------------------------------
+# BD-J jars
+#
+# The jars in the JRE image were built in the Dockerfile from a PRISTINE
+# libbluray tarball, before this source tree existed - so any patch under
+# tools/depends/target/libbluray that touches bdj/java/** is not in them.  The
+# libbluray the build just compiled has those patches applied (FindBluray.cmake
+# lists them), so recompile the affected classes from that tree and splice them
+# into our copy of the jars.  Same class of trap as the cached libbluray.a
+# above: without this, adding a BD-J patch and pressing Start produces an APK
+# that silently does not contain it.
+# ---------------------------------------------------------------------------
+BDJ_REBUILD="${KODI_SRC}/tools/android/packaging/jre/rebuild-bdj-jars.sh"
+if [[ "${KODI_BUNDLE_BDJ}" == "1" && ! -x "${BDJ_REBUILD}" ]]; then
+  # Source revisions older than the script simply have no BD-J patches to apply,
+  # so this image must still build them rather than failing.
+  info "no rebuild-bdj-jars.sh in this source tree - BD-J jars left as the image built them"
+elif [[ "${KODI_BUNDLE_BDJ}" == "1" ]]; then
+  log "Rebuilding BD-J jars from the patched libbluray source"
+  if [[ ! -x "${BDJ_JDK8_HOME:-}/bin/javac" ]]; then
+    die "BDJ_JDK8_HOME is not a JDK 8 (${BDJ_JDK8_HOME:-unset}) - rebuild the image"
+  fi
+  JAVA8_HOME="${BDJ_JDK8_HOME}" \
+  JRE_IMAGE_DIR="${JRE_IMAGE_DIR}" \
+  PATCH_DIR="${KODI_SRC}/tools/depends/target/libbluray" \
+    "${BDJ_REBUILD}" \
+      "${BUILD_DIR}/build" \
+    || die "BD-J jar rebuild failed - the APK would ship unpatched BD-J classes"
+fi
+
 log "Packaging and signing the APK"
 # Gradle's file-watcher is useless in a throwaway container and breaks on some
 # bind mounts.
@@ -587,6 +628,35 @@ fi
 if [[ "${KODI_BUNDLE_BDJ}" == "1" ]]; then
   JVM_COUNT="$(unzip -l "${APK}" | grep -c 'assets/j2re-image/.*libjvm\.so' || true)"
   JAR_COUNT="$(unzip -l "${APK}" | grep -c 'assets/j2re-image/libbluray-j2se-.*\.jar' || true)"
+
+  # Prove the shipped jars really carry our BD-J patches rather than the stock
+  # classes the image built.  Comparing entry CRCs against the image's pristine
+  # jars is the honest test: the class NAME is present either way, so grepping
+  # for it would pass on an unpatched APK - which is the exact failure this
+  # whole rebuild step exists to prevent.
+  BDJ_PATCHED_CLASSES="$(grep -h '^+++ b/' "${KODI_SRC}"/tools/depends/target/libbluray/*.patch 2>/dev/null \
+    | sed 's|^+++ b/||;s|[[:space:]].*$||' \
+    | grep -E '^src/libbluray/bdj/java.*\.java$' \
+    | sed 's|^src/libbluray/bdj/java[^/]*/||;s|\.java$|.class|' | sort -u || true)"
+  if [[ -n "${BDJ_PATCHED_CLASSES}" ]]; then
+    BDJ_TMP="$(mktemp -d)"
+    unzip -qo "${APK}" 'assets/j2re-image/libbluray-*j2se-*.jar' -d "${BDJ_TMP}"
+    crc_of() { unzip -v "$1" 2>/dev/null | awk -v e="$2" '$NF==e {print $7; exit}'; }
+    for cls in ${BDJ_PATCHED_CLASSES}; do
+      for jar in "${BDJ_TMP}"/assets/j2re-image/libbluray-*j2se-*.jar; do
+        stock="/opt/bdj-jars/$(basename "${jar}")"
+        [[ -f "${stock}" ]] || continue
+        have="$(crc_of "${jar}"   "${cls}")"
+        was="$(crc_of  "${stock}" "${cls}")"
+        [[ -n "${have}" && -n "${was}" ]] || continue
+        [[ "${have}" != "${was}" ]] \
+          || die "${cls} in the packaged jars is byte-identical to the unpatched one - the BD-J jar rebuild did not take"
+        info "BD-J patched   : ${cls} (crc ${was} -> ${have})"
+      done
+    done
+    rm -rf "${BDJ_TMP}"
+  fi
+
   [[ "${JVM_COUNT}" -ge 1 ]] || die "no libjvm.so in assets/j2re-image - BD-J menus will not work"
   [[ "${JAR_COUNT}" -ge 1 ]] || die "no libbluray-j2se jar in assets/j2re-image - BD-J menus will not work"
   info "BD-J payload   : libjvm.so + BD-J jars present"

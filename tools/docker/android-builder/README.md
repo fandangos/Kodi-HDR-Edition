@@ -59,6 +59,8 @@ depends tree.
 - BD-J JRE images for **both** ABIs, at `/opt/kodi-jre/<abi>/j2re-image`
 - The libbluray **1.5.0 BD-J jars**, built in-image from the same tarball `tools/depends`
   compiles, with JDK 8 at source/target 1.4 (the combination libbluray's own meson logic picks)
+- That **JDK 8 itself**, at `/opt/jdk8` (`BDJ_JDK8_HOME`), so the runtime build can recompile
+  the BD-J classes our libbluray patches touch — see below
 
 ## What you supply
 
@@ -121,6 +123,45 @@ With `KODI_GIT_PULL=1` (the template default) the loop is:
 It fetches, fast-forwards the checkout, rebuilds and drops a new APK in the output share. There is
 no terminal step. A rebuild after a few commits is **incremental** — typically 5–15 minutes rather
 than the ~1 h cold build — because `/state` and the build directory persist.
+
+### BD-J patches reach the APK without an image rebuild
+
+The jars above are built from a **pristine** tarball while the image is built, long before your
+source tree exists — so a patch under `tools/depends/target/libbluray/` that touches
+`bdj/java/**` is not in them. Left alone, adding such a patch and pressing Start yields an APK
+that silently does not contain it. (Exactly what happened with
+`008-all-bdj-await-image-decode.patch`: the fix was in the source, the menu stayed black.)
+
+So the build recompiles the affected classes at run time, from the libbluray source it just
+patched and built, and splices them into a per-build copy of the JRE image
+(`tools/android/packaging/jre/rebuild-bdj-jars.sh`). Nothing to do by hand: **add the patch,
+list it in `cmake/modules/FindBluray.cmake`, push, press Start.** The verification step then
+compares the packaged jars' class CRCs against the image's pristine ones and fails the build if
+they match, so an unpatched APK cannot slip through.
+
+Two things this does *not* survive:
+
+- **the JDK 8 layer** — an image built before `BDJ_JDK8_HOME` existed has no `/opt/jdk8`, and the
+  build stops with *"BDJ_JDK8_HOME is not a JDK 8"*. Rebuild and redeploy the image once:
+
+  ```bash
+  cd tools/docker/android-builder
+  for arch in arm64-v8a armeabi-v7a; do
+    docker build --build-arg "KODI_ARCH=${arch}" --build-arg BAKE_ANDROID_SDK=0 \
+                 -t fandangos/kodi-android-builder:${arch} .
+  done
+  ./deploy-to-unraid.sh <unraid-host> --registry
+  ```
+
+  Note this is the LAN route, not Docker Hub — the Unraid templates pull from
+  `localhost:5000/kodi-android-builder:<abi>`, a registry on the Unraid box that
+  `deploy-to-unraid.sh --registry` pushes into over ssh. (`publish.sh` builds the same slim
+  images but pushes them to a Hub namespace, which this setup does not use; the `<Registry>`
+  line in the templates is only the project link Unraid shows in the UI.) The tag does not
+  change, so **force an update on the container in the Docker tab** afterwards or it keeps
+  running the cached image.
+- **a bumped `LIBBLURAY_VERSION`** — the jar names carry the version and are pinned in the
+  Dockerfile; bump both it and `LIBBLURAY-VERSION` together.
 
 Guard rails, because a silent wrong build is worse than a failed one:
 

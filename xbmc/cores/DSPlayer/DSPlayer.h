@@ -28,6 +28,7 @@
 #error DSPlayer's header file included without HAS_DS_PLAYER defined
 #endif
 
+#include <atomic>
 #include <chrono>
 #include <vector>
 
@@ -79,14 +80,18 @@ class CGraphManagementThread : public CThread
 {
 private:
   bool          m_bSpeedChanged;
-  double        m_clockStart;
-  double        m_currentRate;
+  double        m_clockStart{ 0 };
+  // The rate the graph is meant to run at. It used to start as whatever was on the stack,
+  // which the edition dialog could read back before playback set it
+  double        m_currentRate{ 1 };
   CDSPlayer*    m_pPlayer;
 public:
   CGraphManagementThread(CDSPlayer * pPlayer);
 
   void SetSpeedChanged(bool value) { m_bSpeedChanged = value; }
-  void SetCurrentRate(double rate) { m_currentRate = rate; }
+  // Every change of rate has to be seen outside DSPlayer as well as inside it, so this is
+  // no longer a plain setter - see CDSPlayer::PublishPlaybackSpeed
+  void SetCurrentRate(double rate);
   double GetCurrentRate() const { return m_currentRate; }
 protected:
   void OnStartup();
@@ -228,6 +233,13 @@ public:
   CDVDClock& GetClock() { return m_pClock; }
   IPlayerCallback& GetPlayerCallback() { return m_callback; }
 
+  // Nothing in Kodi asks the player how fast it is playing: JSON-RPC, the skin and the
+  // addon API all read the copy of the speed that the player is expected to keep in
+  // CDataCacheCore. DSPlayer never wrote to it, so the application believed playback was
+  // running at normal speed for the whole of a session - pause changed the picture but not
+  // Player.GetProperties, which is what anything automating Kodi from outside reads.
+  void PublishPlaybackSpeed(float speed);
+
   static DSPLAYER_STATE PlayerState;
   static CGUIDialogBoxBase* errorWindow;
   CFileItem m_currentFileItem;
@@ -260,7 +272,9 @@ public:
   HINSTANCE m_hInstance;
   bool m_isMadvr;
 
-  CProcessInfo* m_processInfo;
+  CProcessInfo* m_processInfo{ nullptr };
+  // What was last handed to the data cache, so a rate that has not moved costs nothing
+  std::atomic<float> m_publishedSpeed{ 1.0f };
   std::unique_ptr<CJobQueue> m_outboundEvents;
 
   static void PostMessage(CDSMsg* msg, bool wait = true)

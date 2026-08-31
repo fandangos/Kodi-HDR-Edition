@@ -1451,6 +1451,13 @@ void CDSPlayer::HandleMessages()
       else if (pMsg->IsType(CDSMsg::PLAYER_PAUSE))
       {
         g_dsGraph->Pause();
+
+        // Not every pause comes through CDSPlayer::Pause - a PVR channel switch pauses the
+        // graph by posting this message straight here - so the speed the rest of Kodi reads
+        // is settled from the state the graph ended up in, whoever asked for it
+        PublishPlaybackSpeed(PlayerState == DSPLAYER_PAUSED
+                                 ? 0.0f
+                                 : static_cast<float>(m_pGraphThread.GetCurrentRate()));
       }
       else if (pMsg->IsType(CDSMsg::PLAYER_STOP))
       {
@@ -1474,6 +1481,10 @@ void CDSPlayer::HandleMessages()
       {
         CDSMsgBool* speMsg = reinterpret_cast<CDSMsgBool *>(pMsg);
         g_dsGraph->Play(speMsg->m_value);
+
+        PublishPlaybackSpeed(PlayerState == DSPLAYER_PAUSED
+                                 ? 0.0f
+                                 : static_cast<float>(m_pGraphThread.GetCurrentRate()));
       }
       else if (pMsg->IsType(CDSMsg::PLAYER_CLOSE_GRAPH))
       {
@@ -1650,6 +1661,21 @@ void CDSPlayer::Pause()
   }
   PostMessage(new CDSMsg(CDSMsg::PLAYER_PAUSE));
 }
+void CDSPlayer::PublishPlaybackSpeed(float speed)
+{
+  // Before the graph exists there is nowhere to publish to; the data cache is reset when
+  // the player is created and starts out saying normal speed, which is right for then
+  if (!m_processInfo)
+    return;
+
+  // Pause and resume both run through here from more than one thread, and a rate that has
+  // not actually moved is not worth telling anyone about
+  if (m_publishedSpeed.exchange(speed) == speed)
+    return;
+
+  m_processInfo->SetSpeed(speed);
+}
+
 void CDSPlayer::SetSpeed(float iSpeed)
 {
 #if TODO
@@ -2709,6 +2735,15 @@ CGraphManagementThread::CGraphManagementThread(CDSPlayer * pPlayer)
 {
 }
 
+void CGraphManagementThread::SetCurrentRate(double rate)
+{
+  m_currentRate = rate;
+
+  // This is the one place every rate change passes through - pause, resume, fast forward,
+  // rewind and the end of a scan - so it is the one place that has to tell the rest of Kodi
+  m_pPlayer->PublishPlaybackSpeed(static_cast<float>(rate));
+}
+
 void CGraphManagementThread::OnStartup()
 {
 }
@@ -2767,7 +2802,7 @@ void CGraphManagementThread::Process()
         if (g_dsGraph->GetTime() >= g_dsGraph->GetTotalTime()
           || g_dsGraph->GetTotalTime() <= 0)
         {
-          m_currentRate = 1;
+          SetCurrentRate(1);
           m_pPlayer->GetPlayerCallback().OnPlayBackSpeedChanged(1);
           m_bSpeedChanged = true;
         }
@@ -2788,7 +2823,7 @@ void CGraphManagementThread::Process()
           if (newPos <= 0)
           {
             newPos = 0;
-            m_currentRate = 1;
+            SetCurrentRate(1);
             m_pPlayer->GetPlayerCallback().OnPlayBackSpeedChanged(1);
             m_bSpeedChanged = true;
           }

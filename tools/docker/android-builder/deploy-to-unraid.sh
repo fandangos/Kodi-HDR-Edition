@@ -139,6 +139,19 @@ if [[ "${USE_REGISTRY}" == "1" ]]; then
     docker push "localhost:${LOCAL_PORT}/kodi-android-builder:${tag}"
   done
 
+  # Pushing into the registry is not enough: the tag on the Unraid side still
+  # resolves to the image docker already has, and nothing there ever fetches the
+  # new one. "Check for Updates" cannot read this private registry, and Edit ->
+  # Apply re-creates the container against whatever the tag resolves to locally
+  # - so without this pull the box keeps running a weeks-old image while the
+  # registry serves the new one, and the only symptom is a build that quietly
+  # behaves like the old image. Pull here, where it is easy to see.
+  echo "==> pulling on ${HOST} so the tags resolve to what was just pushed"
+  for tag in "${TAGS[@]}"; do
+    rsh "docker pull localhost:5000/kodi-android-builder:${tag}" \
+      || echo "    WARNING: pull of ${tag} failed - Edit -> Apply would reuse the old image" >&2
+  done
+
   echo "==> installing Unraid templates"
   rsh 'mkdir -p /boot/config/plugins/dockerMan/templates-user'
   rcp "$(dirname "$0")"/unraid/my-kodi-build-*.xml \
@@ -215,14 +228,19 @@ Leave the "Keystore password" field EMPTY - the password is read from the .pass 
 next to the keystore, which keeps it out of docker inspect and out of the template on
 the flash drive.
 
-Re-running this script later updates the images in place. To pick a new image up, click
-the container -> Edit -> Apply, which recreates it against the pulled image. /data is a
+Re-running this script later updates the images in place AND pulls them on the box, so
+the tags there resolve to what was just pushed. To pick a new image up, click the
+container -> Edit -> Apply, which recreates it against that pulled image. /data is a
 bind mount, so src/, state/ and release/ survive untouched.
 
 Start alone will NOT do it: the container was created from the old image ID and docker
 start reuses it. Neither will "Check for Updates" - that check cannot read a private
 localhost:5000 registry and reports "not available" with a broken-image icon. Expected
 for this setup, not a fault.
+
+If the pull step above printed a WARNING, Edit -> Apply will silently re-create the
+container against the OLD image. Fix the pull first; a build against a stale image looks
+completely normal and simply lacks whatever the new image added.
 EOF
 else
 cat <<EOF

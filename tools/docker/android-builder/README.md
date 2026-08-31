@@ -157,9 +157,22 @@ Two things this does *not* survive:
   `localhost:5000/kodi-android-builder:<abi>`, a registry on the Unraid box that
   `deploy-to-unraid.sh --registry` pushes into over ssh. (`publish.sh` builds the same slim
   images but pushes them to a Hub namespace, which this setup does not use; the `<Registry>`
-  line in the templates is only the project link Unraid shows in the UI.) The tag does not
-  change, so **force an update on the container in the Docker tab** afterwards or it keeps
-  running the cached image.
+  line in the templates is only the project link Unraid shows in the UI.)
+
+  The tag does not change, so afterwards click the container → **Edit → Apply** to recreate it
+  against the new image. `Start` reuses the old image ID, and *Check for Updates* cannot read a
+  private registry so it reports nothing. The script now also runs `docker pull` on the box for
+  you — without that the tag there still resolves to the image Unraid already had, and Edit →
+  Apply cheerfully recreates the container against the **old** one. Verify with:
+
+  ```bash
+  ssh root@<unraid-host> \
+    "docker inspect --format '{{.Image}}' kodi-build-arm64-v8a; \
+     docker image inspect --format '{{.Id}}' localhost:5000/kodi-android-builder:arm64-v8a"
+  ```
+
+  Those two must match after Apply. If they do not, the container is still on the old image and
+  the build will look normal while missing whatever the new image added.
 - **a bumped `LIBBLURAY_VERSION`** — the jar names carry the version and are pinned in the
   Dockerfile; bump both it and `LIBBLURAY-VERSION` together.
 

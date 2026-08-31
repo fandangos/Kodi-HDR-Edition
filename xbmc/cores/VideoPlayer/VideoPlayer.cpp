@@ -67,6 +67,7 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -2294,7 +2295,19 @@ void CVideoPlayer::HandlePlaySpeed()
         else
           clock = m_CurrentAudio.starttime - m_CurrentAudio.cachetime;
 
-        if (m_CurrentVideo.starttime != DVD_NOPTS_VALUE && (m_CurrentVideo.packets > 0))
+        // A video start time that sits a long way from the audio one cannot be an A/V
+        // start offset of the same clip - it is a leftover picture carrying a previous
+        // clip's timeline. Taking it would strand the master clock there, with nothing
+        // ever presented again. Start on audio alone and let the stale pictures drop.
+        const bool videoStartTimeSane =
+            std::abs(m_CurrentVideo.starttime - m_CurrentAudio.starttime) < DVD_SEC_TO_TIME(10);
+        if (m_CurrentVideo.starttime != DVD_NOPTS_VALUE && !videoStartTimeSane)
+          CLog::Log(LOGWARNING,
+                    "VideoPlayer::Sync - ignoring out of range video start time {:f} (audio {:f})",
+                    m_CurrentVideo.starttime, m_CurrentAudio.starttime);
+
+        if (m_CurrentVideo.starttime != DVD_NOPTS_VALUE && (m_CurrentVideo.packets > 0) &&
+            videoStartTimeSane)
         {
           if (m_CurrentVideo.starttime - m_CurrentVideo.cachetotal < clock)
           {

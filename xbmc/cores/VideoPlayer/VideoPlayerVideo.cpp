@@ -104,6 +104,22 @@ double CVideoPlayerVideo::GetOutputDelay()
   return time;
 }
 
+void CVideoPlayerVideo::DropParkedCodec()
+{
+  if (!m_parkedVideoCodec)
+    return;
+
+  // A park is only ever meant to bridge one CloseStream()/OpenStream() pair. If this
+  // open fails the stream is disabled, CVideoPlayer::CloseStream() then early-returns
+  // on the negative stream id, and the park would survive to be adopted by whatever
+  // opens next - possibly a different title, on a timeline hours away. The decoder
+  // still holds the previous clip's decoded pictures (TakeParkedCodec deliberately
+  // does not flush), so those stale timestamps would drive PLAYER_STARTED and take
+  // the master clock with them. Let it go instead.
+  CLog::Log(LOGINFO, "CVideoPlayerVideo::OpenStream - dropping the parked video codec");
+  m_parkedVideoCodec.reset();
+}
+
 std::unique_ptr<CDVDVideoCodec> CVideoPlayerVideo::TakeParkedCodec(CDVDStreamInfo& hint)
 {
   if (!m_parkedVideoCodec)
@@ -129,7 +145,10 @@ std::unique_ptr<CDVDVideoCodec> CVideoPlayerVideo::TakeParkedCodec(CDVDStreamInf
 bool CVideoPlayerVideo::OpenStream(CDVDStreamInfo hint)
 {
   if (hint.flags & AV_DISPOSITION_ATTACHED_PIC)
+  {
+    DropParkedCodec();
     return false;
+  }
   if (!hint.extradata)
   {
     // codecs which require extradata
@@ -144,6 +163,7 @@ bool CVideoPlayerVideo::OpenStream(CDVDStreamInfo hint)
         hint.codec == AV_CODEC_ID_VC1)
     {
       CLog::LogF(LOGERROR, "Codec id {} require extradata.", hint.codec);
+      DropParkedCodec();
       return false;
     }
     // clang-format on

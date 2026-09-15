@@ -600,9 +600,20 @@ HRESULT CFGLoader::LoadFilterRules(const CFileItem& _pFileItem)
       // A subtitle filter is optional. Failing to add it must not abort graph building,
       // otherwise a media rule naming a filter that isn't installed on the system makes
       // the file completely unplayable instead of just losing subtitle support.
-      if (FAILED(InsertFilter(filter, CGraphFilters::Get()->Subs)))
-        CLog::Log(LOGWARNING, "{} Unable to add the subtitle filter \"{}\" to the graph. "
-                              "Playback continues without subtitle support", __FUNCTION__, filter.c_str());
+      //
+      // The subtitle filter reads the whole appearance it will draw in -- the colour and the
+      // opacity of the text, of the border, of the box behind it and of the shadow, the width
+      // of each, the blur -- once, out of the registry, as it is created. The interfaces it
+      // offers afterwards carry a fraction of that, which is why the viewer's appearance goes
+      // in here rather than being asked for later, and comes straight back out again: that
+      // setting belongs to every player using the filter, not to Kodi.
+      {
+        CSubtitleFilterStyle subtitleStyle(filter);
+
+        if (FAILED(InsertFilter(filter, CGraphFilters::Get()->Subs)))
+          CLog::Log(LOGWARNING, "{} Unable to add the subtitle filter \"{}\" to the graph. "
+                                "Playback continues without subtitle support", __FUNCTION__, filter.c_str());
+      }
       END_PERFORMANCE_COUNTER("Loading subs filter");
     }
 

@@ -45,6 +45,7 @@
 #include "Subtitles/ILogImpl.h"
 
 #include "utils/StreamDetails.h"
+#include "utils/Observer.h"
 #include "Filters/IDirectVobSub.h"
 #include "Filters/LAVAudioSettings.h"
 
@@ -175,7 +176,52 @@ public:
  *
  * Singleton class handling audio and subtitle streams.
  */
-class CStreamsManager
+/*!
+ * \brief Holds the viewer's whole subtitle appearance where the filter reads it, for as long
+ *        as it takes the filter to be created
+ *
+ * The subtitle filter reads a style out of the registry once, in its constructor, and that one
+ * string carries everything: the colour and opacity of the text, of the border, of the
+ * background box and of the shadow, the width of each, the blur. The interfaces it offers
+ * afterwards carry a fraction of that -- a font, one colour, and a border and a shadow as no
+ * more than on or off -- which is why setting the appearance through
+ * CStreamsManager::ApplySubtitleStyle alone leaves the viewer's opacity with nowhere to go.
+ *
+ * So the appearance is written where the filter will look, the filter is created, and what was
+ * there before is put straight back. That string is shared with every other player using the
+ * same filter, and it is theirs: Kodi borrows it for the length of one call rather than
+ * standing on it. Whatever the viewer set in the filter's own property page and Kodi has no
+ * opinion about -- the margins, the alignment, the angles -- is read out of it and written
+ * back, so only the appearance Kodi does have settings for is changed.
+ */
+class CSubtitleFilterStyle
+{
+public:
+  //! \param filterName The filter about to be created, since only two of them read a style
+  explicit CSubtitleFilterStyle(const std::string& filterName);
+  ~CSubtitleFilterStyle();
+
+  CSubtitleFilterStyle(const CSubtitleFilterStyle&) = delete;
+  CSubtitleFilterStyle& operator=(const CSubtitleFilterStyle&) = delete;
+
+  /*!
+   * \brief Whether the last filter to be created was given the whole appearance this way
+   *
+   * When it was, there is nothing left for the narrower interface to add, and asking it would
+   * only coarsen the border and the shadow back to a fixed width.
+   */
+  static bool WasPublished() { return m_published; }
+
+private:
+  std::wstring m_key;      //!< Where the filter reads its style, empty when it reads none
+  std::wstring m_previous; //!< What was there before, to be put back
+  bool m_hadPrevious = false;
+  bool m_written = false;
+
+  static bool m_published;
+};
+
+class CStreamsManager : public Observer
 {
 public:
   friend class CSubtitleManager;
@@ -235,6 +281,23 @@ public:
   int ExternalSubtitle(int nth);
   //! \brief Which subtitle file a track is, counting files only, -1 when it is not one
   int SubtitleIsExternal(int iStream);
+
+  /*!
+   * \brief Hand the subtitle appearance the viewer set to the filter that draws subtitles
+   *
+   * Nothing else in Kodi reaches these subtitles. The font, size and colour under Settings
+   * are read by Kodi's own renderer, and with a subtitle filter in the graph that renderer
+   * never runs -- XySubFilter draws through madVR instead, out of a style of its own that
+   * until now was whatever the filter had in its registry. Every one of those settings did
+   * nothing, which is exactly how it looked.
+   *
+   * Only part of the appearance can be said: see the body for what the interface carries and
+   * what it has no room for.
+   */
+  void ApplySubtitleStyle();
+
+  //! \brief The viewer changed a subtitle setting while something was playing
+  void Notify(const Observable& obs, const ObservableMessage msg) override;
 
   bool SetSubtitle(const std::string &sTrackName);
   void SetSubtitle(int iStream);
@@ -360,6 +423,8 @@ protected:
   bool m_bHasSubsFilter;
   bool m_init;
   bool m_bIsXYVSFilter;
+  //! \brief Whether the viewer's subtitle settings are being watched for changes
+  bool m_bWatchingSubtitleStyle = false;
   bool m_bIsLavAudio;
   bool m_bIsFFDSAudio;
   float m_InitialAudioDelay;

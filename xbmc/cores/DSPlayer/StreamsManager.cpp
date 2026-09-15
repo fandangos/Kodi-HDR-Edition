@@ -50,6 +50,13 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "Util.h"
+#include "FileItem.h"
+#include "FileItemList.h"
+#include "filesystem/Directory.h"
+#include "settings/SubtitlesSettings.h"
+#include "utils/ColorUtils.h"
+#include "utils/FontUtils.h"
+#include "GraphFilters.h"
 #include "application/Application.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
@@ -57,6 +64,9 @@
 #include "guilib/StereoscopicsManager.h"
 
 #include <algorithm>
+#include <cmath>
+#include <mutex>
+#include <set>
 #include "resources/ResourcesComponent.h"
 
 #pragma comment(lib , "libsubs.lib")
@@ -114,6 +124,15 @@ CStreamsManager::CStreamsManager(void)
 
 CStreamsManager::~CStreamsManager(void)
 {
+  if (m_bWatchingSubtitleStyle)
+  {
+    const auto settingsComponent = CServiceBroker::GetSettingsComponent();
+    const auto subtitleSettings =
+        settingsComponent ? settingsComponent->GetSubtitlesSettings() : nullptr;
+    if (subtitleSettings)
+      subtitleSettings->UnregisterObserver(this);
+    m_bWatchingSubtitleStyle = false;
+  }
 
   while (!m_audioStreams.empty())
   {
@@ -697,6 +716,26 @@ void CStreamsManager::LoadStreams(const std::string& file)
       m_pIDirectVobSub->put_LoadSettings(1, false, false, true);
       m_InitialSubsDelay = GetSubTitleDelay();
 
+      // What the viewer set under Settings, since nothing else here will say it: Kodi's own
+      // subtitle renderer reads those settings and never runs while a subtitle filter is in
+      // the graph. Said again whenever they change one, which is what the watch is for.
+      //
+      // Unless the whole of it already went in where the filter read it as it was created,
+      // which says more than this interface can -- asking again here would only coarsen the
+      // border and the shadow back to a fixed width. See CSubtitleFilterStyle.
+      if (!CSubtitleFilterStyle::WasPublished())
+        ApplySubtitleStyle();
+      if (!m_bWatchingSubtitleStyle)
+      {
+        const auto subtitleSettings =
+            CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings();
+        if (subtitleSettings)
+        {
+          subtitleSettings->RegisterObserver(this);
+          m_bWatchingSubtitleStyle = true;
+        }
+      }
+
       Com::SComQIPtr<IDSPlayerCustom> pDPlayerCustom;
       hr = m_pSubs->QueryInterface(__uuidof(pDPlayerCustom), (void **)&pDPlayerCustom);
       if (SUCCEEDED(hr))
@@ -763,6 +802,100 @@ void CStreamsManager::LoadStreams(const std::string& file)
   SubtitleManager->SetSubtitleVisible(CMediaSettings::GetInstance().GetCurrentVideoSettings().m_SubtitleOn);
 }
 
+namespace
+{
+//! \brief A subtitle file's path with its extension taken off, which is all the filter reads
+std::string SubtitleStem(const std::string& path)
+{
+  const size_t dot = path.find_last_of('.');
+  const size_t slash = path.find_last_of("/\\");
+  if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+    return path;
+
+  return path.substr(0, dot);
+}
+
+/*!
+ * \brief Whether handing the filter this stem would reach that file
+ *
+ * The filter takes the name it is given, drops the extension, and looks beside it for
+ * <stem>.<ext>, <stem>.*.<ext> and <stem>-*.<ext>. So "Film" reaches "Film.srt",
+ * "Film.en.srt" and "Film-forced.srt", while "Film.en" reaches only its own.
+ */
+bool StemReaches(const std::string& stem, const std::string& file)
+{
+  const std::string fileStem = SubtitleStem(file);
+
+  if (StringUtils::EqualsNoCase(fileStem, stem))
+    return true;
+
+  // A VobSub is the exception the filter makes for itself: the two patterns with a wildcard
+  // in them look for ".dummyidx" rather than ".idx", so an .idx file is only ever found under
+  // its own whole name. Its .sub follows the .idx and is never looked for at all.
+  if (StringUtils::EqualsNoCase(URIUtils::GetExtension(file), ".idx"))
+    return false;
+
+  return fileStem.size() > stem.size() && StringUtils::StartsWithNoCase(fileStem, stem) &&
+         (fileStem[stem.size()] == '.' || fileStem[stem.size()] == '-');
+}
+
+//! \brief Every stem worth handing over for one file: its own, then each suffix taken off
+std::vector<std::string> StemsOf(const std::string& file)
+{
+  std::vector<std::string> stems;
+  std::string stem = SubtitleStem(file);
+
+  const size_t slash = stem.find_last_of("/\\");
+  const size_t floor = (slash == std::string::npos) ? 0 : slash + 1;
+
+  stems.push_back(stem);
+  while (true)
+  {
+    // Never above the folder, and never the whole of the name: a stem has to name something
+    const size_t cut = stem.find_last_of(".-");
+    if (cut == std::string::npos || cut <= floor)
+      break;
+
+    stem = stem.substr(0, cut);
+    stems.push_back(stem);
+  }
+
+  return stems;
+}
+
+/*!
+ * \brief The one stem reaching most of the files found, since only one of them can be held
+ *
+ * Ties go to the longest, which is the one that drags the least else in with it.
+ */
+std::string WidestStem(const std::vector<std::string>& subtitles, size_t& reach)
+{
+  std::string widest;
+  reach = 0;
+
+  for (const auto& subtitle : subtitles)
+  {
+    for (const auto& stem : StemsOf(subtitle))
+    {
+      size_t reached = 0;
+      for (const auto& other : subtitles)
+      {
+        if (StemReaches(stem, other))
+          reached++;
+      }
+
+      if (reached > reach || (reached == reach && stem.size() > widest.size()))
+      {
+        widest = stem;
+        reach = reached;
+      }
+    }
+  }
+
+  return widest;
+}
+} // namespace
+
 void CStreamsManager::LoadExternalSubtitles()
 {
   if (!m_bIsXYVSFilter)
@@ -774,33 +907,75 @@ void CStreamsManager::LoadExternalSubtitles()
   if (subtitles.empty())
     return;
 
-  // Longest name first, so the shortest is handed over last. put_FileName does not add one
-  // subtitle: it loads every subtitle whose file name begins the same way, and it *replaces*
-  // what the filter was holding rather than adding to it -- handing over "Film.en.srt" and
-  // then "Film.pt.srt" leaves the filter offering one track, not two. The shortest name is
-  // the one whose base covers the most, so going last it picks the others up with it:
-  // "Film.srt" last brings "Film.en.srt" and "Film.pt.srt" back with it.
-  std::sort(subtitles.begin(), subtitles.end(),
-            [](const std::string& a, const std::string& b) { return a.size() > b.size(); });
+  // put_FileName is not "add this subtitle file". It is "forget what you are holding and load
+  // whatever matches this name", so of every name handed over only the last one counts.
+  // Handing each file over in turn therefore *loses* subtitles rather than gathering them:
+  // "Film.en.srt" and "Film.fi.srt" with no plain "Film.srt" between them left one track,
+  // whichever went last, and the viewer could not choose Finnish because it was no longer
+  // there to choose. Two files, two tracks found, one track offered.
+  //
+  // The filter has already hunted for subtitle files once by itself, at its own loading,
+  // beside whatever the graph's source filter says is playing. For a plain video file that is
+  // the right name and it finds everything Kodi found -- so anything handed over now can only
+  // take some away.
+  const int held = GetExternalSubtitleCount();
+  if (held >= static_cast<int>(subtitles.size()))
+  {
+    CLog::Log(LOGINFO,
+              "{} - the subtitle filter already offers {} subtitle file track(s) for the {} "
+              "file(s) found beside what is playing, and is left as it is",
+              __FUNCTION__, held, subtitles.size());
+    return;
+  }
+
+  // Which leaves what the filter's own hunt cannot do: an unpacked disc, where what it thinks
+  // is playing is BDMV/index.bdmv or VIDEO_TS/VIDEO_TS.IFO and nothing is named after that.
+  // One name is handed over rather than each file in turn, and it is not a file name at all:
+  // it is the stem whose fan-out reaches the most of what Kodi found. Loading what it finds
+  // beside one stem is the only way the filter will ever hold more than one file at once.
+  size_t reach = 0;
+  const std::string stem = WidestStem(subtitles, reach);
+
+  if (stem.empty() || reach <= static_cast<size_t>(held))
+  {
+    CLog::Log(LOGWARNING,
+              "{} - {} subtitle file(s) sit beside what is playing and the filter holds {}, but "
+              "no one name reaches more than {} of them: it loads by shared name, so files "
+              "named differently from each other cannot all be held at once",
+              __FUNCTION__, subtitles.size(), held, reach);
+    return;
+  }
+
+  // The stem needs an extension on it, since the filter reads a name only as far as its last
+  // dot. The extension of a file the stem reaches keeps it a name that could exist.
+  std::string handed = stem;
+  for (const auto& subtitle : subtitles)
+  {
+    if (StemReaches(stem, subtitle))
+    {
+      handed += URIUtils::GetExtension(subtitle);
+      break;
+    }
+  }
 
   const int before = GetSubtitleCount();
-  for (const auto& subtitle : subtitles)
-    AddSubtitle(subtitle);
+  AddSubtitle(handed);
 
-  // Which is a best effort and not a guarantee: subtitle files beside a disc need not share
-  // a name at all, and any the filter dropped are said so here rather than quietly missing.
-  if (GetExternalSubtitleCount() != static_cast<int>(subtitles.size()))
+  const int loaded = GetExternalSubtitleCount();
+  if (loaded < static_cast<int>(subtitles.size()))
     CLog::Log(LOGWARNING,
-              "{} - the subtitle filter lists {} file(s) where {} were handed to it; it loads "
-              "by shared name, so files named differently from each other cannot all be held",
-              __FUNCTION__, GetExternalSubtitleCount(), subtitles.size());
+              "{} - the subtitle filter offers {} subtitle file track(s) where {} file(s) were "
+              "found; it loads by shared name, so files named differently from each other "
+              "cannot all be held at once",
+              __FUNCTION__, loaded, subtitles.size());
 
   // Worth stating plainly, because the two numbers answering each other is the whole check:
   // how many files were found against how many tracks the filter went on to offer.
   CLog::Log(LOGINFO,
-            "{} - handed {} subtitle file(s) to the subtitle filter, which now offers {} "
-            "track(s) where it offered {}",
-            __FUNCTION__, subtitles.size(), GetSubtitleCount(), before);
+            "{} - handed \"{}\" to the subtitle filter for the {} file(s) found, which now "
+            "offers {} track(s) where it offered {}",
+            __FUNCTION__, URIUtils::GetFileName(handed).c_str(), subtitles.size(),
+            GetSubtitleCount(), before);
 }
 
 int CStreamsManager::GetExternalSubtitleCount()
@@ -1069,6 +1244,467 @@ float CStreamsManager::GetSubTitleDelay()
   return fValue;
 }
 
+namespace
+{
+//! \brief The picture height Kodi states its subtitle sizes against
+constexpr double KODI_SUBTITLE_VIEWPORT_HEIGHT = 720.0;
+//! \brief The script height the filter draws a subtitle file of its own resolution against
+constexpr double SUBTITLE_FILTER_SCRIPT_HEIGHT = 288.0;
+
+/*!
+ * \brief Make a font Kodi knows about usable by whatever draws the subtitles
+ *
+ * Both of them ask Windows for a font by family name, and a font the viewer dropped into
+ * Kodi's own fonts folder is not one Windows has ever heard of -- it would be asked for,
+ * missed, and quietly replaced by whatever Windows falls back to, which reads as the font
+ * setting doing nothing. Both draw inside this process, so lending the file privately is
+ * enough: the family becomes one Windows can find here and nowhere else.
+ */
+void LendFontToTheRenderer(const std::string& familyName)
+{
+  static CCriticalSection lentLock;
+  static std::set<std::string> lent;
+
+  if (familyName.empty())
+    return;
+
+  std::unique_lock lock(lentLock);
+  if (!lent.insert(familyName).second)
+    return;
+
+  CFileItemList fonts;
+  XFILE::CDirectory::GetDirectory(KODI::UTILS::FONT::FONTPATH::USER, fonts,
+                                  KODI::UTILS::FONT::SUPPORTED_EXTENSIONS_MASK,
+                                  XFILE::DIR_FLAG_NO_FILE_DIRS);
+
+  for (const auto& font : fonts)
+  {
+    std::set<std::string> familyNames;
+    if (!KODI::UTILS::FONT::GetFontFamilyNames(font->GetPath(), familyNames))
+      continue;
+
+    if (familyNames.find(familyName) == familyNames.end())
+      continue;
+
+    std::wstring pathW;
+    g_charsetConverter.utf8ToW(CSpecialProtocol::TranslatePath(font->GetPath()), pathW, false);
+
+    if (AddFontResourceExW(pathW.c_str(), FR_PRIVATE, nullptr) > 0)
+      CLog::Log(LOGDEBUG, "CStreamsManager::LendFontToTheRenderer - \"{}\" is now a font that "
+                          "can be asked of Windows", familyName.c_str());
+    else
+      CLog::Log(LOGWARNING, "CStreamsManager::LendFontToTheRenderer - \"{}\" could not be lent to "
+                            "the subtitle renderer; subtitles will be drawn in another font",
+                familyName.c_str());
+    return;
+  }
+
+  // Not one of Kodi's own, so either Windows already has it or nothing will draw with it
+  CLog::Log(LOGDEBUG, "CStreamsManager::LendFontToTheRenderer - \"{}\" is not one of Kodi's "
+                      "own fonts; Windows will be asked for it as it stands",
+            familyName.c_str());
+}
+//! \brief A colour as Kodi holds it, 0xAARRGGBB, as Windows wants it, 0x00BBGGRR
+COLORREF ToColorRef(KODI::UTILS::COLOR::Color color)
+{
+  return RGB((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF);
+}
+
+//! \brief An opacity, where all of it is solid, as a subtitle alpha, where none of it is
+BYTE ToSubtitleAlpha(int opacityPercent)
+{
+  const int alpha = 255 - (std::clamp(opacityPercent, 0, 100) * 255) / 100;
+  return static_cast<BYTE>(alpha);
+}
+//! \brief Where the two subtitle filters that read a style keep theirs
+std::wstring SubtitleFilterStyleKey(const std::string& filterName)
+{
+  if (filterName == CGraphFilters::INTERNAL_XYSUBFILTER)
+    return L"Software\\Gabest\\XySubFilter\\Text";
+  if (filterName == CGraphFilters::INTERNAL_XYVSFILTER)
+    return L"Software\\Gabest\\VSFilter\\Text";
+
+  return {};
+}
+
+//! \brief The style the filter reads
+constexpr const wchar_t* SUBTITLE_FILTER_STYLE_VALUE = L"style2";
+
+/*!
+ * \brief Where the style that was there before is kept for as long as Kodi has borrowed it
+ *
+ * Only ever present while Kodi holds the style, so finding one means the run that wrote it
+ * never got to put anything back -- it was killed, or it crashed, mid-film. What it holds is
+ * the viewer's own style and what sits in the filter's value is Kodi's, so the one to keep is
+ * the marker. Without this, the run after a crash would take Kodi's style for the viewer's and
+ * put *that* back, and their own would be gone for good. The filter neither reads nor writes
+ * this name.
+ */
+constexpr const wchar_t* SUBTITLE_FILTER_BORROWED_VALUE = L"style2_borrowed_by_kodi";
+
+bool ReadSubtitleFilterStyle(const std::wstring& key, const wchar_t* value, std::wstring& style)
+{
+  wchar_t buffer[2048] = {};
+  DWORD size = sizeof(buffer);
+
+  if (RegGetValueW(HKEY_CURRENT_USER, key.c_str(), value, RRF_RT_REG_SZ, nullptr, buffer,
+                   &size) != ERROR_SUCCESS)
+    return false;
+
+  style.assign(buffer);
+  return true;
+}
+
+bool WriteSubtitleFilterStyle(const std::wstring& key, const wchar_t* value,
+                              const std::wstring& style)
+{
+  HKEY handle = nullptr;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE,
+                      KEY_SET_VALUE, nullptr, &handle, nullptr) != ERROR_SUCCESS)
+    return false;
+
+  const LSTATUS status = RegSetValueExW(
+      handle, value, 0, REG_SZ, reinterpret_cast<const BYTE*>(style.c_str()),
+      static_cast<DWORD>((style.size() + 1) * sizeof(wchar_t)));
+
+  RegCloseKey(handle);
+  return status == ERROR_SUCCESS;
+}
+
+bool ForgetSubtitleFilterStyle(const std::wstring& key, const wchar_t* value)
+{
+  const LSTATUS status = RegDeleteKeyValueW(HKEY_CURRENT_USER, key.c_str(), value);
+
+  return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
+}
+
+/*!
+ * \brief The viewer's subtitle appearance written the way the filter writes its own
+ *
+ * Thirty-four fields separated by semicolons, in the order the filter's own reader takes them
+ * (`operator<<=(STSStyle&, const CString&)`), and anything but that order or that many fields
+ * is thrown away for the filter's defaults without a word. So the string that is already there
+ * is the one edited: every field Kodi has a setting for is replaced and the rest -- the
+ * margins, the alignment, the character scaling and spacing, the angles -- is left as the
+ * viewer set it in the filter's own property page.
+ */
+std::string SubtitleFilterStyleString(const std::string& existing)
+{
+  // What the filter itself would hold with nothing saved, for when what is there cannot be read
+  static const char* const defaults =
+      "20;20;20;20;2;0;2.000000;2.000000;3.000000;3.000000;"
+      "0xffffff;0x00ffff;0x000000;0x000000;0x00;0x00;0x00;0x80;"
+      "1;Arial;18.000000;100.000000;100.000000;0.000000;700;0;0;0;"
+      "0.000000;0.000000;0.000000;0.000000;0.000000;2";
+
+  // left;right;top;bottom;alignment;borderStyle;outlineX;outlineY;shadowX;shadowY;
+  // colour x4;alpha x4;charSet;fontName;fontSize;scaleX;scaleY;spacing;weight;
+  // italic;underline;strikeOut;blurEdges;gaussianBlur;angleZ;angleX;angleY;relativeTo
+  enum Field
+  {
+    BORDER_STYLE = 5,
+    OUTLINE_X = 6,
+    OUTLINE_Y = 7,
+    SHADOW_X = 8,
+    SHADOW_Y = 9,
+    COLOUR_TEXT = 10,
+    COLOUR_BORDER = 12,
+    COLOUR_SHADOW = 13,
+    ALPHA_TEXT = 14,
+    ALPHA_BORDER = 16,
+    ALPHA_SHADOW = 17,
+    CHAR_SET = 18,
+    FONT_NAME = 19,
+    FONT_SIZE = 20,
+    FONT_WEIGHT = 24,
+    FONT_ITALIC = 25,
+    GAUSSIAN_BLUR = 29,
+    FIELD_COUNT = 34
+  };
+
+  std::vector<std::string> field = StringUtils::Split(existing, ";");
+  if (field.size() != FIELD_COUNT)
+  {
+    if (!existing.empty())
+      CLog::Log(LOGWARNING, "CStreamsManager - the subtitle filter's own style is {} field(s) "
+                            "rather than {}, so it is replaced rather than edited",
+                field.size(), static_cast<int>(FIELD_COUNT));
+    field = StringUtils::Split(defaults, ";");
+  }
+
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings();
+
+  const auto asInt = [](int value) { return StringUtils::Format("{}", value); };
+  const auto asFloat = [](double value) { return StringUtils::Format("{:.6f}", value); };
+  const auto asColour = [](COLORREF colour) {
+    return StringUtils::Format("0x{:06x}", static_cast<unsigned int>(colour) & 0xFFFFFF);
+  };
+  const auto asAlpha = [](BYTE alpha) {
+    return StringUtils::Format("0x{:02x}", static_cast<unsigned int>(alpha));
+  };
+
+  // Kodi states sizes and widths in pixels against a 720-high picture; the filter states them
+  // against the 288-high script it draws a subtitle file to when the file says nothing about
+  // its own resolution, which a .srt never does.
+  const double scale = SUBTITLE_FILTER_SCRIPT_HEIGHT / KODI_SUBTITLE_VIEWPORT_HEIGHT;
+
+  std::string fontFamily = settings->GetFontName();
+  if (fontFamily.empty() || fontFamily == KODI::SUBTITLES::FONT_DEFAULT_FAMILYNAME)
+    fontFamily = "Arial"; // which is what "DEFAULT" is: the application's own arial.ttf
+  else
+    LendFontToTheRenderer(fontFamily);
+
+  field[FONT_NAME] = fontFamily;
+  field[FONT_SIZE] = asFloat(static_cast<double>(settings->GetFontSize()) * scale);
+  field[CHAR_SET] =
+      asInt(CDSCharsetConverter::getCharsetIdByName(g_langInfo.GetSubtitleCharSet()));
+
+  const KODI::SUBTITLES::FontStyle fontStyle = settings->GetFontStyle();
+  field[FONT_WEIGHT] = asInt((fontStyle == KODI::SUBTITLES::FontStyle::BOLD ||
+                              fontStyle == KODI::SUBTITLES::FontStyle::BOLD_ITALIC)
+                                 ? FW_BOLD
+                                 : FW_NORMAL);
+  field[FONT_ITALIC] = asInt((fontStyle == KODI::SUBTITLES::FontStyle::ITALIC ||
+                              fontStyle == KODI::SUBTITLES::FontStyle::BOLD_ITALIC)
+                                 ? 1
+                                 : 0);
+
+  // An alpha runs the other way from an opacity: 0 is solid and 255 is invisible
+  field[COLOUR_TEXT] = asColour(ToColorRef(settings->GetFontColor()));
+  field[ALPHA_TEXT] = asAlpha(ToSubtitleAlpha(settings->GetFontOpacity()));
+
+  const KODI::SUBTITLES::BackgroundType background = settings->GetBackgroundType();
+  if (background == KODI::SUBTITLES::BackgroundType::BOX ||
+      background == KODI::SUBTITLES::BackgroundType::SQUAREBOX)
+  {
+    // A box behind the text rather than an outline around it, where what is called the outline
+    // width is the space kept between the two. The filter has one box and Kodi asks for two
+    // shapes of it; this is the one it can draw.
+    field[BORDER_STYLE] = asInt(1);
+    field[OUTLINE_X] = field[OUTLINE_Y] = asFloat(4.0 * scale);
+    field[COLOUR_BORDER] = asColour(ToColorRef(settings->GetBackgroundColor()));
+    field[ALPHA_BORDER] = asAlpha(ToSubtitleAlpha(settings->GetBackgroundOpacity()));
+  }
+  else
+  {
+    field[BORDER_STYLE] = asInt(0);
+    field[OUTLINE_X] = field[OUTLINE_Y] =
+        asFloat(static_cast<double>(settings->GetBorderSize()) * 10.0 / 100.0 * scale);
+    field[COLOUR_BORDER] = asColour(ToColorRef(settings->GetBorderColor()));
+    field[ALPHA_BORDER] = asAlpha(ToSubtitleAlpha(settings->GetFontOpacity()));
+  }
+
+  const bool shadow = background != KODI::SUBTITLES::BackgroundType::NONE;
+  field[SHADOW_X] = field[SHADOW_Y] =
+      asFloat(shadow ? static_cast<double>(settings->GetShadowSize()) * 10.0 / 100.0 * scale
+                     : 0.0);
+  field[COLOUR_SHADOW] = asColour(ToColorRef(settings->GetShadowColor()));
+  field[ALPHA_SHADOW] =
+      asAlpha(shadow ? ToSubtitleAlpha(settings->GetShadowOpacity()) : static_cast<BYTE>(0xFF));
+
+  // The blur is the only one of these the viewer sets as a percentage of nothing in
+  // particular, and Kodi does not scale it to the picture either
+  field[GAUSSIAN_BLUR] = asFloat(static_cast<double>(settings->GetBlurSize()) * 10.0 / 100.0);
+
+  return StringUtils::Join(field, ";");
+}
+} // namespace
+
+bool CSubtitleFilterStyle::m_published = false;
+
+CSubtitleFilterStyle::CSubtitleFilterStyle(const std::string& filterName)
+{
+  m_published = false;
+
+  m_key = SubtitleFilterStyleKey(filterName);
+  if (m_key.empty())
+    return; // a subtitle filter that reads no style, or none at all
+
+  const auto settingsComponent = CServiceBroker::GetSettingsComponent();
+  if (!settingsComponent || !settingsComponent->GetSubtitlesSettings())
+    return;
+
+  // A marker left behind means the last run never put the style back, so what the filter
+  // holds now is Kodi's and the viewer's own is in the marker
+  std::wstring borrowed;
+  if (ReadSubtitleFilterStyle(m_key, SUBTITLE_FILTER_BORROWED_VALUE, borrowed))
+  {
+    CLog::Log(LOGWARNING, "{} - the subtitle filter was still holding an appearance set in Kodi, "
+                          "so the run that put it there did not finish; the viewer's own is "
+                          "taken from where it was set aside", __FUNCTION__);
+    m_previous = borrowed;
+    m_hadPrevious = !borrowed.empty();
+  }
+  else
+  {
+    m_hadPrevious = ReadSubtitleFilterStyle(m_key, SUBTITLE_FILTER_STYLE_VALUE, m_previous);
+
+    // Set aside before anything is written over it, so a run that ends badly still leaves the
+    // viewer's own style somewhere it can be found
+    if (!WriteSubtitleFilterStyle(m_key, SUBTITLE_FILTER_BORROWED_VALUE, m_previous))
+    {
+      CLog::Log(LOGWARNING, "{} - the subtitle filter's own appearance could not be set aside, "
+                            "so it is left alone rather than risked", __FUNCTION__);
+      return;
+    }
+  }
+
+  std::string previous;
+  if (m_hadPrevious)
+    g_charsetConverter.wToUTF8(m_previous, previous);
+
+  const std::string style = SubtitleFilterStyleString(previous);
+
+  std::wstring styleW;
+  g_charsetConverter.utf8ToW(style, styleW, false);
+
+  if (!WriteSubtitleFilterStyle(m_key, SUBTITLE_FILTER_STYLE_VALUE, styleW))
+  {
+    CLog::Log(LOGWARNING, "{} - the viewer's subtitle appearance could not be put where the "
+                          "subtitle filter reads it; it will draw in its own style instead",
+              __FUNCTION__);
+    ForgetSubtitleFilterStyle(m_key, SUBTITLE_FILTER_BORROWED_VALUE);
+    return;
+  }
+
+  m_written = true;
+  m_published = true;
+
+  CLog::Log(LOGINFO, "{} - the subtitle filter is about to read the viewer's whole appearance: "
+                     "{}", __FUNCTION__, style.c_str());
+}
+
+CSubtitleFilterStyle::~CSubtitleFilterStyle()
+{
+  if (!m_written)
+    return;
+
+  // Put back what other players read, whether or not the filter was created: the style has
+  // been read by now either way, and leaving Kodi's behind would change their subtitles too.
+  const bool restored = m_hadPrevious
+                            ? WriteSubtitleFilterStyle(m_key, SUBTITLE_FILTER_STYLE_VALUE, m_previous)
+                            : ForgetSubtitleFilterStyle(m_key, SUBTITLE_FILTER_STYLE_VALUE);
+
+  if (restored)
+  {
+    ForgetSubtitleFilterStyle(m_key, SUBTITLE_FILTER_BORROWED_VALUE);
+    CLog::Log(LOGDEBUG, "{} - the subtitle filter's own style is as it was", __FUNCTION__);
+  }
+  else
+    CLog::Log(LOGWARNING, "{} - the subtitle filter's own style could not be put back, so it is "
+                          "left holding the appearance set in Kodi; it is set aside under \"{}\" "
+                          "and the next film will put it back", __FUNCTION__,
+              "style2_borrowed_by_kodi");
+}
+
+void CStreamsManager::ApplySubtitleStyle()
+{
+  if (!m_bIsXYVSFilter || !m_pIDirectVobSub)
+    return;
+
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings();
+  if (!settings)
+    return;
+
+  LOGFONTW lf = {};
+
+  std::string fontName = settings->GetFontName();
+  if (fontName.empty() || fontName == KODI::SUBTITLES::FONT_DEFAULT_FAMILYNAME)
+    fontName = "Arial"; // which is what "DEFAULT" is: the application's own arial.ttf
+  else
+    LendFontToTheRenderer(fontName);
+
+  std::wstring fontNameW;
+  g_charsetConverter.utf8ToW(fontName, fontNameW, false);
+  wcsncpy_s(lf.lfFaceName, LF_FACESIZE, fontNameW.c_str(), _TRUNCATE);
+
+  // Kodi states a size in pixels against a 720-high picture. The filter states one against the
+  // 288-high script it draws a subtitle file to when the file says nothing about its own
+  // resolution, which a .srt never does. The two agree at their defaults: Kodi's 42 pixels
+  // becomes 17, beside the filter's own 18.
+  //
+  // It has to be handed over positive. A negative height is a font height in the Windows
+  // sense and the filter does convert it -- but converts the *old* size rather than the one
+  // being set, a slip in the filter that leaves the size it keeps unrelated to either.
+  lf.lfHeight = std::lround(static_cast<double>(settings->GetFontSize()) *
+                            SUBTITLE_FILTER_SCRIPT_HEIGHT / KODI_SUBTITLE_VIEWPORT_HEIGHT);
+  if (lf.lfHeight < 1)
+    lf.lfHeight = 1;
+
+  const KODI::SUBTITLES::FontStyle fontStyle = settings->GetFontStyle();
+  lf.lfWeight = (fontStyle == KODI::SUBTITLES::FontStyle::BOLD ||
+                 fontStyle == KODI::SUBTITLES::FontStyle::BOLD_ITALIC)
+                    ? FW_BOLD
+                    : FW_NORMAL;
+  lf.lfItalic = (fontStyle == KODI::SUBTITLES::FontStyle::ITALIC ||
+                 fontStyle == KODI::SUBTITLES::FontStyle::BOLD_ITALIC)
+                    ? 1
+                    : 0;
+  lf.lfCharSet =
+      static_cast<BYTE>(CDSCharsetConverter::getCharsetIdByName(g_langInfo.GetSubtitleCharSet()));
+
+  // Kodi holds a colour as 0xAARRGGBB and Windows wants 0x00BBGGRR
+  const KODI::UTILS::COLOR::Color fontColor = settings->GetFontColor();
+  const COLORREF color =
+      RGB((fontColor >> 16) & 0xFF, (fontColor >> 8) & 0xFF, fontColor & 0xFF);
+
+  // The border and the shadow cross as yes or no and nothing more -- the filter picks both
+  // widths itself. A box background is asked for as a border, which is the nearest thing that
+  // can be said.
+  const KODI::SUBTITLES::BackgroundType background = settings->GetBackgroundType();
+  const bool outline = settings->GetBorderSize() > 0 ||
+                       background == KODI::SUBTITLES::BackgroundType::BOX ||
+                       background == KODI::SUBTITLES::BackgroundType::SQUAREBOX;
+  const bool shadow = settings->GetShadowSize() > 0 && settings->GetShadowOpacity() > 0;
+
+  // And the rest of what the viewer can set here has nowhere at all to go. IDirectVobSub
+  // carries a font, one colour and those two flags; how opaque the text is, what colour and
+  // how wide the border and the background are, and the blur, are only reachable through the
+  // interface that passes the filter's own STSStyle -- a C++ object whose layout in the
+  // filter does not match the copy of it in this tree, so handing one over would be writing
+  // over the filter's memory rather than setting a style.
+  const HRESULT hr =
+      m_pIDirectVobSub->put_TextSettings(&lf, sizeof(lf), color, shadow, outline, true);
+
+  if (FAILED(hr))
+  {
+    CLog::Log(LOGWARNING, "{} - the subtitle filter would not take the viewer's subtitle "
+                          "appearance (0x{:08X})", __FUNCTION__, static_cast<unsigned int>(hr));
+    return;
+  }
+
+  if (hr != S_OK) // S_FALSE: already exactly this, and nothing was touched
+    return;
+
+  CLog::Log(LOGINFO,
+            "{} - subtitles are drawn in {} at {}, colour {:06X}, border {}, shadow {}",
+            __FUNCTION__, fontName.c_str(), lf.lfHeight, static_cast<unsigned int>(fontColor & 0xFFFFFF),
+            outline ? "on" : "off", shadow ? "on" : "off");
+
+  CLog::Log(LOGINFO,
+            "{} - what this interface cannot carry -- how opaque the text is, the colour and "
+            "the width of the border and of the background, the blur -- is read by the filter "
+            "as it is created, so a change to any of those takes hold at the next file",
+            __FUNCTION__);
+
+  // The filter keeps the style, but does not hand it to the subtitle it already has open
+  // until something makes it look at which subtitle is selected. Turning subtitles off and
+  // straight back on is what makes it look; without this a setting changed mid-film takes
+  // hold only at the next one.
+  bool hidden = false;
+  if (SUCCEEDED(m_pIDirectVobSub->get_HideSubtitles(&hidden)) && !hidden)
+  {
+    m_pIDirectVobSub->put_HideSubtitles(true);
+    m_pIDirectVobSub->put_HideSubtitles(false);
+  }
+}
+
+void CStreamsManager::Notify(const Observable& obs, const ObservableMessage msg)
+{
+  if (msg == ObservableMessageSettingsChanged)
+    ApplySubtitleStyle();
+}
+
 int CStreamsManager::AddSubtitle(const std::string& subFilePath)
 {
   if (!m_bHasSubsFilter)
@@ -1089,7 +1725,11 @@ int CStreamsManager::AddSubtitle(const std::string& subFilePath)
 
   g_charsetConverter.utf8ToW(subFile, subFileW);
 
-  CLog::Log(LOGDEBUG, "{} Successfully loaded external subtitle name  \"{}\" ", __FUNCTION__, subFile.c_str());
+  // Not a file the filter opens, but a name it hunts by: it loads everything beside it called
+  // <name>.<ext>, <name>.*.<ext> or <name>-*.<ext>, and drops everything it was holding
+  // before. Which is why only one name is ever handed over -- see LoadExternalSubtitles.
+  CLog::Log(LOGDEBUG, "{} Handing \"{}\" to the subtitle filter to load by", __FUNCTION__,
+            subFile.c_str());
 
   m_pIDirectVobSub->put_FileName(const_cast<wchar_t*>(subFileW.c_str()));
 
@@ -1826,13 +2466,6 @@ CSubtitleManager::~CSubtitleManager()
   Unload();
 }
 
-#define FONT_STYLE_NORMAL       0
-#define FONT_STYLE_BOLD         1
-#define FONT_STYLE_ITALICS      2
-#define FONT_STYLE_BOLD_ITALICS 3
-
-static unsigned int color[8] = { 0x0000FFFF, 0x00FFFFFF, 0x00FF9900, 0x0000FF00, 0x00FFCC, 0x00FFFF00, 0x00E5E5E5, 0x00C0C0C0 };
-
 void CSubtitleManager::Initialize()
 {
   // Initialize subtitles
@@ -1868,57 +2501,83 @@ void CSubtitleManager::Initialize()
 
   SSubStyle style; //auto default on constructor
 
-  // Build style based on XBMC settings
-  
-  style.alpha[0] = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("subtitles.opacity");
+  // The appearance the viewer set, for the graphs with no subtitle filter in them, which draw
+  // their subtitles here instead. The same settings CStreamsManager::ApplySubtitleStyle hands
+  // to a filter, and read the same way -- three of the four this used to read have not existed
+  // for several Kodi releases ("subtitles.border", "subtitles.shadowdepth",
+  // "subtitles.outlinewidth"), so each answered 0 and logged an error on the way, and the
+  // fourth was read as though 100 meant nearly invisible.
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSubtitlesSettings();
+
   //CHANGED FROM RES_PAL_4x3
   CServiceBroker::GetWinSystem()->GetGfxContext().SetScalingResolution(RES_CUSTOM, true);
-  style.fontSize = (double)(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("subtitles.fontsize")) * 50.0 / 96.0;
 
-  //Convert string FFFFFFFF to COLORREF
-  std::string hexColor = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(CSettings::SETTING_SUBTITLES_COLOR);
-  std::sscanf(hexColor.c_str(), "%x", &style.colors[0]);
+  // Kodi states sizes and widths in pixels against a 720-high picture; a subtitle file saying
+  // nothing about its own resolution is drawn to a 288-high script.
+  const double scale = 288.0 / 720.0;
 
-
-  int fontStyle = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_SUBTITLES_STYLE);
-  switch (fontStyle)
-  {
-  case FONT_STYLE_NORMAL:
-  default:
-    style.fItalic = false;
-    style.fontWeight = FW_NORMAL;
-    break;
-  case FONT_STYLE_BOLD:
-    style.fItalic = false;
-    style.fontWeight = FW_BOLD;
-    break;
-  case FONT_STYLE_ITALICS:
-    style.fontWeight = FW_NORMAL;
-    style.fItalic = true;
-    break;
-  case FONT_STYLE_BOLD_ITALICS:
-    style.fItalic = true;
-    style.fontWeight = FW_BOLD;
-    break;
-  }
-
+  style.fontSize = static_cast<double>(settings->GetFontSize()) * scale;
   style.charSet = CDSCharsetConverter::getCharsetIdByName(g_langInfo.GetSubtitleCharSet());
 
-  style.borderStyle = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("subtitles.border");
-  style.shadowDepthX = style.shadowDepthY = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("subtitles.shadowdepth");
-  style.outlineWidthX = style.outlineWidthY = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt("subtitles.outlinewidth");
+  const KODI::SUBTITLES::FontStyle fontStyle = settings->GetFontStyle();
+  style.fontWeight = (fontStyle == KODI::SUBTITLES::FontStyle::BOLD ||
+                      fontStyle == KODI::SUBTITLES::FontStyle::BOLD_ITALIC)
+                         ? FW_BOLD
+                         : FW_NORMAL;
+  style.fItalic = fontStyle == KODI::SUBTITLES::FontStyle::ITALIC ||
+                  fontStyle == KODI::SUBTITLES::FontStyle::BOLD_ITALIC;
+
+  // The four colours are the text, the second colour a karaoke line fills with, the border or
+  // the box behind the text, and the shadow -- in that order, each with an alpha of its own.
+  style.colors[0] = ToColorRef(settings->GetFontColor());
+  style.alpha[0] = ToSubtitleAlpha(settings->GetFontOpacity());
+  style.colors[3] = ToColorRef(settings->GetShadowColor());
+  style.alpha[3] = ToSubtitleAlpha(settings->GetShadowOpacity());
+
+  const KODI::SUBTITLES::BackgroundType background = settings->GetBackgroundType();
+  if (background == KODI::SUBTITLES::BackgroundType::BOX ||
+      background == KODI::SUBTITLES::BackgroundType::SQUAREBOX)
+  {
+    // A box behind the text rather than an outline around it, where the outline width is the
+    // space kept between the two
+    style.borderStyle = 1;
+    style.colors[2] = ToColorRef(settings->GetBackgroundColor());
+    style.alpha[2] = ToSubtitleAlpha(settings->GetBackgroundOpacity());
+    style.outlineWidthX = style.outlineWidthY = 4.0 * scale;
+  }
+  else
+  {
+    style.borderStyle = 0;
+    style.colors[2] = ToColorRef(settings->GetBorderColor());
+    style.alpha[2] = ToSubtitleAlpha(settings->GetFontOpacity());
+    style.outlineWidthX = style.outlineWidthY =
+        static_cast<double>(settings->GetBorderSize()) * 10.0 / 100.0 * scale;
+  }
+
+  style.shadowDepthX = style.shadowDepthY =
+      (background == KODI::SUBTITLES::BackgroundType::NONE)
+          ? 0.0
+          : static_cast<double>(settings->GetShadowSize()) * 10.0 / 100.0 * scale;
+
+  std::string fontFamily = settings->GetFontName();
+  if (fontFamily.empty() || fontFamily == KODI::SUBTITLES::FONT_DEFAULT_FAMILYNAME)
+    fontFamily = "Arial";
+  else
+    LendFontToTheRenderer(fontFamily);
 
   std::wstring fontName;
-  g_charsetConverter.utf8ToW(CServiceBroker::GetSettingsComponent()->GetSettings()->GetString("subtitles.fontname"), fontName);
-  if (fontName == L"DEFAULT")
-  {
-    fontName = L"Arial";
-  }
+  g_charsetConverter.utf8ToW(fontFamily, fontName, false);
   style.fontName = (wchar_t *)CoTaskMemAlloc(fontName.length() * sizeof(wchar_t) + 2);
   if (style.fontName)
     wcscpy_s(style.fontName, fontName.length() + 1, fontName.c_str());
 
-  bool override = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_SUBTITLES_OVERRIDEASSFONTS);
+  // Whether a subtitle carrying styles of its own -- an .ass, not an .srt -- is drawn in
+  // them or in the appearance set here
+  const KODI::SUBTITLES::OverrideStyles overrideStyles = settings->GetOverrideStyles();
+  const bool override = settings->IsOverrideFonts() ||
+                        overrideStyles == KODI::SUBTITLES::OverrideStyles::STYLES ||
+                        overrideStyles == KODI::SUBTITLES::OverrideStyles::STYLES_POSITIONS;
+
   m_pManager->SetStyle(&style, override);
 
   if (FAILED(m_pManager->InsertPassThruFilter(g_dsGraph->pFilterGraph)))

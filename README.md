@@ -69,6 +69,18 @@ behaves exactly as upstream Kodi does.
 Questions, bug reports and requests go to the forum thread for your build —
 linked above. There is no issue tracker here.
 
+## Supporting this work
+
+I build these in my free time. If they're useful to you and you'd like to say
+thanks, you can sponsor me on GitHub or buy me some popcorn on Ko-fi. It's a
+thank-you, not a support contract: donations don't buy priority, deadlines or
+feature requests.
+
+<p>
+  <a href="https://github.com/sponsors/fandangos"><img alt="Sponsor on GitHub" src="https://img.shields.io/badge/GitHub%20Sponsors-fandangos-ea4aaa?style=flat-square&logo=githubsponsors&logoColor=white"></a>
+  <a href="https://ko-fi.com/vitordallacqua"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/Ko--fi-vitordallacqua-ff5e5b?style=flat-square&logo=kofi&logoColor=white"></a>
+</p>
+
 ## Built on the work of others
 
 Kodi is made by [Team Kodi](https://kodi.tv/). The Windows build starts from

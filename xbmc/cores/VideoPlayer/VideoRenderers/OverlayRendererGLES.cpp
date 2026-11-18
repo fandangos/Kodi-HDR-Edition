@@ -29,6 +29,7 @@
 #include "windowing/WinSystem.h"
 
 #include <cmath>
+#include <cstring>
 
 // GLES2.0 cant do CLAMP, but can do CLAMP_TO_EDGE.
 #define GL_CLAMP GL_CLAMP_TO_EDGE
@@ -46,7 +47,14 @@ namespace
 //
 // Disc menus and subtitles both reach this as CDVDOverlayImage but want different levels - a menu
 // competes with the whole frame, a subtitle only has to be readable - so each has its own slider.
-void ApplyOverlayHdrCompensation(CRenderSystemGLES* renderSystem, bool isDiscMenuGraphic)
+//
+// A UHD disc's menu over HDR video already holds PQ code values, kept as such for a PQ surface
+// (ShouldConvertPQPaletteToSRGB). It is drawn at exactly those: the luminance the disc authored,
+// as a reference player shows it, with no slider. A PQ PGS subtitle keeps its slider, whose
+// default (500, a scale of 1.0) is also the authored level.
+void ApplyOverlayHdrCompensation(CRenderSystemGLES* renderSystem,
+                                 bool isDiscMenuGraphic,
+                                 bool isHDROverlay = false)
 {
   if (!CServiceBroker::GetWinSystem()->GetGfxContext().IsTransferPQ())
     return;
@@ -54,6 +62,12 @@ void ApplyOverlayHdrCompensation(CRenderSystemGLES* renderSystem, bool isDiscMen
   const GLint loc = renderSystem->GUIShaderGetSdrPeak();
   if (loc < 0)
     return;
+
+  if (isDiscMenuGraphic && isHDROverlay)
+  {
+    glUniform1f(loc, 1.0f);
+    return;
+  }
 
   const char* setting = isDiscMenuGraphic ? CSettings::SETTING_DISC_MENUOVERLAYPEAKLUMINANCE
                                           : CSettings::SETTING_DISC_SUBTITLEPEAKLUMINANCE;
@@ -189,7 +203,23 @@ COverlayTextureGLES::COverlayTextureGLES(const CDVDOverlayImage& o, CRect& rSour
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-  if (o.palette.empty())
+  const bool limitedHdrComposite = m_isHDROverlay &&
+                                  CServiceBroker::GetWinSystem()->IsHdrComposite() &&
+                                  CServiceBroker::GetWinSystem()->UseLimitedColor();
+  const bool pqToSRGB = OVERLAY::ShouldConvertPQPaletteToSRGB(m_isHDROverlay);
+  if (o.palette.empty() && (pqToSRGB || limitedHdrComposite))
+  {
+    // A UHD disc's BD-J graphics are PQ code values: prepare them as a PQ palette is
+    m_pma = false;
+    std::vector<uint32_t> rgba(static_cast<size_t>(o.width) * o.height);
+    for (int y = 0; y < o.height; ++y)
+      std::memcpy(rgba.data() + static_cast<size_t>(y) * o.width,
+                  o.pixels.data() + static_cast<size_t>(y) * o.linesize,
+                  static_cast<size_t>(o.width) * 4);
+    OVERLAY::PreparePQPixels(rgba, pqToSRGB, limitedHdrComposite);
+    LoadTexture(GL_TEXTURE_2D, o.width, o.height, o.width * 4, &m_u, &m_v, false, rgba.data());
+  }
+  else if (o.palette.empty())
   {
     m_pma = false;
     const uint32_t* rgba = reinterpret_cast<const uint32_t*>(o.pixels.data());
@@ -199,7 +229,7 @@ COverlayTextureGLES::COverlayTextureGLES(const CDVDOverlayImage& o, CRect& rSour
   {
     std::vector<uint32_t> convertedPalette;
     const std::vector<uint32_t>* paletteOverride = nullptr;
-    if (OVERLAY::ShouldConvertPQPaletteToSRGB(o.m_isHDROverlay))
+    if (pqToSRGB)
     {
       convertedPalette = o.palette;
       OVERLAY::ConvertPQPaletteToSRGB(convertedPalette);
@@ -215,8 +245,7 @@ COverlayTextureGLES::COverlayTextureGLES(const CDVDOverlayImage& o, CRect& rSour
     //! @todo Move this into the overlay shader once limited-range and
     //! full-range GUI shader variants are kept compiled in parallel and
     //! selectable per draw; then this draw selects the limited variant.
-    if (m_isHDROverlay && CServiceBroker::GetWinSystem()->IsHdrComposite() &&
-        CServiceBroker::GetWinSystem()->UseLimitedColor())
+    if (limitedHdrComposite)
     {
       for (uint32_t& px : rgba)
       {
@@ -551,7 +580,7 @@ void COverlayTextureGLES::Render(SRenderState& state)
   CRenderSystemGLES* renderSystem =
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
   renderSystem->EnableGUIShader(ShaderMethodGLES::SM_TEXTURE_NOBLEND);
-  ApplyOverlayHdrCompensation(renderSystem, m_isDiscMenuGraphic);
+  ApplyOverlayHdrCompensation(renderSystem, m_isDiscMenuGraphic, m_isHDROverlay);
   GLint depthLoc = renderSystem->GUIShaderGetDepth();
 
   // Tell the shader this texture is premultiplied so its limited-range

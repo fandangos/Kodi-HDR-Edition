@@ -446,6 +446,36 @@ void ConvertPQPaletteToSRGB(std::vector<uint32_t>& palette)
   }
 }
 
+void PreparePQPixels(std::vector<uint32_t>& pixels, bool toSRGB, bool limitedRange)
+{
+  if (toSRGB)
+  {
+    // A menu page is mostly a few flat colours and transparency: convert each colour once.
+    std::vector<uint32_t> colours(pixels);
+    std::sort(colours.begin(), colours.end());
+    colours.erase(std::unique(colours.begin(), colours.end()), colours.end());
+    std::vector<uint32_t> converted(colours);
+    ConvertPQPaletteToSRGB(converted);
+    for (uint32_t& px : pixels)
+      px = converted[std::lower_bound(colours.begin(), colours.end(), px) - colours.begin()];
+  }
+
+  if (limitedRange)
+  {
+    // Straight alpha: the blend scales the offset, so every texel takes all of it.
+    for (uint32_t& px : pixels)
+    {
+      const uint32_t a = (px >> PIXEL_ASHIFT) & 0xff;
+      const uint32_t r = (px >> PIXEL_RSHIFT) & 0xff;
+      const uint32_t g = (px >> PIXEL_GSHIFT) & 0xff;
+      const uint32_t b = (px >> PIXEL_BSHIFT) & 0xff;
+      px = (a << PIXEL_ASHIFT) | ((16 + (r * 219 + 127) / 255) << PIXEL_RSHIFT) |
+           ((16 + (g * 219 + 127) / 255) << PIXEL_GSHIFT) |
+           ((16 + (b * 219 + 127) / 255) << PIXEL_BSHIFT);
+    }
+  }
+}
+
 int GetStereoscopicDepth()
 {
   int depth = 0;

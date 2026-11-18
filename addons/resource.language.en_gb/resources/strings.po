@@ -25460,7 +25460,7 @@ msgid "Disc menu overlay brightness (HDR)"
 msgstr ""
 
 msgctxt "#39223"
-msgid "Brightness of Blu-ray/DVD disc-menu overlays composited over HDR video. Only takes effect when the Android HDR GUI surface is enabled. Raise until the disc-menu highlights are as bright as you want over the film; adjusts in real time."
+msgid "Brightness of Blu-ray/DVD disc-menu overlays composited over HDR video. Only takes effect when the Android HDR GUI surface is enabled. UHD Blu-ray menus over HDR or Dolby Vision video are authored in HDR and are always shown at the brightness the disc sets, so this only changes menus authored in SDR. Adjusts in real time."
 msgstr ""
 
 msgctxt "#39224"

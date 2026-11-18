@@ -30,6 +30,7 @@ public:
     {
       bpp = 1;
       palette = src.palette;
+      alternatePalette = src.alternatePalette;
     }
     else
     {
@@ -76,6 +77,10 @@ public:
 
   std::vector<uint8_t> pixels;
   std::vector<uint32_t> palette;
+  //! A Blu-ray menu page's palette decoded with the other colour matrix (BT.709 or BT.2020). A
+  //! page already drawn can outlive the play item that chose its matrix, see
+  //! CDVDInputStreamBluray::MatchGraphicsDynamicRange.
+  std::vector<uint32_t> alternatePalette;
 
   // pixels are already HDR, matching video's colorimetry
   bool m_isHDROverlay{false};

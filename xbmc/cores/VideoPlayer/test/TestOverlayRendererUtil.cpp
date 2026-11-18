@@ -8,6 +8,8 @@
 
 #include "cores/VideoPlayer/VideoRenderers/OverlayRendererUtil.h"
 
+#include "PlatformDefs.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -151,4 +153,66 @@ TEST(TestOverlayRendererUtil, TiledImagesPreserveLinearFiltering)
                 << "source=" << sourceX << "," << sourceY << " opaque=" << opaque;
           }
   }
+}
+
+namespace
+{
+uint32_t PackPixel(uint32_t a, uint32_t r, uint32_t g, uint32_t b)
+{
+  return a << PIXEL_ASHIFT | r << PIXEL_RSHIFT | g << PIXEL_GSHIFT | b << PIXEL_BSHIFT;
+}
+
+uint32_t Channel(uint32_t px, int shift)
+{
+  return (px >> shift) & 0xff;
+}
+} // namespace
+
+TEST(TestOverlayRendererUtil, PreparePQPixelsMatchesPaletteConversion)
+{
+  // A BD-J page: a few flat colours repeated, with transparency, as straight-alpha ARGB
+  const std::vector<uint32_t> colours{PackPixel(0, 0, 0, 0), PackPixel(255, 157, 157, 157),
+                                      PackPixel(128, 167, 90, 40), PackPixel(255, 255, 255, 255)};
+  std::vector<uint32_t> pixels;
+  for (int i = 0; i < 64; ++i)
+    pixels.push_back(colours[(i * 7) % colours.size()]);
+
+  std::vector<uint32_t> expected(pixels);
+  OVERLAY::ConvertPQPaletteToSRGB(expected);
+
+  std::vector<uint32_t> prepared(pixels);
+  OVERLAY::PreparePQPixels(prepared, true, false);
+  EXPECT_EQ(prepared, expected);
+}
+
+TEST(TestOverlayRendererUtil, PreparePQPixelsEncodesLimitedRangeStraightAlpha)
+{
+  std::vector<uint32_t> pixels{PackPixel(255, 255, 255, 255), PackPixel(0, 0, 0, 0),
+                               PackPixel(77, 128, 64, 200)};
+  OVERLAY::PreparePQPixels(pixels, false, true);
+
+  EXPECT_EQ(pixels[0], PackPixel(255, 235, 235, 235));
+  // Straight alpha: even a transparent texel takes the whole offset, the blend scales it
+  EXPECT_EQ(pixels[1], PackPixel(0, 16, 16, 16));
+  EXPECT_EQ(Channel(pixels[2], PIXEL_ASHIFT), 77u);
+  EXPECT_EQ(Channel(pixels[2], PIXEL_RSHIFT), 16u + (128u * 219u + 127u) / 255u);
+  EXPECT_EQ(Channel(pixels[2], PIXEL_GSHIFT), 16u + (64u * 219u + 127u) / 255u);
+  EXPECT_EQ(Channel(pixels[2], PIXEL_BSHIFT), 16u + (200u * 219u + 127u) / 255u);
+}
+
+TEST(TestOverlayRendererUtil, PreparePQPixelsConvertsBeforeEncoding)
+{
+  const std::vector<uint32_t> pixels{PackPixel(255, 157, 157, 157), PackPixel(200, 167, 90, 40)};
+
+  std::vector<uint32_t> stepwise(pixels);
+  OVERLAY::PreparePQPixels(stepwise, true, false);
+  OVERLAY::PreparePQPixels(stepwise, false, true);
+
+  std::vector<uint32_t> both(pixels);
+  OVERLAY::PreparePQPixels(both, true, true);
+  EXPECT_EQ(both, stepwise);
+
+  std::vector<uint32_t> untouched(pixels);
+  OVERLAY::PreparePQPixels(untouched, false, false);
+  EXPECT_EQ(untouched, pixels);
 }

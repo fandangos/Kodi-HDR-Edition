@@ -20,6 +20,7 @@
 #include <chrono>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -202,6 +203,7 @@ protected:
 
   void OverlayFlush(int64_t pts);
   void OverlayClose();
+  void UpdateGraphicsDynamicRange();
   static void OverlayClear(SPlane& plane, int x, int y, int w, int h);
   static void OverlayInit (SPlane& plane, int w, int h);
 
@@ -242,7 +244,17 @@ protected:
     int h = 0;
   };
 
+  void MatchGraphicsDynamicRange(SOverlays& overlays) const;
+
+  //! BD-J publishes from its Java thread while the demuxer changes play item. Guards m_planes and
+  //! m_hdrGraphics.
+  std::mutex m_overlayMutex;
   SPlane m_planes[2];
+
+  //! The disc's graphics (BD-J and HDMV menus) are BT.2020 PQ. A UHD disc authors them in the
+  //! dynamic range of the video they accompany, so this follows the play item being played.
+  bool m_hdrGraphics = false;
+
   enum EHoldState
   {
     HOLD_NONE = 0,

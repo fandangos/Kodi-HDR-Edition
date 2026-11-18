@@ -77,6 +77,13 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
       add_dependencies(${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME} ${${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_BUILD_NAME})
     endif()
 
+    # A crossguid built for Android declares newGuid(JNIEnv*) only under GUID_ANDROID, which it
+    # keeps private. The internal build adds it above; a found one (depends) needs it here too.
+    if(ANDROID AND "HAVE_NEW_CROSSGUID" IN_LIST ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS
+       AND NOT "GUID_ANDROID" IN_LIST ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS)
+      list(APPEND ${${CMAKE_FIND_PACKAGE_NAME}_MODULE}_COMPILE_DEFINITIONS GUID_ANDROID)
+    endif()
+
     if(UNIX AND NOT (APPLE OR ANDROID))
       # Suppress mismatch warning, see https://cmake.org/cmake/help/latest/module/FindPackageHandleStandardArgs.html
       set(FPHSA_NAME_MISMATCHED 1)

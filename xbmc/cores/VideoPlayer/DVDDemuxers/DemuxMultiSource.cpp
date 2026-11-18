@@ -42,14 +42,15 @@ void CDemuxMultiSource::Dispose()
 
 }
 
-void CDemuxMultiSource::EnableStream(int64_t demuxerId, int id, bool enable)
+bool CDemuxMultiSource::EnableStream(int64_t demuxerId, int id, bool enable)
 {
   auto iter = m_demuxerMap.find(demuxerId);
   if (iter != m_demuxerMap.end())
   {
     DemuxPtr demuxer = iter->second;
-    demuxer->EnableStream(demuxerId, id, enable);
+    return demuxer->EnableStream(demuxerId, id, enable);
   }
+  return false;
 }
 
 void CDemuxMultiSource::Flush()
@@ -228,7 +229,7 @@ void CDemuxMultiSource::SetMissingStreamDetails(const DemuxPtr& demuxer)
     {
       stream->flags = static_cast<StreamFlags>(info.flag);
     }
-    if (stream->language.empty())
+    if (stream->language.IsUndetermined() && info.language.IsValid())
     {
       stream->language = info.language;
     }

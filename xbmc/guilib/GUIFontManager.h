@@ -25,6 +25,10 @@
 #include <vector>
 
 // Forward
+namespace ADDON
+{
+struct AddonEvent;
+}
 class CGUIFont;
 class CGUIFontTTF;
 class CXBMCTinyXML;
@@ -108,6 +112,17 @@ public:
    */
   std::vector<std::string> GetUserFontsFamilyNames();
 
+  /*!
+   * \brief The aspect a font that stretches with the interface is rasterised at
+   * \param aspect The font's own aspect
+   * \param sourceRes The skin resolution the font is declared in
+   * \param scaleX, scaleY The skin to screen scaling, as GetGUIScaling() gives it
+   */
+  static float StretchedFontAspect(float aspect,
+                                   const RESOLUTION_INFO& sourceRes,
+                                   float scaleX,
+                                   float scaleY);
+
 protected:
   void ReloadTTFFonts();
   static void RescaleFontSizeAndAspect(CGraphicContext& context,
@@ -127,11 +142,20 @@ protected:
 
 private:
   void LoadUserFonts();
+  //! \param resolveIncludes run the active skin's include resolver over the file; never
+  //! for an add-on's Font.xml, whose includes would mutate the skin's global state
   bool LoadFontsFromFile(const std::string& fontsetFilePath,
                          const std::string& fontSet,
-                         std::string& firstFontset);
+                         std::string& firstFontset,
+                         bool resolveIncludes);
+  //! \brief Merge in fonts declared by enabled RESOURCE_FONT add-ons; the skin's win
+  void LoadAddonFonts(const std::string& fontSet);
+
+  void OnAddonEvent(const ADDON::AddonEvent& event);
 
   mutable CCriticalSection m_critSection;
+  bool m_addonEventsSubscribed{false};
+  std::set<std::string> m_addonFontIds;
   std::vector<FontMetadata> m_userFontsCache;
 };
 

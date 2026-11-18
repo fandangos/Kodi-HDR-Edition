@@ -202,7 +202,7 @@ bool CGUIPanelContainer::OnAction(const CAction &action)
     {
       if ((GetOffset() + m_itemsPerPage) * m_itemsPerRow >= (int)m_items.size() || (int)m_items.size() < m_itemsPerPage)
       { // already at the last page, so move to the last item.
-        SetCursor(m_items.size() - GetOffset() * m_itemsPerRow - 1);
+        SetCursor(static_cast<int>(m_items.size()) - GetOffset() * m_itemsPerRow - 1);
       }
       else
       { // scroll down to the next page
@@ -425,7 +425,7 @@ void CGUIPanelContainer::SetCursor(int cursor)
     cursor = m_itemsPerPage * m_itemsPerRow - 1;
 
   // exceeds the number of items being displayed
-  const int itemsOn = m_items.size() - 1 - GetOffset() * m_itemsPerRow;
+  const int itemsOn = static_cast<int>(m_items.size()) - 1 - GetOffset() * m_itemsPerRow;
   if (cursor > itemsOn)
     cursor = itemsOn;
 
@@ -442,6 +442,12 @@ void CGUIPanelContainer::CalculateLayout()
   GetCurrentLayouts();
 
   if (!m_layout || !m_focusedLayout) return;
+
+  // The selection is held as a row and a column, so a change in the number of
+  // items per row would otherwise land it on a different item
+  const int itemsPerRow = m_itemsPerRow;
+  const int selected = m_items.empty() ? -1 : GetSelectedItem();
+
   // calculate the number of items to display
   if (m_orientation == HORIZONTAL)
   {
@@ -453,11 +459,17 @@ void CGUIPanelContainer::CalculateLayout()
     m_itemsPerRow = (int)(m_width / m_layout->Size(HORIZONTAL));
     m_itemsPerPage = (int)(m_height / m_layout->Size(VERTICAL));
   }
-  if (m_itemsPerRow < 1) m_itemsPerRow = 1;
-  if (m_itemsPerPage < 1) m_itemsPerPage = 1;
+  if (m_itemsPerRow < 1)
+    m_itemsPerRow = 1;
+  if (m_itemsPerPage < 1)
+    m_itemsPerPage = 1;
+  m_pageSize = m_itemsPerPage;
 
   // ensure that the scroll offset is a multiple of our size
   m_scroller.SetValue(GetOffset() * m_layout->Size(m_orientation));
+
+  if (m_itemsPerRow != itemsPerRow && selected >= 0)
+    SelectItem(selected);
 }
 
 unsigned int CGUIPanelContainer::GetRows() const

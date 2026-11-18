@@ -8,9 +8,9 @@
 
 #include "DirectoryHistory.h"
 
+#include "utils/PlaceholderPaths.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "utils/log.h"
 
 #include <algorithm>
 #include <ranges>
@@ -148,21 +148,12 @@ void CDirectoryHistory::ClearPathHistory()
 
 bool CDirectoryHistory::IsMusicSearchUrl(CPathHistoryItem &i)
 {
-  return StringUtils::StartsWith(i.GetPath(), "musicsearch://");
+  return StringUtils::StartsWith(i.GetPath(), KODI::ITEM::PLACEHOLDER::MUSIC_SEARCH);
 }
 
 void CDirectoryHistory::ClearSearchHistory()
 {
   m_vecPathHistory.erase(remove_if(m_vecPathHistory.begin(), m_vecPathHistory.end(), IsMusicSearchUrl), m_vecPathHistory.end());
-}
-
-void CDirectoryHistory::DumpPathHistory()
-{
-  // debug log
-  CLog::Log(LOGDEBUG,"Current m_vecPathHistory:");
-  for (int i = 0; i < (int)m_vecPathHistory.size(); ++i)
-    CLog::Log(LOGDEBUG, "  {:02}.[{}; {}]", i, m_vecPathHistory[i].m_strPath,
-              m_vecPathHistory[i].m_strFilterPath);
 }
 
 std::string CDirectoryHistory::preparePath(const std::string &strDirectory, bool tolower /* = true */)

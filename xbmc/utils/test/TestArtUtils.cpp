@@ -15,13 +15,14 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/ArtUtils.h"
-#include "utils/FileUtils.h"
+#include "utils/ScopeGuard.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "video/VideoInfoTag.h"
 
 #include <array>
 #include <fstream>
+#include <optional>
 #include <random>
 
 #include <fmt/format.h>
@@ -253,8 +254,12 @@ const ArtFilenameTest local_art_filename_tests[] = {
     // Episodes
     {"/home/user/foo.avi", "/home/user/foo-S03E04.avi", false, false, false,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
-    {"/home/user/BDMV/index.bdmv", "/home/user/BDMV/index-S03E04.bdmv", false, false, false,
+    {"/home/user/BDMV/index.bdmv", "/home/user/index-S03E04.bdmv", false, false, false,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
+    {"/home/user/disc 1/BDMV/index.bdmv", "/home/user/disc 1/index-S03E04.bdmv", false, false,
+     false, ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
+    {"/home/user/disc 1/VIDEO_TS/VIDEO_TS.IFO", "/home/user/disc 1/VIDEO_TS-S03E04.IFO", false,
+     false, false, ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
     {"smb://home/user/foo.avi", "smb://home/user/foo-S03E04.avi", false, false, false,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
     {"D:\\home\\user\\foo.avi", "D:\\home\\user\\foo-S03E04.avi", false, false, false,
@@ -262,20 +267,40 @@ const ArtFilenameTest local_art_filename_tests[] = {
     {"\\\\Server\\user\\foo.avi", "\\\\Server\\user\\foo-S03E04.avi", false, false, false,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
     {"bluray://smb%3a%2f%2fsomepath%2f/BDMV/PLAYLIST/00800.mpls",
-     "smb://somepath/BDMV/index-S03E04.bdmv", false, false, false,
+     "smb://somepath/index-S03E04.bdmv", false, false, false,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
     {"bluray://udf%3a%2f%2fsmb%253a%252f%252fsomepath%252ftvshow.iso%2f/BDMV/"
      "PLAYLIST/00800.mpls",
      "smb://somepath/tvshow-S03E04.iso", false, false, false,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
+    {"rar://%2fhome%2fuser%2ftvshow.rar/foo.mkv", "/home/user/tvshow-S03E04.avi", false, false,
+     false, ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
+    {"zip://smb%3a%2f%2fhome%2fuser%2ftvshow.zip/foo.mkv", "smb://home/user/tvshow-S03E04.avi",
+     false, false, false, ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
+    {"rar://D%3a%5chome%5cuser%5ctvshow.rar/foo.mkv", "D:\\home\\user\\tvshow-S03E04.avi", false,
+     false, false, ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
+    {"zip://%5c%5cServer%5cuser%5ctvshow.zip/foo.mkv", "\\\\Server\\user\\tvshow-S03E04.avi", false,
+     false, false, ART::AdditionalIdentifiers::SEASON_AND_EPISODE, -1, 3, 4},
     // Playlists
-    {"bluray://smb%3a%2f%2fsomepath%2f/BDMV/PLAYLIST/00800.mpls",
-     "smb://somepath/BDMV/index-00800.bdmv", false, false, false,
-     ART::AdditionalIdentifiers::PLAYLIST, 800},
+    {"bluray://smb%3a%2f%2fsomepath%2f/BDMV/PLAYLIST/00800.mpls", "smb://somepath/index-00800.bdmv",
+     false, false, false, ART::AdditionalIdentifiers::PLAYLIST, 800},
     {"bluray://udf%3a%2f%2fsmb%253a%252f%252fsomepath%252fmovie.iso%2f/BDMV/"
      "PLAYLIST/00800.mpls",
      "smb://somepath/movie-00800.iso", false, false, false, ART::AdditionalIdentifiers::PLAYLIST,
-     800}};
+     800},
+    // A disc in a folder of its own within the movie's, as one of several discs
+    {"bluray://smb%3a%2f%2fsomepath%2fdisc%201%2f/BDMV/PLAYLIST/00800.mpls",
+     "smb://somepath/disc 1/index-00800.bdmv", false, false, false,
+     ART::AdditionalIdentifiers::PLAYLIST, 800},
+    {"bluray://udf%3a%2f%2fsmb%253a%252f%252fsomepath%252fdisc%25201%252fmovie.iso%2f/BDMV/"
+     "PLAYLIST/00800.mpls",
+     "smb://somepath/disc 1/movie-00800.iso", false, false, false,
+     ART::AdditionalIdentifiers::PLAYLIST, 800},
+    // Without a playlist, a video file and a dvd are named as they always were
+    {"/home/user/movies/Film.mkv", "/home/user/movies/Film.mkv", false, false, false,
+     ART::AdditionalIdentifiers::PLAYLIST, -1},
+    {"/home/user/movies/movie/VIDEO_TS/VIDEO_TS.IFO", "/home/user/movies/movie/", false, true,
+     false, ART::AdditionalIdentifiers::PLAYLIST, -1}};
 
 TEST_P(GetLocalArtBaseFilenameTest, GetLocalArtBaseFilename)
 {
@@ -301,7 +326,8 @@ INSTANTIATE_TEST_SUITE_P(TestArtUtils,
 struct FanartTest
 {
   std::string path;
-  std::string result;
+  std::string result; //!< art file created in the temporary folder (empty for no folder at all)
+  std::optional<std::string> expected{}; //!< expected return value, if not the created art file
 };
 
 class GetLocalFanartTest : public testing::WithParamInterface<FanartTest>, public testing::Test
@@ -322,6 +348,14 @@ const FanartTest local_fanart_tests[] = {
     {"https://some.where/foo.avi", ""},
     {"upnp://some.where/123", ""},
     {"bluray://1", ""},
+    // Blu-ray folder - bluray:// path is converted to <path>/BDMV/index.bdmv and the art is
+    // looked for in the disc root
+    {"bluray://#URLENCODED_DIRECTORY#/BDMV/PLAYLIST/00800.mpls", "fanart.jpg"},
+    // ..but not inside the BDMV folder
+    {"bluray://#URLENCODED_DIRECTORY#/BDMV/PLAYLIST/00800.mpls", "BDMV/fanart.jpg", ""},
+    // Blu-ray ISO - bluray:// path is converted to <path>/movie.iso, so the art is
+    // looked for in the folder containing the ISO
+    {"bluray://udf%3a%2f%2f#DOUBLE_URLENCODED_ISO#%2f/BDMV/PLAYLIST/00800.mpls", "fanart.jpg"},
     {"/home/user/1.pvr", ""},
     {"plugin://random.video/1", ""},
     {"addons://plugins/video/1", ""},
@@ -342,7 +376,8 @@ TEST_P(GetLocalFanartTest, GetLocalFanart)
     std::error_code ec;
     auto tmpdir = KODI::PLATFORM::FILESYSTEM::temp_directory_path(ec);
     ASSERT_TRUE(!ec);
-    uniq = unique_path("FanartTest%%%%%");
+    // A random suffix can be mistaken for a stacked movie folder (e.g. "cd1").
+    uniq = unique_path("%%%%%FanartTest");
     path = URIUtils::AddFileToFolder(tmpdir, uniq);
     URIUtils::AddSlashAtEnd(path);
     XFILE::CDirectory::Create(path);
@@ -359,6 +394,13 @@ TEST_P(GetLocalFanartTest, GetLocalFanart)
       file_path = GetParam().path;
       StringUtils::Replace(file_path, "#URLENCODED_DIRECTORY#", CURL::Encode(path));
     }
+    else if (GetParam().path.find("#DOUBLE_URLENCODED_ISO#") != std::string::npos)
+    {
+      // The ISO path is nested twice (bluray://udf://<iso>/), so needs encoding twice
+      const std::string iso{URIUtils::AddFileToFolder(path, "movie.iso")};
+      file_path = GetParam().path;
+      StringUtils::Replace(file_path, "#DOUBLE_URLENCODED_ISO#", CURL::Encode(CURL::Encode(iso)));
+    }
     else if (GetParam().path.starts_with("videodb://"))
     {
       file_path = GetParam().path;
@@ -366,6 +408,14 @@ TEST_P(GetLocalFanartTest, GetLocalFanart)
     else
       file_path =
           URIUtils::AddFileToFolder(URIUtils::AddFileToFolder(tmpdir, uniq), GetParam().path);
+
+    if (URIUtils::IsBlurayPath(file_path))
+    {
+      // Create the underlying disc file (<path>/BDMV/index.bdmv or <path>/movie.iso)
+      const std::string discFile{URIUtils::GetDiscFile(file_path)};
+      XFILE::CDirectory::Create(URIUtils::GetDirectory(discFile));
+      std::ofstream(discFile, std::ios::out);
+    }
   }
 
   CFileItem item(file_path, false);
@@ -375,7 +425,8 @@ TEST_P(GetLocalFanartTest, GetLocalFanart)
   }
   const std::string res = ART::GetLocalFanart(item);
 
-  EXPECT_EQ(URIUtils::GetFileName(res), URIUtils::GetFileName(GetParam().result));
+  const std::string expected{GetParam().expected.value_or(GetParam().result)};
+  EXPECT_EQ(URIUtils::GetFileName(res), URIUtils::GetFileName(expected));
 
   if (!GetParam().result.empty())
     XFILE::CDirectory::RemoveRecursive(path);
@@ -880,17 +931,41 @@ const LocalArtTest local_art_tests[] = {
     {"D:\\movies\\movie\\movie.iso", "", false, "D:\\movies\\movie\\movie.tbn"},
     // Episodes
     {"/home/user/movies/movie_name/BDMV/index.bdmv", "thumb.jpg", false,
-     "/home/user/movies/movie_name/BDMV/index-S03E04-thumb.jpg", 3, 4, -1,
+     "/home/user/movies/movie_name/index-S03E04-thumb.jpg", 3, 4, -1,
+     ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
+    {"/home/user/tv_show/disc 1/VIDEO_TS/VIDEO_TS.IFO", "thumb.jpg", false,
+     "/home/user/tv_show/disc 1/VIDEO_TS-S03E04-thumb.jpg", 3, 4, -1,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
     {"/home/user/tv_show/tv_show.iso", "thumb.jpg", false,
      "/home/user/tv_show/tv_show-S03E04-thumb.jpg", 3, 4, -1,
      ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
+    {"rar://%2fhome%2fuser%2ftv_show.rar/foo.mkv", "thumb.jpg", false,
+     "/home/user/tv_show-S03E04-thumb.jpg", 3, 4, -1,
+     ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
+    {"zip://smb%3a%2f%2fhome%2fuser%2ftv_show.zip/foo.mkv", "thumb.jpg", false,
+     "smb://home/user/tv_show-S03E04-thumb.jpg", 3, 4, -1,
+     ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
+    {"rar://D%3a%5chome%5cuser%5ctv_show.rar/foo.mkv", "thumb.jpg", false,
+     "D:\\home\\user\\tv_show-S03E04-thumb.jpg", 3, 4, -1,
+     ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
+    {"zip://%5c%5cServer%5cuser%5ctv_show.zip/foo.mkv", "thumb.jpg", false,
+     "\\\\Server\\user\\tv_show-S03E04-thumb.jpg", 3, 4, -1,
+     ART::AdditionalIdentifiers::SEASON_AND_EPISODE},
     // Playlists
     {"/home/user/movies/movie_name/BDMV/index.bdmv", "thumb.jpg", false,
-     "/home/user/movies/movie_name/BDMV/index-00800-thumb.jpg", -1, -1, 800,
+     "/home/user/movies/movie_name/index-00800-thumb.jpg", -1, -1, 800,
+     ART::AdditionalIdentifiers::PLAYLIST},
+    {"/home/user/movies/movie_name/BDMV/index.bdmv", "thumb.jpg", true,
+     "/home/user/movies/movie_name/index-00800-thumb.jpg", -1, -1, 800,
+     ART::AdditionalIdentifiers::PLAYLIST},
+    {"bluray://%2fhome%2fuser%2fmovies%2fmovie_name%2f/BDMV/PLAYLIST/00800.mpls", "thumb.jpg",
+     false, "/home/user/movies/movie_name/index-00800-thumb.jpg", -1, -1, 800,
      ART::AdditionalIdentifiers::PLAYLIST},
     {"/home/user/movie/movie.iso", "thumb.jpg", false, "/home/user/movie/movie-00800-thumb.jpg", -1,
-     -1, 800, ART::AdditionalIdentifiers::PLAYLIST}};
+     -1, 800, ART::AdditionalIdentifiers::PLAYLIST},
+    {"/home/user/movies/movie_name/disc 1/BDMV/index.bdmv", "thumb.jpg", false,
+     "/home/user/movies/movie_name/disc 1/index-00800-thumb.jpg", -1, -1, 800,
+     ART::AdditionalIdentifiers::PLAYLIST}};
 
 TEST_P(TestLocalArt, GetLocalArt)
 {
@@ -1104,7 +1179,14 @@ const TbnTest tbn_tests[] = {
      "smb://somepath/BDMV/index-S03E04.tbn", false, 3, 4},
     {"bluray://udf%3a%2f%2fsmb%253a%252f%252fsomepath%252ftvshow.iso%2f/BDMV/"
      "PLAYLIST/00800.mpls",
-     "smb://somepath/tvshow-S03E04.tbn", false, 3, 4}};
+     "smb://somepath/tvshow-S03E04.tbn", false, 3, 4},
+    {"rar://%2fhome%2fuser%2ftvshow.rar/foo.mkv", "/home/user/tvshow-S03E04.tbn", false, 3, 4},
+    {"zip://smb%3a%2f%2fhome%2fuser%2ftvshow.zip/foo.mkv", "smb://home/user/tvshow-S03E04.tbn",
+     false, 3, 4},
+    {"rar://D%3a%5chome%5cuser%5ctvshow.rar/foo.mkv", "D:\\home\\user\\tvshow-S03E04.tbn", false, 3,
+     4},
+    {"zip://%5c%5cServer%5cuser%5ctvshow.zip/foo.mkv", "\\\\Server\\user\\tvshow-S03E04.tbn", false,
+     3, 4}};
 
 TEST_P(GetTbnTest, TbnTest)
 {
@@ -1120,16 +1202,20 @@ INSTANTIATE_TEST_SUITE_P(TestArtUtils, GetTbnTest, testing::ValuesIn(tbn_tests))
 TEST(TestArtUtils, GetTbnStack)
 {
   std::error_code ec;
-  auto path = KODI::PLATFORM::FILESYSTEM::temp_directory_path(ec);
+  const auto root = KODI::PLATFORM::FILESYSTEM::create_temp_directory(ec);
   ASSERT_TRUE(!ec);
+  const UTILS::CScopeGuard<const std::string*, nullptr, void(const std::string*)> cleanup(
+      [](const std::string* path) { XFILE::CDirectory::RemoveRecursive(*path); }, &root);
+  const auto path = URIUtils::AddFileToFolder(root, "tbn_test");
+  ASSERT_TRUE(XFILE::CDirectory::Create(path));
   const auto file_path = URIUtils::AddFileToFolder(path, "foo-cd1.tbn");
   {
     std::ofstream of(file_path, std::ios::out);
+    ASSERT_TRUE(of.is_open());
   }
   const std::string stackPath =
       fmt::format("stack://{} , {}", URIUtils::AddFileToFolder(path, "foo-cd1.avi"),
                   URIUtils::AddFileToFolder(path, "foo-cd2.avi"));
   CFileItem item(stackPath, false);
   EXPECT_EQ(ART::GetTBNFile(item), file_path);
-  CFileUtils::DeleteItem(file_path);
 }

@@ -47,12 +47,17 @@ public:
                 const CPlayerCoreFactory &factory,
                 const std::string &playerName, IPlayerCallback& callback);
   void OpenNext(const CPlayerCoreFactory &factory);
+  /*!
+   \brief Whether a file waits to be opened once the playing one is closed.
+   */
+  bool HasNextItem() const { return m_nextItem.pItem != nullptr; }
   void SetPlaySpeed(float speed);
   void SetTempo(float tempo);
   void FrameAdvance(int frames);
 
   void FrameMove();
   void Render(bool clear, uint32_t alpha = 255, bool gui = true);
+  bool CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result);
   void FlushRenderer();
   void SetRenderViewMode(int mode, float zoom, float par, float shift, bool stretch);
   float GetRenderAspectRatio() const;
@@ -111,6 +116,7 @@ public:
   int GetVideoStream();
   int GetVideoStreamCount() const;
   void GetVideoStreamInfo(int streamId, VideoStreamInfo& info) const;
+  int GetWaitingForAudioRemaining() const;
   int GetPrograms(std::vector<ProgramInfo>& programs);
   void SetProgram(int progId);
   int GetProgramsCount() const;
@@ -136,8 +142,22 @@ public:
   bool IsPlayingGame() const;
   bool IsPlayingRDS() const;
   bool IsLiveStream() const;
+  bool IsStreaming() const;
+  bool IsWaitingForAudio() const;
   void LoadPage(int p, int sp, unsigned char* buffer);
   bool OnAction(const CAction &action);
+
+  /*!
+   \brief Handle the pause, play, speed, tempo and channel actions for what is playing.
+   \return true if \p action was one of them and has been handled
+   */
+  bool OnPlaybackAction(const CAction& action);
+
+  /*!
+   \brief Handle the HDR toggle and tone map cycling, which depend on whether video is playing.
+   \return true if \p action was one of them and has been handled
+   */
+  bool OnVideoDisplayAction(const CAction& action);
   void OnNothingToQueueNotify();
   void Pause();
   bool QueueNextFile(const CFileItem &file);
@@ -145,12 +165,14 @@ public:
   int SeekChapter(int iChapter);
   void SeekPercentage(float fPercent = 0);
   bool SeekScene(Direction seekDirection);
+  void SeekChapterOrSceneOrBigStep(Direction direction);
   void SeekTime(int64_t iTime = 0);
   void SeekTimeRelative(int64_t iTime = 0);
   void SetAudioStream(int iStream);
   void SetAVDelay(float fValue = 0.0f);
   void SetBookmarks(const std::vector<std::chrono::milliseconds>& bookmarks);
   void SetDynamicRangeCompression(long drc);
+  void NotifyAudioChainReady();
   void SetMute(bool bOnOff);
   bool SetPlayerState(const std::string& state);
   void SetSubtitle(int iStream);
@@ -217,11 +239,11 @@ private:
 
   // cache player state
   XbmcThreads::EndTime<> m_audioStreamUpdate;
-  int m_iAudioStream;
+  int m_iAudioStream{-1};
   XbmcThreads::EndTime<> m_videoStreamUpdate;
-  int m_iVideoStream;
+  int m_iVideoStream{-1};
   XbmcThreads::EndTime<> m_subtitleStreamUpdate;
-  int m_iSubtitleStream;
+  int m_iSubtitleStream{-1};
 
   struct SNextItem
   {

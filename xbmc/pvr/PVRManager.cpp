@@ -114,6 +114,8 @@ public:
     return m_triggerEvent.Wait(std::chrono::milliseconds(milliSeconds));
   }
 
+  void Wake() { m_triggerEvent.Set(); }
+
 private:
   CCriticalSection m_critSection;
   CEvent m_triggerEvent{false};
@@ -409,6 +411,7 @@ void CPVRManager::Stop(bool bRestart /* = false */)
   CLog::Log(LOGINFO, "PVR Manager: Stopping");
   SetState(ManagerState::STATE_STOPPING);
 
+  m_pendingUpdates->Wake();
   StopThread();
 }
 
@@ -636,7 +639,8 @@ void CPVRManager::OnSleep()
   m_wakeEvent.Reset();
   m_sleepConfirmedEvent.Reset();
   CPowerState::OnSleep();
-  if (!m_sleepConfirmedEvent.Wait(5s))
+  // The worker thread, which confirms the sleep, only exists if there is a created client.
+  if (IsRunning() && !m_sleepConfirmedEvent.Wait(5s))
     CLog::LogFC(LOGWARNING, LOGPVR, "Timeout waiting for sleep confirmed event");
 
   m_guiInfo->OnSleep();

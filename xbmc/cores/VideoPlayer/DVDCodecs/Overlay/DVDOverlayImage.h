@@ -44,8 +44,9 @@ public:
     height = sub_h;
     source_width = src.source_width;
     source_height = src.source_height;
+    m_isHDROverlay = src.m_isHDROverlay;
 
-    pixels.resize(sub_h * linesize);
+    pixels.resize(static_cast<size_t>(sub_h) * linesize);
 
     uint8_t* s = src.data_at(sub_x, sub_y);
     uint8_t* t = pixels.data();
@@ -75,6 +76,9 @@ public:
 
   std::vector<uint8_t> pixels;
   std::vector<uint32_t> palette;
+
+  // pixels are already HDR, matching video's colorimetry
+  bool m_isHDROverlay{false};
 
   int linesize{0};
   int x{0};

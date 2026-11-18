@@ -22,11 +22,13 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ItemProperties.h"
 #include "utils/PlayerUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
+#include "video/VideoInfoTag.h"
 #include "video/VideoUtils.h"
 #include "video/guilib/VideoGUIUtils.h"
 
@@ -183,8 +185,18 @@ void CVideoPlayActionProcessor::SetResumeData()
   const auto item{GetItem()};
   if (m_chosenStackPart)
   {
+    const int64_t offset{VIDEO::UTILS::GetStackPartResumeOffset(*item, m_chosenStackPart)};
+    if (offset <= 0)
+    {
+      SetStartData(); // No resume point in the chosen part
+      return;
+    }
     item->SetStartPartNumber(m_chosenStackPart);
-    item->SetStartOffset(VIDEO::UTILS::GetStackPartResumeOffset(*item, m_chosenStackPart));
+    // A player state (DVD/Blu-ray) is only restored through the resume path
+    if (item->GetVideoInfoTag()->GetResumePoint().HasSavedPlayerState())
+      item->SetStartOffset(STARTOFFSET_RESUME);
+    else
+      item->SetStartOffset(offset);
   }
   else
   {
@@ -199,7 +211,10 @@ void CVideoPlayActionProcessor::SetStartData()
   if (m_chosenStackPart)
   {
     item->SetStartPartNumber(m_chosenStackPart);
-    item->SetStartOffset(VIDEO::UTILS::GetStackPartStartOffset(*item, m_chosenStackPart));
+    // Offset is unknown (-1, same as STARTOFFSET_RESUME) for disc stack parts not yet played,
+    // so the part number alone selects the part
+    const int64_t offset{VIDEO::UTILS::GetStackPartStartOffset(*item, m_chosenStackPart)};
+    item->SetStartOffset(offset > 0 ? offset : 0);
   }
   else
   {
@@ -244,9 +259,10 @@ void CVideoPlayActionProcessor::Play(const std::string& player)
   }
 
   item->SetProperty("playlist_type_hint", static_cast<int>(KODI::PLAYLIST::Id::TYPE_VIDEO));
-  const ContentUtils::PlayMode mode{item->GetProperty("CheckAutoPlayNextItem").asBoolean()
-                                        ? ContentUtils::PlayMode::CHECK_AUTO_PLAY_NEXT_ITEM
-                                        : ContentUtils::PlayMode::PLAY_ONLY_THIS};
+  const ContentUtils::PlayMode mode{
+      item->GetProperty(ITEM::PROPERTY::CHECK_AUTOPLAY_NEXT_ITEM).asBoolean()
+          ? ContentUtils::PlayMode::CHECK_AUTO_PLAY_NEXT_ITEM
+          : ContentUtils::PlayMode::PLAY_ONLY_THIS};
   VIDEO::UTILS::PlayItem(item, player, mode);
 }
 

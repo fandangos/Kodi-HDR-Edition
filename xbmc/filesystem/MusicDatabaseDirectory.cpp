@@ -21,7 +21,9 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/Crc32.h"
+#include "utils/DefaultArt.h"
 #include "utils/LegacyPathTranslation.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -87,11 +89,12 @@ bool CMusicDatabaseDirectory::GetDirectory(const CURL& url, CFileItemList &items
   for (int i=0;i<items.Size();++i)
   {
     CFileItemPtr item = items[i];
-    if (item->IsFolder() && !item->HasArt("icon") && !item->HasArt("thumb"))
+    if (item->IsFolder() && !item->HasArt(KODI::ART::TYPE::ICON) &&
+        !item->HasArt(KODI::ART::TYPE::THUMB))
     {
       std::string strImage = GetIcon(item->GetPath());
       if (!strImage.empty() && CServiceBroker::GetGUI()->GetTextureManager().HasTexture(strImage))
-        item->SetArt("icon", strImage);
+        item->SetArt(KODI::ART::TYPE::ICON, strImage);
     }
   }
   if (items.GetLabel().empty())
@@ -324,33 +327,33 @@ std::string CMusicDatabaseDirectory::GetIcon(const std::string &strDirectory)
   switch (GetDirectoryChildType(strDirectory))
   {
     case NodeType::ARTIST:
-      return "DefaultMusicArtists.png";
+      return KODI::ART::DEFAULT::MUSIC_ARTISTS;
     case NodeType::GENRE:
-      return "DefaultMusicGenres.png";
+      return KODI::ART::DEFAULT::MUSIC_GENRES;
     case NodeType::SOURCE:
-      return "DefaultMusicSources.png";
+      return KODI::ART::DEFAULT::MUSIC_SOURCES;
     case NodeType::ROLE:
-      return "DefaultMusicRoles.png";
+      return KODI::ART::DEFAULT::MUSIC_ROLES;
     case NodeType::TOP100:
-      return "DefaultMusicTop100.png";
+      return KODI::ART::DEFAULT::MUSIC_TOP_100;
     case NodeType::ALBUM:
-      return "DefaultMusicAlbums.png";
+      return KODI::ART::DEFAULT::MUSIC_ALBUMS;
     case NodeType::ALBUM_RECENTLY_ADDED:
     case NodeType::ALBUM_RECENTLY_ADDED_SONGS:
-      return "DefaultMusicRecentlyAdded.png";
+      return KODI::ART::DEFAULT::MUSIC_RECENTLY_ADDED;
     case NodeType::ALBUM_RECENTLY_PLAYED:
     case NodeType::ALBUM_RECENTLY_PLAYED_SONGS:
-      return "DefaultMusicRecentlyPlayed.png";
+      return KODI::ART::DEFAULT::MUSIC_RECENTLY_PLAYED;
     case NodeType::SINGLES:
     case NodeType::SONG:
-      return "DefaultMusicSongs.png";
+      return KODI::ART::DEFAULT::MUSIC_SONGS;
     case NodeType::ALBUM_TOP100:
     case NodeType::ALBUM_TOP100_SONGS:
-      return "DefaultMusicTop100Albums.png";
+      return KODI::ART::DEFAULT::MUSIC_TOP_100_ALBUMS;
     case NodeType::SONG_TOP100:
-      return "DefaultMusicTop100Songs.png";
+      return KODI::ART::DEFAULT::MUSIC_TOP_100_SONGS;
     case NodeType::YEAR:
-      return "DefaultMusicYears.png";
+      return KODI::ART::DEFAULT::MUSIC_YEARS;
     default:
       break;
   }

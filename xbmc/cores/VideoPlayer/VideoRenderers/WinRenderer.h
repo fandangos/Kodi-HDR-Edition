@@ -28,6 +28,7 @@ public:
   bool Configure(const VideoPicture &picture, float fps, unsigned int orientation) override;
   void AddVideoPicture(const VideoPicture &picture, int index) override;
   void UnInit() override;
+  void PrepareForReconfigure() override;
   bool IsConfigured() override { return m_bConfigured; }
   bool Flush(bool saveBuffers) override;
   CRenderInfo GetRenderInfo() override;
@@ -43,6 +44,7 @@ public:
 
   bool WantsDoublePass() override;
   bool ConfigChanged(const VideoPicture& picture) override;
+  bool ChangePictureSize(const VideoPicture& picture) override;
 
   // Debug info video
   DEBUG_INFO_VIDEO GetDebugInfo(int idx) override;
@@ -57,4 +59,5 @@ protected:
 
   bool m_bConfigured = false;
   std::unique_ptr<CRendererBase> m_renderer;
+  bool m_replaced = false;
 };

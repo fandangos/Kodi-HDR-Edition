@@ -15,13 +15,17 @@
 #include "TextureManager.h"
 #include "utils/MathUtils.h"
 #include "utils/StringUtils.h"
+#include "utils/log.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
 
+#include <array>
+#include <cmath>
 #include <stdexcept>
 
 CreateGUITextureFunc CGUITexture::m_createGUITextureFunc;
 DrawQuadFunc CGUITexture::m_drawQuadFunc;
+DrawStencilQuadFunc CGUITexture::m_drawStencilQuadFunc;
 
 CTextureInfo::CTextureInfo()
 {
@@ -41,6 +45,22 @@ void CGUITexture::Register(const CreateGUITextureFunc& createFunction,
 {
   m_createGUITextureFunc = createFunction;
   m_drawQuadFunc = drawQuadFunction;
+  m_drawStencilQuadFunc = nullptr;
+  CLog::LogF(LOGDEBUG, "Stencil quad drawing not implemented for this rendering backend.");
+}
+
+void CGUITexture::Register(const CreateGUITextureFunc& createFunction,
+                           const DrawQuadFunc& drawQuadFunction,
+                           const DrawStencilQuadFunc& drawStencilQuadFunction)
+{
+  m_createGUITextureFunc = createFunction;
+  m_drawQuadFunc = drawQuadFunction;
+  m_drawStencilQuadFunc = drawStencilQuadFunction;
+}
+
+void CGUITexture::UnregisterDrawQuad()
+{
+  m_drawQuadFunc = nullptr;
 }
 
 CGUITexture* CGUITexture::CreateTexture(
@@ -70,6 +90,15 @@ void CGUITexture::DrawQuad(const CRect& coords,
         "No GUITexture DrawQuad function available. Did you forget to register?");
 
   m_drawQuadFunc(coords, color, texture, texCoords, depth, blending);
+}
+
+void CGUITexture::DrawStencilQuad(const CRect& coords, const STENCIL_LAYER mask)
+{
+
+  if (!m_drawStencilQuadFunc)
+    return;
+
+  m_drawStencilQuadFunc(coords, mask);
 }
 
 CGUITexture::CGUITexture(
@@ -142,7 +171,7 @@ bool CGUITexture::AllocateOnDemand()
 {
   if (m_visible)
   { // visible, so make sure we're allocated
-    if (!IsAllocated() || (m_isAllocated == LARGE && !m_texture.size()))
+    if (!IsAllocated() || (m_isAllocated == LARGE && (!m_texture.size() || m_largeInterim)))
       return AllocResources();
   }
   else
@@ -167,6 +196,29 @@ bool CGUITexture::Process(unsigned int currentTime)
 
   if (m_invalid)
     changed |= CalculateSize();
+
+  if (m_info.m_subpixel)
+  {
+    const CGraphicContext& context = CServiceBroker::GetWinSystem()->GetGfxContext();
+    const CRect screen(context.ScaleFinalXCoord(m_vertex.x1, m_vertex.y1),
+                       context.ScaleFinalYCoord(m_vertex.x1, m_vertex.y1),
+                       context.ScaleFinalXCoord(m_vertex.x2, m_vertex.y2),
+                       context.ScaleFinalYCoord(m_vertex.x2, m_vertex.y2));
+    if (!m_lastScreenRect) // first sight counts as settled
+    {
+      m_lastScreenRect = screen;
+      m_lastMoveTime = currentTime - SUBPIXEL_SETTLE_MS;
+    }
+    else if (screen != *m_lastScreenRect)
+    {
+      m_lastScreenRect = screen;
+      m_lastMoveTime = currentTime;
+    }
+    // stay fractional for a moment after the last move, then redraw once more snapped
+    const bool moving = currentTime - m_lastMoveTime < SUBPIXEL_SETTLE_MS;
+    changed |= moving != m_moving;
+    m_moving = moving;
+  }
 
   if (m_isAllocated)
   {
@@ -233,6 +285,24 @@ void CGUITexture::Render(int32_t depthOffset, int32_t overrideDepth)
   // setup our renderer
   Begin(color);
 
+  if (m_segmentsDirty)
+    UpdateSegments();
+
+  if (!DrawQuads(m_quads, m_quadsVersion, m_vertex))
+  {
+    for (const Segment& segment : m_segments)
+      Render(segment);
+  }
+
+  // close off our renderer
+  End();
+
+  if (m_vertex.Width() > m_width || m_vertex.Height() > m_height)
+    CServiceBroker::GetWinSystem()->GetGfxContext().RestoreClipRegion();
+}
+
+void CGUITexture::UpdateSegments()
+{
   // compute the texture coordinates
   float u1, u2, u3, v1, v2, v3;
   u1 = m_info.border.x1;
@@ -252,99 +322,152 @@ void CGUITexture::Render(int32_t depthOffset, int32_t overrideDepth)
     v3 *= m_texCoordsScaleV;
   }
 
+  m_frameU = u3;
+  m_frameV = v3;
+
+  // Segment edges along each axis: the absolute position, and the same edge as an anchor on the
+  // left/top (0) or right/bottom (1) side of m_vertex plus an offset.
+  struct Edge
+  {
+    float position;
+    float anchor;
+    float offset;
+  };
+  const CRect& b = m_info.border;
+  const std::array<Edge, 4> xs{{{m_vertex.x1, 0, 0},
+                                {m_vertex.x1 + b.x1, 0, b.x1},
+                                {m_vertex.x2 - b.x2, 1, -b.x2},
+                                {m_vertex.x2, 1, 0}}};
+  const std::array<Edge, 4> ys{{{m_vertex.y1, 0, 0},
+                                {m_vertex.y1 + b.y1, 0, b.y1},
+                                {m_vertex.y2 - b.y2, 1, -b.y2},
+                                {m_vertex.y2, 1, 0}}};
+
+  const int orientation = GetOrientation();
+  std::vector<Quad> quads;
+  m_segments.clear();
+  const auto add =
+      [&](int left, int top, int right, int bottom, float tu1, float tv1, float tu2, float tv2)
+  {
+    const CRect texture(tu1, tv1, tu2, tv2);
+    m_segments.push_back(
+        {CRect(xs[left].position, ys[top].position, xs[right].position, ys[bottom].position),
+         texture});
+
+    Quad quad{CRect(xs[left].anchor, ys[top].anchor, xs[right].anchor, ys[bottom].anchor),
+              CRect(xs[left].offset, ys[top].offset, xs[right].offset, ys[bottom].offset), texture,
+              texture};
+    OrientateTexCoords(quad.texture, m_diffuse.size() ? &quad.diffuse : nullptr, orientation);
+    quads.push_back(quad);
+  };
+
   //! @todo The diffuse coloring applies to all vertices, which will
   //!      look weird for stuff with borders, as will the -ve height/width
   //!       for flipping
 
   // left segment (0,0,u1,v3)
-  if (m_info.border.x1)
+  if (b.x1)
   {
-    if (m_info.border.y1)
-      Render(m_vertex.x1, m_vertex.y1, m_vertex.x1 + m_info.border.x1, m_vertex.y1 + m_info.border.y1, 0, 0, u1, v1, u3, v3);
-    Render(m_vertex.x1, m_vertex.y1 + m_info.border.y1, m_vertex.x1 + m_info.border.x1, m_vertex.y2 - m_info.border.y2, 0, v1, u1, v2, u3, v3);
-    if (m_info.border.y2)
-      Render(m_vertex.x1, m_vertex.y2 - m_info.border.y2, m_vertex.x1 + m_info.border.x1, m_vertex.y2, 0, v2, u1, v3, u3, v3);
+    if (b.y1)
+      add(0, 0, 1, 1, 0, 0, u1, v1);
+    add(0, 1, 1, 2, 0, v1, u1, v2);
+    if (b.y2)
+      add(0, 2, 1, 3, 0, v2, u1, v3);
   }
   // middle segment (u1,0,u2,v3)
-  if (m_info.border.y1)
-    Render(m_vertex.x1 + m_info.border.x1, m_vertex.y1, m_vertex.x2 - m_info.border.x2, m_vertex.y1 + m_info.border.y1, u1, 0, u2, v1, u3, v3);
+  if (b.y1)
+    add(1, 0, 2, 1, u1, 0, u2, v1);
   if (m_info.m_infill)
-    Render(m_vertex.x1 + m_info.border.x1, m_vertex.y1 + m_info.border.y1,
-           m_vertex.x2 - m_info.border.x2, m_vertex.y2 - m_info.border.y2, u1, v1, u2, v2, u3, v3);
-  if (m_info.border.y2)
-    Render(m_vertex.x1 + m_info.border.x1, m_vertex.y2 - m_info.border.y2, m_vertex.x2 - m_info.border.x2, m_vertex.y2, u1, v2, u2, v3, u3, v3);
+    add(1, 1, 2, 2, u1, v1, u2, v2);
+  if (b.y2)
+    add(1, 2, 2, 3, u1, v2, u2, v3);
   // right segment
-  if (m_info.border.x2)
+  if (b.x2)
   { // have a left border
-    if (m_info.border.y1)
-      Render(m_vertex.x2 - m_info.border.x2, m_vertex.y1, m_vertex.x2, m_vertex.y1 + m_info.border.y1, u2, 0, u3, v1, u3, v3);
-    Render(m_vertex.x2 - m_info.border.x2, m_vertex.y1 + m_info.border.y1, m_vertex.x2, m_vertex.y2 - m_info.border.y2, u2, v1, u3, v2, u3, v3);
-    if (m_info.border.y2)
-      Render(m_vertex.x2 - m_info.border.x2, m_vertex.y2 - m_info.border.y2, m_vertex.x2, m_vertex.y2, u2, v2, u3, v3, u3, v3);
+    if (b.y1)
+      add(2, 0, 3, 1, u2, 0, u3, v1);
+    add(2, 1, 3, 2, u2, v1, u3, v2);
+    if (b.y2)
+      add(2, 2, 3, 3, u2, v2, u3, v3);
   }
 
-  // close off our renderer
-  End();
-
-  if (m_vertex.Width() > m_width || m_vertex.Height() > m_height)
-    CServiceBroker::GetWinSystem()->GetGfxContext().RestoreClipRegion();
+  m_segmentsDirty = false;
+  if (quads != m_quads || m_quadsVersion == 0)
+  {
+    m_quads = std::move(quads);
+    ++m_quadsVersion;
+  }
 }
 
-void CGUITexture::Render(float left,
-                         float top,
-                         float right,
-                         float bottom,
-                         float u1,
-                         float v1,
-                         float u2,
-                         float v2,
-                         float u3,
-                         float v3)
+float CGUITexture::SnapToPixel(float coord, bool subpixel)
 {
-  CRect diffuse(u1, v1, u2, v2);
-  CRect texture(u1, v1, u2, v2);
-  CRect vertex(left, top, right, bottom);
+  if (subpixel)
+    return coord;
+  return static_cast<float>(MathUtils::round_int(static_cast<double>(coord)));
+}
+
+void CGUITexture::Render(const Segment& segment)
+{
+  CRect diffuse(segment.texture);
+  CRect texture(segment.texture);
+  CRect vertex(segment.vertex);
   CServiceBroker::GetWinSystem()->GetGfxContext().ClipRect(vertex, texture, m_diffuse.size() ? &diffuse : NULL);
 
   if (vertex.IsEmpty())
     return; // nothing to render
 
   int orientation = GetOrientation();
-  OrientateTexture(texture, u3, v3, orientation);
-
-  if (m_diffuse.size())
-  {
-    // flip the texture as necessary.  Diffuse just gets flipped according to m_info.orientation.
-    // Main texture gets flipped according to GetOrientation().
-    diffuse.x1 *= m_diffuseScaleU / u3; diffuse.x2 *= m_diffuseScaleU / u3;
-    diffuse.y1 *= m_diffuseScaleV / v3; diffuse.y2 *= m_diffuseScaleV / v3;
-    diffuse += m_diffuseOffset;
-    OrientateTexture(diffuse, m_diffuseU, m_diffuseV, m_info.orientation);
-  }
+  OrientateTexCoords(texture, m_diffuse.size() ? &diffuse : nullptr, orientation);
 
   float x[4], y[4], z[4];
 
-#define ROUND_TO_PIXEL(x) static_cast<float>(MathUtils::round_int(static_cast<double>(x)))
+#define ROUND_TO_PIXEL(x) SnapToPixel((x), m_moving) // m_moving is decided in Process()
+#define ROUND_DEPTH(x) SnapToPixel((x), false)
 
+  // clang-format off
   x[0] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x1, vertex.y1));
   y[0] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x1, vertex.y1));
-  z[0] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y1));
+  z[0] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y1));
   x[1] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x2, vertex.y1));
   y[1] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x2, vertex.y1));
-  z[1] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y1));
+  z[1] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y1));
   x[2] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x2, vertex.y2));
   y[2] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x2, vertex.y2));
-  z[2] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y2));
+  z[2] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y2));
   x[3] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x1, vertex.y2));
   y[3] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x1, vertex.y2));
-  z[3] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y2));
+  z[3] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y2));
+  // clang-format on
 
-  if (y[2] == y[0]) y[2] += 1.0f;
-  if (x[2] == x[0]) x[2] += 1.0f;
-  if (y[3] == y[1]) y[3] += 1.0f;
-  if (x[3] == x[1]) x[3] += 1.0f;
+  // a quad with no pixel centre between two corners gets one pixel, even at a fractional position
+  const auto firstCentre = [](float v) { return std::ceil(v - 0.5f); };
+  if (firstCentre(y[2]) == firstCentre(y[0]))
+    y[2] += 1.0f;
+  if (firstCentre(x[2]) == firstCentre(x[0]))
+    x[2] += 1.0f;
+  if (firstCentre(y[3]) == firstCentre(y[1]))
+    y[3] += 1.0f;
+  if (firstCentre(x[3]) == firstCentre(x[1]))
+    x[3] += 1.0f;
 
   Draw(x, y, z, texture, diffuse, orientation);
+}
+
+void CGUITexture::OrientateTexCoords(CRect& texture, CRect* diffuse, int orientation) const
+{
+  OrientateTexture(texture, m_frameU, m_frameV, orientation);
+
+  if (diffuse)
+  {
+    // flip the texture as necessary.  Diffuse just gets flipped according to m_info.orientation.
+    // Main texture gets flipped according to GetOrientation().
+    diffuse->x1 *= m_diffuseScaleU / m_frameU;
+    diffuse->x2 *= m_diffuseScaleU / m_frameU;
+    diffuse->y1 *= m_diffuseScaleV / m_frameV;
+    diffuse->y2 *= m_diffuseScaleV / m_frameV;
+    *diffuse += m_diffuseOffset;
+    OrientateTexture(*diffuse, m_diffuseU, m_diffuseV, m_info.orientation);
+  }
 }
 
 bool CGUITexture::AllocResources()
@@ -352,7 +475,7 @@ bool CGUITexture::AllocResources()
   if (m_info.filename.empty())
     return false;
 
-  if (m_texture.size())
+  if (m_texture.size() && !m_largeInterim)
     return false; // already have our texture
 
   // reset our animstate
@@ -385,12 +508,18 @@ bool CGUITexture::AllocResources()
       }
       if (CServiceBroker::GetGUI()->GetLargeTextureManager().GetImage(
               m_info.filename, texture, m_requestWidth, m_requestHeight, m_aspect.ratio,
-              !IsAllocated(), m_use_cache))
+              m_info.m_mipmap, !IsAllocated(), m_use_cache))
       {
         m_isAllocated = LARGE;
 
-        if (!texture.size()) // not ready as yet
-          return false;
+        if (texture.size())
+          m_largeInterim = false;
+        else if (!m_largeInterim &&
+                 CServiceBroker::GetGUI()->GetLargeTextureManager().GetInterimImage(
+                     m_info.filename, m_aspect.ratio, texture))
+          m_largeInterim = true;
+        else
+          return false; // not ready as yet
 
         m_texture = texture;
 
@@ -416,7 +545,7 @@ bool CGUITexture::AllocResources()
   m_frameHeight = (float)m_texture.m_height;
 
   // load the diffuse texture (if necessary)
-  if (!m_info.diffuse.empty())
+  if (!m_info.diffuse.empty() && !m_diffuse.size())
   {
     m_diffuse = CServiceBroker::GetGUI()->GetTextureManager().Load(m_info.diffuse);
   }
@@ -525,6 +654,7 @@ bool CGUITexture::CalculateSize()
   }
 
   m_invalid = false;
+  m_segmentsDirty = true;
   return true;
 }
 
@@ -533,7 +663,7 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
   if (m_isAllocated == LARGE || m_isAllocated == LARGE_FAILED)
   {
     CServiceBroker::GetGUI()->GetLargeTextureManager().ReleaseImage(
-        m_info.filename, m_requestWidth, m_requestHeight, m_aspect.ratio,
+        m_info.filename, m_requestWidth, m_requestHeight, m_aspect.ratio, m_info.m_mipmap,
         immediately || (m_isAllocated == LARGE_FAILED));
     m_requestWidth = REQUEST_SIZE_UNSET;
     m_requestHeight = REQUEST_SIZE_UNSET;
@@ -556,7 +686,9 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
   // call our implementation
   Free();
 
+  m_segmentsDirty = true;
   m_isAllocated = NO;
+  m_largeInterim = false;
   m_lastReadyState.reset(); // reset for next allocation cycle
 }
 

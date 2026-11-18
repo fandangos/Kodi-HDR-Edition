@@ -7,17 +7,20 @@
  */
 #include "LanguageResource.h"
 
-#include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "addons/AddonManager.h"
 #include "addons/addoninfo/AddonType.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
+#include "language/LangInfo.h"
 #include "messaging/helpers/DialogHelper.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
+
+#include <array>
+#include <string_view>
 
 using namespace KODI::MESSAGING;
 
@@ -114,10 +117,10 @@ void CLanguageResource::OnPostInstall(bool update, bool modal)
   }
 }
 
-bool CLanguageResource::IsAllowed(const std::string &file) const
+CResource::Published CLanguageResource::PublishedFiles() const
 {
-  return file.empty() || StringUtils::EqualsNoCase(file, "langinfo.xml") ||
-         StringUtils::EqualsNoCase(file, "strings.po");
+  static constexpr std::array<std::string_view, 2> names{"langinfo.xml", "strings.po"};
+  return {.names = names};
 }
 
 std::string CLanguageResource::GetAddonId(const std::string& locale)
@@ -132,21 +135,4 @@ std::string CLanguageResource::GetAddonId(const std::string& locale)
   StringUtils::ToLower(addonId);
   return addonId;
 }
-
-bool CLanguageResource::FindLegacyLanguage(const std::string &locale, std::string &legacyLanguage)
-{
-  if (locale.empty())
-    return false;
-
-  std::string addonId = GetAddonId(locale);
-
-  AddonPtr addon;
-  if (!CServiceBroker::GetAddonMgr().GetAddon(addonId, addon, AddonType::RESOURCE_LANGUAGE,
-                                              OnlyEnabled::CHOICE_YES))
-    return false;
-
-  legacyLanguage = addon->Name();
-  return true;
-}
-
 }

@@ -89,6 +89,9 @@ namespace OVERLAY {
     float m_source_width{0}; // Video source width resolution used to calculate aspect ratio
     float m_source_height{0}; // Video source height resolution used to calculate aspect ratio
 
+    // pixels are already HDR, matching video's colorimetry
+    bool m_isHDROverlay{false};
+
   protected:
     /*!
      * \brief Given the resolution ratio determines if it is a 4/3 resolution
@@ -109,6 +112,9 @@ namespace OVERLAY {
 
     void AddOverlay(std::shared_ptr<CDVDOverlay> o, double pts, int index);
     virtual void Render(int idx, float depth = 0.0f);
+
+    // render overlays already in HDR (not sRGB)
+    void RenderHDROverlays(int idx);
 
     /*!
      * \brief Pre-walk hook: render libass output for the present slot.
@@ -192,6 +198,10 @@ namespace OVERLAY {
 
     void CreateSubtitlesStyle();
 
+    //! \brief Set the picture rectangle on \p opts, so subtitles aligned inside the video are
+    //! placed inside the picture rather than in the coded bars.
+    void SetContentRect(KODI::SUBTITLES::STYLE::renderOpts& opts) const;
+
     void Release(std::vector<SElement>& list);
     void ReleaseCache();
     void ReleaseUnused();
@@ -200,6 +210,27 @@ namespace OVERLAY {
      * \brief Load and store settings locally
      */
     void LoadSettings();
+
+    //! \brief The display values the overlays need
+    struct SubtitleResolution
+    {
+      float pixelRatio{1.0f};
+      int overscanTop{0};
+    };
+
+    //! \brief Reload the settings and rebuild the style when they have changed.
+    void UpdateSubtitleStyle();
+
+    /*!
+     * \brief Track changes to the subtitle position for the current frame.
+     * \param[out] resolution the display values read while doing so
+     */
+    void UpdateSubtitlePosition(SubtitleResolution& resolution);
+
+    //! \brief The libass render options for \p overlay drawn with \p style on the current frame.
+    KODI::SUBTITLES::STYLE::renderOpts GetRenderOptions(const CDVDOverlayLibass& overlay,
+                                                        const KODI::SUBTITLES::STYLE::style& style,
+                                                        const SubtitleResolution& resolution) const;
 
     enum PositonResInfoState
     {
@@ -217,14 +248,17 @@ namespace OVERLAY {
     std::string m_stereomode;
     // Current subtitle position
     int m_subtitlePosition{0};
-    // Current subtitle position from resolution info,
-    // or PositonResInfoState enum values for deferred processing
+    // The calibration line for MANUAL alignment and the frame height otherwise,
+    // or a PositonResInfoState value for deferred processing
     int m_subtitlePosResInfo{POSRESINFO_UNSET};
     int m_subtitleVerticalMargin{0};
     bool m_saveSubtitlePosition{false}; // To save subtitle position permanently
     KODI::SUBTITLES::HorizontalAlign m_subtitleHorizontalAlign{
         KODI::SUBTITLES::HorizontalAlign::CENTER};
     KODI::SUBTITLES::Align m_subtitleAlign{KODI::SUBTITLES::Align::BOTTOM_OUTSIDE};
+    //! \brief Measure alignment against the picture rather than the whole video.
+    bool m_subtitleAlignToContent{false};
+    bool m_subtitleKeepAuthoredPositions{false};
 
     std::shared_ptr<struct KODI::SUBTITLES::STYLE::style> m_overlayStyle;
     std::atomic<bool> m_isSettingsChanged{false};
@@ -232,5 +266,8 @@ namespace OVERLAY {
     // to detect arrival/disappearance transitions (image/SPU have no
     // per-frame change signal of their own, unlike libass detect_change).
     bool m_prevHadImageSpu{false};
+    // Whether last frame had libass output. detect_change cannot report an
+    // overlay that is no longer added at all, e.g. once subtitles are hidden.
+    bool m_prevHadLibassImages{false};
   };
 }

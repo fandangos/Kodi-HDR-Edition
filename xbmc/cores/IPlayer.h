@@ -22,10 +22,19 @@
 #define CURRENT_STREAM -1
 
 struct TextCacheStruct_t;
-class TiXmlElement;
 class CStreamDetails;
 class CAction;
 class IPlayerCallback;
+
+namespace KODI::RENDERING::CAPTURE
+{
+struct CaptureResult;
+} // namespace KODI::RENDERING::CAPTURE
+
+namespace tinyxml2
+{
+class XMLElement;
+} // namespace tinyxml2
 
 class CPlayerOptions
 {
@@ -82,7 +91,9 @@ enum ERENDERFEATURE
   RENDERFEATURE_VERTICAL_SHIFT,
   RENDERFEATURE_PIXEL_RATIO,
   RENDERFEATURE_POSTPROCESS,
-  RENDERFEATURE_TONEMAP
+  RENDERFEATURE_TONEMAP,
+  RENDERFEATURE_HUE,
+  RENDERFEATURE_SATURATION
 };
 
 class IPlayer
@@ -90,7 +101,7 @@ class IPlayer
 public:
   explicit IPlayer(IPlayerCallback& callback) : m_callback(callback) {}
   virtual ~IPlayer() = default;
-  virtual bool Initialize(TiXmlElement* pConfig) { return true; }
+  virtual bool Initialize(tinyxml2::XMLElement* pConfig) { return true; }
   virtual bool OpenFile(const CFileItem& file, const CPlayerOptions& options){ return false;}
   virtual bool QueueNextFile(const CFileItem &file) { return false; }
   virtual void OnNothingToQueueNotify() {}
@@ -107,11 +118,23 @@ public:
   virtual bool CanSeek() const { return true; }
   virtual void Seek(bool bPlus = true, bool bLargeStep = false, bool bChapterOverride = false) = 0;
   virtual bool SeekScene(Direction seekDirection) { return false; }
+  virtual void SeekChapterOrSceneOrBigStep(Direction direction)
+  {
+    Seek(direction == Direction::FORWARD, true, true);
+  }
   virtual void SeekPercentage(float fPercent = 0){}
   virtual float GetCachePercentage() const { return 0; }
   virtual void SetMute(bool bOnOff){}
   virtual void SetVolume(float volume){}
   virtual void SetDynamicRangeCompression(long drc){}
+
+  /*!
+   \brief Report that the downstream audio chain has finished settling
+
+   Ends a pass-through hold early. The player cannot see the chain, so this is
+   for an add-on that can - one per device. Ignored when nothing is holding.
+   */
+  virtual void NotifyAudioChainReady() {}
 
   virtual void SetAVDelay(float fValue = 0.0f) {}
   virtual float GetAVDelay() { return 0.0f; }
@@ -199,6 +222,11 @@ public:
   //Cache filled in Percent
   virtual int GetCacheLevel() const { return -1; }
 
+  //! True while playback is held for an audio format change to settle downstream
+  virtual bool IsWaitingForAudio() const { return false; }
+  //! Time left of that hold in percent, from 100 when it starts to 0 when it runs out
+  virtual int GetWaitingForAudioRemaining() const { return 0; }
+
   virtual bool IsInMenu() const { return false; }
 
   /*!
@@ -233,6 +261,10 @@ public:
    \brief hook into render loop of render thread
    */
   virtual void Render(bool clear, uint32_t alpha = 255, bool gui = true) {}
+  virtual bool CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result)
+  {
+    return true;
+  }
   virtual void FlushRenderer() {}
   virtual void SetRenderViewMode(int mode, float zoom, float par, float shift, bool stretch) {}
   virtual float GetRenderAspectRatio() const { return 1.0; }
@@ -245,6 +277,7 @@ public:
    */
   virtual bool HasVisibleOverlay() const { return false; }
   virtual bool IsLiveStream() const { return false; }
+  virtual bool IsStreaming() const { return false; }
   virtual void GetRects(CRect& source, CRect& dest, CRect& view) const
   {
     source = {};

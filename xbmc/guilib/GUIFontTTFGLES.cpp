@@ -16,6 +16,7 @@
 #include "gui3d.h"
 #include "rendering/GLExtensions.h"
 #include "rendering/MatrixGL.h"
+#include "rendering/gles/GUIStencilGLES.h"
 #include "rendering/gles/RenderSystemGLES.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
@@ -36,6 +37,7 @@
 namespace
 {
 constexpr size_t ELEMENT_ARRAY_MAX_CHAR_INDEX = 1000;
+constexpr size_t CHARACTER_SIZE = 4 * sizeof(SVertex);
 } /* namespace */
 
 CGUIFontTTF* CGUIFontTTF::CreateGUIFontTTF(const std::string& fontIdent)
@@ -60,9 +62,10 @@ bool CGUIFontTTFGLES::FirstBegin()
 {
   CRenderSystemGLES* renderSystem =
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
-  renderSystem->EnableGUIShader(ShaderMethodGLES::SM_FONTS);
-  GLenum pixformat = GL_ALPHA; // deprecated
-  GLenum internalFormat = GL_ALPHA;
+  renderSystem->EnableGUIShader(m_colorTexture ? ShaderMethodGLES::SM_FONTS_RGBA
+                                               : ShaderMethodGLES::SM_FONTS);
+  GLenum pixformat = m_colorTexture ? GL_RGBA : GL_ALPHA;
+  GLenum internalFormat = pixformat;
 
   if (renderSystem->ScissorsCanEffectClipping())
   {
@@ -72,7 +75,8 @@ bool CGUIFontTTFGLES::FirstBegin()
   {
     m_scissorClip = false;
     renderSystem->ResetScissors();
-    renderSystem->EnableGUIShader(ShaderMethodGLES::SM_FONTS_SHADER_CLIP);
+    renderSystem->EnableGUIShader(m_colorTexture ? ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP
+                                                 : ShaderMethodGLES::SM_FONTS_SHADER_CLIP);
   }
 
   if (m_textureStatus == TEXTURE_REALLOCATED)
@@ -126,19 +130,8 @@ bool CGUIFontTTFGLES::FirstBegin()
     m_textureStatus = TEXTURE_READY;
   }
 
-  // Alpha blending assumes linear light. SDR (direct-to-backbuffer or
-  // direct-to-plane) blends in sRGB -- "wrong but consistent", the aesthetic
-  // skins are designed against. HDR FBO compositing draws GUI into an sRGB
-  // FBO that is color-transformed to PQ/HLG before compositing with video
-  // in that non-linear space -- two stages of non-linear blending. The
-  // compensated factors below trade accumulator coverage for a squared-
-  // alpha blend that approximately matches SDR perceived translucency. It
-  // is a "close enough" compromise; a mathematically correct fix would
-  // require linear-light compositing (too expensive on typical ARM GPUs).
-  if (CServiceBroker::GetWinSystem()->IsHdrComposite())
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  else
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
+  // Accumulate coverage; the HDR composite shader squares it to compensate for blending in PQ/HLG.
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
   glEnable(GL_BLEND);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_nTexture);
@@ -157,6 +150,13 @@ void CGUIFontTTFGLES::LastEnd()
 
   CRenderSystemGLES* renderSystem =
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
+
+  CGUIStencilGLES stencil;
+  if (!stencil.Clip(winSystem->GetGfxContext().GetStencilLayer()))
+  {
+    renderSystem->DisableGUIShader();
+    return;
+  }
 
   GLint posLoc = renderSystem->GUIShaderGetPos();
   GLint colLoc = renderSystem->GUIShaderGetCol();
@@ -179,13 +179,19 @@ void CGUIFontTTFGLES::LastEnd()
 
     // Bind our pre-calculated array to GL_ELEMENT_ARRAY_BUFFER
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_elementArrayHandle);
+
+    const float textureSteps[4] = {1.f / static_cast<float>(m_textureWidth),
+                                   1.f / static_cast<float>(m_textureHeight), 1.f, 1.f};
+    glUniform4fv(coordStepUniformLoc, 1, textureSteps);
+
     // Store current scissor
     CGraphicContext& context = winSystem->GetGfxContext();
     CRect scissor = context.StereoCorrection(context.GetScissors());
 
     for (size_t i = 0; i < m_vertexTrans.size(); i++)
     {
-      if (m_vertexTrans[i].m_vertexBuffer->bufferHandle == 0)
+      const CVertexBuffer& vertexBuffer = *m_vertexTrans[i].m_vertexBuffer;
+      if (vertexBuffer.bufferHandle == 0 && !VertexArena().IsValid(vertexBuffer.range))
       {
         continue;
       }
@@ -225,11 +231,6 @@ void CGUIFontTTFGLES::LastEnd()
                 context.GetGUIScaleY()};
 
         glUniform4fv(clipUniformLoc, 1, clipBoundaries);
-
-        const float textureSteps[4] = {1.f / static_cast<float>(m_textureWidth),
-                                       1.f / static_cast<float>(m_textureHeight), 1.f, 1.f};
-
-        glUniform4fv(coordStepUniformLoc, 1, textureSteps);
       }
 
       // calculate the fractional offset to the ideal position
@@ -258,27 +259,31 @@ void CGUIFontTTFGLES::LastEnd()
       glUniformMatrix4fv(matrixUniformLoc, 1, GL_FALSE, matrix);
 
       // Bind the buffer to the OpenGL context's GL_ARRAY_BUFFER binding point
-      glBindBuffer(GL_ARRAY_BUFFER, m_vertexTrans[i].m_vertexBuffer->bufferHandle);
+      GLintptr offset = 0;
+      if (vertexBuffer.bufferHandle != 0)
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.bufferHandle);
+      else
+        offset = VertexArena().Bind(vertexBuffer.range);
 
       // Do the actual drawing operation, split into groups of characters no
       // larger than the pre-determined size of the element array
-      for (size_t character = 0; m_vertexTrans[i].m_vertexBuffer->size > character;
+      for (size_t character = 0; vertexBuffer.size > character;
            character += ELEMENT_ARRAY_MAX_CHAR_INDEX)
       {
-        size_t count = m_vertexTrans[i].m_vertexBuffer->size - character;
+        size_t count = vertexBuffer.size - character;
         count = std::min<size_t>(count, ELEMENT_ARRAY_MAX_CHAR_INDEX);
 
         // Set up the offsets of the various vertex attributes within the buffer
         // object bound to GL_ARRAY_BUFFER
-        glVertexAttribPointer(
-            posLoc, 3, GL_FLOAT, GL_FALSE, sizeof(SVertex),
-            reinterpret_cast<GLvoid*>(character * sizeof(SVertex) * 4 + offsetof(SVertex, x)));
-        glVertexAttribPointer(
-            colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(SVertex),
-            reinterpret_cast<GLvoid*>(character * sizeof(SVertex) * 4 + offsetof(SVertex, r)));
-        glVertexAttribPointer(
-            tex0Loc, 2, GL_FLOAT, GL_FALSE, sizeof(SVertex),
-            reinterpret_cast<GLvoid*>(character * sizeof(SVertex) * 4 + offsetof(SVertex, u)));
+        glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, sizeof(SVertex),
+                              reinterpret_cast<GLvoid*>(offset + character * sizeof(SVertex) * 4 +
+                                                        offsetof(SVertex, x)));
+        glVertexAttribPointer(colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(SVertex),
+                              reinterpret_cast<GLvoid*>(offset + character * sizeof(SVertex) * 4 +
+                                                        offsetof(SVertex, r)));
+        glVertexAttribPointer(tex0Loc, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(SVertex),
+                              reinterpret_cast<GLvoid*>(offset + character * sizeof(SVertex) * 4 +
+                                                        offsetof(SVertex, u)));
 
         glDrawElements(GL_TRIANGLES, 6 * count, GL_UNSIGNED_SHORT, 0);
         CRenderSystemBase::m_GUIElementCount++;
@@ -310,6 +315,15 @@ CVertexBuffer CGUIFontTTFGLES::CreateVertexBuffer(const std::vector<SVertex>& ve
   // Do not create empty buffers, leave buffer as 0, it will be ignored in drawing stage
   if (!vertices.empty())
   {
+    const size_t size = vertices.size() * sizeof(SVertex);
+    const KODI::UTILS::GL::CGLBufferArena::Range range = VertexArena().Allocate(size);
+    if (VertexArena().IsValid(range))
+    {
+      VertexArena().Upload(range, vertices.data(), size);
+      glBindBuffer(GL_ARRAY_BUFFER, 0);
+      return CVertexBuffer(range, vertices.size() / 4, this);
+    }
+
     // Generate a unique buffer object name and put it in bufferHandle
     glGenBuffers(1, &bufferHandle);
     // Bind the buffer to the OpenGL context's GL_ARRAY_BUFFER binding point
@@ -317,8 +331,7 @@ CVertexBuffer CGUIFontTTFGLES::CreateVertexBuffer(const std::vector<SVertex>& ve
     // Create a data store for the buffer object bound to the GL_ARRAY_BUFFER
     // binding point (i.e. our buffer object) and initialise it from the
     // specified client-side pointer
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(SVertex), vertices.data(),
-                 GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, size, vertices.data(), GL_STATIC_DRAW);
     // Unbind GL_ARRAY_BUFFER
     glBindBuffer(GL_ARRAY_BUFFER, 0);
   }
@@ -328,6 +341,7 @@ CVertexBuffer CGUIFontTTFGLES::CreateVertexBuffer(const std::vector<SVertex>& ve
 
 void CGUIFontTTFGLES::DestroyVertexBuffer(CVertexBuffer& buffer) const
 {
+  VertexArena().Free(buffer.range);
   if (buffer.bufferHandle != 0)
   {
     // Release the buffer name for reuse
@@ -341,7 +355,7 @@ std::unique_ptr<CTexture> CGUIFontTTFGLES::ReallocTexture(unsigned int& newHeigh
   newHeight = CTexture::PadPow2(newHeight);
 
   std::unique_ptr<CTexture> newTexture =
-      CTexture::CreateTexture(m_textureWidth, newHeight, XB_FMT_A8);
+      CTexture::CreateTexture(m_textureWidth, newHeight, m_colorTexture ? XB_FMT_RGBA8 : XB_FMT_A8);
 
   if (!newTexture || !newTexture->GetPixels())
   {
@@ -359,20 +373,11 @@ std::unique_ptr<CTexture> CGUIFontTTFGLES::ReallocTexture(unsigned int& newHeigh
   m_staticCache.Flush();
   m_dynamicCache.Flush();
 
-  memset(newTexture->GetPixels(), 0, m_textureHeight * newTexture->GetPitch());
+  FillNewTexture(*newTexture);
   if (m_texture)
   {
     m_updateY1 = 0;
     m_updateY2 = m_texture->GetHeight();
-
-    unsigned char* src = m_texture->GetPixels();
-    unsigned char* dst = newTexture->GetPixels();
-    for (unsigned int y = 0; y < m_texture->GetHeight(); y++)
-    {
-      memcpy(dst, src, m_texture->GetPitch());
-      src += m_texture->GetPitch();
-      dst += newTexture->GetPitch();
-    }
   }
 
   m_textureStatus = TEXTURE_REALLOCATED;
@@ -380,20 +385,14 @@ std::unique_ptr<CTexture> CGUIFontTTFGLES::ReallocTexture(unsigned int& newHeigh
   return newTexture;
 }
 
-bool CGUIFontTTFGLES::CopyCharToTexture(
-    FT_BitmapGlyph bitGlyph, unsigned int x1, unsigned int y1, unsigned int x2, unsigned int y2)
+bool CGUIFontTTFGLES::CopyCharToTexture(const uint8_t* pixels,
+                                        unsigned int pitch,
+                                        unsigned int x1,
+                                        unsigned int y1,
+                                        unsigned int x2,
+                                        unsigned int y2)
 {
-  FT_Bitmap bitmap = bitGlyph->bitmap;
-
-  unsigned char* source = bitmap.buffer;
-  unsigned char* target = m_texture->GetPixels() + y1 * m_texture->GetPitch() + x1;
-
-  for (unsigned int y = y1; y < y2; y++)
-  {
-    memcpy(target, source, x2 - x1);
-    source += bitmap.width;
-    target += m_texture->GetPitch();
-  }
+  WriteCharPixels(pixels, pitch, x1, y1, x2, y2);
 
   switch (m_textureStatus)
   {
@@ -466,6 +465,8 @@ void CGUIFontTTFGLES::CreateStaticVertexBuffers(void)
 
 void CGUIFontTTFGLES::DestroyStaticVertexBuffers(void)
 {
+  VertexArena().Destroy();
+
   if (!m_staticVertexBufferCreated)
     return;
 
@@ -475,3 +476,15 @@ void CGUIFontTTFGLES::DestroyStaticVertexBuffers(void)
 
 GLuint CGUIFontTTFGLES::m_elementArrayHandle{0};
 bool CGUIFontTTFGLES::m_staticVertexBufferCreated{false};
+
+KODI::UTILS::GL::CGLBufferArena& CGUIFontTTFGLES::VertexArena()
+{
+  // Longer text runs get their own buffer, where page rounding wastes about as much as a shared
+  // slot would.
+  // Never destroyed: the font manager's destructor still uses it during static destruction.
+  static auto* arena = new KODI::UTILS::GL::CGLBufferArena{
+      {4 * CHARACTER_SIZE, 8 * CHARACTER_SIZE, 12 * CHARACTER_SIZE, 16 * CHARACTER_SIZE,
+       24 * CHARACTER_SIZE, 32 * CHARACTER_SIZE, 48 * CHARACTER_SIZE},
+      16 * 1024};
+  return *arena;
+}

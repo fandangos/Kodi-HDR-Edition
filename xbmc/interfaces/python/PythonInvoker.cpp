@@ -23,8 +23,8 @@
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "interfaces/python/PyContext.h"
+#include "interfaces/python/PythonToCppException.h"
 #include "interfaces/python/pythreadstate.h"
-#include "interfaces/python/swig.h"
 #include "messaging/ApplicationMessenger.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
@@ -48,6 +48,7 @@
 #include "XBPython.h"
 
 #include <cassert>
+#include <chrono>
 #include <iterator>
 
 #ifdef TARGET_WINDOWS
@@ -144,6 +145,12 @@ bool CPythonInvoker::execute(const std::string& script, std::vector<std::wstring
   std::set<std::string> pythonPath;
 
   CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): start processing", GetId(), m_sourceFile);
+
+  // Useful for add-on performance metrics, and the counterpart to the "script
+  // termination took {}ms" line in stop(): this covers sub-interpreter creation,
+  // sys.path setup and the script body, i.e. what a user perceives as the time
+  // taken for an add-on to start.
+  const auto startTime = std::chrono::steady_clock::now();
 
   std::string realFilename(CSpecialProtocol::TranslatePath(m_sourceFile));
   std::string scriptDir = URIUtils::GetDirectory(realFilename);
@@ -347,13 +354,20 @@ bool CPythonInvoker::execute(const std::string& script, std::vector<std::wstring
   InvokerState stateToSet;
   if (!failed && !PyErr_Occurred())
   {
-    CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): script successfully run", GetId(), m_sourceFile);
+    CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): script successfully run in {}ms", GetId(),
+              m_sourceFile,
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - startTime)
+                  .count());
     stateToSet = InvokerStateScriptDone;
     onSuccess();
   }
   else if (PyErr_ExceptionMatches(PyExc_SystemExit))
   {
-    CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): script aborted", GetId(), m_sourceFile);
+    CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): script aborted after {}ms", GetId(), m_sourceFile,
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - startTime)
+                  .count());
     stateToSet = InvokerStateFailed;
     onAbort();
   }
@@ -459,6 +473,7 @@ bool CPythonInvoker::stop(bool abort)
 {
   std::unique_lock lock(m_critical);
   m_stop = true;
+  XBPython& python = CServiceBroker::GetXBPython();
 
   if (!IsRunning() && !m_threadState)
     return false;
@@ -470,32 +485,29 @@ bool CPythonInvoker::stop(bool abort)
       setState(InvokerStateStopping);
       lock.unlock();
 
-      PyThreadState* ts = PyThreadState_New(m_threadState->interp);
-      if (ts == nullptr)
-      {
-        CLog::LogF(LOGERROR, "({}, {}) PyThreadState_New failed", GetId(), m_sourceFile);
-        return false;
-      }
-
-      PyEval_RestoreThread(ts);
-
-      //tell xbmc.Monitor to call onAbortRequested()
-      if (m_addon)
+      // wake xbmc.Monitor's waitForAbort() and abortRequested(). That needs no Python, but taking
+      // the GIL here finds a script stuck holding it before the 5 s wait below.
+      const auto abortNotify = [this]
       {
         CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): trigger Monitor abort request", GetId(),
                   m_sourceFile);
         AbortNotification();
+        return false;
+      };
+      if (!python.RunWithGil(abortNotify))
+      {
+        // without the GIL the script can't stop
+        setState(InvokerStateFailed);
+        return false;
       }
-
-      PyThreadState_Clear(ts);
-      PyThreadState_DeleteCurrent();
     }
     else
       //Release the lock while waiting for threads to finish
       lock.unlock();
 
     XbmcThreads::EndTime<> timeout(PYTHON_SCRIPT_TIMEOUT);
-    while (!m_stoppedEvent.Wait(15ms))
+    // no script can stop without the GIL
+    while (!python.IsGilLost() && !m_stoppedEvent.Wait(15ms))
     {
       if (timeout.IsTimePast())
       {
@@ -520,34 +532,39 @@ bool CPythonInvoker::stop(bool abort)
     setState(InvokerStateExecutionDone);
 
     // Useful for add-on performance metrics
-    if (!timeout.IsTimePast())
+    if (!timeout.IsTimePast() && !python.IsGilLost())
       CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): script termination took {}ms", GetId(),
                 m_sourceFile, (PYTHON_SCRIPT_TIMEOUT - timeout.GetTimeLeft()).count());
 
     // Since we released the m_critical it's possible that the state is cleaned up
     // so we need to recheck for m_threadState == NULL
-    if (m_threadState != NULL)
+    PyThreadState* ts = nullptr;
+    if (m_threadState != NULL && !python.IsGilLost())
     {
-      PyThreadState* ts = PyThreadState_New(m_threadState->interp);
+      ts = PyThreadState_New(m_threadState->interp);
       if (ts == nullptr)
       {
         CLog::LogF(LOGERROR, "({}, {}) PyThreadState_New failed", GetId(), m_sourceFile);
         return false;
       }
+      // onExecutionDone() waits for it before ending the interpreter, which would free ts
+      ++m_raisingExit;
+    }
+    // grabbing the GIL while holding m_critical is asking for a deadlock, and so is taking
+    // m_critical back while holding the GIL: onExecutionDone() takes m_critical, then the GIL
+    lock.unlock();
 
-      {
-        // grabbing the PyLock while holding the m_critical is asking for a deadlock
-        CSingleExit ex2(m_critical);
-        PyEval_RestoreThread(ts);
-      }
+    if (ts != nullptr)
+    {
+      PyEval_RestoreThread(ts);
 
-      PyThreadState* state = PyInterpreterState_ThreadHead(m_threadState->interp);
+      PyThreadState* state = PyInterpreterState_ThreadHead(ts->interp);
       while (state)
       {
-        // Raise a SystemExit exception in python threads
-        Py_XDECREF(state->async_exc);
-        state->async_exc = PyExc_SystemExit;
-        Py_XINCREF(state->async_exc);
+        // Raise a SystemExit exception in python threads; writing async_exc directly goes
+        // unnoticed since Python 3.13
+        if (state != ts)
+          PyThreadState_SetAsyncExc(state->thread_id, PyExc_SystemExit);
         state = PyThreadState_Next(state);
       }
 
@@ -556,8 +573,8 @@ bool CPythonInvoker::stop(bool abort)
 
       PyThreadState_Clear(ts);
       PyThreadState_DeleteCurrent();
+      --m_raisingExit;
     }
-    lock.unlock();
 
     setState(InvokerStateFailed);
   }
@@ -574,6 +591,19 @@ void CPythonInvoker::onExecutionDone()
     CLog::Log(LOGDEBUG, "{}({}, {})", __FUNCTION__, GetId(), m_sourceFile);
 
     PyEval_RestoreThread(m_threadState);
+
+    // let stop() finish with its thread state of this interpreter before ending it; a
+    // SystemExit it raised in this thread has nothing left to stop
+    if (m_raisingExit > 0)
+      CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): waiting for stop() to raise SystemExit", GetId(),
+                m_sourceFile);
+    while (m_raisingExit > 0)
+    {
+      PyEval_SaveThread();
+      KODI::TIME::Sleep(1ms);
+      PyEval_RestoreThread(m_threadState);
+    }
+    PyThreadState_SetAsyncExc(m_threadState->thread_id, nullptr);
 
     onDeinitialization();
 
@@ -661,10 +691,16 @@ void CPythonInvoker::onInitialization()
 
 void CPythonInvoker::onPythonModuleInitialization(void* moduleDict)
 {
-  if (m_addon.get() == NULL || moduleDict == NULL)
+  if (moduleDict == NULL)
     return;
 
   PyObject* moduleDictionary = (PyObject*)moduleDict;
+
+  // xbmc.Monitor uses it to receive this script's abort request, add-on or not
+  PyDict_SetItemString(moduleDictionary, "__xbmcinvokerid__", PyLong_FromLong(GetId()));
+
+  if (m_addon.get() == NULL)
+    return;
 
   PyDict_SetItemString(moduleDictionary, "__xbmcaddonid__",
                        PyObjectPtr(PyUnicode_FromString(m_addon->ID().c_str())).get());
@@ -672,8 +708,6 @@ void CPythonInvoker::onPythonModuleInitialization(void* moduleDict)
   ADDON::CAddonVersion version = m_addon->GetDependencyVersion("xbmc.python");
   PyDict_SetItemString(moduleDictionary, "__xbmcapiversion__",
                        PyObjectPtr(PyUnicode_FromString(version.asString().c_str())).get());
-
-  PyDict_SetItemString(moduleDictionary, "__xbmcinvokerid__", PyLong_FromLong(GetId()));
 
   CLog::Log(LOGDEBUG,
             "CPythonInvoker({}, {}): instantiating addon using automatically obtained id of \"{}\" "

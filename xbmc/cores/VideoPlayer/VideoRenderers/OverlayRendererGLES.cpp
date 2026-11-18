@@ -178,7 +178,8 @@ std::shared_ptr<COverlay> COverlay::Create(const CDVDOverlayImage& o, CRect& rSo
 
 COverlayTextureGLES::COverlayTextureGLES(const CDVDOverlayImage& o, CRect& rSource)
 {
-  m_isDiscMenuGraphic = o.IsDiscMenuGraphic();
+  m_isDiscMenuGraphic = o.IsDiscMenu();
+  m_isHDROverlay = o.m_isHDROverlay;
 
   glGenTextures(1, &m_texture);
   glBindTexture(GL_TEXTURE_2D, m_texture);
@@ -196,9 +197,39 @@ COverlayTextureGLES::COverlayTextureGLES(const CDVDOverlayImage& o, CRect& rSour
   }
   else
   {
-    std::vector<uint32_t> rgba(o.width * o.height);
+    std::vector<uint32_t> convertedPalette;
+    const std::vector<uint32_t>* paletteOverride = nullptr;
+    if (OVERLAY::ShouldConvertPQPaletteToSRGB(o.m_isHDROverlay))
+    {
+      convertedPalette = o.palette;
+      OVERLAY::ConvertPQPaletteToSRGB(convertedPalette);
+      paletteOverride = &convertedPalette;
+    }
+
+    std::vector<uint32_t> rgba(static_cast<size_t>(o.width) * o.height);
     m_pma = !!USE_PREMULTIPLIED_ALPHA;
-    convert_rgba(o, m_pma, rgba);
+    convert_rgba(o, m_pma, rgba, paletteOverride);
+
+    // the direct back-buffer draw in Render bypasses the composite's
+    // limited-range encode, so apply it to the pixels here
+    //! @todo Move this into the overlay shader once limited-range and
+    //! full-range GUI shader variants are kept compiled in parallel and
+    //! selectable per draw; then this draw selects the limited variant.
+    if (m_isHDROverlay && CServiceBroker::GetWinSystem()->IsHdrComposite() &&
+        CServiceBroker::GetWinSystem()->UseLimitedColor())
+    {
+      for (uint32_t& px : rgba)
+      {
+        const uint32_t a = (px >> PIXEL_ASHIFT) & 0xff;
+        const uint32_t r = (px >> PIXEL_RSHIFT) & 0xff;
+        const uint32_t g = (px >> PIXEL_GSHIFT) & 0xff;
+        const uint32_t b = (px >> PIXEL_BSHIFT) & 0xff;
+        px = (a << PIXEL_ASHIFT) | (((r * 219 + a * 16 + 127) / 255) << PIXEL_RSHIFT) |
+             (((g * 219 + a * 16 + 127) / 255) << PIXEL_GSHIFT) |
+             (((b * 219 + a * 16 + 127) / 255) << PIXEL_BSHIFT);
+      }
+    }
+
     LoadTexture(GL_TEXTURE_2D, o.width, o.height, o.width * 4, &m_u, &m_v, false, rgba.data());
   }
 
@@ -253,7 +284,7 @@ std::shared_ptr<COverlay> COverlay::Create(const CDVDOverlaySpu& o)
 COverlayTextureGLES::COverlayTextureGLES(const CDVDOverlaySpu& o)
 {
   int min_x, max_x, min_y, max_y;
-  std::vector<uint32_t> rgba(o.width * o.height);
+  std::vector<uint32_t> rgba(static_cast<size_t>(o.width) * o.height);
 
   convert_rgba(o, USE_PREMULTIPLIED_ALPHA, min_x, max_x, min_y, max_y, rgba);
 
@@ -293,113 +324,123 @@ COverlayGlyphGLES::COverlayGlyphGLES(ASS_Image* images, float width, float heigh
   m_x = 0.0f;
   m_y = 0.0f;
 
-  SQuads quads;
-  if (!convert_quad(images, quads, static_cast<int>(width)))
+  GLint maxTextureSize = 0;
+  glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+  std::vector<SQuads> pages;
+  if (!convert_quad_pages(images, pages, maxTextureSize))
     return;
 
-  glGenTextures(1, &m_texture);
-  glBindTexture(GL_TEXTURE_2D, m_texture);
-
-  LoadTexture(GL_TEXTURE_2D, quads.size_x, quads.size_y, quads.size_x, &m_u, &m_v, true,
-              quads.texture.data());
-
-  float scale_u = m_u / quads.size_x;
-  float scale_v = m_v / quads.size_y;
-
-  float scale_x = 1.0f / width;
-  float scale_y = 1.0f / height;
-
-  m_vertex.resize(quads.quad.size() * 4);
-
-  VERTEX* vt = m_vertex.data();
-  SQuad* vs = quads.quad.data();
-
-  for (size_t i = 0; i < quads.quad.size(); i++)
+  m_pages = std::vector<Page>(pages.size());
+  for (size_t i = 0; i < pages.size(); ++i)
   {
-    for (int s = 0; s < 4; s++)
-    {
-      vt[s].a = vs->a;
-      vt[s].r = vs->r;
-      vt[s].g = vs->g;
-      vt[s].b = vs->b;
+    SQuads& quads = pages[i];
+    Page& page = m_pages[i];
+    float u;
+    float v;
 
-      vt[s].x = scale_x;
-      vt[s].y = scale_y;
-      vt[s].z = 0.0f;
-      vt[s].u = scale_u;
-      vt[s].v = scale_v;
+    glGenTextures(1, &page.texture);
+    glBindTexture(GL_TEXTURE_2D, page.texture);
+
+    LoadTexture(GL_TEXTURE_2D, quads.size_x, quads.size_y, quads.size_x, &u, &v, true,
+                quads.texture.data());
+
+    float scale_u = u / quads.size_x;
+    float scale_v = v / quads.size_y;
+
+    float scale_x = 1.0f / width;
+    float scale_y = 1.0f / height;
+
+    std::vector<VERTEX> quadVertices(quads.quad.size() * 4);
+
+    VERTEX* vt = quadVertices.data();
+    SQuad* vs = quads.quad.data();
+
+    for (size_t i = 0; i < quads.quad.size(); i++)
+    {
+      for (int s = 0; s < 4; s++)
+      {
+        vt[s].a = vs->a;
+        vt[s].r = vs->r;
+        vt[s].g = vs->g;
+        vt[s].b = vs->b;
+
+        vt[s].x = scale_x;
+        vt[s].y = scale_y;
+        vt[s].z = 0.0f;
+        vt[s].u = scale_u;
+        vt[s].v = scale_v;
+      }
+
+      vt[0].x *= vs->x;
+      vt[0].u *= vs->u;
+      vt[0].y *= vs->y;
+      vt[0].v *= vs->v;
+
+      vt[1].x *= vs->x;
+      vt[1].u *= vs->u;
+      vt[1].y *= vs->y + vs->h;
+      vt[1].v *= vs->v + vs->h;
+
+      vt[2].x *= vs->x + vs->w;
+      vt[2].u *= vs->u + vs->w;
+      vt[2].y *= vs->y;
+      vt[2].v *= vs->v;
+
+      vt[3].x *= vs->x + vs->w;
+      vt[3].u *= vs->u + vs->w;
+      vt[3].y *= vs->y + vs->h;
+      vt[3].v *= vs->v + vs->h;
+
+      vs += 1;
+      vt += 4;
     }
 
-    vt[0].x *= vs->x;
-    vt[0].u *= vs->u;
-    vt[0].y *= vs->y;
-    vt[0].v *= vs->v;
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-    vt[1].x *= vs->x;
-    vt[1].u *= vs->u;
-    vt[1].y *= vs->y + vs->h;
-    vt[1].v *= vs->v + vs->h;
+    // gles_shader_simple.vert reads texture coordinates as texel units offset by half a texel and
+    // scales them by m_cordStep: cord = (attr - 0.5) * cordStep. Render() sets cordStep to 1, so
+    // bias the normalised coordinates here to come back out unchanged.
+    for (VERTEX& v : quadVertices)
+    {
+      v.u += 0.5f;
+      v.v += 0.5f;
+    }
 
-    vt[2].x *= vs->x + vs->w;
-    vt[2].u *= vs->u + vs->w;
-    vt[2].y *= vs->y;
-    vt[2].v *= vs->v;
+    // Expand quads to triangles and upload once: glyph vertices never change after construction.
+    std::vector<VERTEX> vecVertices(6 * quadVertices.size() / 4);
+    VERTEX* vertices = vecVertices.data();
 
-    vt[3].x *= vs->x + vs->w;
-    vt[3].u *= vs->u + vs->w;
-    vt[3].y *= vs->y + vs->h;
-    vt[3].v *= vs->v + vs->h;
+    for (size_t i = 0; i < quadVertices.size(); i += 4)
+    {
+      *vertices++ = quadVertices[i];
+      *vertices++ = quadVertices[i + 1];
+      *vertices++ = quadVertices[i + 2];
 
-    vs += 1;
-    vt += 4;
+      *vertices++ = quadVertices[i + 1];
+      *vertices++ = quadVertices[i + 3];
+      *vertices++ = quadVertices[i + 2];
+    }
+
+    page.vbo.SetData(vecVertices.data(), vecVertices.size(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    page.vertexCount = static_cast<GLsizei>(vecVertices.size());
   }
-
-  glBindTexture(GL_TEXTURE_2D, 0);
-
-  // Expand quads to triangles and upload to VBO once
-  std::vector<VERTEX> vecVertices(6 * m_vertex.size() / 4);
-  VERTEX* vertices = vecVertices.data();
-
-  for (size_t i = 0; i < m_vertex.size(); i += 4)
-  {
-    *vertices++ = m_vertex[i];
-    *vertices++ = m_vertex[i + 1];
-    *vertices++ = m_vertex[i + 2];
-
-    *vertices++ = m_vertex[i + 1];
-    *vertices++ = m_vertex[i + 3];
-    *vertices++ = m_vertex[i + 2];
-  }
-
-  glGenBuffers(1, &m_VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(VERTEX) * vecVertices.size(), vecVertices.data(),
-               GL_STATIC_DRAW);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-  m_vertexCount = vecVertices.size();
 }
 
 COverlayGlyphGLES::~COverlayGlyphGLES()
 {
-  glDeleteTextures(1, &m_texture);
-  glDeleteBuffers(1, &m_VBO);
+  for (const Page& page : m_pages)
+    glDeleteTextures(1, &page.texture);
 }
 
 void COverlayGlyphGLES::Render(SRenderState& state)
 {
-  if (m_texture == 0 || m_vertexCount == 0)
+  if (m_pages.empty())
     return;
 
   glEnable(GL_BLEND);
 
-  glBindTexture(GL_TEXTURE_2D, m_texture);
   glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
   glMatrixModview.Push();
   glMatrixModview->Translatef(state.x, state.y, 0.0f);
@@ -408,6 +449,7 @@ void COverlayGlyphGLES::Render(SRenderState& state)
 
   CRenderSystemGLES* renderSystem =
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
+
   renderSystem->EnableGUIShader(ShaderMethodGLES::SM_FONTS);
   // Glyph overlays (ASS/SRT text subtitles) deliberately stay on the disc menu slider: text
   // subtitles are already covered by Kodi's own subtitle appearance settings, and glyph overlays
@@ -419,33 +461,43 @@ void COverlayGlyphGLES::Render(SRenderState& state)
   GLint depthLoc = renderSystem->GUIShaderGetDepth();
   GLint matrixUniformLoc = renderSystem->GUIShaderGetMatrix();
 
+  glUniform4f(renderSystem->GUIShaderGetCoordStep(), 1.0f, 1.0f, 1.0f, 1.0f);
+
   CMatrixGL matrix = glMatrixProject.Get();
   matrix.MultMatrixf(glMatrixModview.Get());
   glUniformMatrix4fv(matrixUniformLoc, 1, GL_FALSE, matrix);
 
-  glBindBuffer(GL_ARRAY_BUFFER, m_VBO);
+  for (const Page& page : m_pages)
+  {
+    glBindTexture(GL_TEXTURE_2D, page.texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    page.vbo.Bind();
 
-  glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, sizeof(VERTEX),
-                        reinterpret_cast<const GLvoid*>(offsetof(VERTEX, x)));
-  glVertexAttribPointer(colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VERTEX),
-                        reinterpret_cast<const GLvoid*>(offsetof(VERTEX, r)));
-  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, GL_FALSE, sizeof(VERTEX),
-                        reinterpret_cast<const GLvoid*>(offsetof(VERTEX, u)));
+    glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, sizeof(VERTEX),
+                          reinterpret_cast<GLvoid*>(offsetof(VERTEX, x)));
+    glVertexAttribPointer(colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(VERTEX),
+                          reinterpret_cast<GLvoid*>(offsetof(VERTEX, r)));
+    glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, GL_FALSE, sizeof(VERTEX),
+                          reinterpret_cast<GLvoid*>(offsetof(VERTEX, u)));
 
-  glEnableVertexAttribArray(posLoc);
-  glEnableVertexAttribArray(colLoc);
-  glEnableVertexAttribArray(tex0Loc);
+    glEnableVertexAttribArray(posLoc);
+    glEnableVertexAttribArray(colLoc);
+    glEnableVertexAttribArray(tex0Loc);
 
-  glUniform1f(depthLoc, -1.0f);
+    glUniform1f(depthLoc, -1.0f);
 
-  glDrawArrays(GL_TRIANGLES, 0, m_vertexCount);
-  CRenderSystemBase::m_GUIElementCount++;
+    glDrawArrays(GL_TRIANGLES, 0, page.vertexCount);
+    CRenderSystemBase::m_GUIElementCount++;
 
-  glDisableVertexAttribArray(posLoc);
-  glDisableVertexAttribArray(colLoc);
-  glDisableVertexAttribArray(tex0Loc);
+    glDisableVertexAttribArray(posLoc);
+    glDisableVertexAttribArray(colLoc);
+    glDisableVertexAttribArray(tex0Loc);
 
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  }
 
   renderSystem->DisableGUIShader();
 
@@ -500,8 +552,6 @@ void COverlayTextureGLES::Render(SRenderState& state)
       dynamic_cast<CRenderSystemGLES*>(CServiceBroker::GetRenderSystem());
   renderSystem->EnableGUIShader(ShaderMethodGLES::SM_TEXTURE_NOBLEND);
   ApplyOverlayHdrCompensation(renderSystem, m_isDiscMenuGraphic);
-  GLint posLoc = renderSystem->GUIShaderGetPos();
-  GLint tex0Loc = renderSystem->GUIShaderGetCoord0();
   GLint depthLoc = renderSystem->GUIShaderGetDepth();
 
   // Tell the shader this texture is premultiplied so its limited-range
@@ -513,33 +563,11 @@ void COverlayTextureGLES::Render(SRenderState& state)
   if (m_pma)
     glUniform1f(renderSystem->GUIShaderGetPma(), 1.0f);
 
-  GLfloat ver[4][2];
-  GLfloat tex[4][2];
-  GLubyte idx[4] = {0, 1, 3, 2}; //determines order of triangle strip
-
-  glVertexAttribPointer(posLoc, 2, GL_FLOAT, 0, 0, ver);
-  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, 0, 0, tex);
-
-  glEnableVertexAttribArray(posLoc);
-  glEnableVertexAttribArray(tex0Loc);
-
   glUniform1f(depthLoc, 1.0f);
-  // Setup vertex position values
-  ver[0][0] = ver[3][0] = rd.x1;
-  ver[0][1] = ver[1][1] = rd.y1;
-  ver[1][0] = ver[2][0] = rd.x2;
-  ver[2][1] = ver[3][1] = rd.y2;
 
-  // Setup texture coordinates
-  tex[0][0] = tex[0][1] = tex[1][1] = tex[3][0] = 0.0f;
-  tex[1][0] = tex[2][0] = m_u;
-  tex[2][1] = tex[3][1] = m_v;
-
-  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+  const CRect texCoords(0.0f, 0.0f, m_u, m_v);
+  renderSystem->DrawGUIQuad(rd, &texCoords);
   CRenderSystemBase::m_GUIElementCount++;
-
-  glDisableVertexAttribArray(posLoc);
-  glDisableVertexAttribArray(tex0Loc);
 
   renderSystem->DisableGUIShader();
 

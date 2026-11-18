@@ -11,6 +11,7 @@
 #include "GUIListItemLayout.h"
 #include "utils/Archive.h"
 #include "utils/CharsetConverter.h"
+#include "utils/ItemProperties.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 
@@ -109,7 +110,7 @@ void CGUIListItem::ClearArt()
 {
   m_art.clear();
   m_artFallbacks.clear();
-  SetProperty("libraryartfilled", false);
+  SetProperty(KODI::ITEM::PROPERTY::LIBRARY_ART_FILLED, false);
 }
 
 void CGUIListItem::AppendArt(const KODI::ART::Artwork& art, const std::string& prefix)
@@ -309,21 +310,26 @@ void CGUIListItem::FreeIcons()
 
 void CGUIListItem::FreeMemory(bool immediately)
 {
-  if (m_layout)
+  // release the layouts outside of the lock, freeing them needs the graphics context
+  std::unique_ptr<CGUIListItemLayout> layout;
+  std::unique_ptr<CGUIListItemLayout> focusedLayout;
   {
-    m_layout->FreeResources(immediately);
-    m_layout.reset();
+    std::unique_lock lock(m_layoutSection);
+    layout = std::move(m_layout);
+    focusedLayout = std::move(m_focusedLayout);
   }
-  if (m_focusedLayout)
-  {
-    m_focusedLayout->FreeResources(immediately);
-    m_focusedLayout.reset();
-  }
+
+  if (layout)
+    layout->FreeResources(immediately);
+  if (focusedLayout)
+    focusedLayout->FreeResources(immediately);
 }
 
 void CGUIListItem::SetLayout(std::unique_ptr<CGUIListItemLayout> layout)
 {
-  m_layout = std::move(layout);
+  // the old layout is destroyed with the parameter, after the lock is released
+  std::unique_lock lock(m_layoutSection);
+  m_layout.swap(layout);
 }
 
 CGUIListItemLayout *CGUIListItem::GetLayout()
@@ -333,7 +339,8 @@ CGUIListItemLayout *CGUIListItem::GetLayout()
 
 void CGUIListItem::SetFocusedLayout(std::unique_ptr<CGUIListItemLayout> layout)
 {
-  m_focusedLayout = std::move(layout);
+  std::unique_lock lock(m_layoutSection);
+  m_focusedLayout.swap(layout);
 }
 
 CGUIListItemLayout *CGUIListItem::GetFocusedLayout()
@@ -343,6 +350,7 @@ CGUIListItemLayout *CGUIListItem::GetFocusedLayout()
 
 void CGUIListItem::SetInvalid()
 {
+  std::unique_lock lock(m_layoutSection);
   if (m_layout)
     m_layout->SetInvalid();
 

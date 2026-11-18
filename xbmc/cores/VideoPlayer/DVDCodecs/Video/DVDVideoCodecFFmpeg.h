@@ -13,6 +13,7 @@
 #include "cores/VideoPlayer/DVDCodecs/DVDCodecs.h"
 #include "cores/VideoPlayer/DVDStreamInfo.h"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -49,6 +50,7 @@ public:
 
 protected:
   void Dispose();
+  CDVDVideoCodec::VCReturn HandleHwFatal();
   static enum AVPixelFormat GetFormat(struct AVCodecContext * avctx, const AVPixelFormat * fmt);
 
   int  FilterOpen(const std::string& filters, bool scale);
@@ -85,6 +87,7 @@ protected:
 
   std::string m_name;
   int m_decoderState;
+  int m_hwFailedCount = 0;
   IHardwareDecoder *m_pHardware = nullptr;
   int m_iLastKeyframe = 0;
   double m_dts = DVD_NOPTS_VALUE;
@@ -100,6 +103,8 @@ protected:
   double m_DAR = 1.0;
   CDVDStreamInfo m_hints;
   CDVDCodecOptions m_options;
+  bool m_exportDoviRpu = false;
+  std::map<int64_t, std::vector<uint8_t>> m_av1DoviRpus; // by packet pts
 
   struct CDropControl
   {

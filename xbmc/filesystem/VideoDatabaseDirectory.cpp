@@ -19,14 +19,21 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
+#include "utils/ContentNames.h"
 #include "utils/Crc32.h"
+#include "utils/DefaultArt.h"
+#include "utils/ItemProperties.h"
 #include "utils/LegacyPathTranslation.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "video/VideoDatabase.h"
+#include "video/VideoDbPaths.h"
 
 using namespace XFILE;
 using namespace VIDEODATABASEDIRECTORY;
+
+namespace CONTENT = KODI::MEDIA::CONTENT;
 
 CVideoDatabaseDirectory::CVideoDatabaseDirectory(void) = default;
 
@@ -40,51 +47,51 @@ std::string GetChildContentType(const std::unique_ptr<CDirectoryNode>& node)
   {
     case NodeType::EPISODES:
     case NodeType::RECENTLY_ADDED_EPISODES:
-      return "episodes";
+      return CONTENT::EPISODES;
     case NodeType::SEASONS:
-      return "seasons";
+      return CONTENT::SEASONS;
     case NodeType::TITLE_MOVIES:
     case NodeType::RECENTLY_ADDED_MOVIES:
-      return "movies";
+      return CONTENT::MOVIES;
     case NodeType::TITLE_TVSHOWS:
     case NodeType::INPROGRESS_TVSHOWS:
-      return "tvshows";
+      return CONTENT::TVSHOWS;
     case NodeType::TITLE_MUSICVIDEOS:
     case NodeType::RECENTLY_ADDED_MUSICVIDEOS:
-      return "musicvideos";
+      return CONTENT::MUSICVIDEOS;
     case NodeType::GENRE:
-      return "genres";
+      return CONTENT::GENRES;
     case NodeType::COUNTRY:
-      return "countries";
+      return CONTENT::COUNTRIES;
     case NodeType::ACTOR:
     {
       CQueryParams params;
       node->CollectQueryParams(params);
       if (static_cast<VideoDbContentType>(params.GetContentType()) ==
           VideoDbContentType::MUSICVIDEOS)
-        return "artists";
+        return CONTENT::ARTISTS;
 
-      return "actors";
+      return CONTENT::ACTORS;
     }
     case NodeType::DIRECTOR:
-      return "directors";
+      return CONTENT::DIRECTORS;
     case NodeType::STUDIO:
-      return "studios";
+      return CONTENT::STUDIOS;
     case NodeType::YEAR:
-      return "years";
+      return CONTENT::YEARS;
     case NodeType::MUSICVIDEOS_ALBUM:
-      return "albums";
+      return CONTENT::ALBUMS;
     case NodeType::SETS:
-      return "sets";
+      return CONTENT::SETS;
     case NodeType::TAGS:
-      return "tags";
+      return CONTENT::TAGS;
     case NodeType::VIDEOVERSIONS:
     case NodeType::MOVIE_ASSETS_VERSIONS:
-      return "videoversions";
+      return CONTENT::VIDEOVERSIONS;
     case NodeType::MOVIE_ASSETS_EXTRAS:
-      return "videoextras";
+      return CONTENT::VIDEOEXTRAS;
     case NodeType::MOVIE_ASSETS:
-      return "videoassets";
+      return CONTENT::VIDEOASSETS;
     default:
       break;
   }
@@ -107,19 +114,20 @@ bool CVideoDatabaseDirectory::GetDirectory(const CURL& url, CFileItemList &items
   for (int i=0;i<items.Size();++i)
   {
     CFileItemPtr item = items[i];
-    if (item->IsFolder() && !item->HasArt("icon") && !item->HasArt("thumb"))
+    if (item->IsFolder() && !item->HasArt(KODI::ART::TYPE::ICON) &&
+        !item->HasArt(KODI::ART::TYPE::THUMB))
     {
       std::string strImage = GetIcon(item->GetPath());
       if (!strImage.empty() && CServiceBroker::GetGUI()->GetTextureManager().HasTexture(strImage))
-        item->SetArt("icon", strImage);
+        item->SetArt(KODI::ART::TYPE::ICON, strImage);
     }
     if (item->HasVideoInfoTag())
     {
       item->SetDynPath(item->GetVideoInfoTag()->GetPath());
     }
   }
-  if (items.HasProperty("customtitle"))
-    items.SetLabel(items.GetProperty("customtitle").asString());
+  if (items.HasProperty(KODI::ITEM::PROPERTY::CUSTOM_TITLE))
+    items.SetLabel(items.GetProperty(KODI::ITEM::PROPERTY::CUSTOM_TITLE).asString());
   else
     items.SetLabel(pNode->GetLocalizedName());
 
@@ -329,66 +337,66 @@ std::string CVideoDatabaseDirectory::GetIcon(const std::string &strDirectory)
   switch (GetDirectoryChildType(path))
   {
     case NodeType::TITLE_MOVIES:
-      if (URIUtils::PathEquals(path, "videodb://movies/titles/"))
+      if (URIUtils::PathEquals(path, KODI::VIDEO::DB_PATH::MOVIE_TITLES))
       {
         if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                 CSettings::SETTING_MYVIDEOS_FLATTEN))
-          return "DefaultMovies.png";
-        return "DefaultMovieTitle.png";
+          return KODI::ART::DEFAULT::MOVIES;
+        return KODI::ART::DEFAULT::MOVIE_TITLE;
       }
       return "";
     case NodeType::TITLE_TVSHOWS:
-      if (URIUtils::PathEquals(path, "videodb://tvshows/titles/"))
+      if (URIUtils::PathEquals(path, KODI::VIDEO::DB_PATH::TVSHOW_TITLES))
       {
         if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                 CSettings::SETTING_MYVIDEOS_FLATTEN))
-          return "DefaultTVShows.png";
-        return "DefaultTVShowTitle.png";
+          return KODI::ART::DEFAULT::TV_SHOWS;
+        return KODI::ART::DEFAULT::TV_SHOW_TITLE;
       }
       return "";
     case NodeType::TITLE_MUSICVIDEOS:
-      if (URIUtils::PathEquals(path, "videodb://musicvideos/titles/"))
+      if (URIUtils::PathEquals(path, KODI::VIDEO::DB_PATH::MUSICVIDEO_TITLES))
       {
         if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                 CSettings::SETTING_MYVIDEOS_FLATTEN))
-          return "DefaultMusicVideos.png";
-        return "DefaultMusicVideoTitle.png";
+          return KODI::ART::DEFAULT::MUSIC_VIDEOS;
+        return KODI::ART::DEFAULT::MUSIC_VIDEO_TITLE;
       }
       return "";
     case NodeType::ACTOR: // Actor
-      return "DefaultActor.png";
+      return KODI::ART::DEFAULT::ACTOR;
     case NodeType::GENRE: // Genres
-      return "DefaultGenre.png";
+      return KODI::ART::DEFAULT::GENRE;
     case NodeType::COUNTRY: // Countries
-      return "DefaultCountry.png";
+      return KODI::ART::DEFAULT::COUNTRY;
     case NodeType::SETS: // Sets
-      return "DefaultSets.png";
+      return KODI::ART::DEFAULT::SETS;
     case NodeType::TAGS: // Tags
-      return "DefaultTags.png";
+      return KODI::ART::DEFAULT::TAGS;
     case NodeType::VIDEOVERSIONS: // Video versions
-      return "DefaultVideoVersions.png";
+      return KODI::ART::DEFAULT::VIDEO_VERSIONS;
     case NodeType::YEAR: // Year
-      return "DefaultYear.png";
+      return KODI::ART::DEFAULT::YEAR;
     case NodeType::DIRECTOR: // Director
-      return "DefaultDirector.png";
+      return KODI::ART::DEFAULT::DIRECTOR;
     case NodeType::MOVIES_OVERVIEW: // Movies
-      return "DefaultMovies.png";
+      return KODI::ART::DEFAULT::MOVIES;
     case NodeType::TVSHOWS_OVERVIEW: // TV Shows
-      return "DefaultTVShows.png";
+      return KODI::ART::DEFAULT::TV_SHOWS;
     case NodeType::RECENTLY_ADDED_MOVIES: // Recently Added Movies
-      return "DefaultRecentlyAddedMovies.png";
+      return KODI::ART::DEFAULT::RECENTLY_ADDED_MOVIES;
     case NodeType::RECENTLY_ADDED_EPISODES: // Recently Added Episodes
-      return "DefaultRecentlyAddedEpisodes.png";
+      return KODI::ART::DEFAULT::RECENTLY_ADDED_EPISODES;
     case NodeType::RECENTLY_ADDED_MUSICVIDEOS: // Recently Added Episodes
-      return "DefaultRecentlyAddedMusicVideos.png";
+      return KODI::ART::DEFAULT::RECENTLY_ADDED_MUSIC_VIDEOS;
     case NodeType::INPROGRESS_TVSHOWS: // InProgress TvShows
-      return "DefaultInProgressShows.png";
+      return KODI::ART::DEFAULT::IN_PROGRESS_SHOWS;
     case NodeType::STUDIO: // Studios
-      return "DefaultStudios.png";
+      return KODI::ART::DEFAULT::STUDIOS;
     case NodeType::MUSICVIDEOS_OVERVIEW: // Music Videos
-      return "DefaultMusicVideos.png";
+      return KODI::ART::DEFAULT::MUSIC_VIDEOS;
     case NodeType::MUSICVIDEOS_ALBUM: // Music Videos - Albums
-      return "DefaultMusicAlbums.png";
+      return KODI::ART::DEFAULT::MUSIC_ALBUMS;
     default:
       break;
   }

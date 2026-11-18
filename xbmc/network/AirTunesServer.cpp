@@ -35,6 +35,7 @@
 #include "network/dacp/dacp.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/EndianSwap.h"
 #include "utils/StringUtils.h"
 #include "utils/SystemInfo.h"
@@ -150,6 +151,23 @@ void CAirTunesServer::RefreshCoverArt(const char *outputFilename/* = NULL*/)
   //update the ui
   CGUIMessage msg(GUI_MSG_NOTIFY_ALL,0,0,GUI_MSG_REFRESH_THUMBS);
   CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
+
+  // The info manager and the application hold separate items; only the latter is serialised.
+  const std::string pipeName =
+      ServerInstance != nullptr && ServerInstance->m_pPipe != nullptr
+          ? ServerInstance->m_pPipe->GetName()
+          : std::string{};
+  if (!pipeName.empty())
+  {
+    // UpdateInfo overwrites the mime type, and an empty url clears the previous thumbnail.
+    CFileItem* item = new CFileItem();
+    item->SetPath(pipeName);
+    item->SetMimeType("audio/x-xbmc-pcm");
+    item->SetArt(KODI::ART::TYPE::THUMB, CFile::Exists(coverArtFile) ? coverArtFile : "");
+
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_UPDATE_PLAYER_ITEM, -1, -1,
+                                               static_cast<void*>(item));
+  }
 }
 
 void CAirTunesServer::SetMetadataFromBuffer(const char *buffer, unsigned int size)
@@ -296,10 +314,16 @@ void CAirTunesServer::SetCoverArtFromBuffer(const char *buffer, unsigned int siz
   XFILE::CFile tmpFile;
   std::string tmpFilename = TMP_COVERART_PATH_PNG;
 
-  if(!size)
-    return;
-
   std::unique_lock lock(m_metadataLock);
+
+  // A track without art, so the previous track's cover must not stay on disk and on screen
+  if (!size)
+  {
+    XFILE::CFile::Delete(TMP_COVERART_PATH_JPG);
+    XFILE::CFile::Delete(TMP_COVERART_PATH_PNG);
+    RefreshCoverArt();
+    return;
+  }
 
   if (IsJPEG(buffer, size))
     tmpFilename = TMP_COVERART_PATH_JPG;

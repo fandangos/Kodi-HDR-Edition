@@ -27,6 +27,11 @@
 #include "utils/StringUtils.h"
 #include "windowing/WinSystem.h"
 
+#ifdef TARGET_WASM
+#include "platform/wasm/MseBridge.h"
+#include "platform/wasm/TizenEmss.h"
+#endif
+
 namespace
 {
 bool AddonHasSettings(const std::string& condition,
@@ -100,6 +105,13 @@ bool HasSystemSdrPeakLuminance(const std::string& /*condition*/,
                                const SettingConstPtr& /*setting*/)
 {
   return CServiceBroker::GetWinSystem()->HasSystemSdrPeakLuminance();
+}
+
+bool HasMultipleMonitors(const std::string& /*condition*/,
+                         const std::string& /*value*/,
+                         const SettingConstPtr& /*setting*/)
+{
+  return CServiceBroker::GetWinSystem()->GetPhysicalOutputCount() > 1;
 }
 
 bool SupportsVideoSuperResolution(const std::string& /*condition*/,
@@ -357,6 +369,9 @@ void CSettingConditions::Initialize()
 #ifdef HAVE_WAYLAND
   m_simpleConditions.emplace("have_wayland");
 #endif
+#ifdef HAVE_GBM
+  m_simpleConditions.emplace("have_gbm");
+#endif
 #ifdef HAS_GL
   m_simpleConditions.emplace("has_gl");
 #endif
@@ -389,6 +404,7 @@ void CSettingConditions::Initialize()
 #endif
 #ifdef TARGET_ANDROID
   m_simpleConditions.emplace("has_mediacodec");
+  m_simpleConditions.emplace("have_android");
 #endif
 #ifdef TARGET_DARWIN
   m_simpleConditions.emplace("HasVTB");
@@ -402,9 +418,19 @@ void CSettingConditions::Initialize()
 #ifdef TARGET_DARWIN_TVOS
   m_simpleConditions.emplace("have_tvos");
 #endif
+#ifdef TARGET_WASM
+  m_simpleConditions.emplace("have_wasm");
+  // Samsung TVs choose between the TV's own player and MSE for each file, so the setting
+  // does not apply there.
+  if (mse_available() && !tizen_emss_available())
+    m_simpleConditions.emplace("has_browser_video_player");
+#endif
 #if defined(TARGET_WINDOWS)
   m_simpleConditions.emplace("has_dx");
   m_simpleConditions.emplace("hasdxva2");
+#endif
+#ifdef TARGET_WINDOWS_STORE
+  m_simpleConditions.emplace("has_uwp");
 #endif
 #if defined(TARGET_WEBOS)
   m_simpleConditions.emplace("have_webos");
@@ -450,6 +476,7 @@ void CSettingConditions::Initialize()
   m_complexConditions.try_emplace("hasrumblecontroller", HasRumbleController);
   m_complexConditions.try_emplace("haspowerofffeature", HasPowerOffFeature);
   m_complexConditions.try_emplace("hassystemsdrpeakluminance", HasSystemSdrPeakLuminance);
+  m_complexConditions.try_emplace("hasmultiplemonitors", HasMultipleMonitors);
   m_complexConditions.try_emplace("supportsscreenmove", SupportsScreenMove);
   m_complexConditions.try_emplace("supportsvideosuperresolution", SupportsVideoSuperResolution);
   m_complexConditions.try_emplace("supportsdolbyvision", SupportsDolbyVision);

@@ -13,6 +13,7 @@
 #include "WinEventsAndroid.h"
 #include "addons/interfaces/platform/android/System.h"
 #include "cores/RetroPlayer/process/android/RPProcessInfoAndroid.h"
+#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererFBO.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererOpenGLES.h"
 #include "cores/VideoPlayer/DVDCodecs/Audio/DVDAudioCodecAndroidMediaCodec.h"
 #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecAndroidMediaCodec.h"
@@ -33,6 +34,7 @@
 #include "platform/android/media/decoderfilter/MediaCodecDecoderFilterManager.h"
 #include "platform/android/media/drm/MediaDrmCryptoSession.h"
 
+#include <cmath>
 #include <float.h>
 #include <memory>
 #include <mutex>
@@ -79,6 +81,7 @@ bool CWinSystemAndroid::InitWindowSystem()
   CLinuxRendererGLES::Register();
   RETRO::CRPProcessInfoAndroid::Register();
   RETRO::CRPProcessInfoAndroid::RegisterRendererFactory(new RETRO::CRendererFactoryOpenGLES);
+  RETRO::CRPProcessInfoAndroid::RegisterRendererFactory(new RETRO::CRendererFactoryFBO);
   CRendererMediaCodec::Register();
   CRendererMediaCodecSurface::Register();
   ADDON::Interface_Android::Register();
@@ -169,11 +172,19 @@ void CWinSystemAndroid::UpdateResolutions(bool bUpdateDesktopRes)
   RESOLUTION_INFO resDesktop;
   if (bUpdateDesktopRes)
   {
-    // ProbeResolutions includes already all resolutions.
-    // Only get desktop resolution so we can replace Kodi's desktop res.
     RESOLUTION_INFO curDisplay;
     if (m_android->GetNativeResolution(&curDisplay))
+    {
       resDesktop = curDisplay;
+      if (resDesktop.iWidth > 0 && resDesktop.iHeight > 0 && resDesktop.iScreenWidth > 0 &&
+          resDesktop.iScreenHeight > 0 && std::isfinite(resDesktop.fRefreshRate) &&
+          resDesktop.fRefreshRate > 0.0f)
+      {
+        // The current mode may be absent from Android's supported modes.
+        CServiceBroker::GetWinSystem()->GetGfxContext().ResetOverscan(resDesktop);
+        CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP) = resDesktop;
+      }
+    }
   }
   else
   {

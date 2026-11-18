@@ -8,7 +8,8 @@
 
 #pragma once
 
-#include "LangInfo.h"
+#include "language/LangInfo.h"
+#include "media/MediaSection.h"
 #include "pictures/PictureScalingAlgorithm.h"
 #include "settings/lib/ISettingCallback.h"
 #include "settings/lib/ISettingsHandler.h"
@@ -128,15 +129,22 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
 
     /*!
      * \brief Register a callback to receive notifications when the advanced settings are loaded.
-     *        Note: the callback functions are invoked on the thread that loads the settings.
+     * 
      * \param[in] callback
      * \return opaque callback handle
+     * 
+     * \note The callback functions are invoked on the thread that loads the settings.
+     *       Callbacks should perform only fast non-blocking work to avoid holding up the execution
+     *       of other callbacks.
+     *       A callback must not acquire locks that may be held while registering or unregistering.
      */
     int RegisterSettingsLoadedCallback(AdvancedSettingsCallback callback);
 
     /*!
      * \brief Unregister a callback for notifications of advanced settings load.
-     * \param[in] handle of the callback
+     *        Note: unregistering a callback from callback context is not allowed and will cause
+     *              problems.
+     * \param[in] handle callback handle
      */
     void UnregisterSettingsLoadedCallback(int handle);
 
@@ -181,6 +189,9 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     int m_musicPercentSeekBackwardBig;
     int m_videoIgnoreSecondsAtStart;
     float m_videoIgnorePercentAtEnd;
+
+    //! \brief Share of a title's samples a second shape needs before content counts as varying.
+    float m_videoContentGeometryVariesShare;
     float m_audioApplyDrc;
     unsigned int m_maxPassthroughOffSyncDuration = 50; // when 50 ms off adjust
     bool m_AllowMultiChannelFloat = false; // Android only switch to be removed in v22
@@ -196,6 +207,7 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     bool m_DXVACheckCompatibility;
     bool m_DXVACheckCompatibilityPresent;
     int  m_videoFpsDetect;
+    float m_gamesPacingMarginMs;
     float m_maxTempo;
     bool m_videoPreferStereoStream = false;
 
@@ -241,6 +253,10 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     std::string m_videoCleanDateTimeRegExp;
     std::string m_videoFilenameAttributePairsRegExp;
     std::vector<std::string> m_videoCleanStringRegExps;
+    //! \brief The patterns a listing of \p section leaves out: none for a section without its
+    //! own.
+    const std::vector<std::string>& GetExcludeFromListingRegExps(
+        KODI::MEDIA::MediaSection section) const;
     std::vector<std::string> m_videoExcludeFromListingRegExps;
     std::vector<std::string> m_allExcludeFromScanRegExps;
     std::vector<std::string> m_moviesExcludeFromScanRegExps;
@@ -308,6 +324,7 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     bool m_caseSensitiveLocalArtMatch{true};
     int m_minimumEpisodePlaylistDuration; // seconds
     bool m_disableEpisodeRanges{false};
+    bool m_parseBlurayProjectFile{true};
     bool m_bNoRemoteArtWithLocalScraper{false};
     bool m_ignoreFolderNamesInArchives{true};
 
@@ -429,6 +446,7 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     std::string m_userAgent;
     uint32_t m_nfsTimeout;
     int m_nfsRetries;
+    uint32_t m_nfsMaxConnections; // per export
 
   private:
     void Initialize();

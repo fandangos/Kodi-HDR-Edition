@@ -37,12 +37,14 @@ public:
 
   float GetWidth() const override;
   float GetHeight() const override;
+  CRect CalcRenderRegion() const override;
   virtual float Size() const;
   void SetInvalid() override;
 
   void Process(unsigned int currentTime, CDirtyRegionList &dirtyregions) override;
   void Render() override;
   bool OnAction(const CAction& action) override;
+  bool ResetFocusToFirstItem();
   bool OnMessage(CGUIMessage& message) override;
 
   EVENT_RESULT SendMouseEvent(const CPoint& point, const KODI::MOUSE::CMouseEvent& event) override;
@@ -57,6 +59,8 @@ public:
    * Calculate total size of child controls area (including gaps between controls)
    */
   float GetTotalSize() const;
+  float GetScrollOffset() const { return m_scroller.GetValue(); }
+  void SetScrollOffset(float offset);
   ORIENTATION GetOrientation() const { return m_orientation; }
 
   // based on grouplist orientation pick one value as minSize;
@@ -98,17 +102,27 @@ protected:
    */
   void ScrollPages(float pages);
   /*!
+   * \brief Change the focused child control using the normal GUI focus message flow.
+   * \param control New focused control
+   * \return True if the control accepted focus, false otherwise.
+   */
+  bool SetFocusedControl(CGUIControl* control);
+  /*!
    * \brief Change the selected control and scroll to the specified position.
    * \param control New selected control
    * \param offset Offset of the top of the visible view
    */
   void MoveTo(CGUIControl* control, float offset);
   /*!
-   * Return the first visible and focusable child control.
+   * Return the first focusable child control.
    */
   CGUIControl* GetFirstFocusableControl() const;
   /*!
-   * Return the last visible and focusable child control.
+   * Return the first visible and focusable child control.
+   */
+  CGUIControl* GetFirstVisibleFocusableControl() const;
+  /*!
+   * Return the last focusable child control.
    */
   CGUIControl* GetLastFocusableControl() const;
 
@@ -130,4 +144,3 @@ protected:
   // for autosizing
   float m_minSize;
 };
-

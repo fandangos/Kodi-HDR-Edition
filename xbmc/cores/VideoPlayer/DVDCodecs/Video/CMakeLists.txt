@@ -1,10 +1,12 @@
 set(SOURCES AddonVideoCodec.cpp
             DVDVideoCodec.cpp
-            DVDVideoCodecFFmpeg.cpp)
+            DVDVideoCodecFFmpeg.cpp
+            DVDVideoCodecWebCodecsBitstream.cpp)
 
 set(HEADERS AddonVideoCodec.h
             DVDVideoCodec.h
             DVDVideoCodecFFmpeg.h
+            DVDVideoCodecWebCodecsBitstream.h
             DVDVideoPP.h)
 
 if(TARGET ffmpeg::libpostproc)
@@ -13,8 +15,10 @@ if(TARGET ffmpeg::libpostproc)
 endif()
 
 if(CORE_SYSTEM_NAME STREQUAL windows OR CORE_SYSTEM_NAME STREQUAL windowsstore)
-  list(APPEND SOURCES DXVA.cpp)
-  list(APPEND HEADERS DXVA.h)
+  list(APPEND SOURCES DXVA.cpp
+                      DXVAReadback.cpp)
+  list(APPEND HEADERS DXVA.h
+                      DXVAReadback.h)
 endif()
 
 if(TARGET ${APP_NAME_LC}::VDPAU)
@@ -35,6 +39,12 @@ endif()
 if(CORE_SYSTEM_NAME STREQUAL android)
   list(APPEND SOURCES DVDVideoCodecAndroidMediaCodec.cpp)
   list(APPEND HEADERS DVDVideoCodecAndroidMediaCodec.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL wasm)
+  list(APPEND SOURCES DVDVideoCodecWebCodecs.cpp)
+  list(APPEND HEADERS DVDVideoCodecWebCodecs.h
+                      DVDVideoCodecWebCodecsBridge.h)
 endif()
 
 if(("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_LC) AND

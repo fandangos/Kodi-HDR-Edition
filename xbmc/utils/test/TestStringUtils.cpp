@@ -260,13 +260,6 @@ TEST(TestStringUtils, RemoveDuplicatedSpacesAndTabs)
   EXPECT_STREQ(refstr.c_str(), varstr.c_str());
 }
 
-TEST(TestStringUtils, ReplaceSpecialCharactersWithSpace)
-{
-  const std::string input("a .-_+b,!'c\"\tde/\\f*?g#$%h&@(i)[j]{k}");
-  const std::string output = StringUtils::ReplaceSpecialCharactersWithSpace(input);
-  EXPECT_STREQ(output.c_str(), "a b c de f g h i j k ");
-}
-
 TEST(TestStringUtils, Replace)
 {
   std::string refstr = "text text";
@@ -400,12 +393,6 @@ TEST(TestStringUtils, SplitMulti)
             StringUtils::SplitMulti(input, delims, 6));
 }
 
-TEST(TestStringUtils, FindNumber)
-{
-  EXPECT_EQ(3, StringUtils::FindNumber("aabcaadeaa", "aa"));
-  EXPECT_EQ(1, StringUtils::FindNumber("aabcaadeaa", "b"));
-}
-
 TEST(TestStringUtils, AlphaNumericCompare)
 {
   // less than
@@ -429,6 +416,44 @@ TEST(TestStringUtils, AlphaNumericCompare)
 
   // test that long numbers are treated correctly
   EXPECT_EQ(StringUtils::AlphaNumericCompare(L"12345678901234567890", L"12345678901234567890"), 0);
+}
+
+TEST(TestStringUtils, GetNordicCollationWeight)
+{
+  // Norwegian/Danish alphabet order: ... x y z æ ø å
+  for (const std::string_view lang : {"nor", "nob", "nno", "dan"})
+  {
+    const wchar_t ae = StringUtils::GetNordicCollationWeight(lang, L'æ'); // æ
+    const wchar_t oe = StringUtils::GetNordicCollationWeight(lang, L'ø'); // ø
+    const wchar_t aa = StringUtils::GetNordicCollationWeight(lang, L'å'); // å
+    EXPECT_GT(ae, L'z');
+    EXPECT_LT(ae, oe);
+    EXPECT_LT(oe, aa);
+    // Upper and lower case must weigh the same
+    EXPECT_EQ(ae, StringUtils::GetNordicCollationWeight(lang, L'Æ')); // Æ
+    EXPECT_EQ(oe, StringUtils::GetNordicCollationWeight(lang, L'Ø')); // Ø
+    EXPECT_EQ(aa, StringUtils::GetNordicCollationWeight(lang, L'Å')); // Å
+    // Swedish/Finnish ä/ö sort with æ/ø rather than folding to a/o
+    EXPECT_EQ(ae, StringUtils::GetNordicCollationWeight(lang, L'ä')); // ä
+    EXPECT_EQ(ae, StringUtils::GetNordicCollationWeight(lang, L'Ä')); // Ä
+    EXPECT_EQ(oe, StringUtils::GetNordicCollationWeight(lang, L'ö')); // ö
+    EXPECT_EQ(oe, StringUtils::GetNordicCollationWeight(lang, L'Ö')); // Ö
+  }
+
+  // Swedish/Finnish alphabet order: ... x y z å ä ö
+  for (const std::string_view lang : {"swe", "fin"})
+  {
+    const wchar_t aa = StringUtils::GetNordicCollationWeight(lang, L'å'); // å
+    const wchar_t ao = StringUtils::GetNordicCollationWeight(lang, L'ä'); // ä
+    const wchar_t oe = StringUtils::GetNordicCollationWeight(lang, L'ö'); // ö
+    EXPECT_GT(aa, L'z');
+    EXPECT_LT(aa, ao);
+    EXPECT_LT(ao, oe);
+  }
+
+  // No override for other languages or unrelated codepoints
+  EXPECT_EQ(StringUtils::GetNordicCollationWeight("eng", L'å'), 0); // å
+  EXPECT_EQ(StringUtils::GetNordicCollationWeight("nob", L'é'), 0); // é
 }
 
 TEST(TestStringUtils, TimeStringToSeconds)
@@ -601,11 +626,6 @@ TEST(TestStringUtils, WordToDigits)
 TEST(TestStringUtils, CreateUUID)
 {
   std::cout << "CreateUUID(): " << StringUtils::CreateUUID() << std::endl;
-}
-
-TEST(TestStringUtils, ValidateUUID)
-{
-  EXPECT_TRUE(StringUtils::ValidateUUID(StringUtils::CreateUUID()));
 }
 
 TEST(TestStringUtils, CompareFuzzy)

@@ -25,14 +25,15 @@
 #include "settings/lib/Setting.h"
 #include "settings/lib/SettingDefinitions.h"
 #include "settings/lib/SettingsManager.h"
-#include "utils/LangCodeExpander.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
+#include "video/VideoStreamSelect.h"
 #include "video/ViewModeSettings.h"
 #include "windowing/WinSystem.h"
 
+#include <cmath>
 #include <utility>
 
 #define SETTING_VIDEO_VIEW_MODE           "video.viewmode"
@@ -40,6 +41,8 @@
 #define SETTING_VIDEO_PIXEL_RATIO         "video.pixelratio"
 #define SETTING_VIDEO_BRIGHTNESS          "video.brightness"
 #define SETTING_VIDEO_CONTRAST            "video.contrast"
+#define SETTING_VIDEO_HUE "video.hue"
+#define SETTING_VIDEO_SATURATION "video.saturation"
 #define SETTING_VIDEO_GAMMA               "video.gamma"
 #define SETTING_VIDEO_NONLIN_STRETCH      "video.nonlinearstretch"
 #define SETTING_VIDEO_POSTPROCESS         "video.postprocess"
@@ -60,6 +63,21 @@
 #define SETTING_VIDEO_MAKE_DEFAULT        "video.save"
 #define SETTING_VIDEO_CALIBRATION         "video.calibration"
 #define SETTING_VIDEO_STREAM              "video.stream"
+
+namespace
+{
+// picture adjustments are integer sliders, or float ones with a finer granularity
+float GetAdjustmentValue(const std::shared_ptr<const CSetting>& setting)
+{
+  if (setting->GetType() == SettingType::Integer)
+    return static_cast<float>(std::static_pointer_cast<const CSettingInt>(setting)->GetValue());
+
+  // keep the steps exact, the slider accumulates rounding errors
+  return static_cast<float>(
+      std::round(std::static_pointer_cast<const CSettingNumber>(setting)->GetValue() * 100.0) /
+      100.0);
+}
+} // namespace
 
 CGUIDialogVideoSettings::CGUIDialogVideoSettings()
     : CGUIDialogSettingsManualBase(WINDOW_DIALOG_VIDEO_OSD_SETTINGS, "DialogSettings.xml")
@@ -148,19 +166,31 @@ void CGUIDialogVideoSettings::OnSettingChanged(const std::shared_ptr<const CSett
   else if (settingId == SETTING_VIDEO_BRIGHTNESS)
   {
     CVideoSettings vs = appPlayer->GetVideoSettings();
-    vs.m_Brightness = static_cast<float>(std::static_pointer_cast<const CSettingInt>(setting)->GetValue());
+    vs.m_Brightness = GetAdjustmentValue(setting);
     appPlayer->SetVideoSettings(vs);
   }
   else if (settingId == SETTING_VIDEO_CONTRAST)
   {
     CVideoSettings vs = appPlayer->GetVideoSettings();
-    vs.m_Contrast = static_cast<float>(std::static_pointer_cast<const CSettingInt>(setting)->GetValue());
+    vs.m_Contrast = GetAdjustmentValue(setting);
+    appPlayer->SetVideoSettings(vs);
+  }
+  else if (settingId == SETTING_VIDEO_HUE)
+  {
+    CVideoSettings vs = appPlayer->GetVideoSettings();
+    vs.m_Hue = GetAdjustmentValue(setting);
+    appPlayer->SetVideoSettings(vs);
+  }
+  else if (settingId == SETTING_VIDEO_SATURATION)
+  {
+    CVideoSettings vs = appPlayer->GetVideoSettings();
+    vs.m_Saturation = GetAdjustmentValue(setting);
     appPlayer->SetVideoSettings(vs);
   }
   else if (settingId == SETTING_VIDEO_GAMMA)
   {
     CVideoSettings vs = appPlayer->GetVideoSettings();
-    vs.m_Gamma = static_cast<float>(std::static_pointer_cast<const CSettingInt>(setting)->GetValue());
+    vs.m_Gamma = GetAdjustmentValue(setting);
     appPlayer->SetVideoSettings(vs);
   }
   else if (settingId == SETTING_VIDEO_VDPAU_NOISE)
@@ -271,6 +301,7 @@ bool CGUIDialogVideoSettings::Save()
     CMediaSettings::GetInstance().GetDefaultVideoSettings() = appPlayer->GetVideoSettings();
     CMediaSettings::GetInstance().GetDefaultVideoSettings().m_SubtitleStream = -1;
     CMediaSettings::GetInstance().GetDefaultVideoSettings().m_AudioStream = -1;
+    CMediaSettings::GetInstance().GetDefaultVideoSettings().ClearDeclaredAspect();
     CServiceBroker::GetSettingsComponent()->GetSettings()->Save();
   }
 
@@ -423,12 +454,34 @@ void CGUIDialogVideoSettings::InitializeSettings()
 
   if (appPlayer->Supports(RENDERFEATURE_POSTPROCESS))
     AddToggle(groupVideo, SETTING_VIDEO_POSTPROCESS, 16400, SettingLevel::Basic, videoSettings.m_PostProcess);
+  // step size in hundredths, 100 is the default step of 1
+  const int granularity{CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_VIDEOPLAYER_IMAGEADJUSTMENTGRANULARITY)};
+  const auto addAdjustment = [&](const std::string& id, int label, float value)
+  {
+    if (granularity >= 100)
+    {
+      AddPercentageSlider(groupVideo, id, label, SettingLevel::Basic,
+                          static_cast<int>(std::lround(value)), 14047, 1, label, usePopup);
+      return;
+    }
+
+    // start on the step grid, a finer granularity may have stored values in between
+    const float step{granularity / 100.0f};
+    AddSlider(groupVideo, id, label, SettingLevel::Basic, std::round(value / step) * step,
+              granularity % 10 == 0 ? "{:.1f} %" : "{:.2f} %", 0.0f, step, 100.0f, label, usePopup);
+  };
+
   if (appPlayer->Supports(RENDERFEATURE_BRIGHTNESS))
-    AddPercentageSlider(groupVideo, SETTING_VIDEO_BRIGHTNESS, 464, SettingLevel::Basic, static_cast<int>(videoSettings.m_Brightness), 14047, 1, 464, usePopup);
+    addAdjustment(SETTING_VIDEO_BRIGHTNESS, 464, videoSettings.m_Brightness);
   if (appPlayer->Supports(RENDERFEATURE_CONTRAST))
-    AddPercentageSlider(groupVideo, SETTING_VIDEO_CONTRAST, 465, SettingLevel::Basic, static_cast<int>(videoSettings.m_Contrast), 14047, 1, 465, usePopup);
+    addAdjustment(SETTING_VIDEO_CONTRAST, 465, videoSettings.m_Contrast);
+  if (appPlayer->Supports(RENDERFEATURE_HUE))
+    addAdjustment(SETTING_VIDEO_HUE, 471, videoSettings.m_Hue);
+  if (appPlayer->Supports(RENDERFEATURE_SATURATION))
+    addAdjustment(SETTING_VIDEO_SATURATION, 472, videoSettings.m_Saturation);
   if (appPlayer->Supports(RENDERFEATURE_GAMMA))
-    AddPercentageSlider(groupVideo, SETTING_VIDEO_GAMMA, 466, SettingLevel::Basic, static_cast<int>(videoSettings.m_Gamma), 14047, 1, 466, usePopup);
+    addAdjustment(SETTING_VIDEO_GAMMA, 466, videoSettings.m_Gamma);
   if (appPlayer->Supports(RENDERFEATURE_NOISE))
     AddSlider(groupVideo, SETTING_VIDEO_VDPAU_NOISE, 16312, SettingLevel::Basic,
               videoSettings.m_NoiseReduction, "{:2.2f}", 0.0f, 0.01f, 1.0f, 16312, usePopup);
@@ -492,43 +545,50 @@ void CGUIDialogVideoSettings::VideoStreamsOptionFiller(
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
 
-  int videoStreamCount = appPlayer->GetVideoStreamCount();
-  // cycle through each video stream and add it to our list control
-  for (int i = 0; i < videoStreamCount; ++i)
+  if (appPlayer != nullptr)
   {
-    std::string strItem;
-    std::string strLanguage;
+    using namespace KODI::VIDEO;
+    const std::vector<VideoStreamInfoExt> streams =
+        CVideoStreamSelect::GetVideoStreams(appPlayer.get());
+    const int streamCount = streams.size();
 
-    VideoStreamInfo info;
-    appPlayer->GetVideoStreamInfo(i, info);
-
-    g_LangCodeExpander.Lookup(info.language, strLanguage);
-
-    if (!info.name.empty())
+    // cycle through each video stream and add it to our list control
+    for (int i = 0; i < streamCount; ++i)
     {
-      if (!strLanguage.empty())
-        strItem = StringUtils::Format("{} - {}", strLanguage, info.name);
+      const VideoStreamInfoExt& info = streams[i];
+
+      std::string strItem;
+
+      if (!info.name.empty())
+      {
+        if (!info.languageDesc.empty())
+          strItem = StringUtils::Format("{} - {}", info.languageDesc, info.name);
+        else
+          strItem = info.name;
+      }
+      else if (!info.languageDesc.empty())
+      {
+        strItem = info.languageDesc;
+      }
+
+      if (info.codecName.empty())
+        strItem += StringUtils::Format(" ({}x{}", info.width, info.height);
       else
-        strItem = info.name;
+        strItem += StringUtils::Format(" ({}, {}x{}", info.codecName, info.width, info.height);
+
+      if (info.bitrate)
+        strItem += StringUtils::Format(", {} bps)", info.bitrate);
+      else
+        strItem += ")";
+
+      strItem += FormatFlags(info.flags);
+      strItem += StringUtils::Format(" ({}/{})", i + 1, streamCount);
+      list.emplace_back(strItem, info.streamId);
     }
-    else if (!strLanguage.empty())
-    {
-        strItem = strLanguage;
-    }
-
-    if (info.codecName.empty())
-      strItem += StringUtils::Format(" ({}x{}", info.width, info.height);
-    else
-      strItem += StringUtils::Format(" ({}, {}x{}", info.codecName, info.width, info.height);
-
-    if (info.bitrate)
-      strItem += StringUtils::Format(", {} bps)", info.bitrate);
-    else
-      strItem += ")";
-
-    strItem += FormatFlags(info.flags);
-    strItem += StringUtils::Format(" ({}/{})", i + 1, videoStreamCount);
-    list.emplace_back(strItem, i);
+  }
+  else
+  {
+    CLog::LogF(LOGERROR, "No application player.");
   }
 
   if (list.empty())

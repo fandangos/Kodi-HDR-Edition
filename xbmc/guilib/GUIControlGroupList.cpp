@@ -20,6 +20,8 @@
 #include "utils/StringUtils.h"
 #include "windowing/WinSystem.h"
 
+#include <algorithm>
+
 using namespace KODI;
 
 CGUIControlGroupList::CGUIControlGroupList(int parentID, int controlID, float posX, float posY, float width, float height, float itemGap, int pageControl, ORIENTATION orientation, bool useControlPositions, uint32_t alignment, const CScroller& scroller)
@@ -188,6 +190,19 @@ bool CGUIControlGroupList::OnAction(const CAction& action)
       return true;
   }
   return CGUIControlGroup::OnAction(action);
+}
+
+bool CGUIControlGroupList::ResetFocusToFirstItem()
+{
+  CGUIControl* firstControl = GetFirstVisibleFocusableControl();
+  if (firstControl == nullptr)
+    return false;
+
+  if (!SetFocusedControl(firstControl))
+    return false;
+
+  ScrollTo(0.f);
+  return true;
 }
 
 bool CGUIControlGroupList::OnMessage(CGUIMessage& message)
@@ -371,6 +386,7 @@ void CGUIControlGroupList::ClearAll()
 {
   m_totalSize = 0;
   CGUIControlGroup::ClearAll();
+  m_scroller.Stop();
   m_scroller.SetValue(0);
   m_lastPageControlSize.reset();
   m_lastPageControlTotalSize.reset();
@@ -421,9 +437,19 @@ void CGUIControlGroupList::SetInvalid()
 
 void CGUIControlGroupList::ScrollTo(float offset)
 {
-  m_scroller.ScrollTo(offset);
+  m_scroller.ScrollTo(std::clamp(offset, 0.0f, std::max(m_totalSize - Size(), 0.0f)));
   if (m_scroller.IsScrolling())
     SetInvalid();
+  // Process() marks the control dirty while it scrolls
+  MarkDirtyRegion(DIRTY_STATE_CHILD);
+}
+
+void CGUIControlGroupList::SetScrollOffset(float offset)
+{
+  m_scroller.Stop();
+  m_scroller.SetValue(offset);
+  ValidateOffset();
+  SetInvalid();
   MarkDirtyRegion();
 }
 
@@ -562,6 +588,17 @@ void CGUIControlGroupList::CalculateItemGap()
     if (itemsCount > 0)
       m_itemGap = (Size() - itemsSize) / itemsCount;
   }
+}
+
+CRect CGUIControlGroupList::CalcRenderRegion() const
+{
+  // the items are drawn with the alignment offset
+  CRect rect = CGUIControlGroup::CalcRenderRegion();
+  if (m_orientation == VERTICAL)
+    rect += CPoint(0, GetAlignOffset());
+  else
+    rect += CPoint(GetAlignOffset(), 0);
+  return rect;
 }
 
 float CGUIControlGroupList::GetAlignOffset() const
@@ -733,39 +770,45 @@ void CGUIControlGroupList::ScrollPages(float pages)
   ScrollTo(newOffset);
 }
 
-void CGUIControlGroupList::MoveTo(CGUIControl* control, float offset)
+bool CGUIControlGroupList::SetFocusedControl(CGUIControl* control)
 {
-  CGUIControl* focusedControl = GetFocusedControl();
+  if (control == nullptr)
+    return false;
 
-  if (focusedControl && control)
+  CGUIControl* focusedControl = GetFocusedControl();
+  if (focusedControl != nullptr && focusedControl != control)
   {
     CGUIMessage message(GUI_MSG_LOSTFOCUS, GetID(), focusedControl->GetID(), control->GetID());
     focusedControl->OnMessage(message);
-
-    CGUIMessage message2(GUI_MSG_SETFOCUS, GetID(), control->GetID());
-    control->OnMessage(message2);
   }
+
+  CGUIMessage message(GUI_MSG_SETFOCUS, GetID(), control->GetID());
+  return control->OnMessage(message);
+}
+
+void CGUIControlGroupList::MoveTo(CGUIControl* control, float offset)
+{
+  SetFocusedControl(control);
   ScrollTo(offset);
 }
 
 CGUIControl* CGUIControlGroupList::GetFirstFocusableControl() const
 {
-  for (ciControls it = m_children.begin(); it != m_children.end(); ++it)
-  {
-    CGUIControl* child = *it;
-    if (child->CanFocus())
-      return child;
-  }
-  return nullptr;
+  const auto it =
+      std::ranges::find_if(m_children, [](const auto* child) { return child->CanFocus(); });
+  return it != m_children.end() ? *it : nullptr;
+}
+
+CGUIControl* CGUIControlGroupList::GetFirstVisibleFocusableControl() const
+{
+  const auto it = std::ranges::find_if(m_children, [](const auto* child)
+                                       { return child->IsVisible() && child->CanFocus(); });
+  return it != m_children.end() ? *it : nullptr;
 }
 
 CGUIControl* CGUIControlGroupList::GetLastFocusableControl() const
 {
-  for (crControls it = m_children.rbegin(); it != m_children.rend(); ++it)
-  {
-    CGUIControl* child = *it;
-    if (child->CanFocus())
-      return child;
-  }
-  return nullptr;
+  const auto it = std::ranges::find_if(m_children.rbegin(), m_children.rend(),
+                                       [](const auto* child) { return child->CanFocus(); });
+  return it != m_children.rend() ? *it : nullptr;
 }

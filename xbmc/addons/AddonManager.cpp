@@ -11,7 +11,6 @@
 #include "CompileInfo.h"
 #include "FileItem.h"
 #include "FileItemList.h"
-#include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "addons/AddonBuilder.h"
 #include "addons/AddonDatabase.h"
@@ -30,6 +29,7 @@
 #include "filesystem/Directory.h"
 #include "filesystem/SpecialProtocol.h"
 #include "jobs/JobManager.h"
+#include "language/LangInfo.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "utils/FileUtils.h"
@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <mutex>
 #include <set>
 #include <utility>
@@ -62,7 +63,7 @@ namespace
 bool LoadManifest(std::set<std::string, std::less<>>& system,
                   std::set<std::string, std::less<>>& optional)
 {
-  CXBMCTinyXML doc;
+  CXBMCTinyXML2 doc;
   if (!doc.LoadFile("special://xbmc/system/addon-manifest.xml"))
   {
     CLog::Log(LOGERROR, "ADDONS: manifest missing");
@@ -70,7 +71,7 @@ bool LoadManifest(std::set<std::string, std::less<>>& system,
   }
 
   auto root = doc.RootElement();
-  if (!root || root->ValueStr() != "addons")
+  if (!root || strcmp(root->Value(), "addons") != 0)
   {
     CLog::Log(LOGERROR, "ADDONS: malformed manifest");
     return false;
@@ -82,9 +83,9 @@ bool LoadManifest(std::set<std::string, std::less<>>& system,
     if (elem->FirstChild())
     {
       if (XMLUtils::GetAttribute(elem, "optional") == "true")
-        optional.insert(elem->FirstChild()->ValueStr());
+        optional.insert(elem->FirstChild()->Value());
       else
-        system.insert(elem->FirstChild()->ValueStr());
+        system.insert(elem->FirstChild()->Value());
     }
     elem = elem->NextSiblingElement("addon");
   }
@@ -468,24 +469,34 @@ bool CAddonMgr::GetAddonsInternal(AddonType type,
                                   OnlyEnabled onlyEnabled,
                                   CheckIncompatible checkIncompatible) const
 {
-  std::unique_lock lock(m_critSection);
-
-  for (const auto& [_, addonInfo] : m_installedAddons)
+  std::vector<AddonInfoPtr> addonInfos;
   {
-    if (type != AddonType::UNKNOWN && !addonInfo->HasType(type))
-      continue;
+    std::unique_lock lock(m_critSection);
 
-    if (onlyEnabled == OnlyEnabled::CHOICE_YES &&
-        ((checkIncompatible == CheckIncompatible::CHOICE_NO && IsAddonDisabled(addonInfo->ID())) ||
-         (checkIncompatible == CheckIncompatible::CHOICE_YES &&
-          IsAddonDisabledExcept(addonInfo->ID(), AddonDisabledReason::INCOMPATIBLE))))
-      continue;
+    for (const auto& [_, addonInfo] : m_installedAddons)
+    {
+      if (type != AddonType::UNKNOWN && !addonInfo->HasType(type))
+        continue;
 
-    //FIXME: hack for skipping special dependency addons (xbmc.python etc.).
-    //Will break if any extension point is added to them
-    if (addonInfo->MainType() == AddonType::UNKNOWN)
-      continue;
+      if (onlyEnabled == OnlyEnabled::CHOICE_YES &&
+          ((checkIncompatible == CheckIncompatible::CHOICE_NO &&
+            IsAddonDisabled(addonInfo->ID())) ||
+           (checkIncompatible == CheckIncompatible::CHOICE_YES &&
+            IsAddonDisabledExcept(addonInfo->ID(), AddonDisabledReason::INCOMPATIBLE))))
+        continue;
 
+      //FIXME: hack for skipping special dependency addons (xbmc.python etc.).
+      //Will break if any extension point is added to them
+      if (addonInfo->MainType() == AddonType::UNKNOWN)
+        continue;
+
+      addonInfos.emplace_back(addonInfo);
+    }
+  }
+
+  // Add-on construction can acquire locks in other services.
+  for (const auto& addonInfo : addonInfos)
+  {
     AddonPtr addon = CAddonBuilder::Generate(addonInfo, type);
     if (addon)
     {

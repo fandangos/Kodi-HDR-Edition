@@ -15,6 +15,7 @@
 #include "Util.h"
 #include "dialogs/GUIDialogFileBrowser.h"
 #include "dialogs/GUIDialogYesNo.h"
+#include "dialogs/ImageChoices.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "guilib/GUIComponent.h"
@@ -28,6 +29,8 @@
 #include "settings/lib/Setting.h"
 #include "settings/windows/GUIControlSettings.h"
 #include "storage/MediaManager.h"
+#include "utils/ArtTypes.h"
+#include "utils/DefaultArt.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
@@ -239,14 +242,14 @@ void CGUIDialogProfileSettings::OnSettingAction(const std::shared_ptr<const CSet
     CFileItemList items;
     if (!m_thumb.empty())
     {
-      CFileItemPtr item(new CFileItem("thumb://Current", false));
-      item->SetArt("thumb", m_thumb);
+      CFileItemPtr item(new CFileItem(KODI::ART::CHOICE::CURRENT, false));
+      item->SetArt(KODI::ART::TYPE::THUMB, m_thumb);
       item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20016));
       items.Add(item);
     }
 
-    CFileItemPtr item(new CFileItem("thumb://None", false));
-    item->SetArt("thumb", "DefaultUser.png");
+    CFileItemPtr item(new CFileItem(KODI::ART::CHOICE::NONE, false));
+    item->SetArt(KODI::ART::TYPE::THUMB, KODI::ART::DEFAULT::USER);
     item->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20018));
     items.Add(item);
 
@@ -254,10 +257,10 @@ void CGUIDialogProfileSettings::OnSettingAction(const std::shared_ptr<const CSet
     if (CGUIDialogFileBrowser::ShowAndGetImage(
             items, shares, CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(1030),
             thumb) &&
-        !StringUtils::EqualsNoCase(thumb, "thumb://Current"))
+        !StringUtils::EqualsNoCase(thumb, KODI::ART::CHOICE::CURRENT))
     {
       m_needsSaving = true;
-      m_thumb = StringUtils::EqualsNoCase(thumb, "thumb://None") ? "" : thumb;
+      m_thumb = StringUtils::EqualsNoCase(thumb, KODI::ART::CHOICE::NONE) ? "" : thumb;
 
       UpdateProfileImage();
     }

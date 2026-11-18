@@ -16,8 +16,10 @@
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 
+#include <set>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <vector>
 
 class CDateTime;
@@ -64,6 +66,20 @@ namespace JSONRPC
     }
 
   protected:
+    //! Empty when the value is not an array.
+    static std::set<std::string> FieldNames(const CVariant& properties)
+    {
+      std::set<std::string> fields;
+      if (properties.isArray())
+      {
+        for (CVariant::const_iterator_array field = properties.begin_array();
+             field != properties.end_array(); ++field)
+          fields.insert(field->asString());
+      }
+
+      return fields;
+    }
+
     static void HandleLimits(const CVariant &parameterObject, CVariant &result, int size, int &start, int &end)
     {
       if (size < 0)
@@ -356,29 +372,6 @@ namespace JSONRPC
       default:
         return "unknown";
       }
-    }
-
-    /*!
-     \brief Checks if the parameter with the given name or at
-     the given position is of a certain type
-     \param parameterObject Object containing all provided parameters
-     \param key Possible name of the parameter
-     \param position Possible position of the parameter
-     \param valueType Expected type of the parameter
-     \return True if the specific parameter is of the given type otherwise false
-     */
-    static inline bool IsParameterType(const CVariant &parameterObject, const char *key, unsigned int position, JSONSchemaType valueType)
-    {
-      if ((valueType & AnyValue) == AnyValue)
-        return true;
-
-      CVariant parameter;
-      if (IsValueMember(parameterObject, key))
-        parameter = parameterObject[key];
-      else if(parameterObject.isArray() && parameterObject.size() > position)
-        parameter = parameterObject[position];
-
-      return IsType(parameter, valueType);
     }
 
     /*!

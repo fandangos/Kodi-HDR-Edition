@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -11,22 +11,6 @@
 #include "StringUtils.h"
 #include "URL.h"
 #include "XBDateTime.h"
-
-bool XMLUtils::GetHex(const TiXmlNode* pRootNode, const char* strTag, uint32_t& hexValue)
-{
-  const TiXmlNode* pNode = pRootNode->FirstChild(strTag );
-  if (!pNode || !pNode->FirstChild()) return false;
-  return sscanf(pNode->FirstChild()->Value(), "%x", &hexValue) == 1;
-}
-
-bool XMLUtils::GetHex(const tinyxml2::XMLNode* rootNode, const char* tag, uint32_t& value)
-{
-  auto* node = rootNode->FirstChildElement(tag);
-  if (!node || !node->FirstChild())
-    return false;
-
-  return sscanf(node->FirstChild()->Value(), "%x", &value) == 1;
-}
 
 bool XMLUtils::GetUInt(const TiXmlNode* pRootNode, const char* strTag, uint32_t& uintValue)
 {
@@ -72,24 +56,6 @@ bool XMLUtils::GetUInt(const tinyxml2::XMLNode* rootNode,
     return true;
   }
   return false;
-}
-
-bool XMLUtils::GetLong(const TiXmlNode* pRootNode, const char* strTag, long& lLongValue)
-{
-  const TiXmlNode* pNode = pRootNode->FirstChild(strTag );
-  if (!pNode || !pNode->FirstChild()) return false;
-  lLongValue = atol(pNode->FirstChild()->Value());
-  return true;
-}
-
-bool XMLUtils::GetLong(const tinyxml2::XMLNode* rootNode, const char* tag, long& value)
-{
-  auto* node = rootNode->FirstChildElement(tag);
-  if (!node || !node->FirstChild())
-    return false;
-
-  value = atol(node->FirstChild()->Value());
-  return true;
 }
 
 bool XMLUtils::GetInt(const TiXmlNode* pRootNode, const char* strTag, int& iIntValue)
@@ -313,63 +279,6 @@ bool XMLUtils::HasChild(const tinyxml2::XMLNode* rootNode, const char* tag)
   return (node != nullptr);
 }
 
-bool XMLUtils::GetAdditiveString(const TiXmlNode* pRootNode, const char* strTag,
-                                 const std::string& strSeparator, std::string& strStringValue,
-                                 bool clear)
-{
-  std::string strTemp;
-  const TiXmlElement* node = pRootNode->FirstChildElement(strTag);
-  bool bResult=false;
-  if (node && node->FirstChild() && clear)
-    strStringValue.clear();
-  while (node)
-  {
-    if (node->FirstChild())
-    {
-      bResult = true;
-      strTemp = node->FirstChild()->Value();
-      const char* clear=node->Attribute("clear");
-      if (strStringValue.empty() || (clear && StringUtils::CompareNoCase(clear, "true") == 0))
-        strStringValue = strTemp;
-      else
-        strStringValue += strSeparator+strTemp;
-    }
-    node = node->NextSiblingElement(strTag);
-  }
-
-  return bResult;
-}
-
-bool XMLUtils::GetAdditiveString(const tinyxml2::XMLNode* rootNode,
-                                 const char* tag,
-                                 const std::string& separator,
-                                 std::string& value,
-                                 bool clear)
-{
-  std::string temp;
-  auto* node = rootNode->FirstChildElement(tag);
-  bool result = false;
-  if (node && node->FirstChild() && clear)
-    value.clear();
-
-  while (node)
-  {
-    if (node->FirstChild())
-    {
-      result = true;
-      temp = node->FirstChild()->Value();
-      auto* clear = node->Attribute("clear");
-      if (value.empty() || (clear && StringUtils::CompareNoCase(clear, "true") == 0))
-        value = temp;
-      else
-        value += separator + temp;
-    }
-    node = node->NextSiblingElement(tag);
-  }
-
-  return result;
-}
-
 /*!
   Parses the XML for multiple tags of the given name.
   Does not clear the array to support chaining.
@@ -557,23 +466,6 @@ std::string XMLUtils::GetAttribute(const tinyxml2::XMLElement* element, const ch
   return "";
 }
 
-void XMLUtils::SetAdditiveString(TiXmlNode* pRootNode, const char *strTag, const std::string& strSeparator, const std::string& strValue)
-{
-  std::vector<std::string> list = StringUtils::Split(strValue, strSeparator);
-  for (std::vector<std::string>::const_iterator i = list.begin(); i != list.end(); ++i)
-    SetString(pRootNode, strTag, *i);
-}
-
-void XMLUtils::SetAdditiveString(tinyxml2::XMLNode* rootNode,
-                                 const char* tag,
-                                 const std::string& separator,
-                                 const std::string& value)
-{
-  std::vector<std::string> list = StringUtils::Split(value, separator);
-  for (auto i = list.begin(); i != list.end(); ++i)
-    SetString(rootNode, tag, *i);
-}
-
 void XMLUtils::SetStringArray(TiXmlNode* pRootNode, const char *strTag, const std::vector<std::string>& arrayValue)
 {
   for (unsigned int i = 0; i < arrayValue.size(); i++)
@@ -625,18 +517,6 @@ tinyxml2::XMLNode* XMLUtils::SetInt(tinyxml2::XMLNode* rootNode, const char* tag
   return SetString(rootNode, tag, strValue);
 }
 
-void XMLUtils::SetLong(TiXmlNode* pRootNode, const char *strTag, long value)
-{
-  std::string strValue = std::to_string(value);
-  SetString(pRootNode, strTag, strValue);
-}
-
-void XMLUtils::SetLong(tinyxml2::XMLNode* rootNode, const char* tag, long value)
-{
-  std::string strValue = std::to_string(value);
-  SetString(rootNode, tag, strValue);
-}
-
 TiXmlNode* XMLUtils::SetFloat(TiXmlNode* pRootNode, const char *strTag, float value)
 {
   std::string strValue = StringUtils::Format("{:f}", value);
@@ -669,18 +549,6 @@ void XMLUtils::SetBoolean(TiXmlNode* pRootNode, const char *strTag, bool value)
 void XMLUtils::SetBoolean(tinyxml2::XMLNode* rootNode, const char* tag, bool value)
 {
   SetString(rootNode, tag, value ? "true" : "false");
-}
-
-void XMLUtils::SetHex(TiXmlNode* pRootNode, const char *strTag, uint32_t value)
-{
-  std::string strValue = StringUtils::Format("{:x}", value);
-  SetString(pRootNode, strTag, strValue);
-}
-
-void XMLUtils::SetHex(tinyxml2::XMLNode* rootNode, const char* tag, uint32_t value)
-{
-  std::string strValue = StringUtils::Format("{:x}", value);
-  SetString(rootNode, tag, strValue);
 }
 
 void XMLUtils::SetPath(TiXmlNode* pRootNode, const char *strTag, const std::string& strValue)
@@ -724,4 +592,100 @@ void XMLUtils::SetDateTime(TiXmlNode* pRootNode, const char *strTag, const CDate
 void XMLUtils::SetDateTime(tinyxml2::XMLNode* rootNode, const char* tag, const CDateTime& dateTime)
 {
   SetString(rootNode, tag, dateTime.IsValid() ? dateTime.GetAsDBDateTime() : "");
+}
+
+std::string XMLUtils::NodeStringSerialization(const TiXmlNode* node, SerializationFormat format)
+{
+  if (!node)
+    return {};
+
+  TiXmlDocument tempdoc;
+
+  const TiXmlDocument* doc = node->GetDocument();
+  if (doc == nullptr || (doc != nullptr && node != doc->RootElement()))
+  {
+    // TinyXML nodes may be freestanding. Copy and attach to a document for serialization.
+    TiXmlNode* clone = node->Clone();
+    if (clone == nullptr)
+      return {};
+
+    tempdoc.LinkEndChild(clone);
+    doc = &tempdoc;
+  }
+
+  TiXmlPrinter printer;
+  if (format == SerializationFormat::COMPACT)
+    printer.SetStreamPrinting();
+  doc->Accept(&printer);
+
+  return printer.Str();
+}
+
+std::string XMLUtils::NodeStringSerialization(const tinyxml2::XMLNode* node,
+                                              SerializationFormat format)
+{
+  if (!node)
+    return {};
+
+  tinyxml2::XMLDocument tempdoc;
+
+  // Every node in TinyXML-2 must be owned by a document, but special measures are still needed
+  // to serialize a non-root node
+  const tinyxml2::XMLDocument* doc = node->GetDocument();
+  if (doc == nullptr)
+    return {};
+
+  if (node != doc->RootElement())
+  {
+    tinyxml2::XMLNode* clone = node->DeepClone(&tempdoc);
+    if (clone == nullptr)
+      return {};
+
+    tempdoc.LinkEndChild(clone);
+    doc = &tempdoc;
+  }
+
+  tinyxml2::XMLPrinter printer(nullptr, format == SerializationFormat::PRETTY ? false : true);
+  doc->Accept(&printer);
+
+  return printer.CStr();
+}
+
+bool XMLUtils::RemoveNode(TiXmlNode* node)
+{
+  if (node == nullptr)
+    return false;
+
+  TiXmlNode* parent = node->Parent();
+
+  if (parent == nullptr)
+    return false;
+
+  // TinyXml doesn't allow removal of the root of the document and does nothing.
+  if (parent->Type() == TiXmlNode::TINYXML_DOCUMENT)
+    return false;
+
+  if (!parent->RemoveChild(node))
+    return false;
+
+  return true;
+}
+
+bool XMLUtils::RemoveNode(tinyxml2::XMLNode* node)
+{
+  if (node == nullptr)
+    return false;
+
+  tinyxml2::XMLNode* parent = node->Parent();
+
+  if (parent == nullptr)
+    return false;
+
+  // TinyXml doesn't allow removal of the root of the document and does nothing.
+  if (parent->ToDocument() != nullptr)
+    return false;
+
+  parent->DeleteChild(node);
+
+  return true;
 }

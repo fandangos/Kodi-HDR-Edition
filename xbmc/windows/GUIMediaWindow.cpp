@@ -23,6 +23,8 @@
 #include "addons/PluginSource.h"
 #include "addons/addoninfo/AddonType.h"
 #include "application/Application.h"
+#include "filesystem/SourcesDirectory.h"
+#include "media/MediaSection.h"
 #include "messaging/ApplicationMessenger.h"
 #include "network/NetworkFileItemClassify.h"
 #include "playlists/PlayListFileItemClassify.h"
@@ -34,6 +36,7 @@
 #include "dialogs/GUIDialogMediaFilter.h"
 #include "dialogs/GUIDialogProgress.h"
 #include "dialogs/GUIDialogSmartPlaylistEditor.h"
+#include "filesystem/Directory.h"
 #include "filesystem/FileDirectoryFactory.h"
 #include "filesystem/MultiPathDirectory.h"
 #include "filesystem/PluginDirectory.h"
@@ -59,14 +62,20 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
+#include "utils/ArtTypes.h"
+#include "utils/DefaultArt.h"
 #include "utils/FileUtils.h"
+#include "utils/ItemProperties.h"
 #include "utils/LabelFormatter.h"
+#include "utils/PlaceholderPaths.h"
 #include "utils/SortUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
 #include "view/GUIViewState.h"
+
+#include <optional>
 
 #define CONTROL_BTNVIEWASICONS       2
 #define CONTROL_BTNSORTBY            3
@@ -84,6 +93,7 @@
 using namespace ADDON;
 using namespace KODI;
 using namespace KODI::MESSAGING;
+using KODI::MEDIA::MediaSection;
 using namespace std::chrono_literals;
 
 CGUIMediaWindow::CGUIMediaWindow(int id, const char *xmlFile)
@@ -307,12 +317,19 @@ bool CGUIMediaWindow::OnMessage(CGUIMessage& message)
       if (message.GetParam1() == GUI_MSG_WINDOW_RESET)
       {
         m_vecItems->SetPath("?");
+        m_libraryFilterNodePath.clear();
+        m_libraryFilterDbPath.clear();
         return true;
       }
       else if ( message.GetParam1() == GUI_MSG_REFRESH_THUMBS )
       {
+        // an item sent along limits the refresh to the list items showing it
+        const auto item{std::static_pointer_cast<CFileItem>(message.GetItem())};
         for (int i = 0; i < m_vecItems->Size(); i++)
-          m_vecItems->Get(i)->FreeMemory(true);
+        {
+          if (!item || m_vecItems->Get(i)->IsSamePath(item.get()))
+            m_vecItems->Get(i)->FreeMemory(true);
+        }
         break;  // the window will take care of any info images
       }
       else if (message.GetParam1() == GUI_MSG_REMOVED_MEDIA)
@@ -386,7 +403,8 @@ bool CGUIMediaWindow::OnMessage(CGUIMessage& message)
 
         if (IsActive() || (flag & GUI_MSG_FLAG_FORCE_UPDATE))
         {
-          m_vecItems->UpdateItem(newItem.get());
+          const bool replaceLabels = !(flag & GUI_MSG_FLAG_KEEP_CURRENT_LABELS);
+          m_vecItems->UpdateItem(newItem.get(), replaceLabels);
 
           if (flag & GUI_MSG_FLAG_UPDATE_LIST)
           { // need the list updated as well
@@ -398,15 +416,16 @@ bool CGUIMediaWindow::OnMessage(CGUIMessage& message)
           CFileItemList items;
           items.SetPath(URIUtils::GetDirectory(newItem->GetPath()));
 
-          const bool hasCacheFilename = newItem->HasProperty("cachefilename");
-          const bool hasParentPath = newItem->HasProperty("ParentPath");
+          const bool hasCacheFilename = newItem->HasProperty(ITEM::PROPERTY::CACHE_FILENAME);
+          const bool hasParentPath = newItem->HasProperty(ITEM::PROPERTY::PARENT_PATH);
 
           // Use the stored cache file name
           if (hasCacheFilename)
-            items.RemoveDiscCacheCRC(newItem->GetProperty("cachefilename").asString());
+            items.RemoveDiscCacheCRC(
+                newItem->GetProperty(ITEM::PROPERTY::CACHE_FILENAME).asString());
 
           if (hasParentPath)
-            RemoveDiscCache(newItem->GetProperty("ParentPath").asString());
+            RemoveDiscCache(newItem->GetProperty(ITEM::PROPERTY::PARENT_PATH).asString());
 
           // No stored cache file name or parent path, try the truncated item path as list path
           if (!hasCacheFilename && !hasParentPath)
@@ -527,6 +546,8 @@ bool CGUIMediaWindow::OnMessage(CGUIMessage& message)
         }
         if (resetHistory)
         {
+          m_libraryFilterNodePath.clear();
+          m_libraryFilterDbPath.clear();
           m_vecItems->RemoveDiscCache(GetID());
           // only compute the history for the provided path if "return" is not defined
           // (otherwise the root level for the path will be added by default to the path history
@@ -676,20 +697,7 @@ void CGUIMediaWindow::SortItems(CFileItemList &items)
  */
 void CGUIMediaWindow::FormatItemLabels(CFileItemList &items, const LABEL_MASKS &labelMasks)
 {
-  CLabelFormatter fileFormatter(labelMasks.m_strLabelFile, labelMasks.m_strLabel2File);
-  CLabelFormatter folderFormatter(labelMasks.m_strLabelFolder, labelMasks.m_strLabel2Folder);
-  for (int i=0; i<items.Size(); ++i)
-  {
-    CFileItemPtr pItem=items[i];
-
-    if (pItem->IsLabelPreformatted())
-      continue;
-
-    if (pItem->IsFolder())
-      folderFormatter.FormatLabels(pItem.get());
-    else
-      fileFormatter.FormatLabels(pItem.get());
-  }
+  CLabelFormatter::FormatItemLabels(items, labelMasks);
 
   if (items.GetSortMethod() == SortBy::LABEL)
     items.ClearSortState();
@@ -751,11 +759,32 @@ bool CGUIMediaWindow::GetDirectory(const std::string &strDirectory, CFileItemLis
       SetupShares();
 
     CFileItemList dirItems;
-    if (!GetDirectoryItems(pathToUrl, dirItems, UseFileDirectories()))
+    CFileItemList nodeItems;
+    bool viaNode{false};
+    if (!m_libraryFilterDbPath.empty() && strDirectory == m_libraryFilterDbPath)
+    {
+      CURL nodeUrl{m_libraryFilterNodePath};
+      viaNode = GetDirectoryItems(nodeUrl, nodeItems, UseFileDirectories());
+      if (viaNode)
+      {
+        m_libraryFilterDbPath = nodeItems.GetPath();
+      }
+      else if (XFILE::CDirectory::Exists(m_libraryFilterNodePath, false))
+      {
+        // still there, so cancelled or hidden: don't load the db path in its place
+        return false;
+      }
+      else
+      {
+        m_libraryFilterNodePath.clear();
+        m_libraryFilterDbPath.clear();
+      }
+    }
+    if (!viaNode && !GetDirectoryItems(pathToUrl, dirItems, UseFileDirectories()))
       return false;
 
     // assign fetched directory items
-    items.Assign(dirItems);
+    items.Assign(viaNode ? nodeItems : dirItems);
 
     // took over a second, and not normally cached, so cache it
     auto end = std::chrono::steady_clock::now();
@@ -772,7 +801,7 @@ bool CGUIMediaWindow::GetDirectory(const std::string &strDirectory, CFileItemLis
   // Store parent path along with item as parent path cannot safely be calculated from item's path.
   for (const auto& item : items)
   {
-    item->SetProperty("ParentPath", m_vecItems->GetPath());
+    item->SetProperty(ITEM::PROPERTY::PARENT_PATH, m_vecItems->GetPath());
   }
 
   // update the view state's reference to the current items
@@ -794,19 +823,20 @@ bool CGUIMediaWindow::GetDirectory(const std::string &strDirectory, CFileItemLis
     items.AddFront(pItem, 0);
   }
 
-  int iWindow = GetID();
-  std::vector<std::string> regexps;
-
+  std::optional<KODI::MEDIA::MediaSection> section;
   //! @todo Do we want to limit the directories we apply the video ones to?
-  if (iWindow == WINDOW_VIDEO_NAV)
-    regexps = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoExcludeFromListingRegExps;
-  if (iWindow == WINDOW_MUSIC_NAV)
-    regexps = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_audioExcludeFromListingRegExps;
-  if (iWindow == WINDOW_PICTURES)
-    regexps = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_pictureExcludeFromListingRegExps;
+  if (GetID() == WINDOW_VIDEO_NAV)
+    section = KODI::MEDIA::MediaSection::VIDEO;
+  else if (GetID() == WINDOW_MUSIC_NAV)
+    section = KODI::MEDIA::MediaSection::MUSIC;
+  else if (GetID() == WINDOW_PICTURES)
+    section = KODI::MEDIA::MediaSection::PICTURES;
 
-  if (!regexps.empty())
+  if (section)
   {
+    const std::vector<std::string> regexps{
+        CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->GetExcludeFromListingRegExps(
+            *section)};
     KODI::REGEXP::RegExpCache cache;
     for (int i=0; i < items.Size();)
     {
@@ -862,6 +892,14 @@ bool CGUIMediaWindow::Update(const std::string &strDirectory, bool updateFilterP
     return false;
   }
 
+  if (URIUtils::IsLibraryFolder(pathNoFilter) &&
+      m_vecItems->GetProperty(ITEM::PROPERTY::LIBRARY_FILTER).asBoolean() &&
+      m_vecItems->GetPath() != pathNoFilter)
+  {
+    m_libraryFilterNodePath = pathNoFilter;
+    m_libraryFilterDbPath = m_vecItems->GetPath();
+  }
+
   if (m_vecItems->GetLabel().empty())
   {
     // Removable sources
@@ -899,16 +937,30 @@ bool CGUIMediaWindow::Update(const std::string &strDirectory, bool updateFilterP
     else if (iWindow == WINDOW_GAMES)
       showLabel = 35250; // "Add games..."
   }
-  if (m_vecItems->IsPath("sources://video/"))
-    showLabel = 999;
-  else if (m_vecItems->IsPath("sources://music/"))
-    showLabel = 998;
-  else if (m_vecItems->IsPath("sources://pictures/"))
-    showLabel = 997;
-  else if (m_vecItems->IsPath("sources://files/"))
-    showLabel = 1026;
-  else if (m_vecItems->IsPath("sources://games/"))
-    showLabel = 35250; // "Add games..."
+  if (const std::optional<MediaSection> section{
+          XFILE::CSourcesDirectory::SectionOf(m_vecItems->GetPath())})
+  {
+    switch (*section)
+    {
+      case MediaSection::VIDEO:
+        showLabel = 999;
+        break;
+      case MediaSection::MUSIC:
+        showLabel = 998;
+        break;
+      case MediaSection::PICTURES:
+        showLabel = 997;
+        break;
+      case MediaSection::FILES:
+        showLabel = 1026;
+        break;
+      case MediaSection::GAMES:
+        showLabel = 35250; // "Add games..."
+        break;
+      case MediaSection::PROGRAMS:
+        break;
+    }
+  }
    // Add 'Add source ' item
   if (showLabel && (m_vecItems->Size() == 0 || !m_guiState->DisableAddSourceButtons()) &&
       iWindow != WINDOW_MUSIC_PLAYLIST_EDITOR)
@@ -916,8 +968,8 @@ bool CGUIMediaWindow::Update(const std::string &strDirectory, bool updateFilterP
     const std::string& strLabel =
         CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(showLabel);
     CFileItemPtr pItem(new CFileItem(strLabel));
-    pItem->SetPath("add");
-    pItem->SetArt("icon", "DefaultAddSource.png");
+    pItem->SetPath(ITEM::PLACEHOLDER::ADD_SOURCE);
+    pItem->SetArt(ART::TYPE::ICON, ART::DEFAULT::ADD_SOURCE);
     pItem->SetLabel(strLabel);
     pItem->SetLabelPreformatted(true);
     pItem->SetFolder(true);
@@ -955,8 +1007,6 @@ bool CGUIMediaWindow::Update(const std::string &strDirectory, bool updateFilterP
   RestoreSelectedItemFromHistory();
 
   m_history.AddPath(m_vecItems->GetPath(), m_strFilterPath);
-
-  //m_history.DumpPathHistory();
 
   return true;
 }
@@ -1034,7 +1084,8 @@ bool CGUIMediaWindow::OnClick(int iItem, const std::string &player)
     return true;
   }
 
-  if (pItem->GetPath() == "add" || pItem->GetPath() == "sources://add/") // 'add source button' in empty root
+  if (pItem->GetPath() == ITEM::PLACEHOLDER::ADD_SOURCE ||
+      pItem->GetPath() == "sources://add/") // 'add source button' in empty root
   {
     if (profileManager->IsMasterProfile())
     {
@@ -1082,9 +1133,9 @@ bool CGUIMediaWindow::OnClick(int iItem, const std::string &player)
   {
     if (pItem->IsShareOrDrive())
     {
-      const std::string& strLockType=m_guiState->GetLockType();
+      const std::optional<KODI::MEDIA::MediaSection> lockSection{m_guiState->GetLockType()};
       if (profileManager->GetMasterProfile().getLockMode() != LockMode::EVERYONE)
-        if (!strLockType.empty() && !g_passwordManager.IsItemUnlocked(pItem.get(), strLockType))
+        if (lockSection && !g_passwordManager.IsItemUnlocked(pItem.get(), *lockSection))
             return true;
 
       if (!HaveDiscOrConnection(pItem->GetPath(), pItem->GetDriveType()))
@@ -1133,7 +1184,7 @@ bool CGUIMediaWindow::OnClick(int iItem, const std::string &player)
 
     return true;
   }
-  else if (pItem->IsPlugin() && !pItem->GetProperty("isplayable").asBoolean())
+  else if (pItem->IsPlugin() && !pItem->GetProperty(ITEM::PROPERTY::IS_PLAYABLE).asBoolean())
   {
     bool resume = pItem->GetStartOffset() == STARTOFFSET_RESUME;
     return XFILE::CPluginDirectory::RunScriptWithParams(pItem->GetURL(), resume);
@@ -1150,13 +1201,14 @@ bool CGUIMediaWindow::OnClick(int iItem, const std::string &player)
   {
     SaveSelectedItemInHistory();
 
-    if (pItem->GetPath() == "newplaylist://")
+    if (pItem->GetPath() == ITEM::PLACEHOLDER::NEW_PLAYLIST)
     {
       m_vecItems->RemoveDiscCache(GetID());
-      CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_MUSIC_PLAYLIST_EDITOR,"newplaylist://");
+      CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_MUSIC_PLAYLIST_EDITOR,
+                                                                  ITEM::PLACEHOLDER::NEW_PLAYLIST);
       return true;
     }
-    else if (StringUtils::StartsWithNoCase(pItem->GetPath(), "newsmartplaylist://"))
+    else if (StringUtils::StartsWithNoCase(pItem->GetPath(), ITEM::PLACEHOLDER::NEW_SMART_PLAYLIST))
     {
       m_vecItems->RemoveDiscCache(GetID());
       if (CGUIDialogSmartPlaylistEditor::NewPlaylist(pItem->GetPath().substr(19)))
@@ -1262,8 +1314,6 @@ bool CGUIMediaWindow::GoParentFolder()
 
   if (URIUtils::PathEquals(m_vecItems->GetPath(), GetRootPath()))
     return false;
-
-  //m_history.DumpPathHistory();
 
   const std::string currentPath = m_vecItems->GetPath();
   std::string parentPath = m_history.GetParentPath();
@@ -1465,7 +1515,6 @@ void CGUIMediaWindow::SetHistoryForPath(const std::string& strDirectory)
           m_history.AddPathFront(strPath);
           m_history.AddPathFront("");
 
-          //m_history.DumpPathHistory();
           return ;
         }
       }
@@ -1489,11 +1538,13 @@ void CGUIMediaWindow::SetHistoryForPath(const std::string& strDirectory)
       strPath = strParentPath;
       URIUtils::RemoveSlashAtEnd(strPath);
     }
+
+    // A directory without a parent, such as a top-level special:// path, still goes on the stack
+    if (originalPath)
+      m_history.AddPathFront(strDirectory, m_strFilterPath);
   }
   else
     m_history.ClearPathHistory();
-
-  //m_history.DumpPathHistory();
 }
 
 /*!
@@ -1547,10 +1598,15 @@ bool CGUIMediaWindow::OnPlayAndQueueMedia(const CFileItemPtr& item, const std::s
              { return i->IsZIP() || i->IsRAR() || i->IsFolder(); });
 
     // Chosen item
-    int mediaToPlay =
-        std::distance(playlist.begin(), std::find_if(playlist.begin(), playlist.end(),
-                                                     [&item](const std::shared_ptr<CFileItem>& i)
-                                                     { return i->GetPath() == item->GetPath(); }));
+    int mediaToPlay = std::distance(
+        playlist.begin(), std::find_if(playlist.begin(), playlist.end(),
+                                       [&item](const std::shared_ptr<CFileItem>& i)
+                                       {
+                                         // cue sheet tracks share one path: compare the start
+                                         // offset too, otherwise the first track always plays
+                                         return i->GetPath() == item->GetPath() &&
+                                                i->GetStartOffset() == item->GetStartOffset();
+                                       }));
     /* For .mka albums, all tracks are in the same file so using path as above will always play the
      * first track.  Use the track and disk number to ensure we start playback on the correct track.
      * This only applies to mka or m4b items played back via files view. Music library takes
@@ -1965,6 +2021,9 @@ void CGUIMediaWindow::OnFilterItems(const std::string &filter)
     if (pItem->IsFolder())
     {
       CURL itemUrl(pItem->GetPath());
+      if (itemUrl.IsLosslessURI())
+        continue;
+
       if (!filterOption.empty())
         itemUrl.SetOption("filter", filterOption);
       else
@@ -1976,12 +2035,14 @@ void CGUIMediaWindow::OnFilterItems(const std::string &filter)
   SetProperty("filter", filter);
   if (filtered && m_canFilterAdvanced)
   {
+    CURL curUrl;
     // to be able to select the same item as before we need to adjust
     // the path of the item i.e. add or remove the "filter=" URL option
     // but that's only necessary for folder items
-    if (currentItem.get() && currentItem->IsFolder())
+    if (currentItem.get() && currentItem->IsFolder() &&
+        !(curUrl = CURL{currentItemPath}).IsLosslessURI())
     {
-      CURL curUrl(currentItemPath), newUrl(m_strFilterPath);
+      CURL newUrl{m_strFilterPath};
       if (newUrl.HasOption("filter"))
         curUrl.SetOption("filter", newUrl.GetOption("filter"));
       else if (curUrl.HasOption("filter"))

@@ -10,6 +10,7 @@
 #pragma once
 
 #include "OverlayRenderer.h"
+#include "utils/GLBufferObject.h"
 
 #include "system_gl.h"
 
@@ -59,13 +60,14 @@ public:
     GLfloat x, y, z;
   };
 
-  std::vector<VERTEX> m_vertex;
-
-  GLuint m_texture = 0;
-  GLuint m_VBO = 0;
-  GLsizei m_vertexCount = 0;
-  float m_u;
-  float m_v;
+private:
+  struct Page
+  {
+    GLuint texture = 0;
+    KODI::UTILS::GL::CGLBufferObject vbo{GL_ARRAY_BUFFER};
+    GLsizei vertexCount = 0;
+  };
+  std::vector<Page> m_pages;
 };
 
 } // namespace OVERLAY

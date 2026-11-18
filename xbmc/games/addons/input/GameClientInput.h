@@ -18,6 +18,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 
 class CCriticalSection;
 struct game_input_event;
@@ -90,7 +91,13 @@ public:
 
   // Mouse functions
   bool OpenMouse(const ControllerPtr& controller);
+  bool OpenControllerMouse(const std::string& portAddress,
+                           const ControllerPtr& controller,
+                           PERIPHERALS::PeripheralPtr mouse);
   bool IsMouseOpen() const;
+  bool IsControllerMouseOpen(const std::string& portAddress,
+                             const std::string& controllerId,
+                             const PERIPHERALS::PeripheralPtr& mouse) const;
   bool CloseMouse();
 
   // Agent functions
@@ -99,8 +106,28 @@ public:
   // Hardware input functions
   void HardwareReset();
 
+  // Output functions
+  void EnableRumble(bool bEnabled);
+
   // Input callbacks
   bool ReceiveInputEvent(const game_input_event& eventStruct);
+
+  /*!
+   * \brief Hold back rumble while frames run that are then rolled back
+   *
+   * While held, only the last strength asked for each motor is kept. A run of
+   * frames then reaches the controller as one state, as its picture and sound
+   * do.
+   */
+  void HoldRumble();
+
+  /*!
+   * \brief Stop holding rumble back
+   *
+   * \param send False to drop what was held, when the frames that asked for it
+   *             couldn't be undone
+   */
+  void ReleaseRumble(bool send);
 
 private:
   // Private topology helpers
@@ -140,6 +167,11 @@ private:
    */
   JoystickMap m_joysticks;
 
+  // A client can set rumble from its own thread
+  std::mutex m_rumbleMutex;
+  bool m_holdRumble{false};
+  std::map<std::pair<std::string, std::string>, float> m_heldRumble;
+
   /*!
    * \brief Serializable port state
    */
@@ -152,6 +184,9 @@ private:
    * function ResetPorts().
    */
   mutable std::recursive_mutex m_portMutex;
+
+  // Applied to joysticks opened while the game is paused too
+  bool m_bRumbleEnabled{true};
 
   /*!
    * \brief Keyboard handler
@@ -166,6 +201,7 @@ private:
    * This connects to the mouse input of the game client.
    */
   std::unique_ptr<CGameClientMouse> m_mouse;
+  std::string m_mouseControllerPort; // The controller port the mouse plays, if not the mouse port
 
   /*!
    * \brief Hardware input handler

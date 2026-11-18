@@ -9,11 +9,15 @@
 #pragma once
 
 #include "GLESShader.h"
+#include "guilib/GUIQuadDrawerGLES.h"
 #include "rendering/RenderSystem.h"
 #include "utils/ColorUtils.h"
+#include "utils/GLBufferObject.h"
 #include "utils/Map.h"
 
+#include <cstddef>
 #include <map>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -38,6 +42,8 @@ enum class ShaderMethodGLES
   SM_TEXTURE_RGBA_BOB,
   SM_TEXTURE_RGBA_BOB_OES,
   SM_TEXTURE_NOALPHA,
+  SM_FONTS_RGBA,
+  SM_FONTS_RGBA_SHADER_CLIP,
   SM_MAX
 };
 
@@ -75,6 +81,8 @@ private:
       {ShaderMethodGLES::SM_TEXTURE_RGBA_BOB, "texture rgba bob"},
       {ShaderMethodGLES::SM_TEXTURE_RGBA_BOB_OES, "texture rgba bob OES"},
       {ShaderMethodGLES::SM_TEXTURE_NOALPHA, "texture no alpha"},
+      {ShaderMethodGLES::SM_FONTS_RGBA, "fonts rgba"},
+      {ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP, "fonts rgba with vertex shader based clipping"},
   });
 
   static_assert(static_cast<size_t>(ShaderMethodGLES::SM_MAX) == ShaderMethodGLESMap.size(),
@@ -98,6 +106,8 @@ public:
   void InvalidateColorBuffer() override;
   bool ClearBuffers(KODI::UTILS::COLOR::Color color) override;
   bool IsExtSupported(const char* extension) const override;
+  // WebGL 2.0 exposes GLES 3.0 without GL_TEXTURE_SWIZZLE_*, so platforms can opt out
+  virtual bool SupportsTextureSwizzle() const { return m_RenderVersionMajor >= 3; }
 
   void SetVSync(bool vsync);
   void ResetVSync() { m_bVsyncInit = false; }
@@ -138,13 +148,36 @@ public:
   GLint GUIShaderGetStep();
   GLint GUIShaderGetContrast();
   GLint GUIShaderGetBrightness();
-  GLint GUIShaderGetModel();
   GLint GUIShaderGetMatrix();
   GLint GUIShaderGetClip();
   GLint GUIShaderGetCoordStep();
   GLint GUIShaderGetDepth();
   GLint GUIShaderGetPma();
   GLint GUIShaderGetSdrPeak();
+  GLint GUIShaderGetGUIMatrix();
+  GLint GUIShaderGetSnap();
+  GLint GUIShaderGetAttrSnap();
+  GLint GUIShaderGetQuadRect();
+  GLint GUIShaderGetQuadClip();
+  GLint GUIShaderGetTexSwap();
+
+  // Binds an index buffer for quadCount quads laid out as 0,1,2 2,3,0.
+  void BindGUIQuadIndices(std::size_t quadCount);
+
+  // Binds a static quad with corners (0, 0), (1, 0), (0, 1) and (1, 1), in GL_TRIANGLE_STRIP order.
+  void BindGUIUnitQuad();
+
+  /*!
+   * @brief Draw a static unit quad with the current GUI shader, which must use gles_shader.vert.
+   *
+   * The quad is mapped onto the parallelogram whose corners are @p origin, @p right and @p down
+   * (the fourth corner follows), and its texture coordinates span @p texCoords if given.
+   */
+  void DrawGUIQuad(const CPoint& origin,
+                   const CPoint& right,
+                   const CPoint& down,
+                   const CRect* texCoords = nullptr);
+  void DrawGUIQuad(const CRect& rect, const CRect* texCoords = nullptr);
 
 protected:
   virtual void SetVSyncImpl(bool enable) = 0;
@@ -161,4 +194,10 @@ protected:
   ShaderMethodGLES m_method = ShaderMethodGLES::SM_DEFAULT;
 
   GLint      m_viewPort[4];
+
+  CGUIQuadDrawerGLES m_quadDrawer;
+
+  KODI::UTILS::GL::CGLBufferObject m_guiQuadIndexBuffer{GL_ELEMENT_ARRAY_BUFFER};
+  KODI::UTILS::GL::CGLBufferObject m_guiUnitQuad{GL_ARRAY_BUFFER};
+  std::vector<GLushort> m_guiQuadIndices;
 };

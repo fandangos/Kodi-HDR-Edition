@@ -43,6 +43,12 @@ extern "C"
 
     //! @brief PTS offset correction applied to the PTS and DTS.
     double m_ptsOffsetCorrection{0};
+
+    //! @brief Packet is a keyframe, only set by demuxers that know it.
+    bool m_keyFrame{false};
+
+    //! @brief Empty packet replacing input the demuxer read and dropped.
+    bool m_inputDropped{false};
   };
 
 #ifdef __cplusplus

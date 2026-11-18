@@ -63,14 +63,14 @@ bool DeserializeOptionsSort(const TiXmlElement* optionsElement, SettingOptionsSo
 
 Logger CSetting::s_logger;
 
-CSetting::CSetting(const std::string& id, CSettingsManager* settingsManager /* = nullptr */)
+CSetting::CSetting(std::string_view id, CSettingsManager* settingsManager /* = nullptr */)
   : ISetting(id, settingsManager)
 {
   if (!s_logger)
     s_logger = CServiceBroker::GetLogging().GetLogger("CSetting");
 }
 
-CSetting::CSetting(const std::string& id, const CSetting& setting)
+CSetting::CSetting(std::string_view id, const CSetting& setting)
   : CSetting(id, setting.m_settingsManager)
 {
   Copy(setting);
@@ -333,18 +333,52 @@ void CSetting::Copy(const CSetting &setting)
   m_changed = setting.m_changed;
 }
 
+template<class TSetting, typename TValue, typename TValidate>
+CSetting::ApplyResult CSetting::ApplyValue(TValue& storage, const TValue& value, TValidate validate)
+{
+  TValue oldValue;
+  {
+    std::unique_lock lock(m_critical);
+
+    if (storage == value)
+      return ApplyResult::Unchanged;
+
+    if (!validate())
+      return ApplyResult::Rejected;
+
+    oldValue = storage;
+    storage = value;
+  }
+
+  if (OnSettingChanging(shared_from_base<TSetting>()))
+    return ApplyResult::Applied;
+
+  {
+    std::unique_lock lock(m_critical);
+    storage = oldValue;
+  }
+
+  // the setting couldn't be changed because one of the
+  // callback handlers failed the OnSettingChanging()
+  // callback so we need to let all the callback handlers
+  // know that the setting hasn't changed
+  OnSettingChanging(shared_from_base<TSetting>());
+  return ApplyResult::Rejected;
+}
+
 Logger CSettingList::s_logger;
 
-CSettingList::CSettingList(const std::string& id,
+CSettingList::CSettingList(std::string_view id,
                            std::shared_ptr<CSetting> settingDefinition,
                            CSettingsManager* settingsManager /* = nullptr */)
-  : CSetting(id, settingsManager), m_definition(std::move(settingDefinition))
+  : CSetting(id, settingsManager),
+    m_definition(std::move(settingDefinition))
 {
   if (!s_logger)
     s_logger = CServiceBroker::GetLogging().GetLogger("CSettingList");
 }
 
-CSettingList::CSettingList(const std::string& id,
+CSettingList::CSettingList(std::string_view id,
                            std::shared_ptr<CSetting> settingDefinition,
                            int label,
                            CSettingsManager* settingsManager /* = nullptr */)
@@ -353,13 +387,12 @@ CSettingList::CSettingList(const std::string& id,
   SetLabel(label);
 }
 
-CSettingList::CSettingList(const std::string &id, const CSettingList &setting)
-  : CSetting(id, setting)
+CSettingList::CSettingList(std::string_view id, const CSettingList& setting) : CSetting(id, setting)
 {
   copy(setting);
 }
 
-SettingPtr CSettingList::Clone(const std::string &id) const
+SettingPtr CSettingList::Clone(std::string_view id) const
 {
   if (!m_definition)
     return nullptr;
@@ -389,6 +422,7 @@ void CSettingList::MergeDetails(const CSetting& other)
 
 bool CSettingList::Deserialize(const TiXmlNode *node, bool update /* = false */)
 {
+  std::unique_lock writer(m_writeSection);
   std::unique_lock lock(m_critical);
 
   if (!m_definition)
@@ -497,6 +531,7 @@ bool CSettingList::CheckValidity(const std::string &value) const
 
 void CSettingList::Reset()
 {
+  std::unique_lock writer(m_writeSection);
   std::unique_lock lock(m_critical);
   SettingList values;
   for (const auto& it : m_defaults)
@@ -516,33 +551,40 @@ bool CSettingList::FromString(const std::vector<std::string> &value)
 
 bool CSettingList::SetValue(const SettingList &values)
 {
-  std::unique_lock lock(m_critical);
+  std::unique_lock writer(m_writeSection);
 
-  if (static_cast<int>(values.size()) < m_minimumItems ||
-      (m_maximumItems > 0 && static_cast<int>(values.size()) > m_maximumItems))
-    return false;
-
-  bool equal = values.size() == m_values.size();
-  for (size_t index = 0; index < values.size(); index++)
+  SettingList oldValues;
   {
-    if (values[index]->GetType() != GetElementType())
+    std::unique_lock lock(m_critical);
+
+    if (static_cast<int>(values.size()) < m_minimumItems ||
+        (m_maximumItems > 0 && static_cast<int>(values.size()) > m_maximumItems))
       return false;
 
-    if (equal &&
-        !values[index]->Equals(m_values[index]->ToString()))
-      equal = false;
+    bool equal = values.size() == m_values.size();
+    for (size_t index = 0; index < values.size(); index++)
+    {
+      if (values[index]->GetType() != GetElementType())
+        return false;
+
+      if (equal && !values[index]->Equals(m_values[index]->ToString()))
+        equal = false;
+    }
+
+    if (equal)
+      return true;
+
+    oldValues = m_values;
+    m_values.clear();
+    m_values.insert(m_values.begin(), values.begin(), values.end());
   }
-
-  if (equal)
-    return true;
-
-  SettingList oldValues = m_values;
-  m_values.clear();
-  m_values.insert(m_values.begin(), values.begin(), values.end());
 
   if (!OnSettingChanging(shared_from_base<CSettingList>()))
   {
-    m_values = oldValues;
+    {
+      std::unique_lock lock(m_critical);
+      m_values = oldValues;
+    }
 
     // the setting couldn't be changed because one of the
     // callback handlers failed the OnSettingChanging()
@@ -552,7 +594,10 @@ bool CSettingList::SetValue(const SettingList &values)
     return false;
   }
 
-  m_changed = toString(m_values) != toString(m_defaults);
+  {
+    std::unique_lock lock(m_critical);
+    m_changed = toString(m_values) != toString(m_defaults);
+  }
   OnSettingChanged(shared_from_base<CSettingList>());
   return true;
 }
@@ -655,22 +700,24 @@ std::string CSettingList::toString(const SettingList &values) const
 
 Logger CSettingBool::s_logger;
 
-CSettingBool::CSettingBool(const std::string& id, CSettingsManager* settingsManager /* = nullptr */)
+CSettingBool::CSettingBool(std::string_view id, CSettingsManager* settingsManager /* = nullptr */)
   : CSettingBool(id, DefaultLabel, DefaultValue, settingsManager)
 {
 }
 
-CSettingBool::CSettingBool(const std::string& id, const CSettingBool& setting)
+CSettingBool::CSettingBool(std::string_view id, const CSettingBool& setting)
   : CSettingBool(id, setting.m_settingsManager)
 {
   copy(setting);
 }
 
-CSettingBool::CSettingBool(const std::string& id,
+CSettingBool::CSettingBool(std::string_view id,
                            int label,
                            bool value,
                            CSettingsManager* settingsManager /* = nullptr */)
-  : CTraitedSetting(id, settingsManager), m_value(value), m_default(value)
+  : CTraitedSetting(id, settingsManager),
+    m_value(value),
+    m_default(value)
 {
   SetLabel(label);
 
@@ -678,7 +725,7 @@ CSettingBool::CSettingBool(const std::string& id,
     s_logger = CServiceBroker::GetLogging().GetLogger("CSettingBool");
 }
 
-SettingPtr CSettingBool::Clone(const std::string &id) const
+SettingPtr CSettingBool::Clone(std::string_view id) const
 {
   return std::make_shared<CSettingBool>(id, *this);
 }
@@ -743,27 +790,15 @@ bool CSettingBool::CheckValidity(const std::string &value) const
 
 bool CSettingBool::SetValue(bool value)
 {
-  std::unique_lock lock(m_critical);
+  std::unique_lock writer(m_writeSection);
+  const ApplyResult result{ApplyValue<CSettingBool>(m_value, value, [] { return true; })};
+  if (result != ApplyResult::Applied)
+    return result == ApplyResult::Unchanged;
 
-  if (value == m_value)
-    return true;
-
-  bool oldValue = m_value;
-  m_value = value;
-
-  if (!OnSettingChanging(shared_from_base<CSettingBool>()))
   {
-    m_value = oldValue;
-
-    // the setting couldn't be changed because one of the
-    // callback handlers failed the OnSettingChanging()
-    // callback so we need to let all the callback handlers
-    // know that the setting hasn't changed
-    OnSettingChanging(shared_from_base<CSettingBool>());
-    return false;
+    std::unique_lock lock(m_critical);
+    m_changed = m_value != m_default;
   }
-
-  m_changed = m_value != m_default;
   OnSettingChanged(shared_from_base<CSettingBool>());
   return true;
 }
@@ -803,17 +838,18 @@ bool CSettingBool::fromString(const std::string &strValue, bool &value) const
 
 Logger CSettingInt::s_logger;
 
-CSettingInt::CSettingInt(const std::string& id, CSettingsManager* settingsManager /* = nullptr */)
+CSettingInt::CSettingInt(std::string_view id, CSettingsManager* settingsManager /* = nullptr */)
   : CSettingInt(id, DefaultLabel, DefaultValue, settingsManager)
-{ }
+{
+}
 
-CSettingInt::CSettingInt(const std::string& id, const CSettingInt& setting)
+CSettingInt::CSettingInt(std::string_view id, const CSettingInt& setting)
   : CSettingInt(id, setting.m_settingsManager)
 {
   copy(setting);
 }
 
-CSettingInt::CSettingInt(const std::string& id,
+CSettingInt::CSettingInt(std::string_view id,
                          int label,
                          int value,
                          CSettingsManager* settingsManager /* = nullptr */)
@@ -822,7 +858,7 @@ CSettingInt::CSettingInt(const std::string& id,
   SetLabel(label);
 }
 
-CSettingInt::CSettingInt(const std::string& id,
+CSettingInt::CSettingInt(std::string_view id,
                          int label,
                          int value,
                          int minimum,
@@ -842,7 +878,7 @@ CSettingInt::CSettingInt(const std::string& id,
     s_logger = CServiceBroker::GetLogging().GetLogger("CSettingInt");
 }
 
-CSettingInt::CSettingInt(const std::string& id,
+CSettingInt::CSettingInt(std::string_view id,
                          int label,
                          int value,
                          const TranslatableIntegerSettingOptions& options,
@@ -852,7 +888,7 @@ CSettingInt::CSettingInt(const std::string& id,
   SetTranslatableOptions(options);
 }
 
-SettingPtr CSettingInt::Clone(const std::string &id) const
+SettingPtr CSettingInt::Clone(std::string_view id) const
 {
   return std::make_shared<CSettingInt>(id, *this);
 }
@@ -1021,30 +1057,16 @@ bool CSettingInt::CheckValidity(int value) const
 
 bool CSettingInt::SetValue(int value)
 {
-  std::unique_lock lock(m_critical);
+  std::unique_lock writer(m_writeSection);
+  const ApplyResult result{
+      ApplyValue<CSettingInt>(m_value, value, [&] { return CheckValidity(value); })};
+  if (result != ApplyResult::Applied)
+    return result == ApplyResult::Unchanged;
 
-  if (value == m_value)
-    return true;
-
-  if (!CheckValidity(value))
-    return false;
-
-  int oldValue = m_value;
-  m_value = value;
-
-  if (!OnSettingChanging(shared_from_base<CSettingInt>()))
   {
-    m_value = oldValue;
-
-    // the setting couldn't be changed because one of the
-    // callback handlers failed the OnSettingChanging()
-    // callback so we need to let all the callback handlers
-    // know that the setting hasn't changed
-    OnSettingChanging(shared_from_base<CSettingInt>());
-    return false;
+    std::unique_lock lock(m_critical);
+    m_changed = m_value != m_default;
   }
-
-  m_changed = m_value != m_default;
   OnSettingChanged(shared_from_base<CSettingInt>());
   return true;
 }
@@ -1073,6 +1095,7 @@ SettingOptionsType CSettingInt::GetOptionsType() const
 
 IntegerSettingOptions CSettingInt::UpdateDynamicOptions()
 {
+  std::unique_lock writer(m_writeSection);
   std::unique_lock lock(m_critical);
   IntegerSettingOptions options;
   if (!m_optionsFiller && (m_optionsFillerName.empty() || !m_settingsManager))
@@ -1152,18 +1175,19 @@ bool CSettingInt::fromString(const std::string &strValue, int &value)
 
 Logger CSettingNumber::s_logger;
 
-CSettingNumber::CSettingNumber(const std::string& id,
+CSettingNumber::CSettingNumber(std::string_view id,
                                CSettingsManager* settingsManager /* = nullptr */)
   : CSettingNumber(id, DefaultLabel, DefaultValue, settingsManager)
-{ }
+{
+}
 
-CSettingNumber::CSettingNumber(const std::string& id, const CSettingNumber& setting)
+CSettingNumber::CSettingNumber(std::string_view id, const CSettingNumber& setting)
   : CSettingNumber(id, setting.m_settingsManager)
 {
   copy(setting);
 }
 
-CSettingNumber::CSettingNumber(const std::string& id,
+CSettingNumber::CSettingNumber(std::string_view id,
                                int label,
                                float value,
                                CSettingsManager* settingsManager /* = nullptr */)
@@ -1171,7 +1195,7 @@ CSettingNumber::CSettingNumber(const std::string& id,
 {
 }
 
-CSettingNumber::CSettingNumber(const std::string& id,
+CSettingNumber::CSettingNumber(std::string_view id,
                                int label,
                                float value,
                                float minimum,
@@ -1191,7 +1215,7 @@ CSettingNumber::CSettingNumber(const std::string& id,
     s_logger = CServiceBroker::GetLogging().GetLogger("CSettingNumber");
 }
 
-SettingPtr CSettingNumber::Clone(const std::string &id) const
+SettingPtr CSettingNumber::Clone(std::string_view id) const
 {
   return std::make_shared<CSettingNumber>(id, *this);
 }
@@ -1290,30 +1314,16 @@ bool CSettingNumber::CheckValidity(double value) const
 
 bool CSettingNumber::SetValue(double value)
 {
-  std::unique_lock lock(m_critical);
+  std::unique_lock writer(m_writeSection);
+  const ApplyResult result{
+      ApplyValue<CSettingNumber>(m_value, value, [&] { return CheckValidity(value); })};
+  if (result != ApplyResult::Applied)
+    return result == ApplyResult::Unchanged;
 
-  if (value == m_value)
-    return true;
-
-  if (!CheckValidity(value))
-    return false;
-
-  double oldValue = m_value;
-  m_value = value;
-
-  if (!OnSettingChanging(shared_from_base<CSettingNumber>()))
   {
-    m_value = oldValue;
-
-    // the setting couldn't be changed because one of the
-    // callback handlers failed the OnSettingChanging()
-    // callback so we need to let all the callback handlers
-    // know that the setting hasn't changed
-    OnSettingChanging(shared_from_base<CSettingNumber>());
-    return false;
+    std::unique_lock lock(m_critical);
+    m_changed = m_value != m_default;
   }
-
-  m_changed = m_value != m_default;
   OnSettingChanged(shared_from_base<CSettingNumber>());
   return true;
 }
@@ -1355,22 +1365,25 @@ bool CSettingNumber::fromString(const std::string &strValue, double &value)
 const CSettingString::Value CSettingString::DefaultValue;
 Logger CSettingString::s_logger;
 
-CSettingString::CSettingString(const std::string& id,
+CSettingString::CSettingString(std::string_view id,
                                CSettingsManager* settingsManager /* = nullptr */)
   : CSettingString(id, DefaultLabel, DefaultValue, settingsManager)
-{ }
+{
+}
 
-CSettingString::CSettingString(const std::string& id, const CSettingString& setting)
+CSettingString::CSettingString(std::string_view id, const CSettingString& setting)
   : CSettingString(id, setting.m_settingsManager)
 {
   copy(setting);
 }
 
-CSettingString::CSettingString(const std::string& id,
+CSettingString::CSettingString(std::string_view id,
                                int label,
                                const std::string& value,
                                CSettingsManager* settingsManager /* = nullptr */)
-  : CTraitedSetting(id, settingsManager), m_value(value), m_default(value)
+  : CTraitedSetting(id, settingsManager),
+    m_value(value),
+    m_default(value)
 {
   SetLabel(label);
 
@@ -1378,7 +1391,7 @@ CSettingString::CSettingString(const std::string& id,
     s_logger = CServiceBroker::GetLogging().GetLogger("CSettingString");
 }
 
-SettingPtr CSettingString::Clone(const std::string &id) const
+SettingPtr CSettingString::Clone(std::string_view id) const
 {
   return std::make_shared<CSettingString>(id, *this);
 }
@@ -1510,30 +1523,16 @@ bool CSettingString::CheckValidity(const std::string &value) const
 
 bool CSettingString::SetValue(const std::string &value)
 {
-  std::unique_lock lock(m_critical);
+  std::unique_lock writer(m_writeSection);
+  const ApplyResult result{
+      ApplyValue<CSettingString>(m_value, value, [&] { return CheckValidity(value); })};
+  if (result != ApplyResult::Applied)
+    return result == ApplyResult::Unchanged;
 
-  if (value == m_value)
-    return true;
-
-  if (!CheckValidity(value))
-    return false;
-
-  std::string oldValue = m_value;
-  m_value = value;
-
-  if (!OnSettingChanging(shared_from_base<CSettingString>()))
   {
-    m_value = oldValue;
-
-    // the setting couldn't be changed because one of the
-    // callback handlers failed the OnSettingChanging()
-    // callback so we need to let all the callback handlers
-    // know that the setting hasn't changed
-    OnSettingChanging(shared_from_base<CSettingString>());
-    return false;
+    std::unique_lock lock(m_critical);
+    m_changed = m_value != m_default;
   }
-
-  m_changed = m_value != m_default;
   OnSettingChanged(shared_from_base<CSettingString>());
   return true;
 }
@@ -1562,6 +1561,7 @@ SettingOptionsType CSettingString::GetOptionsType() const
 
 StringSettingOptions CSettingString::UpdateDynamicOptions()
 {
+  std::unique_lock writer(m_writeSection);
   std::unique_lock lock(m_critical);
   StringSettingOptions options;
   if (!m_optionsFiller && (m_optionsFillerName.empty() || !m_settingsManager))
@@ -1627,12 +1627,13 @@ void CSettingString::copy(const CSettingString &setting)
 
 Logger CSettingAction::s_logger;
 
-CSettingAction::CSettingAction(const std::string& id,
+CSettingAction::CSettingAction(std::string_view id,
                                CSettingsManager* settingsManager /* = nullptr */)
   : CSettingAction(id, DefaultLabel, settingsManager)
-{ }
+{
+}
 
-CSettingAction::CSettingAction(const std::string& id,
+CSettingAction::CSettingAction(std::string_view id,
                                int label,
                                CSettingsManager* settingsManager /* = nullptr */)
   : CSetting(id, settingsManager)
@@ -1643,13 +1644,13 @@ CSettingAction::CSettingAction(const std::string& id,
     s_logger = CServiceBroker::GetLogging().GetLogger("CSettingAction");
 }
 
-CSettingAction::CSettingAction(const std::string& id, const CSettingAction& setting)
+CSettingAction::CSettingAction(std::string_view id, const CSettingAction& setting)
   : CSettingAction(id, setting.m_settingsManager)
 {
   copy(setting);
 }
 
-SettingPtr CSettingAction::Clone(const std::string &id) const
+SettingPtr CSettingAction::Clone(std::string_view id) const
 {
   return std::make_shared<CSettingAction>(id, *this);
 }

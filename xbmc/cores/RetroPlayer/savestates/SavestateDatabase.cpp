@@ -17,18 +17,20 @@
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "filesystem/IFileTypes.h"
+#include "games/GameUtils.h"
 #include "games/dialogs/DialogGameDefines.h"
+#include "imagefiles/ImageFileURL.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
+#include <cstring>
 #include <memory>
 
 namespace
 {
 constexpr auto SAVESTATE_EXTENSION = ".sav";
-constexpr auto SAVESTATE_BASE_FOLDER = "special://home/saves/";
 } // namespace
 
 using namespace KODI;
@@ -122,6 +124,15 @@ bool CSavestateDatabase::GetSavestatesNav(CFileItemList& items,
 {
   const std::string savesFolder = MakePath(gamePath);
 
+  // MakePath() gives back nothing if it couldn't make the folder, and listing
+  // an empty path walks the root of the filesystem instead. Every directory
+  // there then turns up as a savestate to load.
+  if (savesFolder.empty())
+  {
+    CLog::Log(LOGERROR, "Failed to find a savestate folder for {}", CURL::GetRedacted(gamePath));
+    return false;
+  }
+
   XFILE::CDirectory::CHints hints;
   hints.mask = SAVESTATE_EXTENSION;
 
@@ -179,7 +190,13 @@ void CSavestateDatabase::GetSavestateItem(const ISavestate& savestate,
   item.SetLabel(label);
   item.SetLabel2(label2);
   item.SetPath(savestatePath);
-  item.SetArt("screenshot", MakeThumbnailPath(savestatePath));
+  // Overwriting a savestate rewrites its thumbnail at the same path, so the
+  // time it was made is part of the image's URL. Otherwise the GUI keeps
+  // showing the image it already has for that path.
+  IMAGE_FILES::CImageFileURL thumbnail =
+      IMAGE_FILES::CImageFileURL::FromFile(MakeThumbnailPath(savestatePath));
+  thumbnail.AddOption("created", dateUTC.GetAsDBDateTime());
+  item.SetArt("screenshot", thumbnail.ToString());
   item.SetProperty(SAVESTATE_LABEL, savestate.Label());
   item.SetProperty(SAVESTATE_CAPTION, savestate.Caption());
   item.SetProperty(SAVESTATE_GAME_CLIENT, savestate.GameClientID());
@@ -206,8 +223,18 @@ std::unique_ptr<ISavestate> CSavestateDatabase::RenameSavestate(const std::strin
   newSavestate->SetGameClientID(savestate->GameClientID());
   newSavestate->SetGameClientVersion(savestate->GameClientVersion());
 
-  size_t memorySize = savestate->GetMemorySize();
-  std::memcpy(newSavestate->GetMemoryBuffer(memorySize), savestate->GetMemoryData(), memorySize);
+  if (!savestate->CopyMemoryDataTo(*newSavestate))
+    return {};
+
+  newSavestate->SetDiscState(savestate->GetDiscState());
+
+  // Carried separately from the emulator's memory, which is all the copy above
+  // moves; without this a rename would drop the player's achievement progress
+  if (const size_t achievementSize = savestate->GetAchievementSize(); achievementSize > 0)
+  {
+    if (uint8_t* const achievementData = newSavestate->GetAchievementBuffer(achievementSize))
+      std::memcpy(achievementData, savestate->GetAchievementData(), achievementSize);
+  }
 
   newSavestate->Finalize();
 
@@ -250,11 +277,7 @@ std::string CSavestateDatabase::MakeThumbnailPath(const std::string& savestatePa
 
 std::string CSavestateDatabase::MakePath(const std::string& gamePath)
 {
-  if (!CreateFolderIfNotExists(SAVESTATE_BASE_FOLDER))
-    return "";
-
-  std::string gameName = URIUtils::GetFileName(gamePath);
-  std::string folderPath = URIUtils::AddFileToFolder(SAVESTATE_BASE_FOLDER, gameName);
+  const std::string folderPath = GAME::CGameUtils::GetGameFolder(gamePath);
 
   if (!CreateFolderIfNotExists(folderPath))
     return "";

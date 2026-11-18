@@ -79,15 +79,25 @@ function(add_addon_depends addon searchpath)
                        -DBUILD_SHARED_LIBS=0)
         # windows args
         if (CMAKE_SYSTEM_NAME STREQUAL WindowsStore OR CMAKE_SYSTEM_NAME STREQUAL Windows)
-          list(APPEND BUILD_ARGS -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
-                                 -DCMAKE_SYSTEM_VERSION=${CMAKE_SYSTEM_VERSION})
+          list(APPEND BUILD_ARGS -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME})
+          if(ADDON_SYSTEM_PROCESSOR AND NOT CMAKE_TOOLCHAIN_FILE)
+            list(APPEND BUILD_ARGS -DCMAKE_SYSTEM_PROCESSOR=${ADDON_SYSTEM_PROCESSOR})
+          endif()
+          list(APPEND BUILD_ARGS -DCMAKE_SYSTEM_VERSION=${CMAKE_SYSTEM_VERSION})
         endif()
         # if there are no make rules override files available take care of manually passing on ARCH_DEFINES
         if(NOT CMAKE_USER_MAKE_RULES_OVERRIDE AND NOT CMAKE_USER_MAKE_RULES_OVERRIDE_CXX)
           # make sure we create strings, not lists
           set(TMP_C_FLAGS "${CMAKE_C_FLAGS} ${ARCH_DEFINES}")
           set(TMP_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ARCH_DEFINES}")
-          set(TMP_EXE_LINKER_FLAGS "-L${OUTPUT_DIR}/lib ${CMAKE_EXE_LINKER_FLAGS}")
+          if(MSVC)
+            set(TMP_EXE_LINKER_FLAGS "/LIBPATH:${OUTPUT_DIR}/lib ${CMAKE_EXE_LINKER_FLAGS}")
+          else()
+            set(TMP_EXE_LINKER_FLAGS "-L${OUTPUT_DIR}/lib ${CMAKE_EXE_LINKER_FLAGS}")
+          endif()
+          if(MSVC AND CMAKE_SYSTEM_NAME STREQUAL WindowsStore)
+            string(APPEND TMP_C_FLAGS " /wd4146 /wd4996")
+          endif()
           list(APPEND BUILD_ARGS -DCMAKE_C_FLAGS=${TMP_C_FLAGS}
                                  -DCMAKE_CXX_FLAGS=${TMP_CXX_FLAGS}
                                  -DCMAKE_EXE_LINKER_FLAGS=${TMP_EXE_LINKER_FLAGS})
@@ -128,6 +138,7 @@ function(add_addon_depends addon searchpath)
         file(GLOB patches ${dir}/*.patch)
         list(SORT patches)
         foreach(patch ${patches})
+          set(patch_program ${PATCH_PROGRAM})
           if(NOT PATCH_PROGRAM OR "${PATCH_PROGRAM}" STREQUAL "")
             if(NOT PATCH_EXECUTABLE)
               # find the path to the patch executable
@@ -148,23 +159,29 @@ function(add_addon_depends addon searchpath)
               endif()
             endif()
 
-            set(PATCH_PROGRAM ${PATCH_EXECUTABLE})
+            set(patch_program ${PATCH_EXECUTABLE})
 
-            # On Windows "patch.exe" can only handle CR-LF line-endings.
-            # Our patches have LF-only line endings - except when they
-            # have been checked out as part of a dependency hosted on Git
-            # and core.autocrlf=true.
+            # On Windows "patch.exe" converts line endings unless --binary is
+            # used. Do not use --binary for CRLF-only patches, such as patches
+            # checked out with core.autocrlf=true.
             if(WIN32)
               file(READ ${patch} patch_content_hex HEX)
-              # Force handle LF-only line endings
-              if(NOT patch_content_hex MATCHES "0d0a")
-                list(APPEND PATCH_PROGRAM --binary)
-              endif()
+              # Split into exact bytes before looking for bare LF characters.
+              string(REGEX MATCHALL ".." patch_content_bytes "${patch_content_hex}")
+              set(previous_patch_byte "")
+              foreach(patch_byte IN LISTS patch_content_bytes)
+                # Force handling if any LF-only line endings remain
+                if("${patch_byte}" STREQUAL "0a" AND NOT "${previous_patch_byte}" STREQUAL "0d")
+                  list(APPEND patch_program --binary)
+                  break()
+                endif()
+                set(previous_patch_byte "${patch_byte}")
+              endforeach()
             endif()
           endif()
 
           set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${patch})
-          list(APPEND PATCH_COMMAND COMMAND ${PATCH_PROGRAM} -p1 -i ${patch})
+          list(APPEND PATCH_COMMAND COMMAND ${patch_program} -p1 -i ${patch})
         endforeach()
 
 
@@ -230,10 +247,64 @@ function(add_addon_depends addon searchpath)
             # the third parameter is considered as a revision of a git repository
             list(GET def 2 revision)
 
+            # CMake's own submodule update ignores GIT_SHALLOW and fetches each
+            # submodule's whole history, so do it here with --depth 1
+            cmake_policy(PUSH)
+            if(POLICY CMP0097)
+              cmake_policy(SET CMP0097 NEW)
+            endif()
             externalproject_add(${id}
                                 GIT_REPOSITORY ${url}
                                 GIT_TAG ${revision}
+                                GIT_SUBMODULES ""
                                 ${EXTERNALPROJECT_SETUP})
+            cmake_policy(POP)
+            set(submodules_independent)
+            if(POLICY CMP0114)
+              set(submodules_independent INDEPENDENT TRUE)
+            endif()
+            # Disconnected updates leave update out of the build, and from
+            # CMake 3.27 swap update and patch for update_disconnected and
+            # patch_disconnected
+            get_property(update_disconnected DIRECTORY PROPERTY EP_UPDATE_DISCONNECTED)
+            if(NOT update_disconnected)
+              set(submodules_after update)
+              set(submodules_before patch)
+            elseif(CMAKE_VERSION VERSION_GREATER_EQUAL 3.27)
+              set(submodules_after update_disconnected)
+              set(submodules_before patch_disconnected)
+            else()
+              set(submodules_after download)
+              set(submodules_before patch)
+            endif()
+            # Submodules don't inherit the clone's TLS settings, so pass them
+            # on as ExternalProject does for its own submodule update
+            set(tls_verify "${CMAKE_TLS_VERIFY}")
+            if(tls_verify STREQUAL "")
+              set(tls_verify "$ENV{CMAKE_TLS_VERIFY}")
+            endif()
+            set(tls_version "${CMAKE_TLS_VERSION}")
+            if(tls_version STREQUAL "")
+              set(tls_version "$ENV{CMAKE_TLS_VERSION}")
+            endif()
+            set(submodules_git_options)
+            if(NOT tls_version STREQUAL "")
+              list(APPEND submodules_git_options -c http.sslVersion=tlsv${tls_version})
+            endif()
+            if(NOT tls_verify STREQUAL "")
+              if(tls_verify)
+                list(APPEND submodules_git_options -c http.sslVerify=true)
+              else()
+                list(APPEND submodules_git_options -c http.sslVerify=false)
+              endif()
+            endif()
+            externalproject_add_step(${id} submodules
+                                     COMMAND "${GIT_EXECUTABLE}" ${submodules_git_options} submodule update --init --recursive --depth 1
+                                     COMMENT "Performing submodules step for '${id}'"
+                                     DEPENDEES ${submodules_after}
+                                     DEPENDERS ${submodules_before}
+                                     ${submodules_independent}
+                                     WORKING_DIRECTORY <SOURCE_DIR>)
 
             # For patchfiles to work, disable (users globally set) autocrlf=true
             if(CMAKE_MINIMUM_REQUIRED_VERSION VERSION_GREATER 3.7)

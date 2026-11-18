@@ -10,22 +10,26 @@
 
 #include "CompileInfo.h"
 #include "InputOperations.h"
-#include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationVolumeHandling.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
+#include "language/LangInfo.h"
 #include "messaging/ApplicationMessenger.h"
+#include "messaging/MessengerPayload.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 
 #include <cmath>
+#include <memory>
 #include <string.h>
 
 using namespace JSONRPC;
+using KODI::MESSAGING::TransferToMessenger;
 
-JSONRPC_STATUS CApplicationOperations::GetProperties(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::GetProperties(const CVariant& parameterObject,
+                                                     CVariant& result)
 {
   CVariant properties = CVariant(CVariant::VariantTypeObject);
   for (unsigned int index = 0; index < parameterObject["properties"].size(); index++)
@@ -44,7 +48,7 @@ JSONRPC_STATUS CApplicationOperations::GetProperties(const std::string &method, 
   return OK;
 }
 
-JSONRPC_STATUS CApplicationOperations::SetVolume(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::SetVolume(const CVariant& parameterObject, CVariant& result)
 {
   bool up = false;
   if (parameterObject["volume"].isInteger())
@@ -87,7 +91,7 @@ JSONRPC_STATUS CApplicationOperations::SetVolume(const std::string &method, ITra
   return GetPropertyValue("volume", result);
 }
 
-JSONRPC_STATUS CApplicationOperations::SetMute(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::SetMute(const CVariant& parameterObject, CVariant& result)
 {
   const auto& components = CServiceBroker::GetAppComponents();
   const auto appVolume = components.GetComponent<CApplicationVolumeHandling>();
@@ -95,15 +99,16 @@ JSONRPC_STATUS CApplicationOperations::SetMute(const std::string &method, ITrans
        parameterObject["mute"].asString().compare("toggle") == 0) ||
       (parameterObject["mute"].isBoolean() &&
        parameterObject["mute"].asBoolean() != appVolume->IsMuted()))
-    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1,
-                                               static_cast<void*>(new CAction(ACTION_MUTE)));
+    CServiceBroker::GetAppMessenger()->SendMsg(
+        TMSG_GUI_ACTION, WINDOW_INVALID, -1,
+        TransferToMessenger(std::make_unique<CAction>(ACTION_MUTE)));
   else if (!parameterObject["mute"].isBoolean() && !parameterObject["mute"].isString())
     return InvalidParams;
 
   return GetPropertyValue("muted", result);
 }
 
-JSONRPC_STATUS CApplicationOperations::Quit(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CApplicationOperations::Quit(const CVariant& parameterObject, CVariant& result)
 {
   CServiceBroker::GetAppMessenger()->PostMsg(TMSG_QUIT);
   return ACK;

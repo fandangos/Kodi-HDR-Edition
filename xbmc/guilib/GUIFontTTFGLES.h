@@ -9,6 +9,7 @@
 #pragma once
 
 #include "GUIFontTTF.h"
+#include "utils/GLBufferArena.h"
 
 #include <string>
 #include <vector>
@@ -31,7 +32,8 @@ public:
 
 protected:
   std::unique_ptr<CTexture> ReallocTexture(unsigned int& newHeight) override;
-  bool CopyCharToTexture(FT_BitmapGlyph bitGlyph,
+  bool CopyCharToTexture(const uint8_t* pixels,
+                         unsigned int pitch,
                          unsigned int x1,
                          unsigned int y1,
                          unsigned int x2,
@@ -39,6 +41,7 @@ protected:
   void DeleteHardwareTexture() override;
 
   static GLuint m_elementArrayHandle;
+  static KODI::UTILS::GL::CGLBufferArena& VertexArena();
 
 private:
   unsigned int m_updateY1{0};

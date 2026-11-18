@@ -67,6 +67,9 @@ CWinRenderer::CWinRenderer()
 
 CWinRenderer::~CWinRenderer()
 {
+  // without a render method for the last picture, no renderer is left to restore the HDR state
+  if (!m_renderer && !m_replaced)
+    CRendererBase::RestoreHdrStateBeforePlayback();
   CWinRenderer::UnInit();
 }
 
@@ -233,6 +236,13 @@ void CWinRenderer::PreInit()
   UnInit();
 }
 
+void CWinRenderer::PrepareForReconfigure()
+{
+  m_replaced = true;
+  if (m_renderer)
+    m_renderer->KeepHdrStateOnDestroy();
+}
+
 void CWinRenderer::UnInit()
 {
   std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
@@ -279,6 +289,19 @@ bool CWinRenderer::ConfigChanged(const VideoPicture& picture)
     return true;
 
   return picture.videoBuffer->GetFormat() != m_format;
+}
+
+bool CWinRenderer::ChangePictureSize(const VideoPicture& picture)
+{
+  if (!m_bConfigured || !m_renderer->ChangePictureSize(picture))
+    return false;
+
+  m_sourceWidth = picture.iWidth;
+  m_sourceHeight = picture.iHeight;
+  CalculateFrameAspectRatio(picture.iDisplayWidth, picture.iDisplayHeight);
+  SetViewMode(m_videoSettings.m_ViewMode);
+  ManageRenderArea();
+  return true;
 }
 
 CRenderInfo CWinRenderer::GetRenderInfo()

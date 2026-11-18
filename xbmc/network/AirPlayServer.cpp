@@ -29,6 +29,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/Digest.h"
+#include "utils/ItemProperties.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
@@ -234,7 +235,7 @@ void ClearPhotoAssetCache()
   CLog::Log(LOGINFO, "AIRPLAY: Cleaning up photoassetcache");
   // remove all cached photos
   CFileItemList items;
-  XFILE::CDirectory::GetDirectory("special://temp/", items, "", XFILE::DIR_FLAG_DEFAULTS);
+  XFILE::CDirectory::GetDirectory("special://temp/", items, "", XFILE::DIR_FLAG_NO_FILE_DIRS);
 
   for (int i = 0; i < items.Size(); ++i)
   {
@@ -980,7 +981,7 @@ int CAirPlayServer::CTCPClient::ProcessRequest( std::string& responseHeader,
       location += "|User-Agent=" + userAgent;
 
       CFileItem fileToPlay(location, false);
-      fileToPlay.SetProperty("StartPercent", position*100.0f);
+      fileToPlay.SetProperty(ITEM::PROPERTY::START_PERCENT, position*100.0f);
       ServerInstance->AnnounceToClients(EVENT_LOADING);
 
       CFileItemList *l = new CFileItemList; //don't delete,

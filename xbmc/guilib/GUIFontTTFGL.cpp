@@ -58,17 +58,19 @@ CGUIFontTTFGL::~CGUIFontTTFGL(void)
 
 bool CGUIFontTTFGL::FirstBegin()
 {
-  GLenum pixformat = GL_RED;
-  GLenum internalFormat;
-  unsigned int major, minor;
+  GLenum pixformat = GL_RGBA;
+  GLenum internalFormat = GL_RGBA8;
   CRenderSystemGL* renderSystem = dynamic_cast<CRenderSystemGL*>(CServiceBroker::GetRenderSystem());
-  renderSystem->GetRenderVersion(major, minor);
-  if (major >= 3)
-    internalFormat = GL_R8;
-  else
-    internalFormat = GL_LUMINANCE;
+  if (!m_colorTexture)
+  {
+    unsigned int major, minor;
+    renderSystem->GetRenderVersion(major, minor);
+    pixformat = GL_RED;
+    internalFormat = major >= 3 ? GL_R8 : GL_LUMINANCE;
+  }
 
-  renderSystem->EnableShader(ShaderMethodGL::SM_FONTS);
+  renderSystem->EnableShader(m_colorTexture ? ShaderMethodGL::SM_FONTS_RGBA
+                                            : ShaderMethodGL::SM_FONTS);
   if (renderSystem->ScissorsCanEffectClipping())
   {
     m_scissorClip = true;
@@ -76,8 +78,8 @@ bool CGUIFontTTFGL::FirstBegin()
   else
   {
     m_scissorClip = false;
-    renderSystem->ResetScissors();
-    renderSystem->EnableShader(ShaderMethodGL::SM_FONTS_SHADER_CLIP);
+    renderSystem->EnableShader(m_colorTexture ? ShaderMethodGL::SM_FONTS_RGBA_SHADER_CLIP
+                                              : ShaderMethodGL::SM_FONTS_SHADER_CLIP);
   }
 
   if (m_textureStatus == TEXTURE_REALLOCATED)
@@ -131,19 +133,8 @@ bool CGUIFontTTFGL::FirstBegin()
     m_textureStatus = TEXTURE_READY;
   }
 
-  // Alpha blending assumes linear light. SDR (direct-to-backbuffer or
-  // direct-to-plane) blends in sRGB -- "wrong but consistent", the aesthetic
-  // skins are designed against. HDR FBO compositing draws GUI into an sRGB
-  // FBO that is color-transformed to PQ before compositing with video in
-  // that non-linear space -- two stages of non-linear blending. The
-  // compensated factors below trade accumulator coverage for a squared-
-  // alpha blend that approximately matches SDR perceived translucency. It
-  // is a "close enough" compromise; a mathematically correct fix would
-  // require linear-light compositing (too expensive on typical ARM GPUs).
-  if (CServiceBroker::GetWinSystem()->IsHdrComposite())
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  else
-    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
+  // Accumulate coverage; the HDR composite shader squares it to compensate for blending in PQ.
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_ONE);
   glEnable(GL_BLEND);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_nTexture);
@@ -159,6 +150,18 @@ void CGUIFontTTFGL::LastEnd()
   CWinSystemBase* const winSystem = CServiceBroker::GetWinSystem();
   if (!winSystem)
     return;
+
+  const STENCIL_LAYER stencilLayer =
+      CServiceBroker::GetWinSystem()->GetGfxContext().GetStencilLayer();
+
+  if (stencilLayer == STENCIL_LAYER::INVALID)
+    return;
+
+  if (stencilLayer != STENCIL_LAYER::NONE)
+  {
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_EQUAL, 0xFF, 0x1 << (int)stencilLayer);
+  }
 
   CRenderSystemGL* renderSystem = dynamic_cast<CRenderSystemGL*>(CServiceBroker::GetRenderSystem());
 
@@ -185,7 +188,7 @@ void CGUIFontTTFGL::LastEnd()
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_elementArrayHandle);
     // Store current scissor
     CGraphicContext& context = winSystem->GetGfxContext();
-    CRect scissor = context.StereoCorrection(context.GetScissors());
+    const CRect scissor = context.StereoCorrection(context.GetScissors());
 
     for (size_t i = 0; i < m_vertexTrans.size(); i++)
     {
@@ -213,8 +216,6 @@ void CGUIFontTTFGL::LastEnd()
       else
       {
         // clip using vertex shader
-        renderSystem->ResetScissors();
-
         const float clipBoundaries[4] = {
             (m_vertexTrans[i].m_clip.x1 - m_vertexTrans[i].m_translateX -
              m_vertexTrans[i].m_offsetX) /
@@ -305,6 +306,9 @@ void CGUIFontTTFGL::LastEnd()
   glDisableVertexAttribArray(tex0Loc);
 
   renderSystem->DisableShader();
+
+  glStencilFunc(GL_ALWAYS, 0x0, 0xFF);
+  glDisable(GL_STENCIL_TEST);
 }
 
 CVertexBuffer CGUIFontTTFGL::CreateVertexBuffer(const std::vector<SVertex>& vertices) const
@@ -346,7 +350,7 @@ std::unique_ptr<CTexture> CGUIFontTTFGL::ReallocTexture(unsigned int& newHeight)
   newHeight = CTexture::PadPow2(newHeight);
 
   std::unique_ptr<CTexture> newTexture =
-      CTexture::CreateTexture(m_textureWidth, newHeight, XB_FMT_A8);
+      CTexture::CreateTexture(m_textureWidth, newHeight, m_colorTexture ? XB_FMT_RGBA8 : XB_FMT_A8);
 
   if (!newTexture || !newTexture->GetPixels())
   {
@@ -364,20 +368,11 @@ std::unique_ptr<CTexture> CGUIFontTTFGL::ReallocTexture(unsigned int& newHeight)
   m_staticCache.Flush();
   m_dynamicCache.Flush();
 
-  memset(newTexture->GetPixels(), 0, m_textureHeight * newTexture->GetPitch());
+  FillNewTexture(*newTexture);
   if (m_texture)
   {
     m_updateY1 = 0;
     m_updateY2 = m_texture->GetHeight();
-
-    unsigned char* src = m_texture->GetPixels();
-    unsigned char* dst = newTexture->GetPixels();
-    for (unsigned int y = 0; y < m_texture->GetHeight(); y++)
-    {
-      memcpy(dst, src, m_texture->GetPitch());
-      src += m_texture->GetPitch();
-      dst += newTexture->GetPitch();
-    }
   }
 
   m_textureStatus = TEXTURE_REALLOCATED;
@@ -385,20 +380,14 @@ std::unique_ptr<CTexture> CGUIFontTTFGL::ReallocTexture(unsigned int& newHeight)
   return newTexture;
 }
 
-bool CGUIFontTTFGL::CopyCharToTexture(
-    FT_BitmapGlyph bitGlyph, unsigned int x1, unsigned int y1, unsigned int x2, unsigned int y2)
+bool CGUIFontTTFGL::CopyCharToTexture(const uint8_t* pixels,
+                                      unsigned int pitch,
+                                      unsigned int x1,
+                                      unsigned int y1,
+                                      unsigned int x2,
+                                      unsigned int y2)
 {
-  FT_Bitmap bitmap = bitGlyph->bitmap;
-
-  unsigned char* source = bitmap.buffer;
-  unsigned char* target = m_texture->GetPixels() + y1 * m_texture->GetPitch() + x1;
-
-  for (unsigned int y = y1; y < y2; y++)
-  {
-    memcpy(target, source, x2 - x1);
-    source += bitmap.width;
-    target += m_texture->GetPitch();
-  }
+  WriteCharPixels(pixels, pitch, x1, y1, x2, y2);
 
   switch (m_textureStatus)
   {

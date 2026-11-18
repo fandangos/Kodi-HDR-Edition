@@ -8,6 +8,7 @@ set(SOURCES AEResampleFactory.cpp
             Engines/ActiveAE/ActiveAEStream.cpp
             Engines/ActiveAE/ActiveAESound.cpp
             Engines/ActiveAE/ActiveAESettings.cpp
+            Sinks/AESinkNULL.cpp
             Utils/AEBitstreamPacker.cpp
             Utils/AEChannelInfo.cpp
             Utils/AEDeviceInfo.cpp
@@ -36,6 +37,7 @@ set(HEADERS AEResampleFactory.h
             Interfaces/AEStream.h
             Interfaces/IAudioCallback.h
             Interfaces/ThreadedAE.h
+            Sinks/AESinkNULL.h
             Utils/AEAudioFormat.h
             Utils/AEBitstreamPacker.h
             Utils/AEChannelData.h
@@ -157,6 +159,11 @@ endif()
 if(CORE_SYSTEM_NAME STREQUAL freebsd)
   list(APPEND SOURCES Sinks/AESinkOSS.cpp)
   list(APPEND HEADERS Sinks/AESinkOSS.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL wasm)
+  list(APPEND SOURCES Sinks/AESinkWasmAudioWorklet.cpp)
+  list(APPEND HEADERS Sinks/AESinkWasmAudioWorklet.h)
 endif()
 
 core_add_library(audioengine)

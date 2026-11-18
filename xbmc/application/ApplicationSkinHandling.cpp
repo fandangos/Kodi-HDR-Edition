@@ -24,6 +24,7 @@
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
 #include "application/ApplicationPowerHandling.h"
+#include "application/ApplicationSettingsHandling.h"
 #include "dialogs/GUIDialogButtonMenu.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogSubMenu.h"
@@ -47,7 +48,7 @@
 #include "settings/lib/Setting.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "utils/XBMCTinyXML.h"
+#include "utils/XBMCTinyXML2.h"
 #include "utils/log.h"
 #include "video/dialogs/GUIDialogFullScreenInfo.h"
 #include "windowing/WinSystem.h"
@@ -317,16 +318,16 @@ bool CApplicationSkinHandling::LoadCustomWindows()
           std::string skinFileLower = skinFile;
           StringUtils::ToLower(skinFileLower);
 
-          CXBMCTinyXML xmlDoc;
+          CXBMCTinyXML2 xmlDoc;
           if (!xmlDoc.LoadFile(item->GetPath()))
           {
             CLog::Log(LOGERROR, "Unable to load custom window XML {}. Line {}\n{}", item->GetPath(),
-                      xmlDoc.ErrorRow(), xmlDoc.ErrorDesc());
+                      xmlDoc.ErrorLineNum(), xmlDoc.ErrorStr());
             continue;
           }
 
           // Root element should be <window>
-          TiXmlElement* pRootElement = xmlDoc.RootElement();
+          const tinyxml2::XMLElement* pRootElement = xmlDoc.RootElement();
           std::string strValue = pRootElement->Value();
           if (!StringUtils::EqualsNoCase(strValue, "window"))
           {
@@ -343,15 +344,17 @@ bool CApplicationSkinHandling::LoadCustomWindows()
             strType = pRootElement->Attribute("type");
           else
           {
-            const TiXmlNode* pType = pRootElement->FirstChild("type");
+            const tinyxml2::XMLNode* pType = pRootElement->FirstChildElement("type");
             if (pType && pType->FirstChild())
               strType = pType->FirstChild()->Value();
           }
 
           // Read the id attribute or element to get the window id
-          if (!pRootElement->Attribute("id", &id))
+          if (pRootElement->Attribute("id"))
+            pRootElement->QueryIntAttribute("id", &id);
+          else
           {
-            const TiXmlNode* pType = pRootElement->FirstChild("id");
+            const tinyxml2::XMLNode* pType = pRootElement->FirstChildElement("id");
             if (pType && pType->FirstChild())
               id = atol(pType->FirstChild()->Value());
           }
@@ -441,7 +444,19 @@ void CApplicationSkinHandling::ReloadSkin(bool confirm)
   if (!skin || m_bInitializing)
     return; // Don't allow reload before skin is loaded by system
 
+  // Reloading destroys every control in every window, and the GUI message handlers
+  // suspended below a nested render loop still hold pointers into that tree. Wait for
+  // the stack to unwind.
+  if (gui->GetWindowManager().IsNested())
+  {
+    m_pendingSkinReload = true;
+    m_pendingSkinReloadConfirm = m_pendingSkinReloadConfirm || confirm;
+    return;
+  }
+
   std::string oldSkin = skin->ID();
+
+  CApplicationSettingsHandling::ApplyRasterSettings();
 
   CGUIMessage msg(GUI_MSG_LOAD_SKIN, -1, gui->GetWindowManager().GetActiveWindow());
   gui->GetWindowManager().SendMessage(msg);
@@ -502,9 +517,24 @@ void CApplicationSkinHandling::ReloadSkin(bool confirm)
   m_confirmSkinChange = true;
 }
 
-bool CApplicationSkinHandling::OnSettingChanged(const CSetting& setting)
+void CApplicationSkinHandling::ProcessPendingSkinReload()
 {
-  const std::string& settingId = setting.GetId();
+  if (!m_pendingSkinReload)
+    return;
+
+  const auto gui = CServiceBroker::GetGUI();
+  if (gui == nullptr || gui->GetWindowManager().IsNested())
+    return;
+
+  const bool confirm = m_pendingSkinReloadConfirm;
+  m_pendingSkinReload = false;
+  m_pendingSkinReloadConfirm = false;
+  ReloadSkin(confirm);
+}
+
+void CApplicationSkinHandling::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
+{
+  const std::string& settingId = setting->GetId();
 
   if (settingId == CSettings::SETTING_LOOKANDFEEL_SKIN ||
       settingId == CSettings::SETTING_LOOKANDFEEL_FONT ||
@@ -516,7 +546,7 @@ bool CApplicationSkinHandling::OnSettingChanged(const CSetting& setting)
     // result in multiple skin reloads. Therefore we manually specify to ignore specific settings
     // which are going to be changed.
     if (m_ignoreSkinSettingChanges)
-      return true;
+      return;
 
     // if the skin changes and the current color/theme/font is not the default one, reset
     // the it to the default value
@@ -557,8 +587,8 @@ bool CApplicationSkinHandling::OnSettingChanged(const CSetting& setting)
       m_ignoreSkinSettingChanges = true;
 
       // we also need to adjust the skin color theme and fontset
-      std::string theme = static_cast<const CSettingString&>(setting).GetValue();
-      if (setting.IsDefault() || StringUtils::EqualsNoCase(theme, "Textures.xbt"))
+      std::string theme = static_cast<const CSettingString&>(*setting).GetValue();
+      if (setting->IsDefault() || StringUtils::EqualsNoCase(theme, "Textures.xbt"))
       {
         skinColorsSetting->Reset();
         skinFontSetting->Reset();
@@ -588,10 +618,6 @@ bool CApplicationSkinHandling::OnSettingChanged(const CSetting& setting)
     CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_WINDOW_RESIZE);
     CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
   }
-  else
-    return false;
-
-  return true;
 }
 
 void CApplicationSkinHandling::ProcessSkin() const

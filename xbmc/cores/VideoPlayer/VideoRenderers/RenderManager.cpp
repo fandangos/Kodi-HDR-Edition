@@ -88,6 +88,7 @@ void CRenderManager::SetVideoSettings(const CVideoSettings& settings)
 
 bool CRenderManager::Configure(const VideoPicture& picture, float fps, unsigned int orientation, int buffers)
 {
+  bool sizeOnly = false;
 
   // check if something has changed
   {
@@ -113,6 +114,10 @@ bool CRenderManager::Configure(const VideoPicture& picture, float fps, unsigned 
       }
       return true;
     }
+
+    sizeOnly = m_pRenderer != nullptr && m_picture.IsSameParamsExceptSize(picture) &&
+               m_orientation == orientation && m_NumberBuffers == buffers && m_fps == fps &&
+               !m_pRenderer->ConfigChanged(picture);
   }
 
   CLog::Log(LOGDEBUG,
@@ -150,6 +155,7 @@ bool CRenderManager::Configure(const VideoPicture& picture, float fps, unsigned 
     m_dvdClock.SetVsyncAdjust(0);
     m_pConfigPicture = std::make_unique<VideoPicture>();
     m_pConfigPicture->CopyRef(picture);
+    m_configSizeOnly = sizeOnly;
 
     std::unique_lock lock2(m_presentlock);
     m_presentstep = PRESENT_READY;
@@ -157,12 +163,9 @@ bool CRenderManager::Configure(const VideoPicture& picture, float fps, unsigned 
   }
 
   if (!m_stateEvent.Wait(1000ms))
-  {
     CLog::Log(LOGWARNING, "CRenderManager::Configure - timeout waiting for configure");
-    std::unique_lock lock(m_statelock);
-    return false;
-  }
 
+  // a configure still in progress holds m_statelock, wait for it and use its result
   std::unique_lock lock(m_statelock);
   if (m_renderState != STATE_CONFIGURED)
   {
@@ -180,10 +183,16 @@ bool CRenderManager::Configure()
   std::unique_lock lock2(m_presentlock);
   std::unique_lock lock3(m_datalock);
 
-  if (m_pRenderer)
+  const bool keepRenderer =
+      m_configSizeOnly && m_pRenderer && m_pRenderer->ChangePictureSize(*m_pConfigPicture);
+
+  if (keepRenderer)
+    CLog::Log(LOGDEBUG, "CRenderManager::Configure - renderer kept for the new picture size");
+  else if (m_pRenderer)
   {
     // The renderer is only being replaced by one for the new stream, playback continues.
     m_pRenderer->SetTransientRelease(true);
+    m_pRenderer->PrepareForReconfigure();
     DeleteRenderer();
   }
 
@@ -195,7 +204,7 @@ bool CRenderManager::Configure()
   }
 
   m_pRenderer->SetVideoSettings(m_playerPort->GetVideoSettings());
-  bool result = m_pRenderer->Configure(*m_pConfigPicture, m_fps, m_orientation);
+  bool result = keepRenderer || m_pRenderer->Configure(*m_pConfigPicture, m_fps, m_orientation);
   if (result)
   {
     CRenderInfo info = m_pRenderer->GetRenderInfo();
@@ -216,7 +225,7 @@ bool CRenderManager::Configure()
 
     m_playerPort->UpdateRenderInfo(info);
     m_playerPort->UpdateGuiRender(true);
-    m_playerPort->UpdateVideoRender(m_pRenderer->HasVideoPlane());
+    m_playerPort->UpdateVideoRender(m_pRenderer->VideoBypassesFramebuffer());
 
     m_queued.clear();
     m_discard.clear();
@@ -227,7 +236,9 @@ bool CRenderManager::Configure()
       m_free.push_back(i);
 
     m_bRenderGUI = true;
-    m_bTriggerUpdateResolution = true;
+    // A display mode is chosen by size too, and another size alone is no reason to change it
+    if (!keepRenderer)
+      m_bTriggerUpdateResolution = true;
     m_presentstep = PRESENT_IDLE;
     m_presentpts = DVD_NOPTS_VALUE;
     m_lateframes = -1;
@@ -237,6 +248,7 @@ bool CRenderManager::Configure()
     m_clockSync.Reset();
     m_dvdClock.SetVsyncAdjust(0);
     m_overlays.Reset();
+    OVERLAY::MarkDirty();
     m_overlays.SetStereoMode(m_picture.stereoMode);
 
     m_renderState = STATE_CONFIGURED;
@@ -351,7 +363,8 @@ void CRenderManager::FrameMove()
     m_bRenderGUI = true;
   }
 
-  m_playerPort->UpdateGuiRender(IsGuiLayer() || !m_pRenderer->HasVideoPlane() || firstFrame);
+  m_playerPort->UpdateGuiRender(IsGuiLayer() || !m_pRenderer->VideoBypassesFramebuffer() ||
+                                firstFrame);
 
   // Run libass for the current PTS and cache the output for ConvertLibass
   // to use during the render pass. PrepareOverlays MarkDirty's on libass
@@ -512,6 +525,15 @@ void CRenderManager::DeleteRenderer()
   }
 }
 
+bool CRenderManager::CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result)
+{
+  std::unique_lock lock(m_statelock);
+  if (m_renderState != STATE_CONFIGURED || !m_pRenderer)
+    return true;
+
+  return m_pRenderer->CompositeVideoCapture(result);
+}
+
 void CRenderManager::ServiceVideoCaptures()
 {
   using namespace KODI::RENDERING::CAPTURE;
@@ -524,12 +546,18 @@ void CRenderManager::ServiceVideoCaptures()
   if (requests.empty())
     return;
 
-  // video composited outside Kodi's GL (D2P plane, Android video surface,
-  // webOS video plane) leaves nothing in the framebuffer to copy
-  if (m_pRenderer->HasVideoPlane())
+  // the renderer does not draw video into the framebuffer, so the copy-back
+  // below would capture the GUI (if any) instead of the video; fail the request
+  if (m_pRenderer->VideoBypassesFramebuffer())
   {
     for (const auto& request : requests)
-      captureService->Fail(request);
+    {
+      CaptureResult result;
+      if (m_pRenderer->CaptureVideoFrame(request->spec, result))
+        captureService->Complete(request, std::move(result));
+      else
+        captureService->Fail(request);
+    }
     return;
   }
 
@@ -617,6 +645,8 @@ void CRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
   {
     SPresent& m = m_Queue[m_presentsource];
 
+    m_pRenderer->SetFrameContentRect(m.contentRect);
+
     if( m.presentmethod == PRESENT_METHOD_BOB )
       PresentFields(clear, flags, alpha);
     else if( m.presentmethod == PRESENT_METHOD_BLEND )
@@ -630,6 +660,14 @@ void CRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
   // the just-presented region is video-only: OSD, GUI and subtitles come later
   if (presented)
     ServiceVideoCaptures();
+
+  if (presented && !gui)
+  {
+    CRect src, dst, view;
+    m_pRenderer->GetVideoRect(src, dst, view);
+    m_overlays.SetVideoRect(src, dst, view);
+    m_overlays.RenderHDROverlays(m_presentsource);
+  }
 
   if (gui)
   {
@@ -654,7 +692,7 @@ void CRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
       {
         DEBUG_INFO_PLAYER info;
 
-        m_playerPort->GetDebugInfo(info.audio, info.video, info.player);
+        m_playerPort->GetDebugInfo(info);
 
         double refreshrate, clockspeed;
         int missedvblanks;
@@ -914,6 +952,7 @@ bool CRenderManager::AddVideoPicture(const VideoPicture& picture, volatile std::
   m.presentfield = displayField;
   m.presentmethod = presentmethod;
   m.pts = picture.pts;
+  m.contentRect = picture.contentRect;
   m_queued.push_back(m_free.front());
   m_free.pop_front();
   m_playerPort->UpdateRenderBuffers(m_queued.size(), m_discard.size(), m_free.size());
@@ -1048,13 +1087,22 @@ void CRenderManager::PrepareNextRender()
       m_videoDelay -
       static_cast<double>(CServiceBroker::GetWinSystem()->GetFrameLatencyAdjustment()));
 
-  const bool isPaused = m_dvdClock.IsPaused();
+  // While the clock is paused, frameOnScreen does not advance, so adding the display
+  // latency would pick a frame ahead of the one actually shown. That only holds for
+  // renderers that draw the video into our framebuffer and re-pick every refresh.
+  // Renderers that hand frames to a hardware plane queue (VideoBypassesFramebuffer)
+  // cannot take a released frame back: frames released without the latency during an
+  // internal pause (caching, display reset) keep that lead and video stays ahead of audio.
+  const bool clockPaused = m_dvdClock.IsPaused();
+  const bool isPaused = clockPaused && !(m_pRenderer && m_pRenderer->VideoBypassesFramebuffer());
   double renderPts = frameOnScreen;
   if (!isPaused)
     renderPts += m_displayLatency;
 
+  // GetClockSpeed() keeps the last speed while paused, so check the clock itself;
+  // isPaused is always false for renderers that bypass the framebuffer.
   const double nextFramePts =
-      m_dvdClock.GetClockSpeed() < 0 ? renderPts : m_Queue[m_queued.front()].pts;
+      (!clockPaused && m_dvdClock.GetClockSpeed() < 0) ? renderPts : m_Queue[m_queued.front()].pts;
 
   if (m_clockSync.m_enabled)
   {

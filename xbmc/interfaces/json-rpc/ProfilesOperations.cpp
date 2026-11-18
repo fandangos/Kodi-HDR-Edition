@@ -15,13 +15,14 @@
 #include "messaging/ApplicationMessenger.h"
 #include "profiles/ProfileManager.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/Digest.h"
 #include "utils/Variant.h"
 
 using namespace JSONRPC;
 using KODI::UTILITY::CDigest;
 
-JSONRPC_STATUS CProfilesOperations::GetProfiles(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CProfilesOperations::GetProfiles(const CVariant& parameterObject, CVariant& result)
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
@@ -31,7 +32,7 @@ JSONRPC_STATUS CProfilesOperations::GetProfiles(const std::string &method, ITran
   {
     const CProfile *profile = profileManager->GetProfile(i);
     CFileItemPtr item(new CFileItem(profile->getName()));
-    item->SetArt("thumb", profile->getThumb());
+    item->SetArt(KODI::ART::TYPE::THUMB, profile->getThumb());
     listItems.Add(item);
   }
 
@@ -60,7 +61,8 @@ JSONRPC_STATUS CProfilesOperations::GetProfiles(const std::string &method, ITran
   return OK;
 }
 
-JSONRPC_STATUS CProfilesOperations::GetCurrentProfile(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CProfilesOperations::GetCurrentProfile(const CVariant& parameterObject,
+                                                      CVariant& result)
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
@@ -83,7 +85,7 @@ JSONRPC_STATUS CProfilesOperations::GetCurrentProfile(const std::string &method,
   return OK;
 }
 
-JSONRPC_STATUS CProfilesOperations::LoadProfile(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CProfilesOperations::LoadProfile(const CVariant& parameterObject, CVariant& result)
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 

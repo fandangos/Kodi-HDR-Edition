@@ -16,6 +16,7 @@
 #include "utils/Geometry.h"
 #include "video/VideoInfoTag.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -141,7 +142,12 @@ public:
     virtual DemuxPacket* ReadDemux() = 0;
     virtual CDemuxStream* GetStream(int iStreamId) const = 0;
     virtual std::vector<CDemuxStream*> GetStreams() const = 0;
-    virtual void EnableStream(int iStreamId, bool enable) {}
+    /*!
+     * \brief Enable or disable the delivery of packets of a stream.
+     * \return true if the request was passed on to an implementation that can act on it,
+     *         false if enabling/disabling streams is not supported
+     */
+    virtual bool EnableStream(int iStreamId, bool enable) { return false; }
     virtual bool OpenStream(int iStreamId) { return false; }
     virtual int GetNrOfStreams() const = 0;
     virtual void SetSpeed(int iSpeed) = 0;
@@ -175,7 +181,9 @@ public:
   virtual std::string GetFileName();
   virtual CURL GetURL();
   virtual ENextStream NextStream() { return NEXTSTREAM_NONE; }
-  virtual void Abort() {}
+  // may be called from another thread; the demuxer stops reading once it's set
+  virtual void Abort() { m_aborted = true; }
+  bool Aborted() const { return m_aborted; }
   virtual int GetBlockSize() { return 0; }
   virtual bool CanSeek() { return true; } //! @todo drop this
   virtual bool CanPause() { return false; }
@@ -198,6 +206,8 @@ public:
   bool ContentLookup() { return m_contentLookup; }
 
   virtual bool IsRealtime() { return m_realtime; }
+
+  virtual bool IsStreaming() const;
 
   void SetRealtime(bool realtime) { m_realtime = realtime; }
 
@@ -285,4 +295,5 @@ protected:
   CFileItem m_item;
   bool m_contentLookup;
   bool m_realtime;
+  std::atomic_bool m_aborted{false};
 };

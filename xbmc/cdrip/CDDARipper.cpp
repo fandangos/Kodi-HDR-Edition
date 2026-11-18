@@ -12,11 +12,13 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "ServiceBroker.h"
+#include "URL.h"
 #include "Util.h"
 #include "addons/AddonManager.h"
 #include "addons/addoninfo/AddonInfo.h"
 #include "addons/addoninfo/AddonType.h"
 #include "filesystem/CDDADirectory.h"
+#include "filesystem/CDDAFile.h"
 #include "guilib/GUIWindowManager.h"
 #include "messaging/helpers/DialogOKHelper.h"
 #include "music/MusicDatabase.h"
@@ -45,6 +47,7 @@ using namespace XFILE;
 using namespace MUSIC_INFO;
 using namespace KODI::MESSAGING;
 using namespace KODI::CDRIP;
+using KODI::MEDIA::MediaSection;
 
 CCDDARipper& CCDDARipper::GetInstance()
 {
@@ -87,8 +90,8 @@ bool CCDDARipper::RipTrack(CFileItem* pItem)
 bool CCDDARipper::RipCD()
 {
   // return here if cd is not a CDDA disc
-  MEDIA_DETECT::CCdInfo* pInfo = CServiceBroker::GetMediaManager().GetCdInfo();
-  if (pInfo == nullptr || !pInfo->IsAudio(1))
+  const std::shared_ptr<MEDIA_DETECT::CCdInfo> pInfo{CServiceBroker::GetMediaManager().GetCdInfo()};
+  if (!pInfo || !pInfo->IsAudio(1))
   {
     CLog::LogF(LOGDEBUG, "CD is not an audio cd");
     return false;
@@ -267,8 +270,7 @@ std::string CCDDARipper::GetAlbumDirName(const MUSIC_INFO::CMusicInfoTag& infoTa
 
 std::string CCDDARipper::GetTrackName(CFileItem* item)
 {
-  // get track number from "cdda://local/01.cdda"
-  int trackNumber = atoi(item->GetPath().substr(13, item->GetPath().size() - 13 - 5).c_str());
+  const int trackNumber = XFILE::CFileCDDA::GetTrackNum(CURL(item->GetPath()));
 
   // Format up our ripped file label
   CFileItem destItem(*item);
@@ -309,8 +311,7 @@ void CCDDARipper::OnJobComplete(unsigned int jobID, bool success, CJob* job)
       std::string dir = URIUtils::GetDirectory(static_cast<CCDDARipJob*>(job)->GetOutput());
       bool unimportant;
       int source = CUtil::GetMatchingSource(
-          dir, *CMediaSourceSettings::GetInstance().CMediaSourceSettings::GetSources("music"),
-          unimportant);
+          dir, CMediaSourceSettings::GetInstance().GetSources(MediaSection::MUSIC), unimportant);
 
       CMusicDatabase database;
       database.Open();

@@ -14,6 +14,9 @@
 #include "ServiceBroker.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
+#include "utils/ArtTypes.h"
+#include "utils/DefaultArt.h"
+#include "utils/ItemProperties.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
@@ -41,7 +44,8 @@ bool CDirectoryNodeMovieAssets::GetContent(CFileItemList& items) const
   CQueryParams params;
   CollectQueryParams(params);
 
-  const int details{items.GetProperty("set_videodb_details").asInteger32(VideoDbDetailsStream)};
+  const int details{items.GetProperty(KODI::ITEM::PROPERTY::SET_VIDEODB_DETAILS)
+                        .asInteger32(VideoDbDetailsStream)};
 
   const std::string path{BuildPath()};
 
@@ -65,9 +69,8 @@ bool CDirectoryNodeMovieAssets::GetContent(CFileItemList& items) const
         CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(40211)); // "Extras"
     item->SetLabelPreformatted(true); //! @todo not sure, but used elsewhere
 
-    //! @todo icon too small for nice display, add new skin icon in bigger size? ex. DefaultAddSource.png
     //! @todo wrong art type? some Estuary views don't show it
-    item->SetArt("icon", "icons/infodialogs/extras.png");
+    item->SetArt(KODI::ART::TYPE::ICON, KODI::ART::DEFAULT::VIDEO_EXTRAS);
 
     items.Add(item);
   }

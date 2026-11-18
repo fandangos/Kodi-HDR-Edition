@@ -22,6 +22,13 @@ enum DVDOverlayType
   DVDOVERLAY_TYPE_GROUP   = 5,
 };
 
+enum class DVDOverlayStereoView
+{
+  BOTH,
+  LEFT,
+  RIGHT,
+};
+
 class CDVDOverlay : public std::enable_shared_from_this<CDVDOverlay>
 {
 public:
@@ -37,7 +44,8 @@ public:
     m_enableTextAlign = false;
     m_overlayContainerFlushable = true;
     m_setForcedMargins = false;
-    m_isDiscMenuGraphic = false;
+    m_discMenu = false;
+    m_stereoView = DVDOverlayStereoView::BOTH;
   }
 
   CDVDOverlay(const CDVDOverlay& src) : std::enable_shared_from_this<CDVDOverlay>(src)
@@ -54,7 +62,8 @@ public:
     // Must be copied: the disc menu is split into dirty sub-rects through the
     // CDVDOverlayImage crop constructor, which delegates here. Dropping it would
     // silently demote every redrawn menu region to a subtitle.
-    m_isDiscMenuGraphic = src.m_isDiscMenuGraphic;
+    m_discMenu = src.m_discMenu;
+    m_stereoView = src.m_stereoView;
   }
 
   virtual ~CDVDOverlay() = default;
@@ -110,28 +119,28 @@ public:
   bool IsForcedMargins() const { return m_setForcedMargins; }
 
   /*
-   * \brief Mark the overlay as part of a disc's own graphics planes (BD-J / HDMV
-   *        menu), as opposed to a subtitle. Both arrive as CDVDOverlayImage.
+   * \brief Mark the overlay as a disc menu drawn by the input stream rather than a subtitle.
    */
-  void SetDiscMenuGraphic(bool isDiscMenuGraphic) { m_isDiscMenuGraphic = isDiscMenuGraphic; }
+  void SetDiscMenu(bool discMenu) { m_discMenu = discMenu; }
 
   /*
-   * \brief Return true if the overlay is a disc menu graphic rather than a subtitle.
+   * \brief Return true if the overlay is a disc menu drawn by the input stream.
    */
-  bool IsDiscMenuGraphic() const { return m_isDiscMenuGraphic; }
+  bool IsDiscMenu() const { return m_discMenu; }
 
   double iPTSStartTime;
   double iPTSStopTime;
   bool bForced; // display, no matter what
   bool replace; // replace by next nomatter what stoptime it has
   unsigned long m_textureid;
+  DVDOverlayStereoView m_stereoView;
 
 protected:
   DVDOverlayType m_type;
   bool m_enableTextAlign;
   bool m_overlayContainerFlushable;
   bool m_setForcedMargins;
-  bool m_isDiscMenuGraphic;
+  bool m_discMenu;
 };
 
 using VecOverlays = std::vector<std::shared_ptr<CDVDOverlay>>;

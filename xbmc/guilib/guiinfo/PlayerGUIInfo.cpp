@@ -28,6 +28,7 @@
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
@@ -189,6 +190,9 @@ bool CPlayerGUIInfo::GetLabel(std::string& value,
     case PLAYER_PROGRESS_CACHE:
       value = std::to_string(std::lrintf(g_application.GetCachePercentage()));
       return true;
+    case PLAYER_WAITING_FOR_AUDIO_REMAINING:
+      value = std::to_string(m_appPlayer->GetWaitingForAudioRemaining());
+      return true;
     case PLAYER_VOLUME:
       value =
           StringUtils::Format("{:2.1f} dB", CAEUtil::PercentToGain(m_appVolume->GetVolumeRatio()));
@@ -279,6 +283,17 @@ bool CPlayerGUIInfo::GetLabel(std::string& value,
         value = "+" + strSeekSize;
       return true;
     }
+    case PLAYER_SEEKSTEPVALUE:
+    {
+      const int seekStepValue = m_appPlayer->GetSeekHandler().GetSeekStepValue();
+      const std::string strSeekStepValue = StringUtils::SecondsToTimeString(
+          abs(seekStepValue), static_cast<TIME_FORMAT>(info.GetData1()));
+      if (seekStepValue < 0)
+        value = "-" + strSeekStepValue;
+      if (seekStepValue > 0)
+        value = "+" + strSeekStepValue;
+      return true;
+    }
     case PLAYER_SEEKNUMERIC:
       value = GetSeekTime(static_cast<TIME_FORMAT>(info.GetData1()));
       return !value.empty();
@@ -296,11 +311,11 @@ bool CPlayerGUIInfo::GetLabel(std::string& value,
       value = item->GetArt(info.GetData3());
       return true;
     case PLAYER_ICON:
-      value = item->GetArt("thumb");
+      value = item->GetArt(KODI::ART::TYPE::THUMB);
       if (value.empty())
-        value = item->GetArt("icon");
+        value = item->GetArt(KODI::ART::TYPE::ICON);
       if (fallback)
-        *fallback = item->GetArt("icon");
+        *fallback = item->GetArt(KODI::ART::TYPE::ICON);
       return true;
     case PLAYER_EDITLIST:
     case PLAYER_CUTS:
@@ -416,6 +431,9 @@ bool CPlayerGUIInfo::GetInt(int& value,
       return true;
     case PLAYER_CACHELEVEL:
       value = m_appPlayer->GetCacheLevel();
+      return true;
+    case PLAYER_WAITING_FOR_AUDIO_REMAINING:
+      value = m_appPlayer->GetWaitingForAudioRemaining();
       return true;
     case PLAYER_CHAPTER:
       value = m_appPlayer->GetChapter();
@@ -549,6 +567,9 @@ bool CPlayerGUIInfo::GetBool(bool& value,
       return true;
     case PLAYER_CACHING:
       value = m_appPlayer->IsCaching();
+      return true;
+    case PLAYER_WAITING_FOR_AUDIO:
+      value = m_appPlayer->IsWaitingForAudio();
       return true;
     case PLAYER_SEEKBAR:
     {

@@ -249,7 +249,16 @@ bool CTexture::LoadIImage(IImage* pImage,
     return false;
 
   unsigned int maxTextureSize = CServiceBroker::GetRenderSystem()->GetMaxTextureSize();
-  if (!pImage->LoadImageFromMemory(buffer, bufSize, maxTextureSize, maxTextureSize))
+  // A decoder that can skip detail we are about to discard needs to know the size we will
+  // actually use. Only KEEP fits the image inside the ideal size; the other modes can need
+  // more than it on at least one axis.
+  const bool keep = aspectRatio == CAspectRatio::KEEP;
+  const unsigned int limitWidth =
+      keep && idealWidth > 0 ? std::min(idealWidth, maxTextureSize) : maxTextureSize;
+  const unsigned int limitHeight =
+      keep && idealHeight > 0 ? std::min(idealHeight, maxTextureSize) : maxTextureSize;
+
+  if (!pImage->LoadImageFromMemory(buffer, bufSize, limitWidth, limitHeight))
     return false;
 
   if (pImage->Width() == 0 || pImage->Height() == 0)
@@ -285,6 +294,12 @@ bool CTexture::LoadIImage(IImage* pImage,
       else
         height = heightFromWidth;
     }
+
+    if (width > pImage->Width() || height > pImage->Height())
+    {
+      width = pImage->Width();
+      height = pImage->Height();
+    }
   }
 
   if (width > maxTextureSize || height > maxTextureSize)
@@ -301,6 +316,9 @@ bool CTexture::LoadIImage(IImage* pImage,
       width = (unsigned int)(height * aspect + 0.5f);
     }
   }
+
+  width = std::max(width, 1u);
+  height = std::max(height, 1u);
 
   // align all textures so that they have an even width
   // in some circumstances when we downsize a thumbnail
@@ -412,7 +430,7 @@ bool CTexture::UploadFromMemory(unsigned int width,
   }
   else if (!m_pixels)
   {
-    size_t size = GetPitch() * GetRows();
+    size_t size = static_cast<size_t>(GetPitch()) * GetRows();
     constexpr size_t simdPadding{32};
     m_pixels = static_cast<unsigned char*>(KODI::MEMORY::AlignedMalloc(size + simdPadding, 32));
     if (m_pixels == nullptr)

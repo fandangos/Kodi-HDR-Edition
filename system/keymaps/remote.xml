@@ -187,8 +187,8 @@
       <nine>Number9</nine>
       <left>StepBack</left>
       <right>StepForward</right>
-      <up>ChapterOrBigStepForward</up>
-      <down>ChapterOrBigStepBack</down>
+      <up>ChapterOrSceneOrBigStepForward</up>
+      <down>ChapterOrSceneOrBigStepBack</down>
       <back>Back</back>
       <menu>OSD</menu>
       <contentsmenu>OSD</contentsmenu>
@@ -260,6 +260,7 @@
       <rootmenu>OSD</rootmenu>
       <start>OSD</start>
       <info>Info</info>
+      <hash>AudioNextLanguage</hash>
       <guide>ActivateWindow(TVGuide)</guide>
       <playlist>ActivateWindow(PVROSDChannels)</playlist>
       <zero>Number0</zero>
@@ -281,6 +282,7 @@
       <rootmenu>Back</rootmenu>
       <title>Info</title>
       <info>PlayerProcessInfo</info>
+      <hash>AudioNextLanguage</hash>
     </remote>
   </MusicOSD>
   <VisualisationPresetList>

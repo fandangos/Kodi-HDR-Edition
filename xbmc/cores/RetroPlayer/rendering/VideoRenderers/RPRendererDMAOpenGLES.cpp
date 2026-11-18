@@ -9,15 +9,14 @@
 #include "RPRendererDMAOpenGLES.h"
 
 #include "cores/RetroPlayer/buffers/RenderBufferDMA.h"
-#include "cores/RetroPlayer/buffers/RenderBufferPoolDMA.h"
+#include "cores/RetroPlayer/buffers/RenderBufferPoolDMAOpenGLES.h"
 #include "cores/RetroPlayer/rendering/RenderContext.h"
 #include "cores/RetroPlayer/shaders/gles/ShaderPresetGLES.h"
 #include "cores/RetroPlayer/shaders/gles/ShaderTextureGLES.h"
 #include "cores/RetroPlayer/shaders/gles/ShaderTextureGLESRef.h"
+#include "rendering/gles/RenderSystemGLES.h"
 #include "utils/BufferObjectFactory.h"
 #include "utils/GLUtils.h"
-
-#include <cstddef>
 
 using namespace KODI;
 using namespace RETRO;
@@ -37,12 +36,12 @@ CRPBaseRenderer* CRendererFactoryDMAOpenGLES::CreateRenderer(
   return new CRPRendererDMAOpenGLES(settings, context, std::move(bufferPool));
 }
 
-RenderBufferPoolVector CRendererFactoryDMAOpenGLES::CreateBufferPools(CRenderContext& context)
+RenderBufferPoolVector CRendererFactoryDMAOpenGLES::CreateBufferPools(CRenderContext&)
 {
   if (!CBufferObjectFactory::CreateBufferObject(false))
     return {};
 
-  return {std::make_shared<CRenderBufferPoolDMA>(context)};
+  return {std::make_shared<CRenderBufferPoolDMAOpenGLES>()};
 }
 
 CRPRendererDMAOpenGLES::CRPRendererDMAOpenGLES(const CRenderSettings& renderSettings,
@@ -52,43 +51,56 @@ CRPRendererDMAOpenGLES::CRPRendererDMAOpenGLES(const CRenderSettings& renderSett
 {
 }
 
+void CRPRendererDMAOpenGLES::FlushInternal()
+{
+  m_RBTexturesMap.clear();
+  CRPRendererOpenGLES::FlushInternal();
+}
+
 void CRPRendererDMAOpenGLES::Render(uint8_t alpha)
 {
   auto renderBuffer = static_cast<CRenderBufferDMA*>(m_renderBuffer);
   if (renderBuffer == nullptr)
     return;
 
-  Updateshaders();
+  UpdateShaders();
 
   // Use video shader preset
   if (m_bUseShaderPreset)
   {
     RenderBufferTextures* rbTextures;
 
-    // Drop cached textures if target size is changed
-    if (m_fullDestWidth != m_lastTargetWidth || m_fullDestHeight != m_lastTargetHeight)
+    // Drop cached textures if target size or HDR state is changed
+    const bool hdr = m_hdrPeak != 0;
+    if (m_fullDestWidth != m_lastTargetWidth || m_fullDestHeight != m_lastTargetHeight ||
+        hdr != m_lastTargetHdr)
     {
       m_RBTexturesMap.clear();
       m_lastTargetWidth = m_fullDestWidth;
       m_lastTargetHeight = m_fullDestHeight;
+      m_lastTargetHdr = hdr;
     }
 
     const auto it = m_RBTexturesMap.find(renderBuffer);
-    if (it != m_RBTexturesMap.end())
+    if (it != m_RBTexturesMap.end() &&
+        it->second->sourceTexture->GetTextureID() == renderBuffer->TextureID() &&
+        it->second->sourceTexture->GetWidth() == renderBuffer->GetWidth() &&
+        it->second->sourceTexture->GetHeight() == renderBuffer->GetHeight())
     {
       rbTextures = it->second.get();
     }
     else
     {
+      if (it != m_RBTexturesMap.end())
+        m_RBTexturesMap.erase(it);
+
       rbTextures = new RenderBufferTextures{
           // Source texture
           std::make_shared<SHADER::CShaderTextureGLESRef>(
               static_cast<unsigned int>(renderBuffer->GetWidth()),
               static_cast<unsigned int>(renderBuffer->GetHeight()), renderBuffer->TextureID()),
           // Target texture
-          std::make_shared<SHADER::CShaderTextureGLES>(static_cast<unsigned int>(m_fullDestWidth),
-                                                       static_cast<unsigned int>(m_fullDestHeight),
-                                                       GL_UNSIGNED_BYTE, GL_RGBA, GL_RGBA, false)};
+          CreateTargetTexture()};
       rbTextures->targetTexture->CreateTexture(); // Create new internal texture
       m_RBTexturesMap.emplace(renderBuffer, rbTextures);
     }
@@ -106,16 +118,19 @@ void CRPRendererDMAOpenGLES::Render(uint8_t alpha)
     glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    if (!m_shaderPreset->RenderUpdate(*sourceTexture, *targetTexture))
+    if (m_shaderPreset->RenderUpdate(*sourceTexture, *targetTexture))
+    {
+      glActiveTexture(GL_TEXTURE0); // GUI shader samples from texture unit 0
+      glBindTexture(m_textureTarget, targetTexture->GetTextureID());
+    }
+    else
     {
       m_bShadersNeedUpdate = false;
       m_bUseShaderPreset = false;
     }
-
-    glActiveTexture(GL_TEXTURE0); // GUI shader samples from texture unit 0
-    glBindTexture(m_textureTarget, targetTexture->GetTextureID());
   }
-  else
+
+  if (!m_bUseShaderPreset)
   {
     GLint filter = GL_NEAREST;
     if (GetRenderSettings().VideoSettings().GetScalingMethod() == SCALINGMETHOD::LINEAR)
@@ -129,78 +144,5 @@ void CRPRendererDMAOpenGLES::Render(uint8_t alpha)
     glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   }
 
-  if (alpha < 255)
-  {
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  }
-  else
-  {
-    glDisable(GL_BLEND);
-  }
-
-  // Use GUI shader
-  m_context.EnableGUIShader(GL_SHADER_METHOD::TEXTURE);
-
-  GLint posLoc = m_context.GUIShaderGetPos();
-  GLint tex0Loc = m_context.GUIShaderGetCoord0();
-  GLint uniColLoc = m_context.GUIShaderGetUniCol();
-  GLint depthLoc = m_context.GUIShaderGetDepth();
-
-  // Setup color values
-  GLubyte col[4];
-  const uint32_t color = (alpha << 24) | 0xFFFFFF;
-  col[0] = UTILS::GL::GetChannelFromARGB(UTILS::GL::ColorChannel::R, color);
-  col[1] = UTILS::GL::GetChannelFromARGB(UTILS::GL::ColorChannel::G, color);
-  col[2] = UTILS::GL::GetChannelFromARGB(UTILS::GL::ColorChannel::B, color);
-  col[3] = UTILS::GL::GetChannelFromARGB(UTILS::GL::ColorChannel::A, color);
-
-  glUniform4f(uniColLoc, (col[0] / 255.0f), (col[1] / 255.0f), (col[2] / 255.0f),
-              (col[3] / 255.0f));
-  glUniform1f(depthLoc, -1.0f);
-
-  // Setup destination rectangle
-  CRect rect = m_sourceRect;
-  rect.x1 /= renderBuffer->GetWidth();
-  rect.x2 /= renderBuffer->GetWidth();
-  rect.y1 /= renderBuffer->GetHeight();
-  rect.y2 /= renderBuffer->GetHeight();
-
-  PackedVertex vertex[4];
-
-  // Setup vertex position values
-  for (unsigned int i = 0; i < 4; i++)
-  {
-    vertex[i].x = m_rotatedDestCoords[i].x;
-    vertex[i].y = m_rotatedDestCoords[i].y;
-    vertex[i].z = 0.0f;
-  }
-
-  // Setup texture coordinates
-  vertex[0].u1 = vertex[3].u1 = rect.x1;
-  vertex[0].v1 = vertex[1].v1 = rect.y1;
-  vertex[1].u1 = vertex[2].u1 = rect.x2;
-  vertex[2].v1 = vertex[3].v1 = rect.y2;
-
-  glBindBuffer(GL_ARRAY_BUFFER, m_mainVertexVBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(PackedVertex) * 4, &vertex[0], GL_DYNAMIC_DRAW);
-
-  glVertexAttribPointer(posLoc, 3, GL_FLOAT, 0, sizeof(PackedVertex),
-                        reinterpret_cast<const GLvoid*>(offsetof(PackedVertex, x)));
-  glEnableVertexAttribArray(posLoc);
-  glVertexAttribPointer(tex0Loc, 2, GL_FLOAT, 0, sizeof(PackedVertex),
-                        reinterpret_cast<const GLvoid*>(offsetof(PackedVertex, u1)));
-  glEnableVertexAttribArray(tex0Loc);
-
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_mainIndexVBO);
-
-  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, nullptr);
-
-  glDisableVertexAttribArray(posLoc);
-  glDisableVertexAttribArray(tex0Loc);
-
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-
-  m_context.DisableGUIShader();
+  DrawFrame(alpha, renderBuffer->GetWidth(), renderBuffer->GetHeight());
 }

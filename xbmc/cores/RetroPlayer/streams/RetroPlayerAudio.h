@@ -11,7 +11,12 @@
 #include "IRetroPlayerStream.h"
 #include "cores/AudioEngine/Interfaces/AE.h"
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <thread>
 
 class IAEStream;
 
@@ -49,7 +54,29 @@ public:
   explicit CRetroPlayerAudio(CRPProcessInfo& processInfo);
   ~CRetroPlayerAudio() override;
 
-  void Enable(bool bEnabled) { m_bAudioEnabled = bEnabled; }
+  void Enable(bool bEnabled)
+  {
+    if (!bEnabled)
+      m_restoreDelay = true;
+    m_bAudioEnabled = bEnabled;
+  }
+
+  /*!
+   * \brief Hold back the sound of frames that are rolled back
+   *
+   * Separate from Enable(), so it can't undo muting or a speed change. Called
+   * on the thread that runs the client's frames.
+   */
+  void Suppress(bool bSuppressed);
+
+  /*!
+   * \brief Whether the client has sent sound from a thread other than the one
+   *        running its frames
+   *
+   * That sound can't be matched to the frame it belongs to, so it can't be held
+   * back with the frames that are rolled back.
+   */
+  bool SentOffFrameThread() const { return m_sentOffFrameThread; }
 
   // implementation of IRetroPlayerStream
   bool OpenStream(const StreamProperties& properties) override;
@@ -61,9 +88,26 @@ public:
   void CloseStream() override;
 
 private:
+  void UpdateResampleRatio(double packetSecs, double delaySecs);
+
   CRPProcessInfo& m_processInfo;
   IAE::StreamPtr m_pAudioStream;
   bool m_bAudioEnabled = true;
+  double m_resampleRatio = 1.0;
+  double m_smoothedDelay = 0.0;
+  double m_heldDelay = 0.0;
+  double m_settledSecs = 0.0;
+  double m_maxDelay = 0.0;
+  std::atomic<bool> m_restoreDelay{false};
+  double m_playingDelay = 0.0;
+  unsigned int m_framesToSkip = 0;
+  std::atomic<bool> m_bAudioSuppressed{false};
+  std::atomic<std::thread::id> m_frameThread{};
+  std::atomic<bool> m_sentOffFrameThread{false};
+
+  uint64_t m_droppedFrames = 0;
+  uint64_t m_dropEvents = 0;
+  std::optional<std::chrono::steady_clock::time_point> m_lastDropLog;
 };
 } // namespace RETRO
 } // namespace KODI

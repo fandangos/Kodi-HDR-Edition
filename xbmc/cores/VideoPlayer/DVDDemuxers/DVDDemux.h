@@ -10,6 +10,7 @@
 
 #include "Interface/StreamInfo.h"
 #include "cores/FFmpeg.h"
+#include "language/LanguageTag.h"
 
 #include <chrono>
 #include <memory>
@@ -135,7 +136,7 @@ public:
   FFmpegExtraData extraData;
 
   StreamFlags flags{StreamFlags::FLAG_NONE};
-  std::string language; // RFC 5646 language code (empty string if undefined)
+  KODI::LANGUAGE::CLanguageTag language; // empty when the container declares no language at all
   bool disabled{false}; // set when stream is disabled. (when no decoder exists)
 
   std::string name;
@@ -354,8 +355,13 @@ public:
 
   /*
    * enable / disable demux stream
+   * \return true if the demuxer can enable/disable streams and was asked to, false if it has no
+   *         such support (the stream keeps being delivered regardless of this call)
    */
-  virtual void EnableStream(int64_t demuxerId, int id, bool enable) { EnableStream(id, enable); }
+  virtual bool EnableStream(int64_t demuxerId, int id, bool enable)
+  {
+    return EnableStream(id, enable);
+  }
 
   /*
   * implicitly enable and open a demux stream for playback
@@ -368,13 +374,15 @@ public:
    */
   virtual void SetVideoResolution(unsigned int width, unsigned int height) {}
 
+  virtual bool IsStreaming() const { return false; }
+
   /*
   * return the id of the demuxer
   */
   int64_t GetDemuxerId() const { return m_demuxerId; }
 
 protected:
-  virtual void EnableStream(int id, bool enable) {}
+  virtual bool EnableStream(int id, bool enable) { return false; }
   virtual void OpenStream(int id) {}
   virtual CDemuxStream* GetStream(int iStreamId) const = 0;
   virtual std::string GetStreamCodecName(int iStreamId) { return ""; }

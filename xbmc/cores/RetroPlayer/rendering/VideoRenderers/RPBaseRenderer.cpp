@@ -86,6 +86,29 @@ bool CRPBaseRenderer::IsVisible() const
   return m_renderFrameCount <= m_lastRender + VISIBLE_DURATION_FRAME_COUNT;
 }
 
+void CRPBaseRenderer::SetUsed()
+{
+  m_lastUse = m_renderFrameCount;
+  m_texturesReleased = false;
+}
+
+bool CRPBaseRenderer::IsUnused() const
+{
+  return m_renderFrameCount > m_lastUse + VISIBLE_DURATION_FRAME_COUNT;
+}
+
+void CRPBaseRenderer::ReleaseTextures()
+{
+  if (m_texturesReleased)
+    return;
+
+  Flush();
+  if (m_shaderPreset)
+    m_shaderPreset->ReleaseTextures();
+
+  m_texturesReleased = true;
+}
+
 IRenderBuffer* CRPBaseRenderer::GetRenderBuffer() const
 {
   if (m_renderBuffer != nullptr)
@@ -111,6 +134,12 @@ void CRPBaseRenderer::SetBuffer(IRenderBuffer* buffer)
   }
 }
 
+void CRPBaseRenderer::SetSpeed(double speed)
+{
+  if (m_shaderPreset)
+    m_shaderPreset->SetSpeed(speed);
+}
+
 void CRPBaseRenderer::RenderFrame(bool clear, uint8_t alpha)
 {
   m_lastRender = m_renderFrameCount;
@@ -120,7 +149,7 @@ void CRPBaseRenderer::RenderFrame(bool clear, uint8_t alpha)
 
   PreRender(clear);
   ManageRenderArea(*m_renderBuffer);
-  RenderInternal(clear, alpha);
+  RenderInternal(alpha);
   PostRender();
 
   m_renderBuffer->SetRendered(true);
@@ -154,11 +183,6 @@ void CRPBaseRenderer::SetShaderPreset(const std::string& presetPath)
     m_renderSettings.VideoSettings().SetShaderPreset(presetPath);
     m_bShadersNeedUpdate = true;
   }
-}
-
-void CRPBaseRenderer::SetPixels(const std::string& pixelPath)
-{
-  m_renderSettings.VideoSettings().SetPixels(pixelPath);
 }
 
 void CRPBaseRenderer::ManageRenderArea(const IRenderBuffer& renderBuffer)
@@ -265,7 +289,7 @@ void CRPBaseRenderer::MarkDirty()
  * \brief Updates everything needed for video shaders (shader presets)
  * Needs to be called after m_renderBuffer has been set
  */
-void CRPBaseRenderer::Updateshaders()
+void CRPBaseRenderer::UpdateShaders()
 {
   if (m_bShadersNeedUpdate)
   {

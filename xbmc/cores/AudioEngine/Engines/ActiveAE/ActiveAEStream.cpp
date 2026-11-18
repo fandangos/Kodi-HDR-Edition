@@ -391,6 +391,11 @@ void CActiveAEStream::Pause()
   m_activeAE->PauseStream(this, true);
 }
 
+void CActiveAEStream::Hold()
+{
+  m_activeAE->HoldStream(this);
+}
+
 void CActiveAEStream::Resume()
 {
   m_activeAE->PauseStream(this, false);
@@ -476,6 +481,8 @@ void CActiveAEStream::Flush()
     m_currentBuffer = NULL;
     m_leftoverBytes = 0;
     m_activeAE->FlushStream(this);
+    // The engine resets the ratio on a flush, so a request for the old one has to get through
+    m_streamResampleRatio = 1.0;
     m_streamIsFlushed = true;
   }
 }
@@ -570,6 +577,11 @@ unsigned int CActiveAEStream::GetSampleRate() const
 enum AEDataFormat CActiveAEStream::GetDataFormat() const
 {
   return m_format.m_dataFormat;
+}
+
+bool CActiveAEStream::HasSinkFormatChanged() const
+{
+  return m_sinkFormatChanged;
 }
 
 void CActiveAEStream::RegisterAudioCallback(IAudioCallback* pCallback)

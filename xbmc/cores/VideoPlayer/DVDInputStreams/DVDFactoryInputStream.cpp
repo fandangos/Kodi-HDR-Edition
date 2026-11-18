@@ -27,7 +27,7 @@
 #include "addons/AddonManager.h"
 #include "addons/addoninfo/AddonType.h"
 #include "cores/VideoPlayer/Interface/InputStreamConstants.h"
-#include "filesystem/CurlFile.h"
+#include "filesystem/File.h"
 #include "filesystem/IFileTypes.h"
 #include "storage/MediaManager.h"
 #include "utils/FileUtils.h"
@@ -38,7 +38,11 @@
 
 using namespace KODI;
 
-std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVideoPlayer* pPlayer, const CFileItem &fileitem, bool scanforextaudio)
+std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(
+    IVideoPlayer* pPlayer,
+    const CFileItem& fileitem,
+    bool scanforextaudio /* = false */,
+    unsigned int fileFlags /* = 0 */)
 {
   using namespace ADDON;
 
@@ -48,7 +52,8 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
     // find any available external audio tracks
     std::vector<std::string> filenames;
     filenames.push_back(file);
-    CUtil::ScanForExternalAudio(file, filenames);
+    CUtil::ScanForExternalAudio(file, filenames,
+                                fileitem.HasVideoInfoTag() ? fileitem.GetVideoInfoTag() : nullptr);
     if (filenames.size() >= 2)
     {
       return CreateInputStream(pPlayer, fileitem, filenames);
@@ -142,26 +147,21 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
     if (finalFileitem.ContentLookup())
     {
       CURL origUrl(finalFileitem.GetDynURL());
-      XFILE::CCurlFile curlFile;
       // try opening the url to resolve all redirects if any
-      try
+      // noshout: a Shoutcast stream is only probed here, not opened as one.
+      CURL lookupUrl(origUrl);
+      lookupUrl.SetProtocolOption("noshout", "true");
+      XFILE::CFile file;
+      if (file.Open(lookupUrl, XFILE::READ_NO_CACHE))
       {
-        if (curlFile.Open(finalFileitem.GetDynURL()))
+        const std::string effectiveUrl = file.GetProperty(XFILE::FileProperty::EFFECTIVE_URL);
+        if (!effectiveUrl.empty())
         {
-          CURL finalUrl(curlFile.GetURL());
+          CURL finalUrl(effectiveUrl);
           finalUrl.SetProtocolOptions(origUrl.GetProtocolOptions());
           finalUrl.SetUserName(origUrl.GetUserName());
           finalUrl.SetPassword(origUrl.GetPassWord());
           finalFileitem.SetDynPath(finalUrl.Get());
-        }
-        curlFile.Close();
-      }
-      catch (XFILE::CRedirectException *pRedirectEx)
-      {
-        if (pRedirectEx)
-        {
-          delete pRedirectEx->m_pNewFileImp;
-          delete pRedirectEx;
         }
       }
     }
@@ -179,8 +179,8 @@ std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVide
   }
 
   // our file interface handles all these types of streams
-  return std::make_shared<CDVDInputStreamFile>(finalFileitem,
-                                               XFILE::READ_TRUNCATED | XFILE::READ_BITRATE);
+  return std::make_shared<CDVDInputStreamFile>(finalFileitem, XFILE::READ_TRUNCATED |
+                                                                  XFILE::READ_BITRATE | fileFlags);
 }
 
 std::shared_ptr<CDVDInputStream> CDVDFactoryInputStream::CreateInputStream(IVideoPlayer* pPlayer, const CFileItem &fileitem, const std::vector<std::string>& filenames)

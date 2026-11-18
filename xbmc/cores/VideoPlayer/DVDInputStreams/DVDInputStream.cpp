@@ -13,9 +13,11 @@
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationStackHelper.h"
 #include "cores/VideoPlayer/Interface/InputStreamConstants.h"
+#include "utils/ItemProperties.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -76,7 +78,8 @@ void CDVDInputStream::SavePlaylistDetails(std::vector<PlaylistInformation>& play
     // Update last playlist entry
     auto& lastPlaylist = playedPlaylists.back();
 
-    assert(lastPlaylist.duration == currentPlaylistInformation.duration); // Should be the same
+    // DVD menus are all title 0 and a title's program chains can differ in length
+    lastPlaylist.duration = std::max(lastPlaylist.duration, currentPlaylistInformation.duration);
 
     lastPlaylist.watchedTime += watchedTime;
     lastPlaylist.details = currentPlaylistInformation.details;
@@ -203,7 +206,8 @@ CDVDInputStream::UpdateState CDVDInputStream::UpdateItemFromPlaylistDetails(
     if (item.HasVideoInfoTag())
       item.GetVideoInfoTag()->m_streamDetails.Reset();
     item.SetDynPath("");
-    item.SetProperty("no_main_title", true); // Not continuing to play if in stack
+    // Not continuing to play if in stack
+    item.SetProperty(KODI::ITEM::PROPERTY::NO_MAIN_TITLE, true);
     CLog::LogF(LOGDEBUG, "No main title playlist played");
     return NOT_PLAYED;
   }
@@ -242,15 +246,16 @@ CDVDInputStream::UpdateState CDVDInputStream::UpdateItemFromPlaylistDetails(
       }()};
 
   if (stoppedBeforeEnd)
-    item.SetProperty("stopped_before_end", true);
+    item.SetProperty(KODI::ITEM::PROPERTY::STOPPED_BEFORE_END, true);
   else
     closed = false; // Feed back to VideoPlayer
 
   const int playlist{it3->playlist};
-  item.SetProperty("bluray_playlist", playlist);
+  item.SetProperty(KODI::ITEM::PROPERTY::BLURAY_PLAYLIST, playlist);
   CLog::LogF(LOGDEBUG, "Main playlist {}", playlist);
 
-  if (type == DVDSTREAM_TYPE_DVD && item.GetProperty("update_stream_details").asBoolean(false) &&
+  if (type == DVDSTREAM_TYPE_DVD &&
+      item.GetProperty(KODI::ITEM::PROPERTY::UPDATE_STREAM_DETAILS).asBoolean(false) &&
       item.HasVideoInfoTag())
   {
     // Update streamdetails for DVD titles (bluray handled when playlist selected)
@@ -270,8 +275,9 @@ void CDVDInputStream::UpdateStackItem(CFileItem& item, std::chrono::milliseconds
 {
   auto& components{CServiceBroker::GetAppComponents()};
   const auto& stackHelper{components.GetComponent<CApplicationStackHelper>()};
+  // Stack times are built up in part order, so a part played out of order is not added
   if (stackHelper->GetStack(item) != nullptr &&
-      stackHelper->GetStackPartNumber(item) >= stackHelper->GetKnownStackParts())
+      stackHelper->GetStackPartNumber(item) == stackHelper->GetKnownStackParts())
   {
     stackHelper->IncreaseKnownStackParts();
     CLog::LogF(LOGDEBUG, "Playing new stack part");
@@ -295,10 +301,15 @@ void CDVDInputStream::UpdateStackItem(CFileItem& item, std::chrono::milliseconds
                  time.count(), end.count());
 
       // Update streamdetails in stack part if they aren't updated from the stream in VideoPlayer (ie. already in item)
-      if (!item.GetProperty("update_stream_details").asBoolean(false))
+      if (!item.GetProperty(KODI::ITEM::PROPERTY::UPDATE_STREAM_DETAILS).asBoolean(false))
         stackHelper->SetStackPartStreamDetails(item);
 
       stackHelper->SetStackPartPath(item);
     }
   }
+}
+
+bool CDVDInputStream::IsStreaming() const
+{
+  return m_streamType == DVDSTREAM_TYPE_ADDON || m_streamType == DVDSTREAM_TYPE_FFMPEG;
 }

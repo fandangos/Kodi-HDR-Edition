@@ -10,6 +10,7 @@
 
 #include "IRenderManager.h"
 #include "RenderVideoSettings.h"
+#include "cores/RetroPlayer/buffers/IRenderBufferPool.h"
 #include "cores/RetroPlayer/guibridge/IRenderCallback.h"
 #include "threads/CriticalSection.h"
 
@@ -19,7 +20,6 @@ extern "C"
 }
 
 #include <atomic>
-#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,7 +41,6 @@ class CRPProcessInfo;
 class IGUIRenderSettings;
 class IRenderBuffer;
 class IRenderBufferPool;
-class ISavestate;
 struct VideoStreamBuffer;
 
 /*!
@@ -102,15 +101,24 @@ public:
                 float displayAspectRatio,
                 unsigned int orientationDegCW);
   void Flush();
+  bool CreateContext(const HwContextProperties& properties);
+  bool BeginClientFrame();
+  void EndClientFrame();
   void DestroyContext();
+  void FlushRendered();
 
   // Hardware rendering functions
-  //! @todo These are only examples pulled from the history of the OpenGL
-  //! effort and the required redesign will probably remove or change these
-  //! functions.
   bool Create(unsigned int width, unsigned int height);
   uintptr_t GetCurrentFramebuffer(unsigned int width, unsigned int height);
-  void RenderFrame();
+  void RenderFrame(unsigned int width,
+                   unsigned int height,
+                   float displayAspectRatio,
+                   unsigned int orientationDegCCW);
+
+  /*!
+   * \brief Release the framebuffer the game client renders into
+   */
+  void ReleaseHwRenderBuffer();
 
   // Functions called from the player
   void SetSpeed(double speed);
@@ -119,7 +127,7 @@ public:
   void FrameMove();
 
   // Implementation of IRenderManager
-  void RenderWindow(bool bClear, const RESOLUTION_INFO& coordsRes) override;
+  void RenderWindow(bool bClear, const RESOLUTION_INFO& coordsRes, bool videoLayer) override;
   void RenderControl(bool bClear,
                      bool bUseAlpha,
                      const CRect& renderRegion,
@@ -131,14 +139,28 @@ public:
   bool SupportsScalingMethod(SCALINGMETHOD method) const override;
 
   // Savestate functions
-  void SaveThumbnail(const std::string& thumbnailPath);
+  using VideoFrame = std::vector<std::shared_ptr<IRenderBuffer>>;
+  bool TryCaptureVideoFrame(VideoFrame& frame);
 
-  // Savestate functions
-  void CacheVideoFrame(const std::string& savestatePath);
-  void SaveVideoFrame(const std::string& savestatePath, ISavestate& savestate);
-  void ClearVideoFrame(const std::string& savestatePath);
+  /*!
+   * \brief Save a thumbnail of a savestate
+   *
+   * \param frame The frame captured with the savestate, or empty to use the
+   *        frame on screen
+   */
+  void SaveThumbnail(const std::string& thumbnailPath, const VideoFrame& frame = {});
 
 private:
+  /*!
+   * \brief Show the game in HDR, or stop, as the settings and filter ask
+   */
+  void UpdateHdrOutput();
+
+  /*!
+   * \brief Put the display into HDR10 for the game, or take it out again
+   */
+  void SetHdrOutput(bool hdr);
+
   /*!
    * \brief Get or create a renderer compatible with the given render settings
    */
@@ -167,12 +189,6 @@ private:
    * \brief Get a render buffer belonging to the specified pool
    */
   IRenderBuffer* GetRenderBuffer(IRenderBufferPool* bufferPool);
-
-  /*!
-   * \brief Get a render buffer containing pixels from the specified savestate
-   */
-  IRenderBuffer* GetRenderBufferForSavestate(const std::string& savestatePath,
-                                             const IRenderBufferPool* bufferPool);
 
   /*!
    * \brief Create a render buffer for the specified pool from a cached frame
@@ -222,10 +238,28 @@ private:
 
   void CheckFlush();
 
+  /*!
+   * \brief Release the textures of renderers nothing draws any more, such as
+   * a filter preview that has scrolled off screen
+   *
+   * Called on the rendering thread with m_oldRenderersMutex held.
+   */
+  void ReleaseUnusedTextures();
+  void DestroyContextInternal();
+
+  /*!
+   * \brief True if the game client renders its own frames on the GPU
+   *
+   * Hardware-rendered frames live in a GPU framebuffer and are never read back
+   * to system memory, so anything that works on frame pixels has nothing to
+   * work with. Asking the buffer, rather than the pixel format, keeps a
+   * software stream that hasn't configured itself yet from looking like one.
+   */
+  bool IsHardwareRendering() const { return m_hasHardwareContext; }
+
+  bool ReadHardwareFrame(VideoFrame& frame);
   void GetVideoFrame(IRenderBuffer*& readableBuffer, std::vector<uint8_t>& cachedFrame);
   void FreeVideoFrame(IRenderBuffer* readableBuffer, std::vector<uint8_t> cachedFrame);
-  void LoadVideoFrameAsync(const std::string& savestatePath);
-  void LoadVideoFrameSync(const std::string& savestatePath);
 
   // Construction parameters
   CRPProcessInfo& m_processInfo;
@@ -247,17 +281,69 @@ private:
   std::set<std::shared_ptr<CRPBaseRenderer>> m_renderers;
   std::set<std::shared_ptr<CRPBaseRenderer>> m_oldRenderers;
   mutable std::mutex m_oldRenderersMutex;
-  std::vector<IRenderBuffer*> m_pendingBuffers; // Only access from game thread
+  /*!
+   * \brief A buffer lent to the game client to draw its next frame into
+   *
+   * The memory the client was given is recorded alongside the buffer, because
+   * that is how the frame it hands back is recognized as the one it was lent,
+   * and asking the buffer for its memory again would start another round of
+   * CPU access. A null memory pointer means no CPU access was started, as with
+   * a framebuffer lent by GetCurrentFramebuffer().
+   */
+  struct PendingBuffer
+  {
+    IRenderBuffer* buffer;
+    uint8_t* memory;
+  };
+  std::vector<PendingBuffer> m_pendingBuffers; // Only access from game thread
+
+  // The framebuffer a hardware-rendering client draws into, held for the life
+  // of the stream, and the pool that owns its context.
+  //
+  // Exactly one, deliberately. Clients treat the framebuffer they are given as
+  // theirs for the whole session and many do not clear it, drawing over what
+  // the last frame left behind. Handing them alternate buffers gives each only
+  // every other frame's drawing, and the frames in between show through.
+  // Held across each client call, including calls made before negotiation.
+  std::recursive_mutex m_hwMutex;
+  unsigned int m_clientFrameDepth{0};
+  bool m_hwContextBound{false};
+  bool m_destroyContextPending{false};
+  std::atomic<bool> m_hasHardwareContext{false};
+  IRenderBuffer* m_hwRenderBuffer{nullptr};
+  IRenderBufferPool* m_hwBufferPool{nullptr};
+
+  //! \brief Size the client's framebuffer was allocated at
+  //!
+  //! Kept apart from the buffer's own width and height, which are set to the
+  //! size of each frame the client draws so the renderer knows what part of the
+  //! framebuffer to sample. Asking the buffer how large it is would then give
+  //! the last frame's size, not the space available.
+  unsigned int m_hwBufferWidth{0};
+  unsigned int m_hwBufferHeight{0};
+
+  //! \brief The client's framebuffer and its allocated size, for a client that
+  //! asks for it from a thread of its own while one of its calls holds m_hwMutex
+  std::mutex m_framebufferMutex;
+  uintptr_t m_framebuffer{0};
+  unsigned int m_framebufferWidth{0};
+  unsigned int m_framebufferHeight{0};
+
+  uintptr_t m_loggedFramebuffer{0};
+  bool m_loggedHardwareCapture{false};
   std::vector<IRenderBuffer*> m_renderBuffers;
+  std::atomic<uint64_t> m_framesGiven{0};
+  uint64_t m_lastFrameTaken{0}; // Rendering thread only
+  bool m_hdrOutput{false}; // Rendering thread only
+  bool m_hdrRefused{false}; // Rendering thread only
+  unsigned int m_hdrPeak{0}; // Rendering thread only, in nits
+  bool m_windowRendered{false}; // Rendering thread only
   std::map<AVPixelFormat, std::map<AVPixelFormat, SwsContext*>> m_scalers; // From -> to -> context
   std::vector<uint8_t> m_cachedFrame;
   unsigned int m_cachedWidth = 0;
   unsigned int m_cachedHeight = 0;
   float m_cachedDisplayAspectRatio{0.0f}; // 0.0f means square pixels
   unsigned int m_cachedRotationCCW{0};
-  std::map<std::string, std::vector<IRenderBuffer*>>
-      m_savestateBuffers; // Render buffers for savestates
-  std::vector<std::future<void>> m_savestateThreads;
 
   // State parameters
   enum class RENDER_STATE

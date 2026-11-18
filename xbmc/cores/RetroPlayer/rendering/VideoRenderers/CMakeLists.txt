@@ -8,6 +8,11 @@ if(CORE_SYSTEM_NAME STREQUAL windows)
   list(APPEND HEADERS RPWinRenderer.h)
 endif()
 
+if(TARGET ${APP_NAME_LC}::OpenGl OR TARGET ${APP_NAME_LC}::OpenGLES)
+  list(APPEND SOURCES RPHdrShader.cpp)
+  list(APPEND HEADERS RPHdrShader.h)
+endif()
+
 if(TARGET ${APP_NAME_LC}::OpenGl)
   list(APPEND SOURCES RPRendererOpenGL.cpp)
   list(APPEND HEADERS RPRendererOpenGL.h)
@@ -31,6 +36,12 @@ if(("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_
     list(APPEND SOURCES RPRendererDMAOpenGLES.cpp)
     list(APPEND HEADERS RPRendererDMAOpenGLES.h)
   endif()
+endif()
+
+# GLES2 builds only the factory, which declines hardware rendering.
+if(TARGET ${APP_NAME_LC}::EGL OR CORE_SYSTEM_NAME STREQUAL "osx")
+  list(APPEND SOURCES RPRendererFBO.cpp)
+  list(APPEND HEADERS RPRendererFBO.h)
 endif()
 
 core_add_library(rp-videorenderers)

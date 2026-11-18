@@ -11,6 +11,7 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "QueryParams.h"
+#include "utils/ItemProperties.h"
 #include "video/VideoDatabase.h"
 
 using namespace XFILE::VIDEODATABASEDIRECTORY;
@@ -34,9 +35,8 @@ bool CDirectoryNodeEpisodes::GetContent(CFileItemList& items) const
   if (season == -2)
     season = -1;
 
-  int details = items.HasProperty("set_videodb_details")
-                    ? items.GetProperty("set_videodb_details").asInteger32()
-                    : VideoDbDetailsNone;
+  const int details =
+      items.GetProperty(KODI::ITEM::PROPERTY::SET_VIDEODB_DETAILS).asInteger32(VideoDbDetailsNone);
 
   bool bSuccess = videodatabase.GetEpisodesNav(
       BuildPath(), items, params.GetGenreId(), params.GetYear(), params.GetActorId(),

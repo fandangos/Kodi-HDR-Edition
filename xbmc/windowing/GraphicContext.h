@@ -59,6 +59,22 @@ enum RENDER_ORDER
   RENDER_ORDER_FRONT_TO_BACK,
 };
 
+enum class STENCIL_LAYER
+{
+  LAYER0 = 0,
+  LAYER1 = 1,
+  LAYER2 = 2,
+  LAYER3 = 3,
+  LAYER4 = 4,
+  LAYER5 = 5,
+  LAYER6 = 6,
+  LAYER7 = 7,
+  NONE,
+  INVALID,
+};
+
+class CEvent;
+
 class CGraphicContext : public CCriticalSection
 {
 public:
@@ -74,7 +90,12 @@ public:
   void SetFullScreenVideo(bool bOnOff);
   bool IsFullScreenVideo() const;
   bool IsValidResolution(RESOLUTION res);
-  void SetVideoResolution(RESOLUTION res, bool forceUpdate);
+  /*!
+   * \brief Switch the video resolution on the app thread
+   * \param abortEvent off the app thread, once set drop the switch and stop waiting, unless the
+   *        app thread has already started it, in which case wait for it to finish
+   */
+  void SetVideoResolution(RESOLUTION res, bool forceUpdate, CEvent* abortEvent = nullptr);
   void ApplyModeChange(RESOLUTION res);
   void ApplyWindowResize(int newWidth, int newHeight);
   RESOLUTION GetVideoResolution() const;
@@ -94,6 +115,51 @@ public:
   const CRect &GetScissors() const;
   const CRect GetViewWindow() const;
   void SetViewWindow(float left, float top, float right, float bottom);
+  //! \brief Confine the GUI to \p rect, empty for the whole screen. Not persisted, unlike the
+  //! overscan calibration. \return whether the confinement changed
+  bool SetGuiContentRect(const CRect& rect);
+
+  //! \brief State the shape of the screen the display is projected onto, or zero for the
+  //! display's own. Nothing drawn may exceed the raster this defines.
+  void SetRasterAspect(float aspect);
+
+  //! \brief The stated shape of the screen, or zero when the display's own is in force.
+  float GetRasterAspect() const;
+
+  //! \brief Stated, not in force: one suspended while a screen tool is up still counts.
+  bool IsRasterShapeStated() const { return GetRasterAspect() > 0.0f; }
+
+  //! \brief The raster, in screen coordinates. The whole display when no shape is stated.
+  CRect GetRasterRect() const;
+
+  //! \brief The resolution sized as the raster, for the skin's layout selection. A selection
+  //! target, not a drawable resolution.
+  RESOLUTION_INFO GetRasterResInfo() const;
+
+  //! \brief Draw the interface at its authored proportions inside the area in force rather than
+  //! stretching it to fill. A 16:9 skin in a 2.40 raster is then pillarboxed.
+  void SetGuiKeepShape(bool keepShape);
+
+  //! \brief Asked for, not in force - unlike GetGuiKeepShapeRect(), which answers empty while
+  //! the hold is merely suspended.
+  bool GetGuiKeepShape() const { return m_guiKeepShape; }
+
+  //! \brief The rectangle the interface is held to, empty whenever no hold is in force.
+  CRect GetGuiKeepShapeRect() const;
+
+  //! \brief Confine the clip in force to the area the interface occupies. \return the previous
+  //! clip
+  CRect ClipToGui();
+
+  //! \brief Lift the clip to the whole display for the picture's render pass, which is contained
+  //! by scaling rather than by the scissor. \return the previous clip
+  CRect ClipToVideo();
+
+  //! \brief Clip to exactly \p rect, re-applying no bound. \return the previous clip
+  CRect SetClip(const CRect& rect);
+
+  //! \brief Whether a screen tool is on screen. While one is, the raster and the proportions
+  //! hold are suspended and the tool draws on the raw pixel grid.
   bool IsCalibrating() const;
   void SetCalibrating(bool bOnOff);
   void ResetOverscan(RESOLUTION res, OVERSCAN &overscan);
@@ -200,6 +266,7 @@ public:
   void RestoreClipRegion();
   void ClipRect(CRect &vertex, CRect &texture, CRect *diffuse = NULL);
   CRect GetClipRegion();
+  bool HasClipRegion() const { return !m_clipRegions.empty(); }
   void AddGUITransform();
   TransformMatrix AddTransform(const TransformMatrix &matrix);
   void SetTransform(const TransformMatrix &matrix);
@@ -219,6 +286,26 @@ public:
   void SetTransferPQ(bool PQ) { m_isTransferPQ = PQ; }
   bool IsTransferPQ() const { return m_isTransferPQ; }
 
+  /*! \brief Reserves an aabb to which a stencil drawcall should be made. Returns the bucket (or rather layer)
+   to which the drawcall has to be applied to. If all 8 available buckets are full for a given area, it will
+   signal so. 
+
+   \param newRect the requested area the element wants to render to
+   \sa returns an available layer, or signals that all available buckets are full
+   */
+  STENCIL_LAYER AddStencilRectToBucket(const CRect& newRect);
+  /*! \brief Clears all stencil buckets. Should be called at the start of a new frame */
+  void ClearStencilBuckets();
+
+  /*! \brief Pushes a new stencil layer to the stack. Child elements should render using this layer.
+   \param stencilLayer the layer which to be added.
+   */
+  void SetStencilLayer(const STENCIL_LAYER stencilLayer);
+  /*! \brief Pops the current stencil layer */
+  void RestoreStencilLayer();
+  /*! \brief Returns the current stencil layer */
+  STENCIL_LAYER GetStencilLayer();
+
 protected:
 
   void UpdateCameraPosition(const CPoint &camera, const float &factor);
@@ -230,6 +317,25 @@ protected:
   int m_iScreenWidth = 720;
   std::string m_strMediaDir;
   CRect m_videoRect;
+  CRect m_guiContentRect;
+  float m_rasterAspect{0.0f};
+  bool m_guiKeepShape{false};
+
+  //! \brief The area the interface occupies, recorded by GetGUIScaling for the clip.
+  CRect m_guiRect;
+
+  //! \brief The furthest anything being drawn may reach: the raster for the interface, the whole
+  //! display for the picture.
+  CRect ClipBounds() const;
+
+  CRect ScreenRect() const;
+
+  //! \brief The stated shape put through ComputeRasterAspectInForce() for the state in hand.
+  float RasterAspectInForce() const;
+
+  //! \brief The hold put through ComputeGuiKeepShape() for the state in hand.
+  bool GuiKeepShapeInForce() const;
+
   bool m_bFullScreenRoot = true;
   bool m_bFullScreenVideo = false;
   bool m_bCalibrating = false;
@@ -239,6 +345,9 @@ protected:
   RESOLUTION_INFO m_windowResolution;
   std::stack<CPoint> m_cameras;
   std::stack<CPoint> m_origins;
+  std::stack<STENCIL_LAYER> m_stencilLayers;
+
+  std::array<std::vector<CRect>, 8> m_stencilBuckets;
   std::stack<CRect> m_clipRegions;
   std::stack<float> m_stereoFactors;
   std::stack<CRect> m_viewStack;

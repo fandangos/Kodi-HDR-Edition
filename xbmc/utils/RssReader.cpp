@@ -11,8 +11,9 @@
 #include "CharsetConverter.h"
 #include "ServiceBroker.h"
 #include "URL.h"
-#include "filesystem/CurlFile.h"
 #include "filesystem/File.h"
+#include "filesystem/HttpClientFactory.h"
+#include "filesystem/IHttpClient.h"
 #include "guilib/GUIRSSControl.h"
 #include "log.h"
 #include "network/Network.h"
@@ -122,9 +123,9 @@ void CRssReader::Process()
     m_strFeed[iFeed].clear();
     m_strColors[iFeed].clear();
 
-    CCurlFile http;
-    http.SetUserAgent(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_userAgent);
-    http.SetTimeout(2);
+    auto http = XFILE::CreateHttpClient();
+    http->SetUserAgent(CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_userAgent);
+    http->SetTimeout(2);
     std::string strXML;
     std::string strUrl = m_vecUrls[iFeed];
     lock.unlock();
@@ -165,7 +166,7 @@ void CRssReader::Process()
         }
         else
         {
-          if (http.Get(strUrl, strXML))
+          if (http->Get(strUrl, strXML))
           {
             CLog::Log(LOGDEBUG, "Got rss feed: {}", strUrl);
             break;
@@ -176,7 +177,7 @@ void CRssReader::Process()
             CLog::Log(LOGERROR, "Unable to obtain rss feed: {}", strUrl);
         }
       }
-      http.Cancel();
+      http->Cancel();
     }
 
     if (!strXML.empty() && m_pObserver && Parse(strXML, iFeed))
@@ -198,7 +199,8 @@ void CRssReader::getFeed(vecText &text)
 
     for (unsigned int j = 0; j < m_strFeed[i].size(); j++)
     {
-      character_t letter = m_strFeed[i][j] | ((m_strColors[i][j] - 48) << 16);
+      character_t letter = static_cast<character_t>(m_strFeed[i][j]) |
+                           (static_cast<character_t>(m_strColors[i][j] - 48) << 32);
       text.push_back(letter);
     }
   }

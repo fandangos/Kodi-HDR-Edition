@@ -1,19 +1,112 @@
 /*
- *  Copyright (C) 2005-2025 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
  *  See LICENSES/README.md for more information.
  */
 
+#include "ServiceBroker.h"
+#include "filesystem/File.h"
+#include "language/LangInfo.h"
+#include "language/LanguageTag.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "test/TestUtils.h"
+#include "utils/Archive.h"
+#include "utils/SortUtils.h"
+#include "utils/StreamDetails.h"
+#include "utils/Variant.h"
 #include "utils/XBMCTinyXML.h"
+#include "utils/XMLUtils.h"
 #include "video/VideoInfoTag.h"
+#include "video/geometry/EffectiveGeometry.h"
+#include "video/geometry/GeometrySettings.h"
+#include "video/geometry/test/GeometryTestHelpers.h"
 
 #include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
+
+using KODI::LANGUAGE::CLanguageTag;
+
+TEST(TestVideoInfoTag, SaveNfoVersion)
+{
+  for (const auto* root : {"movie", "tvshow", "episodedetails", "musicvideo"})
+  {
+    SCOPED_TRACE(root);
+    CVideoInfoTag details;
+    CXBMCTinyXML doc;
+    ASSERT_TRUE(details.Save(&doc, root));
+    ASSERT_NE(nullptr, doc.RootElement());
+    EXPECT_STREQ(root, doc.RootElement()->Value());
+    EXPECT_STREQ("0", doc.RootElement()->Attribute("version"));
+    int version = -1;
+    EXPECT_EQ(TIXML_SUCCESS, doc.RootElement()->QueryIntAttribute("version", &version));
+    EXPECT_EQ(0, version);
+
+    TiXmlElement container("videodb");
+    ASSERT_TRUE(details.Save(&container, root));
+    EXPECT_EQ(nullptr, container.Attribute("version"));
+    EXPECT_TRUE(
+        XMLUtils::AreNodesSerializationsEqual(doc.RootElement(), container.FirstChildElement()));
+  }
+}
+
+TEST(TestVideoInfoTag, SaveUnrelatedRootWithoutNfoVersion)
+{
+  CVideoInfoTag details;
+  CXBMCTinyXML doc;
+  ASSERT_TRUE(details.Save(&doc, "details"));
+  ASSERT_NE(nullptr, doc.RootElement());
+  EXPECT_EQ(nullptr, doc.RootElement()->Attribute("version"));
+}
+
+TEST(TestVideoInfoTag, NfoVersionZeroPreservesLoadAndRoundTrip)
+{
+  for (const std::string root : {"movie", "tvshow", "episodedetails", "musicvideo"})
+  {
+    SCOPED_TRACE(root);
+    std::string unversionedExport;
+    for (const std::string version : {"", " version=\"0\""})
+    {
+      SCOPED_TRACE(version);
+      CXBMCTinyXML doc;
+      doc.Parse("<" + root + version +
+                "><title>Test title</title><plot>Test plot</plot>"
+                "<id>tt1234567</id><year>2001</year><rating>7.5</rating><votes>123</votes></" +
+                root + ">");
+
+      CVideoInfoTag details;
+      ASSERT_TRUE(details.Load(doc.RootElement(), true, false));
+      EXPECT_EQ("Test title", details.m_strTitle);
+      EXPECT_EQ("Test plot", details.m_strPlot);
+      EXPECT_EQ("tt1234567", details.GetUniqueID());
+      EXPECT_EQ(2001, details.GetYear());
+      EXPECT_FLOAT_EQ(7.5f, details.GetRating().rating);
+      EXPECT_EQ(123, details.GetRating().votes);
+
+      CXBMCTinyXML saved;
+      ASSERT_TRUE(details.Save(&saved, root));
+      const std::string exported = XMLUtils::NodeStringSerialization(
+          saved.RootElement(), XMLUtils::SerializationFormat::COMPACT);
+      if (version.empty())
+        unversionedExport = exported;
+      else
+        EXPECT_EQ(unversionedExport, exported);
+
+      CVideoInfoTag reloaded;
+      ASSERT_TRUE(reloaded.Load(saved.RootElement(), true, false));
+      CXBMCTinyXML resaved;
+      ASSERT_TRUE(reloaded.Save(&resaved, root));
+      EXPECT_EQ(exported, XMLUtils::NodeStringSerialization(
+                              resaved.RootElement(), XMLUtils::SerializationFormat::COMPACT));
+    }
+  }
+}
 
 TEST(TestVideoInfoTag, ReadTVShowSeasons)
 {
@@ -41,6 +134,205 @@ TEST(TestVideoInfoTag, ReadTVShowSeasons)
   EXPECT_EQ(details.m_seasons, reference);
 }
 
+TEST(TestVideoInfoTag, ReadStreamDetailFlags)
+{
+  const std::string document =
+      R"(<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+         <movie>
+         <fileinfo>
+         <streamdetails>
+         <audio><codec>dts</codec><language>eng</language><channels>6</channels>
+           <flags><flag>default</flag><flag>original</flag></flags></audio>
+         <audio><codec>ac3</codec><language>fre</language><channels>2</channels></audio>
+         <audio><codec>aac</codec><language>ger</language><channels>2</channels>
+           <flags><flag>  Forced  </flag><flag>notaflag</flag><flag></flag></flags></audio>
+         <subtitle><language>eng</language><flags><flag>forced</flag></flags></subtitle>
+         <subtitle><language>fre</language></subtitle>
+         <subtitle><language>ger</language><flags></flags></subtitle>
+         </streamdetails>
+         </fileinfo>
+         </movie>)";
+
+  CXBMCTinyXML doc;
+  doc.Parse(document, TIXML_ENCODING_UNKNOWN);
+
+  CVideoInfoTag details;
+  EXPECT_TRUE(details.Load(doc.RootElement(), true, false));
+
+  const CStreamDetails& streams = details.m_streamDetails;
+  ASSERT_EQ(3, streams.GetAudioStreamCount());
+  ASSERT_EQ(3, streams.GetSubtitleStreamCount());
+
+  EXPECT_EQ(StreamFlags::FLAG_DEFAULT | StreamFlags::FLAG_ORIGINAL, streams.GetAudioFlags(1));
+  EXPECT_EQ(StreamFlags::FLAG_FORCED, streams.GetSubtitleFlags(1));
+
+  // An NFO written before flags existed has no <flags> element at all, which must
+  // read back as no flags rather than leaving the field uninitialised.
+  EXPECT_EQ(StreamFlags::FLAG_NONE, streams.GetAudioFlags(2));
+  EXPECT_EQ(StreamFlags::FLAG_NONE, streams.GetSubtitleFlags(2));
+
+  // Names are trimmed and case-insensitive; a name this build doesn't know, and an empty
+  // one, are skipped rather than failing the whole stream.
+  EXPECT_EQ(StreamFlags::FLAG_FORCED, streams.GetAudioFlags(3));
+
+  // An empty <flags> block is a positive statement that the stream has no flags.
+  EXPECT_EQ(StreamFlags::FLAG_NONE, streams.GetSubtitleFlags(3));
+}
+
+TEST(TestVideoInfoTag, WriteStreamDetailFlags)
+{
+  // Flags survive an export/import cycle, so a library rebuilt from exported NFOs
+  // keeps them.
+  AudioStreamInfo audioInfo;
+  audioInfo.codecName = "dts";
+  audioInfo.language = CLanguageTag::Parse("eng");
+  audioInfo.channels = 6;
+  audioInfo.flags =
+      static_cast<StreamFlags>(StreamFlags::FLAG_DEFAULT | StreamFlags::FLAG_ORIGINAL);
+
+  SubtitleStreamInfo subtitleInfo;
+  subtitleInfo.language = CLanguageTag::Parse("eng");
+  subtitleInfo.flags = StreamFlags::FLAG_FORCED;
+
+  CVideoInfoTag details;
+  details.m_streamDetails.AddStream(new CStreamDetailAudio(audioInfo, CStreamDetail::MEDIA));
+  details.m_streamDetails.AddStream(new CStreamDetailSubtitle(subtitleInfo, CStreamDetail::MEDIA));
+  details.m_streamDetails.DetermineBestStreams();
+
+  CXBMCTinyXML xmlDoc;
+  ASSERT_TRUE(details.Save(&xmlDoc, "movie"));
+
+  CVideoInfoTag reloaded;
+  ASSERT_TRUE(reloaded.Load(xmlDoc.RootElement(), true, false));
+
+  EXPECT_EQ(audioInfo.flags, reloaded.m_streamDetails.GetAudioFlags(1));
+  EXPECT_EQ(subtitleInfo.flags, reloaded.m_streamDetails.GetSubtitleFlags(1));
+}
+
+TEST(TestVideoInfoTag, SaveRuntime)
+{
+  CVideoInfoTag details;
+  details.SetDuration(1320);
+  auto* video = new CStreamDetailVideo();
+  video->m_iDuration = 1319;
+  video->SetSource(CStreamDetail::MEDIA);
+  details.m_streamDetails.AddStream(video);
+  details.m_streamDetails.DetermineBestStreams();
+
+  CXBMCTinyXML xmlDoc;
+  ASSERT_TRUE(details.Save(&xmlDoc, "episodedetails"));
+  int runtime{0};
+  EXPECT_TRUE(XMLUtils::GetInt(xmlDoc.RootElement(), "runtime", runtime));
+  EXPECT_EQ(22, runtime);
+
+  CVideoInfoTag reloaded;
+  ASSERT_TRUE(reloaded.Load(xmlDoc.RootElement(), true, false));
+  EXPECT_EQ(1320u, reloaded.GetStaticDuration());
+
+  CVideoInfoTag noRuntime;
+  CXBMCTinyXML noRuntimeDoc;
+  ASSERT_TRUE(noRuntime.Save(&noRuntimeDoc, "episodedetails"));
+  EXPECT_EQ(nullptr, noRuntimeDoc.RootElement()->FirstChildElement("runtime"));
+}
+
+TEST(TestVideoInfoTag, WriteVideoStreamDetails)
+{
+  auto* video = new CStreamDetailVideo();
+  video->m_strCodec = "hevc";
+  video->m_strLanguage = "eng";
+  video->m_strHdrType = "dolbyvision";
+  video->m_strHdrDetail = "7MEL";
+  video->SetSource(CStreamDetail::MEDIA);
+
+  CVideoInfoTag details;
+  details.m_streamDetails.AddStream(video);
+  details.m_streamDetails.DetermineBestStreams();
+
+  CXBMCTinyXML xmlDoc;
+  ASSERT_TRUE(details.Save(&xmlDoc, "movie"));
+
+  CVideoInfoTag reloaded;
+  ASSERT_TRUE(reloaded.Load(xmlDoc.RootElement(), true, false));
+
+  EXPECT_EQ("eng", reloaded.m_streamDetails.GetVideoLanguage(1));
+  EXPECT_EQ("7MEL", reloaded.m_streamDetails.GetVideoHdrDetail(1));
+}
+
+TEST(TestVideoInfoTag, EpisodeBookmarkRoundTrip)
+{
+  CVideoInfoTag details;
+  details.m_EpBookmark.timeInSeconds = 5479.0;
+  details.m_EpBookmark.totalTimeInSeconds = 16066.5;
+
+  CXBMCTinyXML xmlDoc;
+  ASSERT_TRUE(details.Save(&xmlDoc, "episodedetails"));
+
+  CVideoInfoTag reloaded;
+  ASSERT_TRUE(reloaded.Load(xmlDoc.RootElement(), true, false));
+
+  EXPECT_DOUBLE_EQ(5479.0, reloaded.m_EpBookmark.timeInSeconds);
+  EXPECT_DOUBLE_EQ(16066.5, reloaded.m_EpBookmark.totalTimeInSeconds);
+}
+
+namespace
+{
+class TestVideoInfoTagArchive : public testing::Test
+{
+protected:
+  TestVideoInfoTagArchive() : m_file(XBMC_CREATETEMPFILE(".ar")) {}
+  ~TestVideoInfoTagArchive() override { EXPECT_TRUE(XBMC_DELETETEMPFILE(m_file)); }
+
+  CVideoInfoTag StoredAndLoaded(CVideoInfoTag details)
+  {
+    CArchive store(m_file, CArchive::store);
+    details.Archive(store);
+    store.Close();
+
+    EXPECT_EQ(0, m_file->Seek(0, SEEK_SET));
+    CVideoInfoTag loaded;
+    CArchive load(m_file, CArchive::load);
+    loaded.Archive(load);
+    load.Close();
+    return loaded;
+  }
+
+  XFILE::CFile* m_file;
+};
+} // unnamed namespace
+
+TEST_F(TestVideoInfoTagArchive, AnUnsetPlayCountStaysUnset)
+{
+  ASSERT_NE(nullptr, m_file);
+  EXPECT_FALSE(StoredAndLoaded(CVideoInfoTag{}).IsPlayCountSet());
+}
+
+TEST_F(TestVideoInfoTagArchive, APlayCountOfZeroStaysSet)
+{
+  ASSERT_NE(nullptr, m_file);
+  CVideoInfoTag details;
+  details.SetPlayCount(0);
+  const CVideoInfoTag loaded{StoredAndLoaded(details)};
+  EXPECT_TRUE(loaded.IsPlayCountSet());
+  EXPECT_EQ(0, loaded.GetPlayCount());
+}
+
+TEST(TestVideoInfoTag, ReadTextEpisodeGuide)
+{
+  CXBMCTinyXML doc;
+  doc.Parse(std::string{
+      "<tvshow><episodeguide>{&quot;tmdb&quot;: &quot;1234&quot;}</episodeguide></tvshow>"});
+
+  CVideoInfoTag details;
+  ASSERT_TRUE(details.Load(doc.RootElement(), true, false));
+  EXPECT_EQ(R"(<episodeguide>{"tmdb": "1234"}</episodeguide>)", details.m_strEpisodeGuide);
+
+  CXBMCTinyXML saved;
+  ASSERT_TRUE(details.Save(&saved, "tvshow"));
+  CVideoInfoTag reloaded;
+  ASSERT_TRUE(reloaded.Load(saved.RootElement(), true, false));
+  EXPECT_EQ(details.m_strEpisodeGuide, reloaded.m_strEpisodeGuide);
+}
+
 // Trick to make protected methods accessible for testing
 class CVideoInfoTagTest : public CVideoInfoTag
 {
@@ -65,11 +357,8 @@ TEST(TestVideoInfoTag, SaveTVShowSeasons)
   CXBMCTinyXML xmlDoc;
   details.ForwardSaveTvShowSeasons(&xmlDoc);
 
-  TiXmlPrinter printer;
-  xmlDoc.Accept(&printer);
-  std::string result = printer.Str();
-
-  EXPECT_EQ(result, referenceXml);
+  EXPECT_EQ(referenceXml, XMLUtils::NodeStringSerialization(xmlDoc.RootElement(),
+                                                            XMLUtils::SerializationFormat::PRETTY));
 }
 
 TEST(TestVideoInfoTag, SetUniqueIDs)
@@ -171,3 +460,428 @@ TEST_P(OriginalLanguageTester, SetOriginalLanguage)
 INSTANTIATE_TEST_SUITE_P(TestVideoInfoTag,
                          OriginalLanguageTester,
                          testing::ValuesIn(OriginalLanguageTests));
+
+// Sorting a list by an audio field must order it by the stream the list displays, which is the
+// stream playback will start with, not by the technically best stream that is not shown.
+class AudioSortKeyTester : public testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    m_settingOriginal = CServiceBroker::GetSettingsComponent()->GetSettings()->GetString(
+        CSettings::SETTING_LOCALE_AUDIOLANGUAGE);
+    m_audioLanguageOriginal = g_langInfo.GetAudioLanguage(false).ToString();
+    m_languageDetailsOriginal = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+        CSettings::SETTING_VIDEOLIBRARY_LANGUAGEDETAILS);
+  }
+
+  void TearDown() override
+  {
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetString(
+        CSettings::SETTING_LOCALE_AUDIOLANGUAGE, m_settingOriginal);
+    g_langInfo.SetAudioLanguage(m_audioLanguageOriginal);
+    DescribeStream(m_languageDetailsOriginal);
+  }
+
+  static void DescribeStream(int languageDetails)
+  {
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetInt(
+        CSettings::SETTING_VIDEOLIBRARY_LANGUAGEDETAILS, languageDetails);
+  }
+
+  static void PreferLanguage(const std::string& language)
+  {
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetString(
+        CSettings::SETTING_LOCALE_AUDIOLANGUAGE, language);
+    g_langInfo.SetAudioLanguage(language);
+  }
+
+  // A German TrueHD 7.1 track that outranks an English AC3 5.1 one on quality alone
+  static CVideoInfoTag MakeTagWithTwoAudioStreams()
+  {
+    CVideoInfoTag tag;
+    for (const auto& [language, codec, channels] :
+         {std::tuple{"ger", "truehd", 8}, std::tuple{"eng", "ac3", 6}})
+    {
+      auto* audio = new CStreamDetailAudio();
+      audio->m_strLanguage = language;
+      audio->m_strCodec = codec;
+      audio->m_iChannels = channels;
+      audio->SetSource(CStreamDetail::MEDIA);
+      tag.m_streamDetails.AddStream(audio);
+    }
+    tag.m_streamDetails.DetermineBestStreams();
+    return tag;
+  }
+
+  // Three tracks that give each setting a different answer: the disc nominates the French one,
+  // the German one is technically the best, and an English speaker would hear the English one.
+  static CVideoInfoTag MakeTagWhereEverySettingDiffers()
+  {
+    CVideoInfoTag tag;
+    for (const auto& [language, codec, channels, flags] :
+         {std::tuple{"ger", "truehd", 8, StreamFlags::FLAG_NONE},
+          std::tuple{"fra", "ac3", 2, StreamFlags::FLAG_DEFAULT},
+          std::tuple{"eng", "dts", 6, StreamFlags::FLAG_NONE}})
+    {
+      auto* audio = new CStreamDetailAudio();
+      audio->m_strLanguage = language;
+      audio->m_strCodec = codec;
+      audio->m_iChannels = channels;
+      audio->m_flags = flags;
+      audio->SetSource(CStreamDetail::MEDIA);
+      tag.m_streamDetails.AddStream(audio);
+    }
+    tag.m_streamDetails.DetermineBestStreams();
+    return tag;
+  }
+
+  std::string m_settingOriginal;
+  std::string m_audioLanguageOriginal;
+  int m_languageDetailsOriginal{CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_PLAYER};
+};
+
+TEST_F(AudioSortKeyTester, OrdersByThePreferredLanguageStream)
+{
+  const CVideoInfoTag tag{MakeTagWithTwoAudioStreams()};
+
+  // The technically best stream is the German one, so that is what the sort key used to be
+  ASSERT_EQ("truehd", tag.m_streamDetails.GetAudioCodec());
+
+  PreferLanguage("eng");
+
+  SortItem sortable;
+  tag.ToSortable(sortable, Field::AUDIO_CODEC);
+  EXPECT_EQ("ac3", sortable[Field::AUDIO_CODEC].asString());
+
+  tag.ToSortable(sortable, Field::AUDIO_CHANNELS);
+  EXPECT_EQ(6, sortable[Field::AUDIO_CHANNELS].asInteger());
+
+  tag.ToSortable(sortable, Field::AUDIO_LANGUAGE);
+  EXPECT_EQ("eng", sortable[Field::AUDIO_LANGUAGE].asString());
+}
+
+TEST_F(AudioSortKeyTester, FallsBackToTheBestStreamWithoutALanguagePreference)
+{
+  const CVideoInfoTag tag{MakeTagWithTwoAudioStreams()};
+
+  PreferLanguage("mediadefault");
+
+  SortItem sortable;
+  tag.ToSortable(sortable, Field::AUDIO_CODEC);
+  EXPECT_EQ("truehd", sortable[Field::AUDIO_CODEC].asString());
+}
+
+TEST_F(AudioSortKeyTester, DescribedStreamFollowsTheLanguageDetailsSetting)
+{
+  // Each option names a different one of the three tracks, so a wrong reading of the setting
+  // cannot pass by coincidence.
+  const CVideoInfoTag tag{MakeTagWhereEverySettingDiffers()};
+  PreferLanguage("eng");
+
+  DescribeStream(CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_PLAYER);
+  EXPECT_EQ("eng", tag.m_streamDetails.GetAudioLanguage(tag.GetDescribedAudioStreamIndex()));
+
+  DescribeStream(CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_DEFAULT);
+  EXPECT_EQ("fra", tag.m_streamDetails.GetAudioLanguage(tag.GetDescribedAudioStreamIndex()));
+
+  DescribeStream(CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_BEST);
+  EXPECT_EQ("ger", tag.m_streamDetails.GetAudioLanguage(tag.GetDescribedAudioStreamIndex()));
+}
+
+TEST_F(AudioSortKeyTester, DefaultFallsBackToTheBestStreamWhenNothingIsNominated)
+{
+  // Neither track carries the default flag, so "Default" has nothing to name and the best
+  // stream is the only answer left.
+  const CVideoInfoTag tag{MakeTagWithTwoAudioStreams()};
+  PreferLanguage("eng");
+
+  DescribeStream(CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_DEFAULT);
+  EXPECT_EQ("ger", tag.m_streamDetails.GetAudioLanguage(tag.GetDescribedAudioStreamIndex()));
+}
+
+TEST_F(AudioSortKeyTester, SortKeyFollowsTheLanguageDetailsSetting)
+{
+  // The sort key has to move with the label, or a list orders on a value it does not show.
+  const CVideoInfoTag tag{MakeTagWhereEverySettingDiffers()};
+  PreferLanguage("eng");
+  SortItem sortable;
+
+  DescribeStream(CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_DEFAULT);
+  tag.ToSortable(sortable, Field::AUDIO_CODEC);
+  EXPECT_EQ("ac3", sortable[Field::AUDIO_CODEC].asString());
+  tag.ToSortable(sortable, Field::AUDIO_CHANNELS);
+  EXPECT_EQ(2, sortable[Field::AUDIO_CHANNELS].asInteger());
+
+  DescribeStream(CSettings::VIDEOLIBRARY_LANGUAGE_DETAILS_BEST);
+  tag.ToSortable(sortable, Field::AUDIO_LANGUAGE);
+  EXPECT_EQ("ger", sortable[Field::AUDIO_LANGUAGE].asString());
+}
+
+//! Content geometry survives the export and import round trip, as the ratios alone.
+TEST(TestVideoInfoTag, ContentGeometryRoundTripsThroughNfo)
+{
+  using namespace KODI::VIDEO::GEOMETRY;
+
+  CVideoInfoTag written;
+  written.m_contentGeometry.Set(
+      {.aspects = {2.35f, 1.78f}, .identity = FileIdentity{68'719'476'736, 1'700'000'000}});
+  ASSERT_TRUE(written.HasContentGeometry());
+
+  CXBMCTinyXML doc;
+  doc.InsertEndChild(TiXmlElement("root"));
+  ASSERT_TRUE(written.Save(doc.RootElement(), "movie", true));
+
+  const TiXmlElement* block{
+      doc.RootElement()->FirstChildElement("movie")->FirstChildElement("contentgeometry")};
+  ASSERT_NE(nullptr, block);
+
+  // Only what describes the picture is written: each ratio, human readable, dominant first.
+  std::vector<std::string> written_;
+  for (const TiXmlElement* child = block->FirstChildElement(); child;
+       child = child->NextSiblingElement())
+  {
+    EXPECT_STREQ("aspect", child->Value());
+    written_.emplace_back(child->GetText() ? child->GetText() : "");
+  }
+  EXPECT_EQ((std::vector<std::string>{"2.35", "1.78"}), written_);
+
+  CVideoInfoTag read;
+  ASSERT_TRUE(read.Load(doc.RootElement()->FirstChildElement("movie"), true, false));
+
+  ASSERT_TRUE(read.HasContentGeometry());
+  const ContentGeometryRecord loaded{read.m_contentGeometry.Get()};
+  EXPECT_EQ(written.m_contentGeometry.Get().aspects, loaded.aspects);
+  EXPECT_TRUE(loaded.Varies());
+  EXPECT_EQ(CONTENT_GEOMETRY_ALGORITHM_VERSION, loaded.algorithmVersion);
+
+  // The file an NFO describes is identified when the record is stored, not from the NFO.
+  EXPECT_FALSE(loaded.identity.IsKnown());
+}
+
+//! A record that found nothing has nothing to tell an NFO.
+TEST(TestVideoInfoTag, NoReadingWritesNoContentGeometry)
+{
+  CVideoInfoTag written;
+  written.m_contentGeometry.Set({.aspects = {}, .identity = {8'000'000'000, 1'700'000'000}});
+
+  CXBMCTinyXML doc;
+  doc.InsertEndChild(TiXmlElement("root"));
+  ASSERT_TRUE(written.Save(doc.RootElement(), "movie", true));
+
+  EXPECT_EQ(nullptr,
+            doc.RootElement()->FirstChildElement("movie")->FirstChildElement("contentgeometry"));
+}
+
+//! An NFO with no geometry leaves the tag reporting none, not an empty rectangle.
+TEST(TestVideoInfoTag, AnNfoWithoutContentGeometryHasNone)
+{
+  const std::string document{R"(<movie><title>No geometry here</title></movie>)"};
+
+  CXBMCTinyXML doc;
+  doc.Parse(document, TIXML_ENCODING_UNKNOWN);
+
+  CVideoInfoTag details;
+  ASSERT_TRUE(details.Load(doc.RootElement(), true, false));
+  EXPECT_FALSE(details.HasContentGeometry());
+}
+
+/*!
+ * The archive is how a tag reaches the GUI's cache and a plugin's item, and it carries the
+ * content geometry field by field - so a mismatched pair of operators silently corrupts every
+ * field after it rather than failing.
+ */
+TEST(TestVideoInfoTag, ContentGeometryRoundTripsThroughTheArchive)
+{
+  using namespace KODI::VIDEO::GEOMETRY;
+
+  CVideoInfoTag written;
+  written.m_strTitle = "archived";
+
+  // Not the current version, so that losing this field is visible here rather than only in
+  // whatever later reports the record as fresh when it is stale.
+  const ContentGeometryRecord record{.aspects = {2.35f, 1.78f},
+                                     .algorithmVersion = CONTENT_GEOMETRY_ALGORITHM_VERSION - 1,
+                                     .identity = FileIdentity{68'719'476'736, 1'700'000'000}};
+  written.m_contentGeometry.Set(record);
+
+  // A field written after the geometry, which is what a mismatched pair damages first.
+  written.m_showLink = {"a show", "another"};
+
+  XFILE::CFile* const file{XBMC_CREATETEMPFILE(".ar")};
+  ASSERT_NE(nullptr, file);
+
+  CArchive out(file, CArchive::store);
+  written.Archive(out);
+  out.Close();
+
+  ASSERT_EQ(0, file->Seek(0, SEEK_SET));
+
+  CVideoInfoTag read;
+  CArchive in(file, CArchive::load);
+  read.Archive(in);
+  in.Close();
+
+  const ContentGeometryRecord loaded{read.m_contentGeometry.Get()};
+  EXPECT_EQ(record.aspects, loaded.aspects);
+  EXPECT_EQ(record.algorithmVersion, loaded.algorithmVersion);
+  EXPECT_EQ(record.identity.size, loaded.identity.size);
+  EXPECT_EQ(record.identity.time, loaded.identity.time);
+  EXPECT_EQ(written.m_showLink, read.m_showLink) << "the operators are out of step";
+
+  EXPECT_TRUE(XBMC_DELETETEMPFILE(file));
+}
+
+/*!
+ * The library's answer: what every listing row, every VideoLibrary.Get*Details response and
+ * every skin label is resolved through. Its stated contract is that it agrees with what the
+ * player publishes for the same file.
+ */
+TEST(TestVideoInfoTag, AnUnmeasuredTagResolvesToNothingRatherThanItsFrame)
+{
+  CVideoInfoTag tag;
+  ASSERT_FALSE(tag.HasContentGeometry());
+
+  const KODI::VIDEO::GEOMETRY::EffectiveGeometry resolved{tag.ResolveContentGeometry()};
+
+  // Not the coded frame: the library has no stream to ask, and publishing the frame's own
+  // ratio would say the content had been established when nothing was measured.
+  EXPECT_EQ(KODI::VIDEO::GEOMETRY::GeometrySource::Container, resolved.source);
+  EXPECT_TRUE(KODI::VIDEO::GEOMETRY::ContentAspectsOf(resolved).aspects.empty());
+}
+
+namespace
+{
+//! \brief A tag for an HD file, measured as \p aspects.
+CVideoInfoTag MeasuredTag(std::vector<float> aspects = {2.40f})
+{
+  VideoStreamInfo info;
+  info.width = 1920;
+  info.height = 1080;
+  info.videoAspectRatio = 16.0f / 9.0f;
+
+  CVideoInfoTag tag;
+  tag.m_streamDetails.AddStream(new CStreamDetailVideo(info, 0, CStreamDetail::MEDIA));
+  tag.m_streamDetails.DetermineBestStreams();
+  tag.m_contentGeometry.Set({.aspects = std::move(aspects), .identity = {}});
+  return tag;
+}
+} // unnamed namespace
+
+TEST(TestVideoInfoTag, AMeasuredTagResolvesToTheRatioItWasMeasuredAt)
+{
+  using namespace KODI::VIDEO::GEOMETRY;
+
+  const EffectiveGeometry resolved{MeasuredTag().ResolveContentGeometry()};
+
+  EXPECT_EQ(GeometrySource::Cached, resolved.source);
+  EXPECT_EQ("2.40", resolved.label);
+  EXPECT_FALSE(resolved.stale);
+  TEST::ExpectRect(resolved.displayRect, 0.0f, 140.0f, 1920.0f, 940.0f);
+}
+
+//! A record from a superseded detector keeps serving, and says it is stale rather than
+//! withholding a rectangle a mask is already sitting at.
+TEST(TestVideoInfoTag, AStaleRecordIsStillResolvedAndSaysSo)
+{
+  using namespace KODI::VIDEO::GEOMETRY;
+
+  CVideoInfoTag tag{MeasuredTag()};
+  ContentGeometryRecord record{tag.m_contentGeometry.Get()};
+  record.algorithmVersion = CONTENT_GEOMETRY_ALGORITHM_VERSION - 1;
+  tag.m_contentGeometry.Set(std::move(record));
+
+  const EffectiveGeometry resolved{tag.ResolveContentGeometry()};
+
+  EXPECT_EQ(GeometrySource::Cached, resolved.source);
+  EXPECT_TRUE(resolved.stale);
+  EXPECT_EQ("2.40", resolved.label);
+}
+
+/*!
+ * The stored ratios reach the answer, which is what makes a title reporting more than one ratio
+ * possible from a listing at all.
+ */
+TEST(TestVideoInfoTag, TheStoredRatiosReachTheResolvedSections)
+{
+  using namespace KODI::VIDEO::GEOMETRY;
+
+  const EffectiveGeometry resolved{MeasuredTag({2.40f, 1.78f}).ResolveContentGeometry()};
+
+  ASSERT_EQ(2u, resolved.sections.size());
+  EXPECT_EQ("2.40", resolved.sections[0].label);
+  EXPECT_EQ("1.78", resolved.sections[1].label);
+
+  const ContentAspectSet aspects{ContentAspectsOf(resolved)};
+  EXPECT_TRUE(aspects.varies);
+  ASSERT_EQ(2u, aspects.aspects.size());
+}
+
+//! The frame a ratio is fitted into comes from the stream details, so a tag without them has
+//! nowhere to place it.
+TEST(TestVideoInfoTag, ATagWithoutAVideoStreamResolvesToNothing)
+{
+  CVideoInfoTag tag;
+  tag.m_contentGeometry.Set({.aspects = {2.40f}, .identity = {}});
+
+  EXPECT_EQ(KODI::VIDEO::GEOMETRY::GeometrySource::Container, tag.ResolveContentGeometry().source);
+}
+
+/*!
+ * The agreement the contract rests on. The library resolves the stored record against the
+ * stream details; the player resolves the same record against the stream it is playing. Given
+ * the same measurement they must name the same ratio, or a title reads one way in a list and
+ * another while it plays.
+ */
+TEST(TestVideoInfoTag, TheLibraryAndThePlayerNameTheSameRatio)
+{
+  using namespace KODI::VIDEO::GEOMETRY;
+
+  const CVideoInfoTag tag{MeasuredTag()};
+  const EffectiveGeometry library{tag.ResolveContentGeometry()};
+
+  GeometryInputs player;
+  player.stream.coded = CRectInt{0, 0, 1920, 1080};
+  player.stream.displayAspect = 16.0f / 9.0f;
+  player.cached.state = ContentGeometryState::VALID;
+  player.cached.record = tag.m_contentGeometry.Get();
+  player.policy = ContentGeometryPolicyFromSettings();
+  player.atRestAspect = ContentGeometryAtRestFromSettings();
+  const EffectiveGeometry played{ResolveEffectiveGeometry(player)};
+
+  EXPECT_EQ(played.label, library.label);
+  EXPECT_EQ(played.source, library.source);
+  EXPECT_FLOAT_EQ(played.aspect, library.aspect);
+}
+
+namespace
+{
+std::vector<std::string> CastAfterLoading(const std::string& clear)
+{
+  const std::string document = R"(<movie>
+                                    <actor><name>First</name></actor>
+                                    <actor clear=")" +
+                               clear + R"("><name>Second</name></actor>
+                                  </movie>)";
+  CXBMCTinyXML doc;
+  doc.Parse(document, TIXML_ENCODING_UNKNOWN);
+
+  CVideoInfoTag details;
+  EXPECT_TRUE(details.Load(doc.RootElement(), true, false));
+
+  std::vector<std::string> names;
+  for (const auto& actor : details.m_cast)
+    names.push_back(actor.strName);
+  return names;
+}
+} // unnamed namespace
+
+TEST(TestVideoInfoTag, ActorClearTrueStartsTheCastAgainFromThatActor)
+{
+  EXPECT_EQ(std::vector<std::string>{"Second"}, CastAfterLoading("true"));
+}
+
+TEST(TestVideoInfoTag, ActorClearFalseKeepsTheCast)
+{
+  EXPECT_EQ((std::vector<std::string>{"First", "Second"}), CastAfterLoading("false"));
+}

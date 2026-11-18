@@ -9,33 +9,24 @@
 #include "MediaLibraryEvent.h"
 
 #include "ServiceBroker.h"
+#include "filesystem/SourcesDirectory.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/WindowIDs.h"
+#include "music/MusicDbPaths.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "utils/URIUtils.h"
+#include "video/VideoDbPaths.h"
 
-CMediaLibraryEvent::CMediaLibraryEvent(const MediaType& mediaType, const std::string& mediaPath, const CVariant& label, const CVariant& description, EventLevel level /* = EventLevel::Information */)
+CMediaLibraryEvent::CMediaLibraryEvent(KODI::MEDIA::TYPE mediaType, const std::string& mediaPath, const CVariant& label, const CVariant& description, EventLevel level /* = EventLevel::Information */)
   : CUniqueEvent(label, description, level),
     m_mediaType(mediaType),
     m_mediaPath(mediaPath)
 { }
 
-CMediaLibraryEvent::CMediaLibraryEvent(const MediaType& mediaType, const std::string& mediaPath, const CVariant& label, const CVariant& description, const std::string& icon, EventLevel level /* = EventLevel::Information */)
-  : CUniqueEvent(label, description, icon, level),
-    m_mediaType(mediaType),
-    m_mediaPath(mediaPath)
-{ }
-
-CMediaLibraryEvent::CMediaLibraryEvent(const MediaType& mediaType, const std::string& mediaPath, const CVariant& label, const CVariant& description, const std::string& icon, const CVariant& details, EventLevel level /* = EventLevel::Information */)
+CMediaLibraryEvent::CMediaLibraryEvent(KODI::MEDIA::TYPE mediaType, const std::string& mediaPath, const CVariant& label, const CVariant& description, const std::string& icon, const CVariant& details, EventLevel level /* = EventLevel::Information */)
   : CUniqueEvent(label, description, icon, details, level),
-    m_mediaType(mediaType),
-    m_mediaPath(mediaPath)
-{ }
-
-CMediaLibraryEvent::CMediaLibraryEvent(const MediaType& mediaType, const std::string& mediaPath, const CVariant& label, const CVariant& description, const std::string& icon, const CVariant& details, const CVariant& executionLabel, EventLevel level /* = EventLevel::Information */)
-  : CUniqueEvent(label, description, icon, details, executionLabel, level),
     m_mediaType(mediaType),
     m_mediaPath(mediaPath)
 { }
@@ -56,50 +47,50 @@ bool CMediaLibraryEvent::Execute() const
 
   int windowId = -1;
   std::string path = m_mediaPath;
-  if (m_mediaType == MediaTypeVideo || m_mediaType == MediaTypeMovie || m_mediaType == MediaTypeVideoCollection ||
-      m_mediaType == MediaTypeTvShow || m_mediaType == MediaTypeSeason || m_mediaType == MediaTypeEpisode ||
-      m_mediaType == MediaTypeMusicVideo)
+  if (m_mediaType == KODI::MEDIA::TYPE::VIDEO || m_mediaType == KODI::MEDIA::TYPE::MOVIE || m_mediaType == KODI::MEDIA::TYPE::VIDEO_COLLECTION ||
+      m_mediaType == KODI::MEDIA::TYPE::TV_SHOW || m_mediaType == KODI::MEDIA::TYPE::SEASON || m_mediaType == KODI::MEDIA::TYPE::EPISODE ||
+      m_mediaType == KODI::MEDIA::TYPE::MUSIC_VIDEO)
   {
     if (path.empty())
     {
-      if (m_mediaType == MediaTypeVideo)
-        path = "sources://video/";
-      else if (m_mediaType == MediaTypeMovie)
-        path = "videodb://movies/titles/";
-      else if (m_mediaType == MediaTypeVideoCollection)
-        path = "videodb://movies/sets/";
-      else if (m_mediaType == MediaTypeMusicVideo)
-        path = "videodb://musicvideos/titles/";
-      else if (m_mediaType == MediaTypeTvShow || m_mediaType == MediaTypeSeason || m_mediaType == MediaTypeEpisode)
-        path = "videodb://tvshows/titles/";
+      if (m_mediaType == KODI::MEDIA::TYPE::VIDEO)
+        path = XFILE::CSourcesDirectory::PathOf(KODI::MEDIA::MediaSection::VIDEO);
+      else if (m_mediaType == KODI::MEDIA::TYPE::MOVIE)
+        path = KODI::VIDEO::DB_PATH::MOVIE_TITLES;
+      else if (m_mediaType == KODI::MEDIA::TYPE::VIDEO_COLLECTION)
+        path = KODI::VIDEO::DB_PATH::MOVIE_SETS;
+      else if (m_mediaType == KODI::MEDIA::TYPE::MUSIC_VIDEO)
+        path = KODI::VIDEO::DB_PATH::MUSICVIDEO_TITLES;
+      else if (m_mediaType == KODI::MEDIA::TYPE::TV_SHOW || m_mediaType == KODI::MEDIA::TYPE::SEASON || m_mediaType == KODI::MEDIA::TYPE::EPISODE)
+        path = KODI::VIDEO::DB_PATH::TVSHOW_TITLES;
     }
     else
     {
       //! @todo remove the filename for now as CGUIMediaWindow::GetDirectory() can't handle it
-      if (m_mediaType == MediaTypeMovie || m_mediaType == MediaTypeMusicVideo || m_mediaType == MediaTypeEpisode)
+      if (m_mediaType == KODI::MEDIA::TYPE::MOVIE || m_mediaType == KODI::MEDIA::TYPE::MUSIC_VIDEO || m_mediaType == KODI::MEDIA::TYPE::EPISODE)
         path = URIUtils::GetDirectory(path);
     }
 
     windowId = WINDOW_VIDEO_NAV;
   }
-  else if (m_mediaType == MediaTypeMusic || m_mediaType == MediaTypeArtist ||
-           m_mediaType == MediaTypeAlbum || m_mediaType == MediaTypeSong)
+  else if (m_mediaType == KODI::MEDIA::TYPE::MUSIC || m_mediaType == KODI::MEDIA::TYPE::ARTIST ||
+           m_mediaType == KODI::MEDIA::TYPE::ALBUM || m_mediaType == KODI::MEDIA::TYPE::SONG)
   {
     if (path.empty())
     {
-      if (m_mediaType == MediaTypeMusic)
-        path = "sources://music/";
-      else if (m_mediaType == MediaTypeArtist)
-        path = "musicdb://artists/";
-      else if (m_mediaType == MediaTypeAlbum)
-        path = "musicdb://albums/";
-      else if (m_mediaType == MediaTypeSong)
-        path = "musicdb://songs/";
+      if (m_mediaType == KODI::MEDIA::TYPE::MUSIC)
+        path = XFILE::CSourcesDirectory::PathOf(KODI::MEDIA::MediaSection::MUSIC);
+      else if (m_mediaType == KODI::MEDIA::TYPE::ARTIST)
+        path = KODI::MUSIC::DB_PATH::ARTISTS;
+      else if (m_mediaType == KODI::MEDIA::TYPE::ALBUM)
+        path = KODI::MUSIC::DB_PATH::ALBUMS;
+      else if (m_mediaType == KODI::MEDIA::TYPE::SONG)
+        path = KODI::MUSIC::DB_PATH::SONGS;
     }
     else
     {
       //! @todo remove the filename for now as CGUIMediaWindow::GetDirectory() can't handle it
-      if (m_mediaType == MediaTypeSong)
+      if (m_mediaType == KODI::MEDIA::TYPE::SONG)
         path = URIUtils::GetDirectory(path);
     }
 

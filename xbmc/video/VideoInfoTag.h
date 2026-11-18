@@ -10,12 +10,15 @@
 
 #include "SetInfoTag.h"
 #include "XBDateTime.h"
+#include "media/MediaType.h"
 #include "utils/EmbeddedArt.h"
 #include "utils/Fanart.h"
 #include "utils/ISortable.h"
 #include "utils/ScraperUrl.h"
 #include "utils/StreamDetails.h"
 #include "video/Bookmark.h"
+#include "video/geometry/ContentGeometryRecord.h"
+#include "video/geometry/EffectiveGeometry.h"
 
 #include <string>
 #include <string_view>
@@ -82,6 +85,16 @@ public:
   void Archive(CArchive& ar) override;
   void Serialize(CVariant& value) const override;
   void ToSortable(SortItem& sortable, Field field) const override;
+
+  /*!
+   * \brief Get the index of the audio stream to describe this item by.
+   *
+   * Which stream that is follows the "Language details to display" setting, so the label a
+   * list shows and the key it sorts on are chosen once rather than in each caller.
+   *
+   * \return An index into m_streamDetails, as GetAudioCodec() and friends take
+   */
+  int GetDescribedAudioStreamIndex() const;
   int GetDatabaseId() const;
   CRating GetRating(std::string type = "") const;
   const std::string& GetDefaultRating() const;
@@ -89,6 +102,7 @@ public:
   const std::map<std::string, std::string, std::less<>>& GetUniqueIDs() const;
   const std::string& GetDefaultUniqueID() const;
   bool HasUniqueID() const;
+  bool HasConflictingUniqueID(const CVideoInfoTag& other) const;
   virtual bool HasYear() const;
   virtual int GetYear() const;
   bool HasPremiered() const;
@@ -96,6 +110,19 @@ public:
   const CDateTime& GetFirstAired() const;
   std::string GetCast(const std::string& separator, bool bIncludeRole = false) const;
   bool HasStreamDetails() const;
+
+  //! \brief The media type m_type names, NONE where it names a node such as a genre, or is spelled otherwise.
+  KODI::MEDIA::TYPE GetMediaType() const;
+  void SetMediaType(KODI::MEDIA::TYPE type);
+  bool HasNFOStreamDetails() const;
+
+  //! \brief Whether a measured content rectangle is attached. Independent of HasStreamDetails():
+  //! the measurement lives in its own table and survives its refreshes.
+  bool HasContentGeometry() const;
+
+  //! \brief The content rectangle in force for this item, resolved as the player resolves it.
+  //! A default geometry when nothing was measured.
+  KODI::VIDEO::GEOMETRY::EffectiveGeometry ResolveContentGeometry() const;
   bool IsEmpty() const;
 
   const std::string& GetPath() const
@@ -426,8 +453,12 @@ public:
   int m_iIdSeason;
   CFanart m_fanart;
   CStreamDetails m_streamDetails;
+
+  //! \brief The measured picture rectangle, when one is known. Round-trips through NFO export
+  //! and import.
+  KODI::VIDEO::GEOMETRY::SharedContentGeometry m_contentGeometry;
   CDateTime m_dateAdded;
-  MediaType m_type;
+  std::string m_type; //!< the table m_iDbId is in: a media type, or a node such as genre
   int m_relevance; // Used for actors' number of appearances
   int m_parsedDetails;
   std::vector<EmbeddedArtInfo> m_coverArt; ///< art information

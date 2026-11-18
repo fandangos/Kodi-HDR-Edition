@@ -8,8 +8,10 @@
 
 #include "GUIDialogExtendedProgressBar.h"
 
+#include "ServiceBroker.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIProgressControl.h"
+#include "messaging/ApplicationMessenger.h"
 #include "utils/TimeUtils.h"
 
 #include <cmath>
@@ -57,13 +59,17 @@ CGUIDialogExtendedProgressBar::CGUIDialogExtendedProgressBar(void)
 
 CGUIDialogProgressBarHandle *CGUIDialogExtendedProgressBar::GetHandle(const std::string &strTitle)
 {
-  CGUIDialogProgressBarHandle *handle = new CGUIDialogProgressBarHandle(strTitle);
+  auto owned{std::make_unique<CGUIDialogProgressBarHandle>(strTitle)};
+  CGUIDialogProgressBarHandle* handle = owned.get();
   {
     std::unique_lock lock(m_critSection);
-    m_handles.push_back(handle);
+    m_handles.push_back(std::move(owned));
   }
 
-  Open();
+  // Open asynchronously. Callers mostly run on worker threads and must not block waiting for
+  // the GUI thread, which may itself be blocked joining the calling thread (e.g. when the PVR
+  // EPG updater is stopped on system sleep).
+  CServiceBroker::GetAppMessenger()->PostMsg(TMSG_GUI_DIALOG_OPEN, GetID());
 
   return handle;
 }
@@ -104,15 +110,7 @@ void CGUIDialogExtendedProgressBar::UpdateState(unsigned int currentTime)
   {
     std::unique_lock lock(m_critSection);
 
-    // delete finished items
-    for (int iPtr = m_handles.size() - 1; iPtr >= 0; iPtr--)
-    {
-      if (m_handles.at(iPtr)->IsFinished())
-      {
-        delete m_handles.at(iPtr);
-        m_handles.erase(m_handles.begin() + iPtr);
-      }
-    }
+    std::erase_if(m_handles, [](const auto& handle) { return handle->IsFinished(); });
 
     if (m_handles.empty())
     {
@@ -135,7 +133,7 @@ void CGUIDialogExtendedProgressBar::UpdateState(unsigned int currentTime)
         m_iCurrentItem = 0;
     }
 
-    CGUIDialogProgressBarHandle *handle = m_handles.at(m_iCurrentItem);
+    CGUIDialogProgressBarHandle* handle = m_handles.at(m_iCurrentItem).get();
     if (handle)
     {
       strTitle  = handle->Text();

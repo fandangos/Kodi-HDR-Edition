@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "language/LanguageTag.h"
 #include "utils/Geometry.h"
 
 #include <cstdint>
@@ -46,7 +47,7 @@ struct StreamInfo
 {
   bool valid = false;
   int bitrate = 0;
-  std::string language;
+  KODI::LANGUAGE::CLanguageTag language;
   std::string name;
   std::string codecName;
   std::string codecDesc;
@@ -74,6 +75,11 @@ struct SubtitleStreamInfo : StreamInfo
 struct VideoStreamInfo : StreamInfo
 {
   float videoAspectRatio = 0.0f;
+
+  //! \brief Clockwise rotation the container asks for, in degrees. The width and height below
+  //! are as coded, so a quarter turn swaps them on the screen.
+  int orientation = 0;
+
   int height = 0;
   int width = 0;
   CRect SrcRect;

@@ -1,7 +1,8 @@
 if test "@cross_compiling@" = "yes"; then
 cross_compiling=yes
-host=@use_host@
-host_alias=@use_host@
+# Defaults, not overrides: a package passing its own --host must win.
+: ${host=@use_host@}
+: ${host_alias=@use_host@}
 fi
 
 LD="@LD@"
@@ -25,7 +26,7 @@ ASFLAGS="@platform_asflags@"
 CFLAGS="@platform_cflags@ @platform_includes@ -isystem @prefix@/@deps_dir@/include $CFLAGS"
 LDFLAGS="-L@prefix@/@deps_dir@/lib @platform_ldflags@ $LDFLAGS"
 CXXFLAGS="@platform_cxxflags@ @platform_includes@ -isystem @prefix@/@deps_dir@/include $CXXFLAGS"
-CPPFLAGS="@platform_cflags@ @platform_includes@ -isystem @prefix@/@deps_dir@/include $CPPFLAGS"
+CPPFLAGS="@platform_cppflags@ @platform_includes@ -isystem @prefix@/@deps_dir@/include $CPPFLAGS"
 
 export PKG_CONFIG=@prefix@/@tool_dir@/bin/pkg-config
 export PKG_CONFIG_LIBDIR=@prefix@/@deps_dir@/lib/pkgconfig
@@ -61,7 +62,6 @@ gl_cv_func_gettimeofday_clobber=no
 if test "${PACKAGE_NAME}" = "wayland"; then
   # wayland insists on building tests which rely on assert, which cannot work with -DNDEBUG
   # Maybe it would be better not to define -DNDEBUG globally for release builds?
-  export CFLAGS=`echo ${CFLAGS} | sed 's/-DNDEBUG=1//g'`
   export CPPFLAGS=`echo ${CPPFLAGS} | sed 's/-DNDEBUG=1//g'`
 fi
 
@@ -79,7 +79,6 @@ if test "@platform_os@" = "darwin_embedded"; then
   if test "${ac_unique_file}" = "src/flac/main.c" ; then
     # compiler barfs if we use -O3/O2 for flac
     export CFLAGS=`echo ${CFLAGS} | sed 's/-O3/-Os/'`
-    export CPPFLAGS=`echo ${CPPFLAGS} | sed 's/-O3/-Os/'`
   fi
 fi
 

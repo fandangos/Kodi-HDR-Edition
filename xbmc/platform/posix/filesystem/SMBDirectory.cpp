@@ -155,11 +155,10 @@ bool CSMBDirectory::GetDirectory(const CURL& url, CFileItemList& items)
     item->SetFolder(isDir);
     if (!isDir)
       item->SetSize(size);
-    else
-    { // raw values; the DateTime above is local-time converted
-      item->SetProperty(DIR_PROPERTY_STAT_MTIME, static_cast<int64_t>(st.st_mtime));
-      item->SetProperty(DIR_PROPERTY_STAT_CTIME, static_cast<int64_t>(st.st_ctime));
-    }
+
+    // raw values; the DateTime above is local-time converted
+    item->SetProperty(DIR_PROPERTY_STAT_MTIME, static_cast<int64_t>(st.st_mtime));
+    item->SetProperty(DIR_PROPERTY_STAT_CTIME, static_cast<int64_t>(st.st_ctime));
     if (hidden)
       item->SetProperty("file:hidden", true);
   }
@@ -170,8 +169,9 @@ bool CSMBDirectory::GetDirectory(const CURL& url, CFileItemList& items)
   {
     if (smbc_lseekdir(fd, 0) < 0)
     {
+      const int seekErrno = errno;
       CLog::LogF(LOGERROR, "Unable to seek directory : '{}'\nunix_err:'{:x}' error: '{}'",
-                 CURL::GetRedacted(strAuth), errno, strerror(errno));
+                 CURL::GetRedacted(strAuth), seekErrno, strerror(seekErrno));
       return false;
     }
 
@@ -212,8 +212,9 @@ bool CSMBDirectory::GetDirectory(const CURL& url, CFileItemList& items)
 
   if (smbc_closedir(fd) < 0)
   {
+    const int closeErrno = errno;
     CLog::LogF(LOGERROR, "Unable to close directory : '{}'\nunix_err:'{:x}' error: '{}'",
-               CURL::GetRedacted(strAuth), errno, strerror(errno));
+               CURL::GetRedacted(strAuth), closeErrno, strerror(closeErrno));
     return true; // we already got our listing
   }
 
@@ -262,18 +263,22 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
 
   CLog::LogFC(LOGDEBUG, LOGSAMBA, "Using authentication url {}", CURL::GetRedacted(s));
 
+  int openErrno = 0;
   {
     std::unique_lock lock(smb);
     if (!smb.IsSmbValid())
       return -1;
     fd = smbc_opendir(s.c_str());
+    openErrno = errno;
   }
 
   while (fd < 0) /* only to avoid goto in following code */
   {
     std::string cError;
 
-    if (errno == EACCES || errno == EPERM || errno == EAGAIN || errno == EINVAL)
+    // smbc_opendir() reports failing to parse its arguments as EINVAL + 8192 + n
+    const bool invalid = openErrno == EINVAL || openErrno >= EINVAL + 8192;
+    if (openErrno == EACCES || openErrno == EPERM || openErrno == EAGAIN || invalid)
     {
       if (m_flags & DIR_FLAG_ALLOW_PROMPT)
       {
@@ -287,12 +292,12 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
       break;
     }
 
-    if (errno == ENODEV || errno == ENOENT)
+    if (openErrno == ENODEV || openErrno == ENOENT)
       cError = fmt::format(
           fmt::runtime(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(770)),
-          errno);
+          openErrno);
     else
-      cError = strerror(errno);
+      cError = strerror(openErrno);
 
     if (m_flags & DIR_FLAG_ALLOW_PROMPT)
       SetErrorDialog(257, cError.c_str());
@@ -303,7 +308,7 @@ int CSMBDirectory::OpenDir(const CURL& url, std::string& strAuth)
   {
     // write error to logfile
     CLog::LogF(LOGERROR, "Unable to open directory : '{}'\nunix_err:'{:x}' error : '{}'",
-               CURL::GetRedacted(strAuth), errno, strerror(errno));
+               CURL::GetRedacted(strAuth), openErrno, strerror(openErrno));
   }
 
   return fd;
@@ -350,6 +355,22 @@ bool CSMBDirectory::Exists(const CURL& url2)
 {
   std::unique_lock lock(smb);
   smb.Init();
+
+  // A bare server URL (smb://server/) has no share to stat, so smbc_stat() fails on it
+  // even when the server is up. Count the server as existing if it can list its shares,
+  // as it does when browsing.
+  if (!url2.GetHostName().empty() && url2.GetFileName().empty())
+  {
+    lock.unlock(); // OpenDir is locked
+    std::string strAuth;
+    const int fd = OpenDir(url2, strAuth);
+    if (fd < 0)
+      return false;
+
+    lock.lock();
+    smbc_closedir(fd);
+    return true;
+  }
 
   CURL url = CSMB::GetResolvedUrl(url2);
   CPasswordManager::GetInstance().AuthenticateURL(url);

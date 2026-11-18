@@ -10,11 +10,13 @@
 
 #include "DVDDemuxUtils.h"
 #include "DVDInputStreams/DVDInputStream.h"
+#include "DVDStreamInfo.h"
 #include "cores/FFmpeg.h"
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "utils/StreamUtils.h"
 #include "utils/log.h"
 
+#include <chrono>
 #include <memory>
 #include <tuple>
 #include <type_traits>
@@ -24,6 +26,16 @@ extern "C"
 {
 #include <libavcodec/defs.h>
 }
+
+using namespace std::chrono_literals;
+
+namespace
+{
+// an idle add-on answers in microseconds, so these cost little while a stream starves
+constexpr int EMPTY_PACKET_RETRIES = 32;
+// from entry, half the player's EMPTY_PACKET_GRACE, so a read that only retried never looks blocked
+constexpr auto EMPTY_PACKET_RETRY_CAP = 500us;
+} // namespace
 
 class CDemuxStreamClientInternal
 {
@@ -50,6 +62,8 @@ public:
   AVCodecParserContext *m_parser = nullptr;
   AVCodecContext *m_context = nullptr;
   bool m_parser_split = false;
+  //! What the input stream announced when the stream properties were last initialized from it
+  CDVDStreamInfo m_announced;
 };
 
 template <class T>
@@ -321,7 +335,16 @@ DemuxPacket* CDVDDemuxClient::Read()
   if (m_packet)
     return m_packet.release();
 
+  const auto readStart = std::chrono::steady_clock::now();
   m_packet.reset(m_IDemux->ReadDemux());
+  // an add-on's empty packet may replace input it dropped; ask again while it answers at once
+  for (int retry = 0; retry < EMPTY_PACKET_RETRIES && m_packet && m_packet->iStreamId == -1 &&
+                      std::chrono::steady_clock::now() - readStart < EMPTY_PACKET_RETRY_CAP;
+       ++retry)
+  {
+    CDVDDemuxUtils::FreeDemuxPacket(m_packet.release());
+    m_packet.reset(m_IDemux->ReadDemux());
+  }
   if (!m_packet)
   {
     return nullptr;
@@ -331,7 +354,9 @@ DemuxPacket* CDVDDemuxClient::Read()
   {
     RequestStreams();
     CDVDDemuxUtils::FreeDemuxPacket(m_packet.release());
-    return CDVDDemuxUtils::AllocateDemuxPacket(0);
+    DemuxPacket* pPacket = CDVDDemuxUtils::AllocateDemuxPacket(0);
+    pPacket->m_inputDropped = true;
+    return pPacket;
   }
   else if (m_packet->iStreamId == DMX_SPECIALID_STREAMCHANGE)
   {
@@ -351,9 +376,11 @@ DemuxPacket* CDVDDemuxClient::Read()
 
   if (!IsVideoReady())
   {
+    const bool inputDropped = m_packet->iStreamId != -1;
     CDVDDemuxUtils::FreeDemuxPacket(m_packet.release());
     DemuxPacket *pPacket = CDVDDemuxUtils::AllocateDemuxPacket(0);
     pPacket->demuxerId = GetDemuxerId();
+    pPacket->m_inputDropped = inputDropped;
     return pPacket;
   }
 
@@ -419,6 +446,14 @@ void CDVDDemuxClient::SetStreamProps(CDemuxStream *stream, std::map<int, std::sh
 
   std::shared_ptr<CDemuxStream> currentStream(GetStreamInternal(stream->uniqueId));
   std::shared_ptr<CDemuxStream> toStream;
+
+  // A stream announced as it was before keeps the properties ParsePacket corrected. The aspect
+  // is asked apart, as comparing two announcements leaves it out
+  const auto current = std::dynamic_pointer_cast<CDemuxStreamClientInternal>(currentStream);
+  const CDVDStreamInfo announced(*stream, true);
+  if (forceInit && current && current->m_announced == announced &&
+      current->m_announced.aspect == announced.aspect)
+    forceInit = false;
 
   if (stream->type == StreamType::AUDIO)
   {
@@ -612,11 +647,14 @@ void CDVDDemuxClient::SetStreamProps(CDemuxStream *stream, std::map<int, std::sh
 
   // only update profile / level if we create a new stream or has been reset stream properties
   // existing streams may be corrected by ParsePacket
-  if (!currentStream || forceInit)
+  if (toStream != currentStream || forceInit)
   {
     toStream->profile = stream->profile;
     toStream->level = stream->level;
   }
+
+  if (toStream != currentStream)
+    std::dynamic_pointer_cast<CDemuxStreamClientInternal>(toStream)->m_announced = *stream;
 
   toStream->uniqueId = stream->uniqueId;
   toStream->codec = stream->codec;
@@ -704,12 +742,12 @@ void CDVDDemuxClient::FillBuffer(bool mode)
   }
 }
 
-void CDVDDemuxClient::EnableStream(int id, bool enable)
+bool CDVDDemuxClient::EnableStream(int id, bool enable)
 {
   if (m_IDemux)
-  {
-    m_IDemux->EnableStream(id, enable);
-  }
+    return m_IDemux->EnableStream(id, enable);
+
+  return false;
 }
 
 void CDVDDemuxClient::OpenStream(int id)
@@ -735,6 +773,11 @@ void CDVDDemuxClient::SetVideoResolution(unsigned int width, unsigned int height
   {
     m_IDemux->SetVideoResolution(width, height, width, height);
   }
+}
+
+bool CDVDDemuxClient::IsStreaming() const
+{
+  return true;
 }
 
 bool CDVDDemuxClient::CodecHasExtraData(AVCodecID id)

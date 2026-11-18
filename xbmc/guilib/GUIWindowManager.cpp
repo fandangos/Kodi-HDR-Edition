@@ -39,6 +39,7 @@
 #include "programs/GUIWindowPrograms.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "settings/windows/GUIWindowScreenAlignment.h"
 #include "settings/windows/GUIWindowSettings.h"
 #include "settings/windows/GUIWindowSettingsCategory.h"
 #include "settings/windows/GUIWindowSettingsScreenCalibration.h"
@@ -68,6 +69,12 @@
 #include "windows/GUIWindowSystemInfo.h"
 
 #include <mutex>
+
+namespace
+{
+// buffers older than this are fully redrawn
+constexpr int MAX_BUFFER_AGE = 10;
+} // namespace
 
 // Dialog includes
 #include "music/dialogs/GUIDialogMusicOSD.h"
@@ -147,9 +154,14 @@
 /* Game related include files */
 #include "cores/RetroPlayer/guiwindows/GameWindowFullScreen.h"
 #include "games/agents/windows/GUIAgentWindow.h"
+#include "games/cheats/dialogs/DialogGameCheats.h"
 #include "games/controllers/windows/GUIControllerWindow.h"
 #include "games/dialogs/disc/DialogGameDiscManager.h"
+#include "games/dialogs/osd/DialogGameAchievements.h"
 #include "games/dialogs/osd/DialogGameAdvancedSettings.h"
+#include "games/dialogs/osd/DialogGameIndicators.h"
+#include "games/dialogs/osd/DialogGameLeaderboardEntries.h"
+#include "games/dialogs/osd/DialogGameLeaderboards.h"
 #include "games/dialogs/osd/DialogGameOSD.h"
 #include "games/dialogs/osd/DialogGameSaves.h"
 #include "games/dialogs/osd/DialogGameStretchMode.h"
@@ -216,6 +228,7 @@ void CGUIWindowManager::CreateWindows()
   Add(new CGUIWindowSettings);
   Add(new CGUIWindowSystemInfo);
   Add(new CGUIWindowSettingsScreenCalibration);
+  Add(new CGUIWindowScreenAlignment);
   Add(new CGUIWindowSettingsCategory);
   Add(new CGUIWindowVideoNav);
   Add(new CGUIWindowVideoPlaylist);
@@ -354,6 +367,11 @@ void CGUIWindowManager::CreateWindows()
   Add(new GAME::CDialogInGameSaves);
   Add(new GAME::CGUIAgentWindow);
   Add(new GAME::CDialogGameDiscManager);
+  Add(new GAME::CDialogGameAchievements);
+  Add(new GAME::CDialogGameLeaderboards);
+  Add(new GAME::CDialogGameLeaderboardEntries);
+  Add(new GAME::CDialogGameIndicators);
+  Add(new GAME::CDialogGameCheats);
   Add(new RETRO::CGameWindowFullScreen);
 }
 
@@ -457,6 +475,7 @@ bool CGUIWindowManager::DestroyWindows()
     DestroyWindow(WINDOW_SETTINGS_MENU);
     DestroyWindow(WINDOW_SETTINGS_PROFILES);
     DestroyWindow(WINDOW_SCREEN_CALIBRATION);
+    DestroyWindow(WINDOW_SCREEN_ALIGNMENT);
     DestroyWindow(WINDOW_SYSTEM_INFORMATION);
     DestroyWindow(WINDOW_SCREENSAVER);
     DestroyWindow(WINDOW_DIALOG_VIDEO_OSD);
@@ -481,6 +500,11 @@ bool CGUIWindowManager::DestroyWindows()
     DestroyWindow(WINDOW_DIALOG_IN_GAME_SAVES);
     DestroyWindow(WINDOW_DIALOG_GAME_AGENTS);
     DestroyWindow(WINDOW_DIALOG_GAME_DISC_MANAGER);
+    DestroyWindow(WINDOW_DIALOG_GAME_LEADERBOARDS);
+    DestroyWindow(WINDOW_DIALOG_GAME_LEADERBOARD_ENTRIES);
+    DestroyWindow(WINDOW_DIALOG_GAME_INDICATORS);
+    DestroyWindow(WINDOW_DIALOG_GAME_ACHIEVEMENTS);
+    DestroyWindow(WINDOW_DIALOG_GAME_CHEATS);
     DestroyWindow(WINDOW_FULLSCREEN_GAME);
 
     Remove(WINDOW_SETTINGS_SERVICE);
@@ -1020,8 +1044,11 @@ bool CGUIWindowManager::SwitchToFullScreen(bool force /* = false */)
   const auto appPlayer = components.GetComponent<CApplicationPlayer>();
 
   // See if we're playing a game
-  if (activeWindowID != WINDOW_FULLSCREEN_GAME && appPlayer->IsPlayingGame())
-    windowID = WINDOW_FULLSCREEN_GAME;
+  if (appPlayer->IsPlayingGame())
+  {
+    if (activeWindowID != WINDOW_FULLSCREEN_GAME)
+      windowID = WINDOW_FULLSCREEN_GAME;
+  }
 
   // See if we're playing a video
   else if (activeWindowID != WINDOW_FULLSCREEN_VIDEO && appPlayer->IsPlayingVideo())
@@ -1269,7 +1296,10 @@ void CGUIWindowManager::Process(unsigned int currentTime)
 
   CGUIWindow* pWindow = GetWindow(GetActiveWindow());
   if (pWindow)
+  {
     pWindow->DoProcess(currentTime, m_dirtyregions);
+    m_guiSurround.Process(currentTime, m_dirtyregions);
+  }
 
   // process all dialogs - visibility may change etc.
   // copy shared_ptrs to ensure windows stay alive during iteration even if map is modified
@@ -1323,20 +1353,30 @@ void CGUIWindowManager::MarkDirty(const CRect& rect)
 
 void CGUIWindowManager::RenderPass() const
 {
+  CGraphicContext& context = CServiceBroker::GetWinSystem()->GetGfxContext();
+  context.ClearStencilBuckets();
+
+  // The clear and the surround fill what the confined interface leaves uncovered.
+  CGUIWindow* pWindow = GetWindow(GetActiveWindow());
+  if (pWindow)
+  {
+    pWindow->ClearBackground();
+    m_guiSurround.Render();
+  }
+
+  const CRect clip = context.ClipToGui();
   if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiFrontToBackRendering)
     RenderPassDual();
   else
     RenderPassSingle();
+  context.SetClip(clip);
 }
 
 void CGUIWindowManager::RenderPassSingle() const
 {
   CGUIWindow* pWindow = GetWindow(GetActiveWindow());
   if (pWindow)
-  {
-    pWindow->ClearBackground();
     pWindow->DoRender();
-  }
 
   // we render the dialogs based on their render order.
   auto renderList = m_activeDialogs;
@@ -1352,8 +1392,6 @@ void CGUIWindowManager::RenderPassSingle() const
 void CGUIWindowManager::RenderPassDual() const
 {
   CGUIWindow* pWindow = GetWindow(GetActiveWindow());
-  if (pWindow)
-    pWindow->ClearBackground();
 
   auto renderList = m_activeDialogs;
   stable_sort(renderList.begin(), renderList.end(), RenderOrderSortFunction);
@@ -1411,12 +1449,19 @@ bool CGUIWindowManager::Render()
       CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiVisualizeDirtyRegions;
   if (visualizeDirtyRegions)
     bufferAge = 20;
-  if (bufferAge)
-    m_tracker.CleanMarkedRegions(bufferAge + 1);
-  else
-    m_tracker.CleanMarkedRegions(10);
+  // in the stereo modes Render() runs once per eye, age the regions once per frame
+  // otherwise the right eye drops them a frame early and misses redraws
+  if (CServiceBroker::GetWinSystem()->GetGfxContext().GetStereoView() != RenderStereoView::RIGHT)
+  {
+    // the buffer age counts presented frames and varies between frames, so keep the regions
+    // independently of it and only age them when a frame was presented
+    if (m_presentedFrame)
+      m_tracker.CleanMarkedRegions((visualizeDirtyRegions ? bufferAge : MAX_BUFFER_AGE) + 1);
+    m_presentedFrame = false;
+  }
 
-  CDirtyRegionList dirtyRegions = m_tracker.GetDirtyRegions();
+  // one frame more than needed, as some platforms report a fixed buffer age
+  CDirtyRegionList dirtyRegions = m_tracker.GetDirtyRegions(bufferAge + 1);
 
   bool hasRendered = false;
   // If we visualize the regions we will always render the entire viewport
@@ -1428,7 +1473,10 @@ bool CGUIWindowManager::Render()
     RenderPass();
     hasRendered = true;
   }
-  else if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiAlgorithmDirtyRegions == DIRTYREGION_SOLVER_FILL_VIEWPORT_ON_CHANGE)
+  else if (bufferAge > MAX_BUFFER_AGE ||
+           CServiceBroker::GetSettingsComponent()
+                   ->GetAdvancedSettings()
+                   ->m_guiAlgorithmDirtyRegions == DIRTYREGION_SOLVER_FILL_VIEWPORT_ON_CHANGE)
   {
     if (!dirtyRegions.empty())
     {
@@ -1446,7 +1494,12 @@ bool CGUIWindowManager::Render()
       if (!hasRendered)
         CServiceBroker::GetWinSystem()->SetDirtyRegions(dirtyRegions);
 
-      CServiceBroker::GetWinSystem()->GetGfxContext().SetScissors(i);
+      // Bounded by the display only, so the clear and the surround reach the whole region.
+      // RenderPass() confines the interface.
+      CGraphicContext& context = CServiceBroker::GetWinSystem()->GetGfxContext();
+      CRect region = i;
+      region.Intersect(CRect(0, 0, float(context.GetWidth()), float(context.GetHeight())));
+      context.SetClip(region);
       RenderPass();
       hasRendered = true;
     }
@@ -1463,6 +1516,7 @@ bool CGUIWindowManager::Render()
       CGUITexture::DrawQuad(i, 0x4c00ff00);
   }
 
+  m_presentedFrame |= hasRendered;
   return hasRendered;
 }
 
@@ -1475,14 +1529,27 @@ void CGUIWindowManager::AfterRender()
 
   // make copy of vector as we may remove items from it as we go
   auto activeDialogs = m_activeDialogs;
+  bool dialogDirty = false;
   for (const auto& window : activeDialogs)
   {
     if (window->IsDialogRunning())
     {
       window->AfterRender();
-      // Dialog state can affect visibility states
-      if (pWindow && window->IsControlDirty())
-        pWindow->MarkDirtyRegion();
+      dialogDirty |= window->IsControlDirty();
+    }
+  }
+
+  // Dialog state can affect visibility states of the window and the other dialogs
+  if (dialogDirty)
+  {
+    if (pWindow)
+      pWindow->MarkDirtyRegion(CGUIControl::DIRTY_STATE_CHILD);
+
+    CGUIMessage msg(GUI_MSG_NOTIFY_ALL, 0, 0, GUI_MSG_STATE_CHANGED);
+    for (const auto& window : activeDialogs)
+    {
+      if (window->IsDialogRunning())
+        window->OnMessage(msg);
     }
   }
 }
@@ -1570,6 +1637,11 @@ void CGUIWindowManager::DeInitialize()
 {
   std::unique_lock lock(CServiceBroker::GetWinSystem()->GetGfxContext());
 
+  // Unloading the skin is what brings us here, and the skin is one of the two things the
+  // surround is painted from.
+  m_guiSurround.ReleaseResources();
+  m_guiSurround.Invalidate();
+
   // Need a copy because addon-dialogs removes itself on Close()
   // Copy shared_ptrs to keep windows alive during cleanup
   std::vector<std::shared_ptr<CGUIWindow>> windowsCopy;
@@ -1601,6 +1673,11 @@ void CGUIWindowManager::DeInitialize()
   // clear our vectors of windows
   m_vecCustomWindows.clear();
   m_activeDialogs.clear();
+
+  // FrameMove is the only other drain and stops running at shutdown
+  for (const auto& window : m_deleteWindows)
+    window->FreeResources(true);
+  m_deleteWindows.clear();
 
   m_initialized = false;
 }

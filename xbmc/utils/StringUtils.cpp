@@ -29,10 +29,12 @@
 #endif
 
 #include "CharsetConverter.h"
-#include "LangInfo.h"
+#include "ServiceBroker.h"
 #include "StringUtils.h"
 #include "XBDateTime.h"
-#include "utils/RegExp.h"
+#include "language/LangInfo.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 
 #include <algorithm>
 #include <array>
@@ -83,8 +85,6 @@ T NumberFromSS(std::string_view str, T fallback)
   return 'a' <= c && c <= 'z' ? c - 'a' + 'A' : c;
 }
 } // unnamed namespace
-
-static constexpr const char* ADDON_GUID_RE = "^(\\{){0,1}[0-9a-fA-F]{8}\\-[0-9a-fA-F]{4}\\-[0-9a-fA-F]{4}\\-[0-9a-fA-F]{4}\\-[0-9a-fA-F]{12}(\\}){0,1}$";
 
 /* empty string for use in returns by ref */
 const std::string StringUtils::Empty = "";
@@ -544,36 +544,6 @@ std::string& StringUtils::RemoveDuplicatedSpacesAndTabs(std::string& str) noexce
   return str;
 }
 
-bool StringUtils::IsSpecialCharacter(char c) noexcept
-{
-  static constexpr std::string_view view(" .-_+,!'\"\t/\\*?#$%&@()[]{}");
-  return std::ranges::any_of(view, [c](char ch) { return ch == c; });
-}
-
-std::string StringUtils::ReplaceSpecialCharactersWithSpace(std::string_view str)
-{
-  std::string result;
-  bool prevCharWasSpecial = false;
-
-  for (char c : str)
-  {
-    if (IsSpecialCharacter(c))
-    {
-      if (!prevCharWasSpecial)
-      {
-        result += ' ';
-      }
-      prevCharWasSpecial = true;
-    }
-    else
-    {
-      result += c;
-      prevCharWasSpecial = false;
-    }
-  }
-  return result;
-}
-
 int StringUtils::Replace(std::string& str, char oldChar, char newChar) noexcept
 {
   int replacedChars = 0;
@@ -767,19 +737,6 @@ std::vector<std::string> StringUtils::SplitMulti(std::span<const std::string> in
                                                  size_t iMaxStrings /*= 0*/)
 {
   return SplitMultiT(input, delimiters, iMaxStrings);
-}
-
-// returns the number of occurrences of strFind in strInput.
-int StringUtils::FindNumber(std::string_view strInput, std::string_view strFind) noexcept
-{
-  size_t pos = strInput.find(strFind, 0);
-  int numfound = 0;
-  while (pos != std::string::npos)
-  {
-    numfound++;
-    pos = strInput.find(strFind, pos + 1);
-  }
-  return numfound;
 }
 
 // Plane maps for MySQL utf8_general_ci (now known as utf8mb3_general_ci) collation
@@ -1023,8 +980,92 @@ static const uint16_t* const planemap[256] = {
 };
 // clang-format on
 
+wchar_t StringUtils::GetNordicCollationWeight(std::string_view languageCode,
+                                              wchar_t codepoint) noexcept
+{
+  if (languageCode == "nor" || languageCode == "nob" || languageCode == "nno" ||
+      languageCode == "dan")
+  {
+    // Norwegian/Danish alphabet order: ... x y z æ ø å
+    // ä sorts with æ and ö sorts with ø, so imported Swedish/Finnish names keep their
+    // Nordic end-of-alphabet position instead of folding to a/o
+    switch (codepoint)
+    {
+      case 0x00C6:
+      case 0x00E6: // Æ / æ
+      case 0x00C4:
+      case 0x00E4: // Ä / ä
+        return L'z' + 1;
+      case 0x00D8:
+      case 0x00F8: // Ø / ø
+      case 0x00D6:
+      case 0x00F6: // Ö / ö
+        return L'z' + 2;
+      case 0x00C5:
+      case 0x00E5: // Å / å
+        return L'z' + 3;
+      default:
+        return 0;
+    }
+  }
+  if (languageCode == "swe" || languageCode == "fin")
+  {
+    // Swedish/Finnish alphabet order: ... x y z å ä ö
+    switch (codepoint)
+    {
+      case 0x00C5:
+      case 0x00E5: // Å / å
+        return L'z' + 1;
+      case 0x00C4:
+      case 0x00E4: // Ä / ä
+        return L'z' + 2;
+      case 0x00D6:
+      case 0x00F6: // Ö / ö
+        return L'z' + 3;
+      default:
+        return 0;
+    }
+  }
+  return 0;
+}
+
+namespace
+{
+// True when the accent-folding fallback is in use to mirror the utf8_general_ci ordering
+// of a configured MySQL/MariaDB database (see CLangInfo::UseLocaleCollation()). The SQL
+// ORDER BY path cannot apply any language-specific tailoring, so in-memory sorting must
+// stick to the plain folding weights to stay consistent with SQL-sorted results.
+static bool CollationMirrorsMySql()
+{
+  const auto settingsComponent = CServiceBroker::GetSettingsComponent();
+  if (!settingsComponent)
+    return false;
+  const auto advancedSettings = settingsComponent->GetAdvancedSettings();
+  if (!advancedSettings)
+    return false;
+  return StringUtils::EqualsNoCase(advancedSettings->m_databaseMusic.type, "mysql") ||
+         StringUtils::EqualsNoCase(advancedSettings->m_databaseVideo.type, "mysql");
+}
+} // namespace
+
 static wchar_t GetCollationWeight(const wchar_t& r)
 {
+  // Nordic languages order some accented vowels as distinct letters at the end of their
+  // alphabet rather than as accented variants of a/o (see StringUtils::GetNordicCollationWeight).
+  // Apply that override, when applicable, ahead of the generic accent-folding table below.
+  //
+  //! @todo: This is a temporary workaround for the lack of language-specific collation facets
+  //! on some platforms. It should be removed once all platforms have a proper collation facet
+  //! implementation for the configured language, and the fallback to accent folding is no
+  //! longer needed.
+  if (!CollationMirrorsMySql())
+  {
+    const wchar_t nordicWeight = StringUtils::GetNordicCollationWeight(
+        g_langInfo.GetLanguageAs(CLangCodeExpander::ISO_639_2, false), r);
+    if (nordicWeight != 0)
+      return nordicWeight;
+  }
+
   // Lookup the "weight" of a UTF8 char, equivalent lowercase ascii letter, in the plane map,
   // the character comparison value used by using "accent folding" collation utf8_general_ci
   // in MySQL (AKA utf8mb3_general_ci in MariaDB 10)
@@ -1689,13 +1730,6 @@ std::string StringUtils::CreateUUID()
   std::stringstream strGuid; strGuid << guid;
   return std::move(strGuid).str();
 #endif
-}
-
-bool StringUtils::ValidateUUID(const std::string &uuid)
-{
-  CRegExp guidRE;
-  guidRE.RegComp(ADDON_GUID_RE);
-  return (guidRE.RegFind(uuid.c_str()) == 0);
 }
 
 double StringUtils::CompareFuzzy(std::string_view left, std::string_view right) noexcept

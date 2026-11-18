@@ -13,10 +13,11 @@
 #include "URIUtils.h"
 #include "URL.h"
 #include "XMLUtils.h"
-#include "filesystem/CurlFile.h"
+#include "filesystem/IHttpClient.h"
 #include "filesystem/ZipFile.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/CharsetDetection.h"
 #include "utils/Mime.h"
 #include "utils/StringUtils.h"
@@ -72,7 +73,7 @@ const CScraperUrl::SUrlEntry CScraperUrl::GetSeasonUrl(int season, const std::st
 {
   const auto url = std::find_if(m_urls.begin(), m_urls.end(), [season, type](const SUrlEntry& url) {
     return url.m_type == UrlType::Season && url.m_season == season &&
-           (type.empty() || type == "thumb" || url.m_aspect == type);
+           (type.empty() || type == KODI::ART::TYPE::THUMB || url.m_aspect == type);
   });
   if (url != m_urls.end())
     return *url;
@@ -299,7 +300,7 @@ std::string CScraperUrl::GetThumbUrl(const CScraperUrl::SUrlEntry& entry)
 
 bool CScraperUrl::Get(const SUrlEntry& scrURL,
                       std::string& strHTML,
-                      XFILE::CCurlFile& http,
+                      XFILE::IHttpClient& http,
                       const std::string& cacheContext)
 {
   CURL url(scrURL.m_url);

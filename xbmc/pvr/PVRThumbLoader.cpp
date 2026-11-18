@@ -13,11 +13,12 @@
 #include "ServiceBroker.h"
 #include "TextureCache.h"
 #include "imagefiles/ImageFileURL.h"
+#include "pvr/PVRChannelGroupImageFileLoader.h"
 #include "pvr/PVRManager.h"
+#include "utils/ArtTypes.h"
+#include "utils/Digest.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
-
-#include <chrono>
 
 namespace PVR
 {
@@ -50,16 +51,16 @@ void CPVRThumbLoader::OnLoaderFinish()
 
 void CPVRThumbLoader::ClearCachedImage(CFileItem& item)
 {
-  const std::string thumb = item.GetArt("thumb");
+  const std::string thumb = item.GetArt(KODI::ART::TYPE::THUMB);
   if (!thumb.empty())
   {
     CServiceBroker::GetTextureCache()->ClearCachedImage(thumb);
     if (m_textureDatabase->Open())
     {
-      m_textureDatabase->ClearTextureForPath(item.GetPath(), "thumb");
+      m_textureDatabase->ClearTextureForPath(item.GetPath(), KODI::ART::TYPE::THUMB);
       m_textureDatabase->Close();
     }
-    item.SetArt("thumb", "");
+    item.SetArt(KODI::ART::TYPE::THUMB, "");
     m_bInvalidated = true;
   }
 }
@@ -72,35 +73,37 @@ void CPVRThumbLoader::ClearCachedImages(const CFileItemList& items)
 
 bool CPVRThumbLoader::FillThumb(CFileItem& item)
 {
-  // see whether we have a cached image for this item
-  std::string thumb = GetCachedImage(item, "thumb");
-  if (thumb.empty())
+  if (!item.IsPVRChannelGroup())
   {
-    if (item.IsPVRChannelGroup())
-      thumb = GetChannelGroupThumbURL(item);
-    else
-      CLog::LogF(LOGERROR, "Unsupported PVR item '{}'", item.GetPath());
-
-    if (!thumb.empty())
-    {
-      SetCachedImage(item, "thumb", thumb);
-      m_bInvalidated = true;
-    }
+    CLog::LogF(LOGERROR, "Unsupported PVR item '{}'", item.GetPath());
+    return false;
   }
 
-  if (thumb.empty())
-    return false;
+  const std::string thumb{GetChannelGroupThumbURL(item)};
+  const std::string cachedThumb{GetCachedImage(item, KODI::ART::TYPE::THUMB)};
+  if (thumb != cachedThumb)
+  {
+    if (!cachedThumb.empty())
+      CServiceBroker::GetTextureCache()->ClearCachedImage(cachedThumb);
 
-  item.SetArt("thumb", thumb);
+    SetCachedImage(item, KODI::ART::TYPE::THUMB, thumb);
+    m_bInvalidated = true;
+  }
+
+  item.SetArt(KODI::ART::TYPE::THUMB, thumb);
   return true;
 }
 
 std::string CPVRThumbLoader::GetChannelGroupThumbURL(const CFileItem& channelGroupItem) const
 {
-  const auto now{std::chrono::system_clock::now()};
-  return StringUtils::Format("{}?ts={}", // append timestamp to Thumb URL to enforce texture refresh
+  KODI::UTILITY::CDigest digest{KODI::UTILITY::CDigest::Type::MD5};
+  for (const auto& icon :
+       CPVRChannelGroupImageFileLoader::GetChannelGroupIcons(channelGroupItem.GetPath()))
+    digest.Update(icon);
+
+  return StringUtils::Format("{}?icons={}", // URL changes with the tiled icons, enforcing a refresh
                              IMAGE_FILES::URLFromFile(channelGroupItem.GetPath(), "pvr"),
-                             std::chrono::system_clock::to_time_t(now));
+                             digest.Finalize());
 }
 
 } // namespace PVR

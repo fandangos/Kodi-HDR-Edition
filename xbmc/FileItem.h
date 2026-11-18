@@ -24,8 +24,9 @@
 #include "utils/SortUtils.h"
 #include "utils/XTimeUtils.h"
 
+#include <atomic>
 #include <memory>
-#include <optional>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -137,6 +138,7 @@ public:
   void SetDynURL(const CURL& url);
   const std::string &GetDynPath() const;
   void SetDynPath(std::string path);
+  bool HasDynPath() const;
 
   CFileItem& operator=(const CFileItem& item);
   void Archive(CArchive& ar) override;
@@ -162,6 +164,7 @@ public:
 
   bool IsGame() const;
   bool IsLibraryFolder() const;
+  bool IsStrm() const;
   bool IsPythonScript() const;
   bool IsPlugin() const;
   bool IsScript() const;
@@ -435,6 +438,12 @@ public:
    */
   std::string GetLocalMetadataPath() const;
 
+  /*! \brief Get the path that should be used as the anchor for associated subtitles.
+   This is usually the resolved playback path, except for .strm items where subtitles
+   should be associated with the local .strm file rather than its resolved target URL.
+   */
+  std::string GetSubtitleAnchorPath() const;
+
   bool LoadMusicTag();
   bool LoadGameTag();
 
@@ -566,8 +575,24 @@ private:
    */
   void FillMusicInfoTag(const std::shared_ptr<const PVR::CPVREpgInfoTag>& tag);
 
-  mutable std::optional<CURL> m_urlPath;
-  mutable std::optional<CURL> m_urlDynPath;
+  /*!
+   \brief Return \p url, parsing \p path into it on first use.
+
+   The getters are const but fill their cache, so two readers are really two writers. Double-checked
+   locking keeps the already-filled case a single atomic load.
+   \sa GetURL, GetDynURL
+   */
+  const CURL& GetCachedURL(CURL& url, std::atomic_bool& valid, const std::string& path) const;
+
+  /*! \brief Mark both parsed URLs stale, so the next getter re-parses them. */
+  void InvalidateCachedURLs();
+
+  mutable std::mutex m_urlMutex; ///< guards the first fill of the URLs below
+  /// \brief Lazily parsed paths, readable only while their flag is set.
+  mutable std::atomic_bool m_urlPathValid{false};
+  mutable std::atomic_bool m_urlDynPathValid{false};
+  mutable CURL m_urlPath;
+  mutable CURL m_urlDynPath;
   std::string m_strPath;            ///< complete path to item
   std::string m_strDynPath;
 

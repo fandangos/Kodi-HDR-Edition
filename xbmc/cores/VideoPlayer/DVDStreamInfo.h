@@ -19,6 +19,9 @@ extern "C"
 #define CODEC_FORCE_SOFTWARE 0x01
 #define CODEC_ALLOW_FALLBACK 0x02
 
+//! \brief Export film grain parameters as side data instead of applying them.
+#define CODEC_EXPORT_FILM_GRAIN 0x04
+
 class CDemuxStream;
 struct DemuxCryptoSession;
 
@@ -80,6 +83,17 @@ public:
   std::shared_ptr<AVContentLightMetadata> contentLightMetadata;
   std::string stereo_mode; // stereoscopic 3d mode
   AVDOVIDecoderConfigurationRecord dovi{};
+
+  // Dolby Vision profile 8 compatibility IDs 1 and 4 identify HDR10 and HLG
+  // base layers respectively.
+  bool HasHDR10DolbyVisionBaseLayer() const
+  {
+    return dovi.dv_profile == 8 && dovi.dv_bl_signal_compatibility_id == 1;
+  }
+  bool HasHLGDolbyVisionBaseLayer() const
+  {
+    return dovi.dv_profile == 8 && dovi.dv_bl_signal_compatibility_id == 4;
+  }
 
   // AUDIO
   int channels;

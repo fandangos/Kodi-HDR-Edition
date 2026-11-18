@@ -114,6 +114,8 @@ public:
   std::chrono::milliseconds GetChapterPos(int chapterIdx = -1) override;
   std::string GetStreamCodecName(int iStreamId) override;
 
+  bool IsStreaming() const override;
+
   bool Aborted();
 
   AVFormatContext* m_pFormatContext;
@@ -129,12 +131,19 @@ protected:
   void CreateStreams(unsigned int program = UINT_MAX);
   void DisposeStreams();
   void ParsePacket(AVPacket* pkt);
+  void SaveProbedStreamParameters();
+  void RestoreProbedStreamParameters();
+  void ClearProbedStreamParameters();
   TRANSPORT_STREAM_STATE TransportStreamAudioState();
   TRANSPORT_STREAM_STATE TransportStreamVideoState();
   bool IsTransportStreamReady();
   void ResetVideoStreams();
+  void FlushInputSeek();
   AVDictionary* GetFFMpegOptionsFromInput();
   double ConvertTimestamp(int64_t pts, int den, int num);
+#ifdef HAVE_LIBBLURAY
+  void ConvertBlurayTimestamps(DemuxPacket* packet, const AVStream* stream);
+#endif
   bool IsProgramChange();
   unsigned int HLSSelectProgram();
 
@@ -192,6 +201,20 @@ protected:
     int      result;    // result from av_read_packet
   }m_pkt;
 
+  struct AVCodecParametersDeleter
+  {
+    void operator()(AVCodecParameters* codecpar) const { avcodec_parameters_free(&codecpar); }
+  };
+
+  struct ProbedStream
+  {
+    std::unique_ptr<AVCodecParameters, AVCodecParametersDeleter> codecpar;
+    AVRational rFrameRate{0, 0};
+    AVRational avgFrameRate{0, 0};
+    AVRational sampleAspectRatio{0, 0};
+  };
+  // What avformat_find_stream_info() established, kept across the transport stream re-open.
+  std::map<int, ProbedStream> m_probedStreams;
 #ifdef HAVE_LIBDOVI
   // Dolby Vision profile 7 -> 8.1 enhancement-layer RPU merge state
   bool m_dvP7Merge = false;
@@ -231,4 +254,8 @@ protected:
   bool m_seekToKeyFrame = false;
   double m_startTime = 0;
   std::vector<ChapterFFmpeg> m_chapters;
+#ifdef HAVE_LIBBLURAY
+  uint64_t m_blurayReadBase{0};
+  std::map<int, uint64_t> m_blurayReadPos;
+#endif
 };

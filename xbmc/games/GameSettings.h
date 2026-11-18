@@ -11,6 +11,7 @@
 #include "settings/lib/ISettingCallback.h"
 #include "utils/Observer.h"
 
+#include <atomic>
 #include <string>
 
 class CSetting;
@@ -36,14 +37,89 @@ public:
   void SetShowOSDHelp(bool bShow);
   void ToggleGames();
   bool AutosaveEnabled();
+  bool ReplaceLabels();
   bool RewindEnabled();
   unsigned int MaxRewindTimeSec();
+  bool SyncPlaybackToDisplay();
+  double SyncToDisplayLimit();
+  bool RunaheadEnabled() const;
+  unsigned int RunaheadFrames() const;
+  /*!
+   * \brief Whether a game shown with a video filter goes out in HDR
+   *
+   * Only on a display that accepts HDR. The filter's output is brightened
+   * into the display's headroom, which wins back the light a CRT filter's
+   * scanlines and phosphor mask take away.
+   */
+  bool HdrWithVideoFilters() const;
   std::string GetRAUsername() const;
   std::string GetRAToken() const;
 
+  /*!
+   * \brief Whether achievements are earned in hardcore mode
+   *
+   * Hardcore awards double points, and in exchange the player goes without
+   * rewind, save state loading, cheats and slow motion. RetroAchievements does
+   * not allow a session begun in casual mode to carry on into hardcore, so
+   * turning this on part-way through restarts the game.
+   */
+  bool GetAchievementsHardcore() const;
+
+  /*!
+   * \brief Turn hardcore mode on or off
+   *
+   * Used to drop back to casual when a session resumes from a save state,
+   * which RetroAchievements requires.
+   */
+  void SetAchievementsHardcore(bool hardcore);
+
+  /*!
+   * \brief Whether achievements already earned can be triggered again
+   */
+  bool GetAchievementsEncore() const;
+
+  /*!
+   * \brief Whether to show the achievement being attempted over the game
+   *
+   * Some players want to know an attempt is live; others would rather nothing
+   * covered the picture. It is on by default, because an indicator nobody asked
+   * for is easier to turn off than one nobody knew existed.
+   */
+  bool GetChallengeIndicator() const;
+
+  /*!
+   * \brief Whether the player turned an achievement set off
+   *
+   * RetroAchievements numbers sets across every game, so the set's ID alone
+   * says which one it is.
+   */
+  bool IsAchievementSetDisabled(unsigned int setId) const;
+
+  /*!
+   * \brief Whether the player turned any achievement set off
+   */
+  bool HasDisabledAchievementSets() const;
+
+  /*!
+   * \brief Remember whether the player turned an achievement set off
+   */
+  void SetAchievementSetDisabled(unsigned int setId, bool disabled);
+
   bool GetAchievementsLoggedIn() const;
 
+  /*!
+   * \brief Record whether the player is logged in to RetroAchievements
+   *
+   * Reported by the add-on, so a rejected token doesn't leave the UI claiming
+   * the player is logged in.
+   *
+   * \param loggedIn True if the player is logged in
+   */
+  void SetAchievementsLoggedIn(bool loggedIn);
+
   // Inherited from ISettingCallback
+  void OnSettingAction(const std::shared_ptr<const CSetting>& setting) override;
+  bool OnSettingChanging(const std::shared_ptr<const CSetting>& setting) override;
   void OnSettingChanged(const std::shared_ptr<const CSetting>& setting) override;
 
 private:
@@ -54,6 +130,12 @@ private:
 
   // Construction parameters
   std::shared_ptr<CSettings> m_settings;
+
+  //! Hardcore mode, kept apart from the setting because it is read with a game
+  //! client's lock held. A change holds the setting's own lock while observers
+  //! run, and they take the client lock, so reading the setting there could
+  //! wait on a change that is waiting on the reader.
+  std::atomic<bool> m_achievementsHardcore{false};
 };
 
 } // namespace GAME

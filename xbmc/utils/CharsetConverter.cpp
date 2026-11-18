@@ -8,21 +8,24 @@
 
 #include "CharsetConverter.h"
 
-#include "LangInfo.h"
 #include "ServiceBroker.h"
+#include "language/LangInfo.h"
 #include "log.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/lib/Setting.h"
 #include "settings/lib/SettingDefinitions.h"
+#include "utils/EmojiUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/Utf8Utils.h"
 
 #include <algorithm>
 #include <mutex>
+#include <type_traits>
+#include <vector>
 
-#include <fribidi.h>
+#include <fribidi/fribidi.h>
 #include <iconv.h>
 
 #ifdef WORDS_BIGENDIAN
@@ -254,13 +257,9 @@ enum StdConversionType /* Keep it in sync with CCharsetConverter::CInnerConverte
   UserCharsetToUtf8,
   Utf32ToUserCharset,
   WtoUtf8,
-  Utf16LEtoW,
   Utf16BEtoUtf8,
-  Utf16LEtoUtf8,
   Utf8toW,
-  Utf8ToSystem,
   SystemToUtf8,
-  Ucs2CharsetToUtf8,
   MacintoshToUtf8,
   NumberOfStdConversionTypes /* Dummy sentinel entry */
 };
@@ -305,13 +304,9 @@ CConverterType CCharsetConverter::CInnerConverter::m_stdConversion[NumberOfStdCo
   /* UserCharsetToUtf8 */   CConverterType(UserCharset,     "UTF-8", CCharsetConverter::m_Utf8CharMaxSize),
   /* Utf32ToUserCharset */  CConverterType(UTF32_CHARSET,   UserCharset),
   /* WtoUtf8 */             CConverterType(WCHAR_CHARSET,   "UTF-8", CCharsetConverter::m_Utf8CharMaxSize),
-  /* Utf16LEtoW */          CConverterType("UTF-16LE",      WCHAR_CHARSET),
   /* Utf16BEtoUtf8 */       CConverterType("UTF-16BE",      "UTF-8", CCharsetConverter::m_Utf8CharMaxSize),
-  /* Utf16LEtoUtf8 */       CConverterType("UTF-16LE",      "UTF-8", CCharsetConverter::m_Utf8CharMaxSize),
   /* Utf8toW */             CConverterType(UTF8_SOURCE,     WCHAR_CHARSET),
-  /* Utf8ToSystem */        CConverterType(UTF8_SOURCE,     SystemCharset),
   /* SystemToUtf8 */        CConverterType(SystemCharset,   UTF8_SOURCE),
-  /* Ucs2CharsetToUtf8 */   CConverterType("UCS-2LE",       "UTF-8", CCharsetConverter::m_Utf8CharMaxSize),
   /* MacintoshToUtf8 */     CConverterType("macintosh", "UTF-8", CCharsetConverter::m_Utf8CharMaxSize)
 };
 // clang-format on
@@ -327,6 +322,18 @@ bool CCharsetConverter::CInnerConverter::stdConvert(StdConversionType convertTyp
 
   if (convertType < 0 || convertType >= NumberOfStdConversionTypes)
     return false;
+
+#if defined(TARGET_DARWIN)
+  // UTF-8-MAC rejects characters beyond the Basic Multilingual Plane, such as emoji
+  if constexpr (std::is_same_v<INPUT, std::string>)
+  {
+    if ((convertType == Utf8ToUtf32 || convertType == Utf8toW) &&
+        std::ranges::any_of(strSource,
+                            [](char c) { return static_cast<unsigned char>(c) >= 0xF0; }))
+      return customConvert("UTF-8", m_stdConversion[convertType].GetTargetCharset(), strSource,
+                           strDest, failOnInvalidChar);
+  }
+#endif
 
   CConverterType& convType = m_stdConversion[convertType];
   std::unique_lock<CCriticalSection> converterLock(convType);
@@ -474,6 +481,49 @@ bool CCharsetConverter::CInnerConverter::convert(iconv_t type, int multiplier, c
   return true;
 }
 
+namespace
+{
+// Puts emoji sequences that reordering for right-to-left text reversed back into logical order, so
+// that they can still be shaped. Sequences with strong right-to-left characters stay reordered.
+void RestoreEmojiSequences(const char32_t* logical,
+                           FriBidiChar* visual,
+                           int* visualToLogicalMap,
+                           size_t length)
+{
+  std::vector<size_t> logicalToVisual(length);
+  for (size_t i = 0; i < length; ++i)
+    logicalToVisual[visualToLogicalMap[i]] = i;
+
+  const auto isStrongRtl = [](char32_t c)
+  {
+    const FriBidiCharType type = fribidi_get_bidi_type(c);
+    return FRIBIDI_IS_STRONG(type) && FRIBIDI_IS_RTL(type);
+  };
+
+  for (size_t start = 0; start < length;)
+  {
+    size_t end = start + 1;
+    bool rtl = isStrongRtl(logical[start]);
+    while (end < length &&
+           (KODI::UTILS::ContinuesEmoji(logical[end]) || logical[end - 1] == 0x200D))
+      rtl |= isStrongRtl(logical[end++]);
+
+    const auto [first, last] =
+        std::minmax_element(logicalToVisual.begin() + start, logicalToVisual.begin() + end);
+    if (end - start > 1 && !rtl && *last - *first + 1 == end - start)
+    {
+      const size_t visualStart = *first;
+      for (size_t i = start; i < end; ++i)
+      {
+        visual[visualStart + i - start] = logical[i];
+        visualToLogicalMap[visualStart + i - start] = static_cast<int>(i);
+      }
+    }
+    start = end;
+  }
+}
+} // namespace
+
 bool CCharsetConverter::CInnerConverter::logicalToVisualBiDi(
     const std::u32string& stringSrc,
     std::u32string& stringDst,
@@ -512,18 +562,33 @@ bool CCharsetConverter::CInnerConverter::logicalToVisualBiDi(
 
     bool bidiFailed = false;
     FriBidiCharType baseCopy = base; // preserve same value for all lines, required because fribidi_log2vis will modify parameter value
+    std::vector<int> ownVisualToLogicalMap;
+    if (!visualToLogicalMap)
+      ownVisualToLogicalMap.resize(lineLen);
+    int* lineVisualToLogicalMap =
+        visualToLogicalMap ? visualToLogicalMap + lineStart : ownVisualToLogicalMap.data();
     if (fribidi_log2vis(reinterpret_cast<const FriBidiChar*>(stringSrc.c_str() + lineStart),
-                        lineLen, &baseCopy, visual, nullptr,
-                        !visualToLogicalMap ? nullptr : visualToLogicalMap + lineStart, nullptr))
+                        lineLen, &baseCopy, visual, nullptr, lineVisualToLogicalMap, nullptr))
     {
-      // Removes bidirectional marks
-      const int newLen = fribidi_remove_bidi_marks(
-          visual, lineLen, nullptr, !visualToLogicalMap ? nullptr : visualToLogicalMap + lineStart,
-          nullptr);
-      if (newLen > 0)
-        stringDst.append((const char32_t*)visual, (size_t)newLen);
-      else if (newLen < 0)
-        bidiFailed = failOnBadString;
+      RestoreEmojiSequences(stringSrc.c_str() + lineStart, visual, lineVisualToLogicalMap, lineLen);
+
+      // Removes bidirectional marks like fribidi_remove_bidi_marks(), but keeps the zero width
+      // joiner and tag characters that emoji sequences consist of
+      size_t newLen = 0;
+      for (size_t i = 0; i < lineLen; ++i)
+      {
+        const FriBidiChar c = visual[i];
+        const FriBidiCharType type = fribidi_get_bidi_type(c);
+        if (c != 0x200D && (c < 0xE0020 || c > 0xE007F) &&
+            (FRIBIDI_IS_EXPLICIT_OR_BN(type) || FRIBIDI_IS_ISOLATE(type) || c == FRIBIDI_CHAR_LRM ||
+             c == FRIBIDI_CHAR_RLM))
+          continue;
+
+        visual[newLen] = c;
+        lineVisualToLogicalMap[newLen] = lineVisualToLogicalMap[i];
+        ++newLen;
+      }
+      stringDst.append(reinterpret_cast<const char32_t*>(visual), newLen);
     }
     else
       bidiFailed = failOnBadString;
@@ -613,17 +678,6 @@ std::vector<std::string> CCharsetConverter::getCharsetLabels()
   return lab;
 }
 
-std::string CCharsetConverter::getCharsetLabelByName(const std::string& charsetName)
-{
-  for(SCharsetMapping* c = g_charsets; c->charset; c++)
-  {
-    if (StringUtils::EqualsNoCase(charsetName,c->charset))
-      return c->caption;
-  }
-
-  return "";
-}
-
 std::string CCharsetConverter::getCharsetNameByLabel(const std::string& charsetLabel)
 {
   for(SCharsetMapping* c = g_charsets; c->charset; c++)
@@ -643,7 +697,6 @@ void CCharsetConverter::reset(void)
 
 void CCharsetConverter::resetSystemCharset(void)
 {
-  CInnerConverter::m_stdConversion[Utf8ToSystem].Reset();
   CInnerConverter::m_stdConversion[SystemToUtf8].Reset();
 }
 
@@ -675,19 +728,6 @@ std::u32string CCharsetConverter::utf8ToUtf32(const std::string& utf8StringSrc, 
   std::u32string converted;
   utf8ToUtf32(utf8StringSrc, converted, failOnBadChar);
   return converted;
-}
-
-bool CCharsetConverter::utf8ToUtf32Visual(const std::string& utf8StringSrc, std::u32string& utf32StringDst, bool bVisualBiDiFlip /*= false*/, bool forceLTRReadingOrder /*= false*/, bool failOnBadChar /*= false*/)
-{
-  if (bVisualBiDiFlip)
-  {
-    std::u32string converted;
-    if (!CInnerConverter::stdConvert(Utf8ToUtf32, utf8StringSrc, converted, failOnBadChar))
-      return false;
-
-    return CInnerConverter::logicalToVisualBiDi(converted, utf32StringDst, forceLTRReadingOrder ? FRIBIDI_TYPE_LTR : FRIBIDI_TYPE_PDF, failOnBadChar);
-  }
-  return CInnerConverter::stdConvert(Utf8ToUtf32, utf8StringSrc, utf32StringDst, failOnBadChar);
 }
 
 bool CCharsetConverter::utf32ToUtf8(const std::u32string& utf32StringSrc, std::string& utf8StringDst, bool failOnBadChar /*= true*/)
@@ -757,18 +797,6 @@ bool CCharsetConverter::utf8ToW(const std::string& utf8StringSrc, std::wstring& 
 bool CCharsetConverter::subtitleCharsetToUtf8(const std::string& stringSrc, std::string& utf8StringDst)
 {
   return CInnerConverter::stdConvert(SubtitleCharsetToUtf8, stringSrc, utf8StringDst, false);
-}
-
-bool CCharsetConverter::fromW(const std::wstring& wStringSrc,
-                              std::string& stringDst, const std::string& enc)
-{
-  return CInnerConverter::customConvert(WCHAR_CHARSET, enc, wStringSrc, stringDst);
-}
-
-bool CCharsetConverter::toW(const std::string& stringSrc,
-                            std::wstring& wStringDst, const std::string& enc)
-{
-  return CInnerConverter::customConvert(enc, WCHAR_CHARSET, stringSrc, wStringDst);
 }
 
 bool CCharsetConverter::utf8ToStringCharset(const std::string& utf8StringSrc, std::string& stringDst)
@@ -846,31 +874,9 @@ bool CCharsetConverter::utf16BEtoUTF8(const std::string& utf16StringSrc, std::st
   return CInnerConverter::stdConvert(Utf16BEtoUtf8, utf16StringSrc, utf8StringDst);
 }
 
-bool CCharsetConverter::utf16LEtoUTF8(const std::u16string& utf16StringSrc,
-                                      std::string& utf8StringDst)
-{
-  return CInnerConverter::stdConvert(Utf16LEtoUtf8, utf16StringSrc, utf8StringDst);
-}
-
-bool CCharsetConverter::ucs2ToUTF8(const std::u16string& ucs2StringSrc, std::string& utf8StringDst)
-{
-  return CInnerConverter::stdConvert(Ucs2CharsetToUtf8, ucs2StringSrc,utf8StringDst);
-}
-
-bool CCharsetConverter::utf16LEtoW(const std::u16string& utf16String, std::wstring& wString)
-{
-  return CInnerConverter::stdConvert(Utf16LEtoW, utf16String, wString);
-}
-
 bool CCharsetConverter::utf32ToStringCharset(const std::u32string& utf32StringSrc, std::string& stringDst)
 {
   return CInnerConverter::stdConvert(Utf32ToUserCharset, utf32StringSrc, stringDst);
-}
-
-bool CCharsetConverter::utf8ToSystem(std::string& stringSrcDst, bool failOnBadChar /*= false*/)
-{
-  std::string strSrc(stringSrcDst);
-  return CInnerConverter::stdConvert(Utf8ToSystem, strSrc, stringSrcDst, failOnBadChar);
 }
 
 bool CCharsetConverter::systemToUtf8(const std::string& sysStringSrc, std::string& utf8StringDst, bool failOnBadChar /*= false*/)
@@ -881,16 +887,6 @@ bool CCharsetConverter::systemToUtf8(const std::string& sysStringSrc, std::strin
 bool CCharsetConverter::MacintoshToUTF8(const std::string& macStringSrc, std::string& utf8StringDst)
 {
   return CInnerConverter::stdConvert(MacintoshToUtf8, macStringSrc, utf8StringDst);
-}
-
-bool CCharsetConverter::utf8logicalToVisualBiDi(const std::string& utf8StringSrc, std::string& utf8StringDst, bool failOnBadString /*= false*/)
-{
-  utf8StringDst.clear();
-  std::u32string utf32flipped;
-  if (!utf8ToUtf32Visual(utf8StringSrc, utf32flipped, true, true, failOnBadString))
-    return false;
-
-  return CInnerConverter::stdConvert(Utf32ToUtf8, utf32flipped, utf8StringDst, failOnBadString);
 }
 
 bool CCharsetConverter::utf8IsRTLBidiDirection(const std::string& utf8String)

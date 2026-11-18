@@ -22,7 +22,6 @@
 #include "addons/Service.h" //! @todo Remove me
 #include "addons/Skin.h"
 #include "application/Application.h" //! @todo Remove me
-#include "application/ApplicationComponents.h"
 #include "application/ApplicationPowerHandling.h"
 #include "dialogs/GUIDialogKaiToast.h"
 #include "events/EventLog.h"
@@ -36,7 +35,6 @@
 #include "guilib/GUIWindowManager.h"
 #include "guilib/StereoscopicsManager.h" //! @todo Remove me
 #include "input/InputManager.h"
-#include "interfaces/json-rpc/JSONRPC.h" //! @todo Remove me
 #include "music/MusicLibraryQueue.h"
 #include "network/Network.h" //! @todo Remove me
 #include "network/NetworkServices.h" //! @todo Remove me
@@ -53,7 +51,6 @@
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "utils/Variant.h"
 #include "utils/XMLUtils.h"
 #include "utils/log.h"
 #include "video/VideoLibraryQueue.h" //! @todo Remove me
@@ -423,8 +420,6 @@ void CProfileManager::FinalizeLoadProfile()
 
   weatherManager.Refresh();
 
-  JSONRPC::CJSONRPC::Initialize();
-
   // Restart context menu manager
   contextMenuManager.Init();
 
@@ -461,20 +456,17 @@ void CProfileManager::LogOff()
   if (CMusicLibraryQueue::GetInstance().IsScanningLibrary())
     CMusicLibraryQueue::GetInstance().StopLibraryScanning();
 
-  if (CVideoLibraryQueue::GetInstance().IsRunning())
-    CVideoLibraryQueue::GetInstance().CancelAllJobs();
+  CVideoLibraryQueue::GetInstance().CancelAllJobs();
 
   // Stop PVR services
   CServiceBroker::GetPVRManager().Stop();
 
-  networkManager.NetworkMessage(CNetworkBase::SERVICES_DOWN, 1);
+  // Only stop the services when the profile switch that follows will start them again.
+  if (m_currentProfile != MASTER_PROFILE_ID)
+  {
+    networkManager.NetworkMessage(CNetworkBase::SERVICES_DOWN, 1);
+  }
 
-  // Reset the database manager so the master profile's databases are
-  // re-initialized cleanly when the login screen is shown again.
-  CServiceBroker::GetDatabaseManager().Deinitialize();
-
-  // LoadMasterProfileForLogin calls LoadProfile, which closes and re-opens
-  // all databases at the correct point in the switch sequence.
   LoadMasterProfileForLogin();
 
   g_passwordManager.bMasterUser = false;
@@ -562,7 +554,6 @@ void CProfileManager::CreateProfileFolders()
   CDirectory::Create(GetThumbnailsFolder());
   CDirectory::Create(GetVideoThumbFolder());
   CDirectory::Create(GetBookmarksThumbFolder());
-  CDirectory::Create(GetSavestatesFolder());
   for (size_t hex = 0; hex < 16; hex++)
     CDirectory::Create(
         URIUtils::AddFileToFolder(GetThumbnailsFolder(), StringUtils::Format("{:x}", hex)));
@@ -723,14 +714,6 @@ std::string CProfileManager::GetLibraryFolder() const
     return URIUtils::AddFileToFolder(GetProfileUserDataFolder(), "library");
 
   return URIUtils::AddFileToFolder(GetUserDataFolder(), "library");
-}
-
-std::string CProfileManager::GetSavestatesFolder() const
-{
-  if (GetCurrentProfile().hasDatabases())
-    return URIUtils::AddFileToFolder(GetProfileUserDataFolder(), "Savestates");
-
-  return URIUtils::AddFileToFolder(GetUserDataFolder(), "Savestates");
 }
 
 std::string CProfileManager::GetSettingsFile() const

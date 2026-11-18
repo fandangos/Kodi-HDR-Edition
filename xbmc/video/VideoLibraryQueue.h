@@ -11,6 +11,7 @@
 #include "jobs/JobQueue.h"
 #include "threads/CriticalSection.h"
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <set>
@@ -55,6 +56,21 @@ public:
    \brief Stop and dequeue all scanning jobs.
    */
   void StopLibraryScanning();
+
+  /*!
+   \brief Check if a refresh of all items in a source is queued or running.
+
+   \param[in] sourcePath Path of the source
+   \return True if the source is being refreshed, false otherwise
+   */
+  bool IsRefreshingSource(const std::string& sourcePath);
+
+  /*!
+   \brief Stop and dequeue the refresh of all items in a source.
+
+   \param[in] sourcePath Path of the source
+   */
+  void StopRefreshingSource(const std::string& sourcePath);
 
   /*!
    \brief Enqueue a library cleaning job.
@@ -159,8 +175,9 @@ private:
   typedef std::set<CVideoLibraryJob*> VideoLibraryJobs;
   typedef std::map<std::string, VideoLibraryJobs> VideoLibraryJobMap;
   VideoLibraryJobMap m_jobs;
-  CCriticalSection m_critical;
+  mutable CCriticalSection m_critical;
 
-  bool m_modal = false;
-  bool m_cleaning = false;
+  // Set on the thread cleaning the library, and read by others
+  std::atomic<bool> m_modal{false};
+  std::atomic<bool> m_cleaning{false};
 };

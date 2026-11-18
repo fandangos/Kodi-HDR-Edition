@@ -68,7 +68,6 @@ public:
   int Read(uint8_t* buf, int buf_size) override;
   int ReadBlocks(uint8_t* buf, int lba, int num_blocks);
   int64_t Seek(int64_t offset, int whence) override;
-  void Abort() override;
   bool IsEOF() override;
   int64_t GetLength() override;
   int GetBlockSize() override { return 6144; }
@@ -135,6 +134,53 @@ public:
 
   void GetStreamInfo(int pid, std::string &language);
 
+  /*!
+   * \brief Check whether a stream is the default of the playlist being played, ie. audio stream
+   *        number 1 or presentation graphic stream number 1 of the current clip.
+   * \param pid The packet identifier of the stream
+   * \return True if the stream is the default audio or subtitle stream, false otherwise
+   */
+  bool IsDefaultStream(int pid) const;
+
+  struct ClipTime
+  {
+    uint64_t inTime{0};
+    uint64_t startTime{0};
+  };
+
+  uint64_t GetReadPos() const { return m_readPos; }
+
+  /*!
+   * \brief Get the in time and start time (90 kHz) of the clip a byte was read from.
+   * \param readPos The position of the byte in the bytes Read returned since Open
+   * \return The clip time, or nothing without a clip and in navigation mode
+   */
+  std::optional<ClipTime> GetClipTime(uint64_t readPos) const;
+
+  //! hand the clip start held at a join to the demuxer opened after it
+  void ReleaseClipStart() { m_clipStartHeld = false; }
+  bool IsClipStartHeld() const { return !m_navmode && m_clipStartHeld && !m_clipStart.empty(); }
+
+  /*!
+   * \brief Select an audio stream of the current play item in libbluray in navigation mode, so
+   *        that the disc program and later play items keep it.
+   * \param pid The packet identifier of the stream
+   * \return True if the play item presents the stream, false otherwise or while an event is held
+   */
+  bool SetActiveAudioStream(int pid);
+
+  /*!
+   * \brief Select a subtitle stream of the current play item in libbluray in navigation mode, so
+   *        that the disc program and later play items keep it.
+   * \param pid The packet identifier of the stream
+   * \param visible Whether the subtitle stream is shown
+   * \return True if the play item presents the stream, false otherwise or while an event is held
+   */
+  bool SetActiveSubtitleStream(int pid, bool visible);
+
+  //! show or hide the presentation graphic stream libbluray last reported, in navigation mode
+  void SetSubtitleVisible(bool visible);
+
   void OverlayCallback(const BD_OVERLAY * const);
 #ifdef HAVE_LIBBLURAY_BDJ
   void OverlayCallbackARGB(const struct bd_argb_overlay_s * const);
@@ -145,6 +191,7 @@ public:
   BLURAY_TITLE_INFO* GetTitleFile(const std::string& name);
 
   void ProcessEvent();
+  void NotifyPlayer(void* data, int event);
 
   void SaveCurrentState(const CStreamDetails& details) override;
   UpdateState UpdateItemFromSavedStates(CFileItem& item, double time, bool& closed) override;
@@ -172,6 +219,10 @@ protected:
   BLURAY_TITLE_INFO* m_titleInfo = nullptr;
   uint32_t m_playlist = MAX_PLAYLIST_ID + 1;
   BLURAY_CLIP_INFO* m_clip = nullptr;
+
+  //! The clip information of the play item being played, ie. every stream its m2ts carries (see
+  //! GetStreamInfo). Owned, and only valid while m_clip refers to the same play item.
+  struct clpi_cl* m_clipInfo = nullptr;
   uint32_t m_angle = 0;
   bool m_menu = false;
   bool m_isInMainMenu = false;
@@ -192,14 +243,16 @@ protected:
   };
 
   SPlane m_planes[2];
-  enum EHoldState {
+  enum EHoldState
+  {
     HOLD_NONE = 0,
     HOLD_HELD,
     HOLD_DATA,
     HOLD_STILL,
     HOLD_ERROR,
-    HOLD_EXIT
   } m_hold = HOLD_NONE;
+  //! Units libbluray has failed to read since it last returned data
+  unsigned int m_readErrors = 0;
   BD_EVENT m_event;
 #ifdef HAVE_LIBBLURAY_BDJ
   struct bd_argb_buffer_s m_argb;
@@ -209,6 +262,40 @@ protected:
     bool OpenStream(CFileItem &item);
     void SetupPlayerSettings();
     void FreeTitleInfo();
+    void FreeClipInfo();
+    void HoldClipStart(const uint8_t* buf, int size);
+    void DropClipStartOnJump();
+
+    /*!
+     * \brief Whether so many reads in a row have failed that the disc is taken to have gone.
+     * Only a successful read clears it, so no read is attempted once it is true.
+     */
+    bool HasGivenUpReading() const;
+
+    /*!
+     * \brief Read the clip information of a play item of the playlist being played.
+     * \param playItem The index of the play item, as BD_EVENT_PLAYITEM reports it
+     */
+    void UpdateClipInfo(unsigned int playItem);
+
+    /*!
+     * \brief Find the language of a stream in the stream number table of the current play item.
+     * \param pid The packet identifier of the stream
+     * \param language Filled in with the language of the stream, if it is found
+     * \return True if the playlist presents the stream, false otherwise
+     */
+    bool GetPlaylistStreamLanguage(int pid, std::string& language) const;
+
+    /*!
+     * \brief Find the language of a stream in the clip information of the current play item.
+     * \param pid The packet identifier of the stream
+     * \param language Filled in with the language of the stream, if it is found
+     * \return True if the clip carries the stream, false otherwise
+     */
+    bool GetClipStreamLanguage(int pid, std::string& language) const;
+    void OpenClipSpan();
+    bool CanSelectStream() const;
+
     std::unique_ptr<CDVDInputStreamFile> m_pstream;
     std::string m_rootPath;
 
@@ -233,4 +320,18 @@ protected:
     std::chrono::steady_clock::time_point m_startWatchTime{};
     std::vector<PlaylistInformation> m_playedPlaylists;
     CCriticalSection m_statesLock;
+
+    struct ClipSpan
+    {
+      uint64_t readPos{0};
+      std::optional<ClipTime> time{};
+    };
+
+    uint64_t m_readPos{0};
+    std::vector<ClipSpan> m_clipSpans;
+    std::vector<uint8_t> m_clipStart;
+    size_t m_clipStartOffset{0};
+    bool m_clipStartHeld{false};
+    uint64_t m_clipStartEnd{0};
+    uint32_t m_pgStreamNumber{0};
 };

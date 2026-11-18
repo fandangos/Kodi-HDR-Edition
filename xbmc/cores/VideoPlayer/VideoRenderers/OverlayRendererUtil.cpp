@@ -14,8 +14,12 @@
 #include "cores/VideoPlayer/DVDCodecs/Overlay/DVDOverlaySpu.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/DisplayInfo.h"
 #include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
+
+#include <algorithm>
+#include <cmath>
 
 namespace OVERLAY
 {
@@ -45,13 +49,18 @@ static uint32_t build_rgba(const int yuv[3], int alpha, bool mergealpha)
 }
 #undef clamp
 
-void convert_rgba(const CDVDOverlayImage& o, bool mergealpha, std::vector<uint32_t>& rgba)
+void convert_rgba(const CDVDOverlayImage& o,
+                  bool mergealpha,
+                  std::vector<uint32_t>& rgba,
+                  const std::vector<uint32_t>* paletteOverride)
 {
+  const std::vector<uint32_t>& srcPalette = paletteOverride ? *paletteOverride : o.palette;
+
   uint32_t palette[256] = {};
-  for (size_t i = 0; i < o.palette.size(); i++)
+  for (size_t i = 0; i < srcPalette.size(); i++)
     palette[i] = build_rgba(
-        (o.palette[i] >> PIXEL_ASHIFT) & 0xff, (o.palette[i] >> PIXEL_RSHIFT) & 0xff,
-        (o.palette[i] >> PIXEL_GSHIFT) & 0xff, (o.palette[i] >> PIXEL_BSHIFT) & 0xff, mergealpha);
+        (srcPalette[i] >> PIXEL_ASHIFT) & 0xff, (srcPalette[i] >> PIXEL_RSHIFT) & 0xff,
+        (srcPalette[i] >> PIXEL_GSHIFT) & 0xff, (srcPalette[i] >> PIXEL_BSHIFT) & 0xff, mergealpha);
 
   for (int row = 0; row < o.height; row++)
     for (int col = 0; col < o.width; col++)
@@ -214,7 +223,7 @@ bool convert_quad(ASS_Image* images, SQuads& quads, int max_x)
 
   // allocate space for the glyph positions and texturedata
   quads.quad.resize(count);
-  quads.texture.resize(quads.size_x * quads.size_y);
+  quads.texture.resize(static_cast<size_t>(quads.size_x) * quads.size_y);
 
   SQuad* v = quads.quad.data();
   uint8_t* data = quads.texture.data();
@@ -270,6 +279,171 @@ bool convert_quad(ASS_Image* images, SQuads& quads, int max_x)
     data   += img->w + 1;
   }
   return true;
+}
+
+bool convert_quad_pages(ASS_Image* images, std::vector<SQuads>& pages, int maxTextureSize)
+{
+  pages.clear();
+  if (maxTextureSize < 4)
+    return false;
+
+  struct Tile
+  {
+    ASS_Image image;
+    int left;
+    int top;
+    int right;
+    int bottom;
+  };
+  std::vector<Tile> tiles;
+  for (ASS_Image* image = images; image; image = image->next)
+  {
+    if ((image->color & 0xff) == 0xff || image->w <= 0 || image->h <= 0)
+      continue;
+    const int tileWidth = image->w < maxTextureSize ? image->w : maxTextureSize - 3;
+    const int tileHeight = image->h < maxTextureSize ? image->h : maxTextureSize - 3;
+    for (int y = 0; y < image->h; y += tileHeight)
+    {
+      for (int x = 0; x < image->w; x += tileWidth)
+      {
+        const int width = std::min(image->w - x, tileWidth);
+        const int height = std::min(image->h - y, tileHeight);
+        Tile tile{*image, x > 0, y > 0, x + width < image->w, y + height < image->h};
+        // Include neighbouring texels for GL_LINEAR at internal tile edges.
+        // Only the original tile area will be drawn, so these borders never overlap.
+        tile.image.w = width + tile.left + tile.right;
+        tile.image.h = height + tile.top + tile.bottom;
+        tile.image.bitmap += static_cast<size_t>(y - tile.top) * image->stride + x - tile.left;
+        tile.image.dst_x += x - tile.left;
+        tile.image.dst_y += y - tile.top;
+        tile.image.next = nullptr;
+        tiles.push_back(tile);
+      }
+    }
+  }
+
+  size_t begin = 0;
+  while (begin < tiles.size())
+  {
+    // Match convert_quad's shelf packing, including its one-pixel gutter.
+    int x = 0;
+    int y = 0;
+    int rowHeight = 0;
+    size_t end = begin;
+    for (; end < tiles.size(); ++end)
+    {
+      const ASS_Image& tile = tiles[end].image;
+      if (x + tile.w >= maxTextureSize)
+      {
+        y += rowHeight + 1;
+        x = 0;
+        rowHeight = 0;
+      }
+      if (y + std::max(rowHeight, tile.h) + 1 > maxTextureSize)
+        break;
+      x += tile.w + 1;
+      rowHeight = std::max(rowHeight, tile.h);
+    }
+
+    for (size_t i = begin; i < end; ++i)
+      tiles[i].image.next = i + 1 < end ? &tiles[i + 1].image : nullptr;
+    pages.emplace_back();
+    convert_quad(&tiles[begin].image, pages.back(), maxTextureSize);
+    for (size_t i = begin; i < end; ++i)
+    {
+      const Tile& tile = tiles[i];
+      SQuad& quad = pages.back().quad[i - begin];
+      quad.u += tile.left;
+      quad.v += tile.top;
+      quad.x += tile.left;
+      quad.y += tile.top;
+      quad.w -= tile.left + tile.right;
+      quad.h -= tile.top + tile.bottom;
+    }
+    begin = end;
+  }
+  return !pages.empty();
+}
+
+bool ShouldConvertPQPaletteToSRGB(bool isHDROverlay)
+{
+  if (!isHDROverlay)
+    return false;
+
+  // Convert to sRGB unless the overlay is going to a PQ destination: the HDR
+  // composite, or a GUI layer that is output as an HDR signal.
+  const CWinSystemBase* winSystem = CServiceBroker::GetWinSystem();
+  const bool destinationIsPQ =
+      winSystem->IsHdrComposite() || winSystem->GetEotf() != KODI::UTILS::Eotf::TRADITIONAL_SDR;
+  return !destinationIsPQ;
+}
+
+namespace
+{
+constexpr float ST2084_m1 = 2610.0f / (4096.0f * 4.0f);
+constexpr float ST2084_m2 = (2523.0f / 4096.0f) * 128.0f;
+constexpr float ST2084_c1 = 3424.0f / 4096.0f;
+constexpr float ST2084_c2 = (2413.0f / 4096.0f) * 32.0f;
+constexpr float ST2084_c3 = (2392.0f / 4096.0f) * 32.0f;
+
+// PQ code value (0-1) -> linear (1.0 == 10000 nits).
+float DecodePQ(float x)
+{
+  x = std::clamp(x, 0.0f, 1.0f);
+  const float p = std::pow(x, 1.0f / ST2084_m2);
+  const float num = std::max(p - ST2084_c1, 0.0f);
+  const float den = std::max(ST2084_c2 - ST2084_c3 * p, 1e-6f);
+  return std::pow(num / den, 1.0f / ST2084_m1);
+}
+
+float LinearToSrgbComponent(float c)
+{
+  c = std::clamp(c, 0.0f, 1.0f);
+  return (c <= 0.0031308f) ? (12.92f * c) : (1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f);
+}
+} // namespace
+
+void ConvertPQPaletteToSRGB(std::vector<uint32_t>& palette)
+{
+  // Linear BT.2020 -> linear BT.709/sRGB primaries, D65 both ends;
+  // numerically confirmed to map (1,1,1) to (1,1,1).
+  static constexpr float BT2020_TO_709[3][3] = {
+      {1.660491002f, -0.587641139f, -0.072849863f},
+      {-0.124550474f, 1.132899897f, -0.008349423f},
+      {-0.018150763f, -0.100578897f, 1.118729660f},
+  };
+
+  constexpr float whiteScale = 10000.0f / 203.0f; // ITU-R BT.2408 reference white
+
+  for (uint32_t& entry : palette)
+  {
+    const int a = (entry >> PIXEL_ASHIFT) & 0xff;
+    const float linearPQ[3] = {
+        DecodePQ(((entry >> PIXEL_RSHIFT) & 0xff) / 255.0f) * whiteScale,
+        DecodePQ(((entry >> PIXEL_GSHIFT) & 0xff) / 255.0f) * whiteScale,
+        DecodePQ(((entry >> PIXEL_BSHIFT) & 0xff) / 255.0f) * whiteScale,
+    };
+
+    float linear709[3];
+    for (int i = 0; i < 3; i++)
+      linear709[i] =
+          std::max(BT2020_TO_709[i][0] * linearPQ[0] + BT2020_TO_709[i][1] * linearPQ[1] +
+                       BT2020_TO_709[i][2] * linearPQ[2],
+                   0.0f);
+
+    // A colour brighter than reference white is scaled down until its
+    // brightest channel is white, so its hue is kept.
+    const float maxChannel = std::max({linear709[0], linear709[1], linear709[2]});
+    if (maxChannel > 1.0f)
+      for (float& c : linear709)
+        c /= maxChannel;
+
+    const int r = static_cast<int>(LinearToSrgbComponent(linear709[0]) * 255.0f + 0.5f);
+    const int g = static_cast<int>(LinearToSrgbComponent(linear709[1]) * 255.0f + 0.5f);
+    const int b = static_cast<int>(LinearToSrgbComponent(linear709[2]) * 255.0f + 0.5f);
+
+    entry = (a << PIXEL_ASHIFT) | (r << PIXEL_RSHIFT) | (g << PIXEL_GSHIFT) | (b << PIXEL_BSHIFT);
+  }
 }
 
 int GetStereoscopicDepth()

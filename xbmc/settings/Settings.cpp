@@ -10,7 +10,6 @@
 
 #include "Autorun.h"
 #include "GUIPassword.h"
-#include "LangInfo.h"
 #include "addons/AddonSystemSettings.h"
 #include "addons/Skin.h"
 #include "application/AppParams.h"
@@ -19,6 +18,7 @@
 #include "guilib/GUIFontManager.h"
 #include "guilib/StereoscopicsManager.h"
 #include "input/keyboard/KeyboardLayoutManager.h"
+#include "language/LangInfo.h"
 #include "network/WakeOnAccess.h"
 #include "network/upnp/UPnPSettings.h"
 
@@ -269,6 +269,9 @@ bool CSettings::InitializeDefinitions()
   if (CFile::Exists(SETTINGS_XML_FOLDER "webos.xml") &&
       !Initialize(SETTINGS_XML_FOLDER "webos.xml"))
     CLog::Log(LOGFATAL, "Unable to load webOS-specific settings definitions");
+#elif defined(TARGET_WASM)
+  if (CFile::Exists(SETTINGS_XML_FOLDER "wasm.xml") && !Initialize(SETTINGS_XML_FOLDER "wasm.xml"))
+    CLog::Log(LOGFATAL, "Unable to load wasm-specific settings definitions");
 #elif defined(TARGET_LINUX)
   if (CFile::Exists(SETTINGS_XML_FOLDER "linux.xml") && !Initialize(SETTINGS_XML_FOLDER "linux.xml"))
     CLog::Log(LOGFATAL, "Unable to load linux-specific settings definitions");
@@ -372,7 +375,10 @@ void CSettings::InitializeOptionFillers()
 {
   // register setting option fillers
 #ifdef HAS_OPTICAL_DRIVE
-  GetSettingsManager()->RegisterSettingOptionsFiller("audiocdactions", MEDIA_DETECT::CAutorun::SettingOptionAudioCdActionsFiller);
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "audiocdactions", MEDIA_DETECT::CAutorun::SettingOptionAudioCdActionsFiller);
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "videodiscactions", MEDIA_DETECT::CAutorun::SettingOptionVideoDiscActionsFiller);
 #endif
   GetSettingsManager()->RegisterSettingOptionsFiller("charsets", CCharsetConverter::SettingOptionsCharsetsFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("fonts", GUIFontManager::SettingOptionsFontsFiller);
@@ -411,6 +417,9 @@ void CSettings::InitializeOptionFillers()
                              StringSettingOptions& list, std::string& current)
       { CLangInfo::SettingOptionsTemperatureUnitsFiller(setting, list, current, g_langInfo); });
   GetSettingsManager()->RegisterSettingOptionsFiller("rendermethods", CBaseRenderer::SettingOptionsRenderMethodsFiller);
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "imageadjustmentgranularities",
+      CMediaSettings::SettingOptionsImageAdjustmentGranularitiesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("modes", CDisplaySettings::SettingOptionsModesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("resolutions", CDisplaySettings::SettingOptionsResolutionsFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller("screens", CDisplaySettings::SettingOptionsDispModeFiller);
@@ -450,11 +459,14 @@ void CSettings::InitializeOptionFillers()
       "playerqueuedatasizes", CPlayerSettings::SettingOptionsQueueDataSizesFiller);
   GetSettingsManager()->RegisterSettingOptionsFiller(
       "playerfastforwardspeeds", CPlayerSettings::SettingOptionsFastForwardSpeeds);
+  GetSettingsManager()->RegisterSettingOptionsFiller(
+      "rasteraspectratios", CPlayerSettings::SettingOptionsRasterAspectRatios);
 }
 
 void CSettings::UninitializeOptionFillers()
 {
   GetSettingsManager()->UnregisterSettingOptionsFiller("audiocdactions");
+  GetSettingsManager()->UnregisterSettingOptionsFiller("videodiscactions");
   GetSettingsManager()->UnregisterSettingOptionsFiller("audiocdencoders");
   GetSettingsManager()->UnregisterSettingOptionsFiller("charsets");
   GetSettingsManager()->UnregisterSettingOptionsFiller("fontheights");
@@ -471,6 +483,7 @@ void CSettings::UninitializeOptionFillers()
   GetSettingsManager()->UnregisterSettingOptionsFiller("speedunits");
   GetSettingsManager()->UnregisterSettingOptionsFiller("temperatureunits");
   GetSettingsManager()->UnregisterSettingOptionsFiller("rendermethods");
+  GetSettingsManager()->UnregisterSettingOptionsFiller("imageadjustmentgranularities");
   GetSettingsManager()->UnregisterSettingOptionsFiller("resolutions");
   GetSettingsManager()->UnregisterSettingOptionsFiller("screens");
   GetSettingsManager()->UnregisterSettingOptionsFiller("stereoscopicmodes");
@@ -505,6 +518,7 @@ void CSettings::UninitializeOptionFillers()
   GetSettingsManager()->UnregisterSettingOptionsFiller("playerqueuetimesizes");
   GetSettingsManager()->UnregisterSettingOptionsFiller("playerqueuedatasizes");
   GetSettingsManager()->UnregisterSettingOptionsFiller("playerfastforwardspeeds");
+  GetSettingsManager()->UnregisterSettingOptionsFiller("rasteraspectratios");
 }
 
 void CSettings::InitializeConditions()
@@ -587,6 +601,9 @@ void CSettings::InitializeISettingCallbacks()
        CSettings::SETTING_VIDEOLIBRARY_GROUPMOVIESETS, CSettings::SETTING_VIDEOLIBRARY_CLEANUP,
        CSettings::SETTING_VIDEOLIBRARY_IMPORT, CSettings::SETTING_VIDEOLIBRARY_EXPORT,
        CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS,
+       CSettings::SETTING_VIDEOSCREEN_EXTRACTCONTENTGEOMETRY,
+       CSettings::SETTING_VIDEOSCREEN_CONTENTGEOMETRYONSCAN,
+       CSettings::SETTING_VIDEOSCREEN_SCANCONTENTGEOMETRY,
        CSettings::SETTING_MAINTENANCE_CLEANIMAGECACHE});
 
   GetSettingsManager()->RegisterCallback(
@@ -596,7 +613,8 @@ void CSettings::InitializeISettingCallbacks()
        CSettings::SETTING_VIDEOSCREEN_PREFEREDSTEREOSCOPICMODE,
        CSettings::SETTING_VIDEOSCREEN_3DLUT, CSettings::SETTING_VIDEOSCREEN_DISPLAYPROFILE,
        CSettings::SETTING_VIDEOSCREEN_BLANKDISPLAYS, CSettings::SETTING_VIDEOSCREEN_WHITELIST,
-       CSettings::SETTING_VIDEOSCREEN_10BITSURFACES});
+       CSettings::SETTING_VIDEOSCREEN_10BITSURFACES,
+       CSettings::SETTING_VIDEOSCREEN_HIGHPERFORMANCEGPU});
 
   GetSettingsManager()->RegisterCallback(&g_charsetConverter, {CSettings::SETTING_SUBTITLES_CHARSET,
                                                                CSettings::SETTING_LOCALE_CHARSET});

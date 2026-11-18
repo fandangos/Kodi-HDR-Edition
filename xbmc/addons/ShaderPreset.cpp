@@ -127,11 +127,8 @@ bool CShaderPresetAddon::LoadPreset(const std::string& presetPath,
     video_shader videoShader = {};
     if (shaderPresetAddon->ReadShaderPreset(videoShader))
     {
-      if (shaderPresetAddon->ResolveParameters(videoShader))
-      {
-        TranslateShaderPreset(videoShader, shaderPreset);
-        bSuccess = true;
-      }
+      TranslateShaderPreset(videoShader, shaderPreset);
+      bSuccess = true;
       shaderPresetAddon->FreeShaderPreset(videoShader);
     }
   }
@@ -139,9 +136,6 @@ bool CShaderPresetAddon::LoadPreset(const std::string& presetPath,
   return bSuccess;
 }
 
-//! @todo Instead of copying every parameter to every pass and resolving them
-//! later in GetShaderParameters, we should resolve which param goes to which
-//! shader in the add-on
 void CShaderPresetAddon::TranslateShaderPreset(const video_shader& shader,
                                                SHADER::IShaderPreset& shaderPreset)
 {

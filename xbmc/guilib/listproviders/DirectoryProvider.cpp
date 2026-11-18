@@ -28,6 +28,8 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
+#include "utils/DefaultArt.h"
 #include "utils/ExecString.h"
 #include "utils/PlayerUtils.h"
 #include "utils/SortUtils.h"
@@ -227,6 +229,7 @@ public:
                 CDirectoryProvider::BrowseMode browse,
                 int parentID)
     : m_url(url),
+      m_targetKey(target),
       m_target(target),
       m_sort(sort),
       m_limit(limit),
@@ -242,7 +245,12 @@ public:
     if (strcmp(job->GetType(), GetType()) == 0)
     {
       const auto* dirJob = dynamic_cast<const CDirectoryJob*>(job);
-      if (dirJob && dirJob->m_url == m_url)
+      if (dirJob && dirJob->m_url == m_url && dirJob->m_targetKey == m_targetKey &&
+          dirJob->m_sort.sortBy == m_sort.sortBy && dirJob->m_sort.sortOrder == m_sort.sortOrder &&
+          dirJob->m_sort.sortAttributes == m_sort.sortAttributes &&
+          dirJob->m_sort.limitStart == m_sort.limitStart &&
+          dirJob->m_sort.limitEnd == m_sort.limitEnd && dirJob->m_limit == m_limit &&
+          dirJob->m_browse == m_browse && dirJob->m_parentID == m_parentID)
         return true;
     }
     return false;
@@ -264,16 +272,25 @@ public:
       else
         m_items.reserve(limit);
 
+      std::vector<CFileItem*> videoItems;
       for (int i = 0; i < limit; i++)
       {
         auto item{std::make_shared<CGUIStaticItem>(*items[i])};
         if (item->HasProperty("node.visible"))
           item->SetVisibleCondition(item->GetProperty("node.visible").asString(), m_parentID);
 
-        GetThumbLoader(item)->LoadItem(item.get());
-
+        if (VIDEO::IsVideo(*item))
+          videoItems.push_back(item.get());
         m_items.emplace_back(std::move(item));
       }
+
+      if (!videoItems.empty())
+      {
+        InitThumbLoader<CVideoThumbLoader>(InfoTagType::VIDEO);
+        static_cast<CVideoThumbLoader&>(*m_thumbloaders[InfoTagType::VIDEO]).Prefetch(videoItems);
+      }
+      for (const auto& item : m_items)
+        GetThumbLoader(item)->LoadItem(item.get());
 
       if (items.HasProperty("node.target"))
         m_target = items.GetProperty("node.target").asString();
@@ -288,7 +305,7 @@ public:
           CFileItem item(m_url, true);
           item.SetLabel(
               CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(22082)); // More...
-          item.SetArt("icon", "DefaultFolder.png");
+          item.SetArt(ART::TYPE::ICON, ART::DEFAULT::FOLDER);
           item.SetProperty("node.target", m_target);
           item.SetProperty("node.type", "target_folder"); // make item identifiable, e.g. by skins
 
@@ -352,6 +369,7 @@ public:
 
 private:
   std::string m_url;
+  std::string m_targetKey;
   std::string m_target;
   SortDescription m_sort;
   unsigned int m_limit{10};

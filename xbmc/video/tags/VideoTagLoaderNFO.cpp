@@ -18,6 +18,7 @@
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
+#include "video/VideoFileItemClassify.h"
 #include "video/VideoInfoTag.h"
 
 #include <ranges>
@@ -46,14 +47,6 @@ std::string InfoTypeToStr(CInfoScanner::InfoType infoType)
     default:
       return "malformed";
   }
-}
-
-int GetNfoIndex(const CFileItem& item, const ADDON::ScraperPtr& scraper)
-{
-  if (scraper->Content() == ADDON::ContentType::MOVIES && !item.IsFolder() &&
-      item.HasProperty("nfo_index"))
-    return item.GetProperty("nfo_index").asInteger32(1); // multiple versions (playlists) in nfo
-  return 1;
 }
 
 } // Unnamed namespace
@@ -85,7 +78,7 @@ CInfoScanner::InfoType CVideoTagLoaderNFO::Load(CVideoInfoTag& tag,
   {
     if (!m_nfoParsed)
     {
-      m_parseResult = m_nfoReader.Create(m_path, m_info, GetNfoIndex(m_item, m_info));
+      m_parseResult = m_nfoReader.Create(m_path, m_info);
       m_nfoParsed = true;
     }
     result = m_parseResult;
@@ -101,25 +94,45 @@ CInfoScanner::InfoType CVideoTagLoaderNFO::Load(CVideoInfoTag& tag,
   }
 
   if (result != NONE)
-  {
-    const std::string type{InfoTypeToStr(result)};
-    if (m_item.HasProperty("nfo_index"))
-      CLog::Log(LOGDEBUG, "VideoInfoScanner: Found additional version ({}) in {} NFO file: {}",
-                m_item.GetProperty("nfo_index").asInteger32(), type, CURL::GetRedacted(m_path));
-    else
-      CLog::Log(LOGDEBUG, "VideoInfoScanner: Found matching {} NFO file: {}", type,
-                CURL::GetRedacted(m_path));
-  }
+    CLog::Log(LOGDEBUG, "VideoInfoScanner: Found matching {} NFO file: {}", InfoTypeToStr(result),
+              CURL::GetRedacted(m_path));
   else
-  {
-    if (m_item.HasProperty("nfo_index"))
-      CLog::Log(LOGDEBUG, "VideoInfoScanner: No additional versions found in NFO file.");
-    else
-      CLog::Log(LOGDEBUG, "VideoInfoScanner: No NFO file found. Using title search for '{}'",
-                CURL::GetRedacted(m_item.GetPath()));
-  }
+    CLog::Log(LOGDEBUG, "VideoInfoScanner: No NFO file found. Using title search for '{}'",
+              CURL::GetRedacted(m_item.GetPath()));
 
   return result;
+}
+
+CInfoScanner::InfoType CVideoTagLoaderNFO::LoadVersion(int index, CVideoInfoTag& tag)
+{
+  using enum CInfoScanner::InfoType;
+
+  // The document is only in memory once Load() has parsed it
+  if (!m_nfoParsed)
+    return NONE;
+
+  const CInfoScanner::InfoType result{m_nfoReader.Reparse(index)};
+  if (result == FULL)
+  {
+    m_nfoReader.GetDetails(tag, nullptr, false);
+    CLog::Log(LOGDEBUG, "VideoInfoScanner: Found additional version ({}) in {} NFO file: {}", index,
+              InfoTypeToStr(result), CURL::GetRedacted(m_path));
+    return result;
+  }
+
+  if (result != NONE)
+  {
+    // An override entry needs a scrape to merge into, and versions are added without a scraper.
+    // Report it so the caller can move on to the next entry rather than stop here
+    CLog::Log(LOGDEBUG,
+              "VideoInfoScanner: Ignoring additional {} entry ({}) in NFO file - only full entries "
+              "can be added as versions: {}",
+              InfoTypeToStr(result), index, CURL::GetRedacted(m_path));
+    return result;
+  }
+
+  CLog::Log(LOGDEBUG, "VideoInfoScanner: No additional versions found in NFO file.");
+  return NONE;
 }
 
 int CVideoTagLoaderNFO::GetBlurayPlaylist() const
@@ -130,12 +143,27 @@ int CVideoTagLoaderNFO::GetBlurayPlaylist() const
   return m_nfoReader.GetBlurayPlaylist();
 }
 
+std::vector<XFILE::StackPartPlaylist> CVideoTagLoaderNFO::GetStackParts() const
+{
+  if (!m_nfoParsed)
+    return {};
+
+  std::vector<XFILE::StackPartPlaylist> parts{m_nfoReader.GetStackParts()};
+
+  // Stored relative to the nfo, as every part of a stack lives under the folder it is written to
+  const std::string base{URIUtils::GetDirectory(m_path)};
+  for (XFILE::StackPartPlaylist& part : parts)
+    part.file = URIUtils::AddFileToFolder(base, part.file);
+
+  return parts;
+}
+
 std::string CVideoTagLoaderNFO::FindNFO(const CFileItem& item,
                                         bool movieFolder) const
 {
   std::string nfoFile;
   // Find a matching .nfo file
-  if (!item.IsFolder())
+  if (!KODI::VIDEO::IsBrowsableFolder(item))
   {
     if (URIUtils::IsInArchive(item.GetPath())) // check outside the archive
     {
@@ -145,6 +173,12 @@ std::string CVideoTagLoaderNFO::FindNFO(const CFileItem& item,
       item2.SetPath(URIUtils::AddFileToFolder(strPath,
                                             URIUtils::GetFileName(item.GetPath())));
       nfoFile = FindNFO(item2, movieFolder);
+      // else named after the archive, as exported (with -SxxEyy for one of several episodes)
+      if (nfoFile.empty())
+      {
+        item2.SetPath(url.GetHostName());
+        nfoFile = FindNFO(item2, movieFolder);
+      }
       return nfoFile;
     }
 
@@ -155,7 +189,11 @@ std::string CVideoTagLoaderNFO::FindNFO(const CFileItem& item,
       const std::string path{URIUtils::GetDiscFile(item.GetPath())};
       if (!path.empty())
       {
+        // as the disc's file, which a library item's playlist would otherwise remain as, or a
+        // movie with versions or extras listed as a folder
         item2.SetPath(path);
+        item2.SetDynPath(path);
+        item2.SetFolder(false);
         nfoFile = FindNFO(item2, movieFolder);
         return nfoFile;
       }
@@ -183,8 +221,25 @@ std::string CVideoTagLoaderNFO::FindNFO(const CFileItem& item,
       if (nfoFile.empty())
       {
         const std::string stackedTitlePath{CStackDirectory::GetStackTitlePath(item.GetPath())};
+        // A folder stack's title path is no folder to look in, but when the stack is named after
+        // the folder holding its parts, that is the movie's folder and its movie.nfo takes priority
+        const bool isFolderStack{URIUtils::HasSlashAtEnd(stackedTitlePath)};
+        if (movieFolder && isFolderStack)
+        {
+          std::string basePath{CStackDirectory::GetBasePath(item.GetPath())};
+          std::string titlePath{stackedTitlePath};
+          URIUtils::RemoveSlashAtEnd(basePath);
+          URIUtils::RemoveSlashAtEnd(titlePath);
+          if (URIUtils::GetFileName(titlePath) == URIUtils::GetFileName(basePath))
+          {
+            nfoFile = URIUtils::AddFileToFolder(basePath, "movie.nfo");
+            if (CFileUtils::Exists(nfoFile))
+              return nfoFile;
+            nfoFile.clear();
+          }
+        }
         item2.SetPath(stackedTitlePath);
-        nfoFile = FindNFO(item2, movieFolder);
+        nfoFile = FindNFO(item2, movieFolder && !isFolderStack);
       }
     }
     else
@@ -239,13 +294,15 @@ std::string CVideoTagLoaderNFO::FindNFO(const CFileItem& item,
   }
 
   // folders (or stacked dvds) can take any nfo file if there's a unique one
-  if (nfoFile.empty() && (item.IsFolder() || item.IsOpticalMediaFile() || movieFolder))
+  if (nfoFile.empty() &&
+      (KODI::VIDEO::IsBrowsableFolder(item) || item.IsOpticalMediaFile() || movieFolder))
   {
     // see if there is a unique nfo file in this folder, and if so, use that
     // if we are looking for a specific episode nfo the file name must end with SxxEyy
     // (otherwise it could match the wrong episode nfo)
-    const std::string strPath{item.IsFolder() ? item.GetPath()
-                                              : URIUtils::GetDirectory(item.GetPath())};
+    const std::string strPath{KODI::VIDEO::IsBrowsableFolder(item) ? item.GetPath()
+                              : item.IsStack() ? CStackDirectory::GetBasePath(item.GetPath())
+                                               : URIUtils::GetDirectory(item.GetPath())};
     CFileItemList items;
     if (CDirectory::GetDirectory(strPath, items, ".nfo", DIR_FLAG_DEFAULTS) && !items.IsEmpty())
     {

@@ -57,11 +57,13 @@ public:
     UNCONFIGURE,
     STREAMING,
     APPFOCUSED,
+    RESERVE,
     VOLUME,
     FLUSH,
     TIMEOUT,
     SETSILENCETIMEOUT,
     SETNOISETYPE,
+    ARMFILLER,
   };
   enum InSignal
   {
@@ -117,6 +119,7 @@ protected:
   void PrintSinks(std::string& driver);
   void GetDeviceFriendlyName(const std::string& device);
   void OpenSink();
+  void CloseSink(bool drain = true);
   void ReturnBuffers();
   void SetSilenceTimer();
   bool NeedIECPacking();
@@ -136,6 +139,9 @@ protected:
   std::chrono::milliseconds m_extSilenceTimeout;
   bool m_extAppFocused;
   bool m_extStreaming;
+  bool m_extReserved{false};
+  std::chrono::duration<double> m_reservedCacheTotal{};
+  std::chrono::duration<double> m_reservedLatency{};
   XbmcThreads::EndTime<> m_extSilenceTimer;
 
   CSampleBuffer m_sampleOfSilence;
@@ -157,6 +163,9 @@ protected:
   int m_sinkLatency;
   std::unique_ptr<CAEBitstreamPacker> m_packer;
   bool m_needIecPack{false};
+  bool m_silenceFiller{false};
+  //! \brief Armed when a stream is held for a format change, dropped by the next content.
+  bool m_fillerArmed{false};
   bool m_streamNoise;
 };
 

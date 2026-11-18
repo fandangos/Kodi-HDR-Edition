@@ -86,7 +86,7 @@ public:
   bool IsHDRDisplay() override;
   CHDRCapabilities GetDisplayHDRCapabilities() const override;
 
-  float GetSyncOutputRefreshRate();
+  float GetPresentationRefreshRate();
   float GetDisplayLatency() override;
   float GetFrameLatencyAdjustment() override;
   std::unique_ptr<CVideoSync> GetVideoSync(CVideoReferenceClock* clock) override;
@@ -183,13 +183,14 @@ private:
   void ApplySizeUpdate(SizeUpdateInformation update);
   void ApplyNextState();
 
-  std::string UserFriendlyOutputName(std::shared_ptr<COutput> const& output);
+  std::string UserFriendlyOutputName(std::shared_ptr<COutput> const& output,
+                                     bool legacyName = false);
   std::shared_ptr<COutput> FindOutputByUserFriendlyName(std::string const& name);
   std::shared_ptr<COutput> FindOutputByWaylandOutput(wayland::output_t const& output);
 
   // Called when wl_output::done is received for an output, i.e. associated
   // information like modes is available
-  void OnOutputDone(std::uint32_t name);
+  void OnOutputDone(std::uint32_t name, bool labelChanged);
   void UpdateBufferScale();
   void ApplyBufferScale();
   void ApplyViewportSizes();
@@ -266,6 +267,8 @@ private:
   std::uint32_t m_syncOutputID;
   /// Refresh rate of sync output returned by wp_presentation
   std::atomic<float> m_syncOutputRefreshRate{0.0f};
+  /// Refresh rate from the last presented event, falls back to the sync output's
+  std::atomic<float> m_presentationRefreshRate{0.0f};
   static constexpr int LATENCY_MOVING_AVERAGE_SIZE{30};
   std::atomic<float> m_latencyMovingAverage;
   CSignalHandlerList<PresentationFeedbackHandler> m_presentationFeedbackHandlers;

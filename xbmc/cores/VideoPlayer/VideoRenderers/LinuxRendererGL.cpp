@@ -512,6 +512,15 @@ void CLinuxRendererGL::RenderUpdate(int index, int index2, bool clear, unsigned 
     return;
   }
 
+  if (const bool fullRange = !CServiceBroker::GetWinSystem()->UseLimitedColor();
+      fullRange != m_fullRange)
+  {
+    m_fullRange = fullRange;
+    m_reloadShaders = true;
+    // the CMS output shader bakes in the range
+    m_scalingMethodGui = VS_SCALINGMETHOD_MAX;
+  }
+
   ManageRenderArea();
 
   if (clear)
@@ -788,7 +797,8 @@ void CLinuxRendererGL::UpdateVideoFilter()
 
   if (m_scalingMethodGui == m_videoSettings.m_ScalingMethod &&
       viewRect.Height() == m_lastViewRect.Height() && viewRect.Width() == m_lastViewRect.Width() &&
-      !nonLinStretchChanged && !cmsChanged)
+      srcRect.Height() == m_lastSourceRect.Height() &&
+      srcRect.Width() == m_lastSourceRect.Width() && !nonLinStretchChanged && !cmsChanged)
     return;
 
   // Reload shader when the scaling method, non-linear stretch state, or CMS
@@ -816,9 +826,11 @@ void CLinuxRendererGL::UpdateVideoFilter()
     }
   }
 
+  const ESCALINGMETHOD previousMethod = m_scalingMethod;
   m_scalingMethodGui = m_videoSettings.m_ScalingMethod;
   m_scalingMethod = m_scalingMethodGui;
   m_lastViewRect = viewRect;
+  m_lastSourceRect = srcRect;
 
   if (!Supports(m_scalingMethod))
   {
@@ -849,6 +861,9 @@ void CLinuxRendererGL::UpdateVideoFilter()
     else
       m_scalingMethod = VS_SCALINGMETHOD_LINEAR;
   }
+
+  if (m_scalingMethod != previousMethod)
+    m_reloadShaders = true;
 
   switch (m_scalingMethod)
   {
@@ -1004,7 +1019,7 @@ void CLinuxRendererGL::LoadShaders(int field)
         m_pYUVShader = new YUV2RGBFilterShader4(
             m_textureTarget == GL_TEXTURE_RECTANGLE, shaderFormat, m_nonLinStretch,
             m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709, m_srcPrimaries,
-            m_toneMap, m_toneMapMethod, m_scalingMethod, out);
+            m_toneMap, m_toneMapMethod, m_hueSatTransfer, m_useGamma, m_scalingMethod, out);
         if (!m_cmsOn)
           m_pYUVShader->SetConvertFullColorRange(m_fullRange);
 
@@ -1030,7 +1045,7 @@ void CLinuxRendererGL::LoadShaders(int field)
           m_textureTarget == GL_TEXTURE_RECTANGLE, shaderFormat,
           m_nonLinStretch && m_renderQuality == RQ_SINGLEPASS,
           m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709, m_srcPrimaries,
-          m_toneMap, m_toneMapMethod, out,
+          m_toneMap, m_toneMapMethod, m_hueSatTransfer, m_useGamma, out,
           m_intermediateGammaCorrection && m_renderQuality == RQ_MULTIPASS);
 
       if (!m_cmsOn)
@@ -1173,6 +1188,9 @@ void CLinuxRendererGL::RenderSinglePass(int index, int field)
 
   m_pYUVShader->SetBlack(m_videoSettings.m_Brightness * 0.01f - 0.5f);
   m_pYUVShader->SetContrast(m_videoSettings.m_Contrast * 0.02f);
+  m_pYUVShader->SetHue((m_videoSettings.m_Hue - 50.0f) * 3.6f);
+  m_pYUVShader->SetSaturation(m_videoSettings.m_Saturation * 0.02f);
+  m_pYUVShader->SetGamma(CConvertMatrix::GetGammaExponent(m_videoSettings.m_Gamma));
   m_pYUVShader->SetWidth(planes[0].texwidth);
   m_pYUVShader->SetHeight(planes[0].texheight);
   m_pYUVShader->SetColParams(buf.m_srcColSpace, buf.m_srcBits, !buf.m_srcFullRange, buf.m_srcTextureBits);
@@ -1365,6 +1383,9 @@ void CLinuxRendererGL::RenderToFBO(int index, int field, bool weave /*= false*/)
 
   m_pYUVShader->SetBlack(m_videoSettings.m_Brightness * 0.01f - 0.5f);
   m_pYUVShader->SetContrast(m_videoSettings.m_Contrast * 0.02f);
+  m_pYUVShader->SetHue((m_videoSettings.m_Hue - 50.0f) * 3.6f);
+  m_pYUVShader->SetSaturation(m_videoSettings.m_Saturation * 0.02f);
+  m_pYUVShader->SetGamma(CConvertMatrix::GetGammaExponent(m_videoSettings.m_Gamma));
   m_pYUVShader->SetWidth(planes[0].texwidth);
   m_pYUVShader->SetHeight(planes[0].texheight);
   m_pYUVShader->SetNonLinStretch(1.0);
@@ -2596,17 +2617,16 @@ void CLinuxRendererGL::SetTextureFilter(GLenum method)
 
 bool CLinuxRendererGL::Supports(ERENDERFEATURE feature) const
 {
-  if (feature == RENDERFEATURE_STRETCH ||
-      feature == RENDERFEATURE_NONLINSTRETCH ||
-      feature == RENDERFEATURE_ZOOM ||
-      feature == RENDERFEATURE_VERTICAL_SHIFT ||
-      feature == RENDERFEATURE_PIXEL_RATIO ||
-      feature == RENDERFEATURE_POSTPROCESS ||
-      feature == RENDERFEATURE_ROTATION ||
-      feature == RENDERFEATURE_BRIGHTNESS ||
-      feature == RENDERFEATURE_CONTRAST ||
-      feature == RENDERFEATURE_TONEMAP)
+  if (feature == RENDERFEATURE_STRETCH || feature == RENDERFEATURE_NONLINSTRETCH ||
+      feature == RENDERFEATURE_ZOOM || feature == RENDERFEATURE_VERTICAL_SHIFT ||
+      feature == RENDERFEATURE_PIXEL_RATIO || feature == RENDERFEATURE_POSTPROCESS ||
+      feature == RENDERFEATURE_ROTATION || feature == RENDERFEATURE_BRIGHTNESS ||
+      feature == RENDERFEATURE_CONTRAST || feature == RENDERFEATURE_HUE ||
+      feature == RENDERFEATURE_SATURATION || feature == RENDERFEATURE_TONEMAP)
     return true;
+
+  if (feature == RENDERFEATURE_GAMMA)
+    return !m_streamIsHDR;
 
   return false;
 }
@@ -2640,8 +2660,11 @@ bool CLinuxRendererGL::Supports(ESCALINGMETHOD method) const
       method == VS_SCALINGMETHOD_LANCZOS3)
   {
     // if scaling is below level, avoid hq scaling
-    float scaleX = fabs(((float)m_sourceWidth - m_destRect.Width())/m_sourceWidth)*100;
-    float scaleY = fabs(((float)m_sourceHeight - m_destRect.Height())/m_sourceHeight)*100;
+    // Empty until ManageRenderArea has run, then the per-eye crop of a stereo source
+    CRect source =
+        m_sourceRect.IsEmpty() ? CRect(0, 0, m_sourceWidth, m_sourceHeight) : m_sourceRect;
+    float scaleX = fabs((source.Width() - m_destRect.Width()) / source.Width()) * 100;
+    float scaleY = fabs((source.Height() - m_destRect.Height()) / source.Height()) * 100;
     int minScale = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_VIDEOPLAYER_HQSCALERS);
     if (scaleX < minScale && scaleY < minScale)
       return false;
@@ -2777,6 +2800,27 @@ void CLinuxRendererGL::CheckVideoParameters(int index)
   bool toneMap = false;
   const bool streamIsHDRPQ =
       (buf.m_srcColTransfer == AVCOL_TRC_SMPTE2084 && buf.m_srcPrimaries == AVCOL_PRI_BT2020);
+  const bool streamIsHDR =
+      buf.m_srcPrimaries == AVCOL_PRI_BT2020 && (buf.m_srcColTransfer == AVCOL_TRC_SMPTE2084 ||
+                                                 buf.m_srcColTransfer == AVCOL_TRC_ARIB_STD_B67);
+
+  const bool hueSat =
+      streamIsHDR && (m_videoSettings.m_Hue != 50.0f || m_videoSettings.m_Saturation != 50.0f);
+  const AVColorTransferCharacteristic hueSatTransfer =
+      hueSat ? buf.m_srcColTransfer : AVCOL_TRC_UNSPECIFIED;
+  if (hueSatTransfer != m_hueSatTransfer)
+  {
+    m_hueSatTransfer = hueSatTransfer;
+    m_reloadShaders = true;
+  }
+
+  m_streamIsHDR = streamIsHDR;
+  const bool gamma = !streamIsHDR && m_videoSettings.m_Gamma != 50.0f;
+  if (gamma != m_useGamma)
+  {
+    m_useGamma = gamma;
+    m_reloadShaders = true;
+  }
 
   if (!m_passthroughHDR && streamIsHDRPQ && toneMapMethod != VS_TONEMAPMETHOD_OFF)
   {

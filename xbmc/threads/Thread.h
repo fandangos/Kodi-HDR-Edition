@@ -108,6 +108,9 @@ protected:
 
   std::atomic<bool> m_bStop;
 
+  //! Set by StopThread(), i.e. once the owner may be blocked waiting for this thread
+  CEvent& GetStopEvent() { return m_StopEvent; }
+
   enum WaitResponse { WAIT_INTERRUPTED = -1, WAIT_SIGNALED = 0, WAIT_TIMEDOUT = 1 };
 
   /**
@@ -137,7 +140,9 @@ private:
 
   std::string m_ThreadName;
   std::thread* m_thread = nullptr;
-  std::future<bool> m_future;
+  // identifies m_thread across a restart, which may reuse the address of a deleted thread
+  uint64_t m_threadGeneration = 0;
+  std::shared_future<bool> m_future;
 
   std::unique_ptr<IThreadImpl> m_impl;
 };

@@ -11,6 +11,7 @@
 #include "ServiceBroker.h"
 #include "TextureDatabase.h"
 #include "addons/AddonDatabase.h"
+#include "games/database/GameDatabase.h"
 #include "music/MusicDatabase.h"
 #include "pvr/PVRDatabase.h"
 #include "pvr/epg/EpgDatabase.h"
@@ -79,6 +80,8 @@ bool CDatabaseManager::InitializeInternal()
   // NOTE: Order here is important. In particular, CTextureDatabase has to be updated
   //       before CVideoDatabase.
   if (CViewDatabase db; !UpdateDatabase(db))
+    return false;
+  if (KODI::GAME::CGameDatabase db; !UpdateDatabase(db))
     return false;
   if (CTextureDatabase db; !UpdateDatabase(db))
     return false;
@@ -248,7 +251,8 @@ bool CDatabaseManager::UpdateVersion(CDatabase &db, const std::string &dbName)
       return false;
     }
 
-    db.CommitTransaction();
+    // The base commit alone: an override may read the views, which are gone until CreateAnalytics().
+    db.CDatabase::CommitTransaction();
     db.BeginTransaction();
 
     try

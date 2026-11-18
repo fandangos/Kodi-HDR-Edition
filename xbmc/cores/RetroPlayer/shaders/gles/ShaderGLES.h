@@ -14,6 +14,7 @@
 #include "rendering/gl/GLShader.h"
 
 #include <array>
+#include <optional>
 #include <stdint.h>
 
 namespace KODI::SHADER
@@ -42,7 +43,7 @@ public:
   void SetSizes(const float2& nextSize,
                 const float2& prevSize = float2{},
                 const float2& prevTextureSize = float2{}) override;
-  void PrepareParameters(IShaderTexture& sourceTexture,
+  bool PrepareParameters(IShaderTexture& sourceTexture,
                          const std::vector<std::unique_ptr<IShaderTexture>>& pShaderTextures,
                          const std::vector<std::unique_ptr<IShader>>& pShaders,
                          uint64_t frameCount) override;
@@ -135,5 +136,7 @@ private:
 
   std::array<GLuint, 3> m_shaderVertexVBO{GL_NONE};
   GLuint m_shaderIndexVBO{GL_NONE};
+  // Output size the vertex buffers were last filled for
+  std::optional<float2> m_vertexDataSize;
 };
 } // namespace KODI::SHADER

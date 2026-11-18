@@ -8,18 +8,18 @@
 
 #pragma once
 
+#include "BaseRenderer.h"
+#include "FrameBufferObject.h"
+#include "RenderFlags.h"
+#include "RenderInfo.h"
+#include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h"
+#include "cores/VideoSettings.h"
+#include "guilib/Shader.h"
+#include "windowing/GraphicContext.h"
+
 #include <vector>
 
 #include "system_gl.h"
-
-#include "BaseRenderer.h"
-#include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h"
-#include "cores/VideoSettings.h"
-#include "FrameBufferObject.h"
-#include "guilib/Shader.h"
-#include "RenderFlags.h"
-#include "RenderInfo.h"
-#include "windowing/GraphicContext.h"
 
 extern "C" {
 #include <libavutil/mastering_display_metadata.h>
@@ -72,7 +72,7 @@ public:
   bool Flush(bool saveBuffers) override;
   void SetBufferSize(int numBuffers) override { m_NumYUVBuffers = numBuffers; }
   bool IsGuiLayer() override;
-  bool HasVideoPlane() override { return false; }
+  bool VideoBypassesFramebuffer() override { return false; }
   void ReleaseBuffer(int idx) override;
   void RenderUpdate(int index, int index2, bool clear, unsigned int flags, unsigned int alpha) override;
   void Update() override;
@@ -218,6 +218,11 @@ protected:
   AVColorPrimaries m_srcPrimaries;
   bool m_toneMap = false;
   ETONEMAPMETHOD m_toneMapMethod = VS_TONEMAPMETHOD_OFF;
+  // PQ/HLG streams get hue and saturation from the YUV shader in linear light
+  AVColorTransferCharacteristic m_hueSatTransfer{AVCOL_TRC_UNSPECIFIED};
+  // SDR streams get gamma from the YUV shader
+  bool m_useGamma{false};
+  bool m_streamIsHDR{false};
   bool m_passthroughHDR = false;
   GLint m_intermediateFormat{GL_RGBA};
   GLint m_intermediateType{GL_UNSIGNED_BYTE};
@@ -226,6 +231,7 @@ protected:
   size_t m_planeBufferSize = 0;
 
   CRect m_lastViewRect;
+  CRect m_lastSourceRect;
 
   // HDR FBO compositing: when active, IsGuiLayer() returns false so
   // video renders separately from GUI via RenderUpdateVideo()

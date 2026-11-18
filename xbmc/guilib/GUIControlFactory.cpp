@@ -50,6 +50,7 @@
 #include "cores/RetroPlayer/guicontrols/GUIGameControl.h"
 #include "games/controllers/guicontrols/GUIGameController.h"
 #include "games/controllers/guicontrols/GUIGameControllerList.h"
+#include "guilib/GUIControlGroupMask.h"
 #include "input/actions/ActionIDs.h"
 #include "pvr/guilib/GUIEPGGridContainer.h"
 #include "resources/LocalizeStrings.h"
@@ -85,6 +86,7 @@ static const ControlMapping controls[] = {
     {"group", CGUIControl::GUICONTROL_GROUP},
     {"group", CGUIControl::GUICONTROL_LISTGROUP},
     {"grouplist", CGUIControl::GUICONTROL_GROUPLIST},
+    {"groupmask", CGUIControl::GUICONTROL_GROUPMASK},
     {"image", CGUIControl::GUICONTROL_IMAGE},
     {"image", CGUIControl::GUICONTROL_BORDEREDIMAGE},
     {"label", CGUIControl::GUICONTROL_LABEL},
@@ -447,6 +449,10 @@ bool CGUIControlFactory::GetTexture(const TiXmlNode* pRootNode,
   const char* background = pNode->Attribute("background");
   if (background && StringUtils::CompareNoCase(background, "true", 4) == 0)
     image.useLarge = true;
+  const char* mipmap = pNode->Attribute("mipmap");
+  image.m_mipmap = mipmap && StringUtils::CompareNoCase(mipmap, "true") == 0;
+  const char* subpixel = pNode->Attribute("subpixel");
+  image.m_subpixel = subpixel && StringUtils::CompareNoCase(subpixel, "true") == 0;
   image.filename = pNode->FirstChild() ? pNode->FirstChild()->Value() : "";
   return true;
 }
@@ -1316,6 +1322,13 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
 
       break;
     }
+    case CGUIControl::GUICONTROL_GROUPMASK:
+    {
+      control = new CGUIControlGroupMask(parentID, id, posX, posY, width, height);
+      static_cast<CGUIControlGroupMask*>(control)->SetDefaultControl(defaultControl, defaultAlways);
+      static_cast<CGUIControlGroupMask*>(control)->SetRenderFocusedLast(renderFocusedLast);
+      break;
+    }
     case CGUIControl::GUICONTROL_LABEL:
     {
       static const GUIINFO::CGUIInfoLabel empty;
@@ -1372,10 +1385,6 @@ CGUIControl* CGUIControlFactory::Create(int parentID,
       GUIINFO::CGUIInfoLabel rotation;
       GetInfoLabel(pControlNode, "rotation", rotation, parentID);
       static_cast<RETRO::CGUIGameControl*>(control)->SetRotation(rotation);
-
-      GUIINFO::CGUIInfoLabel pixels;
-      GetInfoLabel(pControlNode, "pixels", pixels, parentID);
-      static_cast<RETRO::CGUIGameControl*>(control)->SetPixels(pixels);
 
       break;
     }

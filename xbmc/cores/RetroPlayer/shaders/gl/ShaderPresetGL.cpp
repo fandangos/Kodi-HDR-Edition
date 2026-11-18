@@ -16,8 +16,6 @@
 #include "rendering/gl/RenderSystemGL.h"
 #include "utils/log.h"
 
-#include <regex>
-
 using namespace KODI::SHADER;
 
 CShaderPresetGL::CShaderPresetGL(RETRO::CRenderContext& context,
@@ -43,6 +41,7 @@ bool CShaderPresetGL::CreateShaders()
         presetLUTsGL.emplace_back(std::move(presetLut));
     }
   }
+  m_luts = presetLUTsGL;
 
   const auto numPasses = static_cast<unsigned int>(m_passes.size());
   for (unsigned int shaderIdx = 0; shaderIdx < numPasses; ++shaderIdx)
@@ -52,15 +51,17 @@ bool CShaderPresetGL::CreateShaders()
     const std::string& shaderSource = pass.vertexSource; // Also contains fragment source
     const std::string& shaderPath = pass.sourcePath;
 
-    // Get only the parameters belonging to this specific shader
-    ShaderParameterMap passParameters = GetShaderParameters(pass.parameters, pass.vertexSource);
+    ShaderParameterMap passParameters = GetShaderParameters(pass.parameters);
 
     // Create the shader
     auto videoShader = std::make_unique<CShaderGL>();
     if (!videoShader->Create(shaderIdx, pass.alias, shaderPath, shaderSource,
                              std::move(passParameters), presetLUTsGL, pass.frameCountMod))
     {
-      CLog::Log(LOGERROR, "CShaderPresetGL::CreateShaders: Couldn't create a video shader");
+      CLog::Log(LOGERROR,
+                "CShaderPresetGL::CreateShaders: Failed to create shader: preset={}, pass={}, "
+                "alias={}, shader={}",
+                m_presetPath, shaderIdx, pass.alias.empty() ? "<none>" : pass.alias, shaderPath);
       return false;
     }
     m_pShaders.push_back(std::move(videoShader));

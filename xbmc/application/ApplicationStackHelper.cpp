@@ -14,10 +14,12 @@
 #include "URL.h"
 #include "cores/IPlayer.h"
 #include "cores/VideoPlayer/DVDFileInfo.h"
+#include "filesystem/Directory.h"
 #include "filesystem/StackDirectory.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/MediaSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ItemProperties.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -74,6 +76,9 @@ bool CApplicationStackHelper::InitializeStack(const CFileItem& item)
   const auto stack{std::make_shared<CFileItem>(item)};
   for (int i = 0; const auto& file : m_originalStackItems)
   {
+    // This adds a blank VideoInfoTag, if none exists, to avoid mis-identification as a game
+    file->GetVideoInfoTag();
+
     const std::string& path{file->GetPath()};
     const auto& part{GetOrCreateStackPartInformation(path)};
     part->stackItem = stack;
@@ -90,6 +95,10 @@ bool CApplicationStackHelper::InitializeStack(const CFileItem& item)
   if (db.Open())
     haveTimes = db.GetStackTimes(item.GetDynPath(), times);
 
+  // Times from database, otherwise derive below as
+  // fallback for a stack scanned before they were recorded
+  const bool timesFromDatabase{haveTimes};
+
   // If no times and is a regular (file) stack then get times from files
   // Not possible for BD/DVD (folder) stacks due as the playlist/title not known yet
   if (!haveTimes && !IsPlayingDiscStack())
@@ -97,15 +106,27 @@ bool CApplicationStackHelper::InitializeStack(const CFileItem& item)
     std::chrono::milliseconds totalTime{0ms};
     for (int i = 0; i < m_originalStackItems.Size(); ++i)
     {
-      int duration;
       const auto& part{m_originalStackItems.Get(i)};
-      if (!CDVDFileInfo::GetFileDuration(part->GetDynPath(), duration))
+      const std::string& partPath{part->GetDynPath()};
+
+      std::chrono::milliseconds partTime{0ms};
+      if (URIUtils::IsBlurayPath(partPath))
+      {
+        CFileItemList parts;
+        if (CDirectory::GetDirectory(partPath, parts, "", DIR_FLAG_DEFAULTS) && !parts.IsEmpty() &&
+            parts[0]->HasVideoInfoTag())
+          partTime = std::chrono::seconds{parts[0]->GetVideoInfoTag()->GetDuration()};
+      }
+      else if (int duration{0}; CDVDFileInfo::GetFileDuration(partPath, duration))
+        partTime = std::chrono::milliseconds{duration};
+
+      if (partTime <= 0ms)
       {
         Clear();
-        CLog::LogF(LOGERROR, "Unable to get file duration from {}", part->GetDynPath());
+        CLog::LogF(LOGERROR, "Unable to get file duration from {}", partPath);
         return false;
       }
-      totalTime += std::chrono::milliseconds{duration};
+      totalTime += partTime;
       times.emplace_back(totalTime);
     }
     if (db.IsOpen())
@@ -124,11 +145,14 @@ bool CApplicationStackHelper::InitializeStack(const CFileItem& item)
       const auto& part{GetStackPartInformation(*m_originalStackItems.Get(i))};
       part->stackItem->SetEndOffset(times[i].count());
       part->startTime = i == 0 ? 0ms : times[i - 1];
+      CLog::LogF(LOGDEBUG, "Stack part {} runs from {}ms to {}ms", i, part->startTime.count(),
+                 times[i].count());
     }
     SetStackTotalTime(totalTime); // Set total time
     m_knownStackParts = static_cast<int>(times.size());
-    CLog::LogF(LOGDEBUG, "Initialized stack with {} (known) parts and total time {}ms",
-               m_knownStackParts, totalTime.count());
+    CLog::LogF(LOGDEBUG, "Initialized stack with {} (known) parts and total time {}ms (times {})",
+               m_knownStackParts, totalTime.count(),
+               timesFromDatabase ? "from the database" : "derived from the parts");
   }
 
   // Remember if this was a disc stack
@@ -145,9 +169,22 @@ bool CApplicationStackHelper::ProcessNextPartInBookmark(CFileItem& item, CBookma
   {
     // This updates the FileItem with the next part in the stack
     item = SetStackPartAsCurrent(*nextPart);
-    bookmark.timeInSeconds = 0.0;
-    bookmark.playerState.clear();
-    CLog::LogF(LOGDEBUG, "Next part in stack is {}", item.GetDynPath());
+    // Resume within the part (time is relative to it) or from its start
+    if (std::optional<std::string> state{
+            KODI::VIDEO::UTILS::GetNextPartPlayerStateFromBookmark(bookmark)};
+        state)
+    {
+      bookmark.playerState = *state;
+      // The input stream reads a disc's resume state from the item (eg. a Blu-ray playlist)
+      item.GetVideoInfoTag()->SetResumePoint(bookmark);
+    }
+    else
+    {
+      bookmark.timeInSeconds = 0.0;
+      bookmark.playerState.clear();
+    }
+    CLog::LogF(LOGDEBUG, "Next part in stack is {} (resume at {}s)", item.GetDynPath(),
+               bookmark.timeInSeconds);
     return true;
   }
   return false;
@@ -165,9 +202,9 @@ void CApplicationStackHelper::GetStackPartAndOptions(CFileItem& item,
   bool updated{false};
 
   std::string path{item.GetDynPath()}; // stack:// path
-  if (item.HasProperty("original_listitem_url") &&
-      URIUtils::IsPlugin(item.GetProperty("original_listitem_url").asString()))
-    path = item.GetProperty("original_listitem_url").asString();
+  if (item.HasProperty(KODI::ITEM::PROPERTY::ORIGINAL_LISTITEM_URL) &&
+      URIUtils::IsPlugin(item.GetProperty(KODI::ITEM::PROPERTY::ORIGINAL_LISTITEM_URL).asString()))
+    path = item.GetProperty(KODI::ITEM::PROPERTY::ORIGINAL_LISTITEM_URL).asString();
 
   if (restart)
   {
@@ -202,6 +239,13 @@ void CApplicationStackHelper::GetStackPartAndOptions(CFileItem& item,
   if (!updated)
   {
     m_currentStackPosition = GetStackPartNumberAtTime(start);
+
+    // Disc stack parts beyond those already played have no times, so use the requested part
+    if (const int startPart{item.GetStartPartNumber() - 1}; !restart && startPart > 0 &&
+                                                            startPart >= m_knownStackParts &&
+                                                            startPart < m_originalStackItems.Size())
+      m_currentStackPosition = startPart;
+
     item = *m_originalStackItems.Get(m_currentStackPosition);
     options.starttime =
         std::chrono::duration<double>(start - GetStackPartStartTime(m_currentStackPosition))

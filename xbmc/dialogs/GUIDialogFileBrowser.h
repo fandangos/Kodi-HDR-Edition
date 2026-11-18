@@ -11,9 +11,12 @@
 #include "filesystem/DirectoryHistory.h"
 #include "filesystem/VirtualDirectory.h"
 #include "guilib/GUIDialog.h"
+#include "media/MediaSection.h"
 #include "pictures/PictureThumbLoader.h"
 #include "view/GUIViewControl.h"
 
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -48,7 +51,7 @@ public:
   static bool ShowAndGetSource(std::string& path,
                                bool allowNetworkShares,
                                std::vector<CMediaSource>* additionalShare = NULL,
-                               const std::string& strType = "");
+                               std::optional<KODI::MEDIA::MediaSection> section = {});
   static bool ShowAndGetFileList(const std::vector<CMediaSource>& shares,
                                  const std::string& mask,
                                  const std::string& heading,
@@ -91,8 +94,8 @@ protected:
 
   std::vector<CMediaSource> m_shares;
   XFILE::CVirtualDirectory m_rootDir;
-  CFileItemList* m_vecItems;
-  CFileItem* m_Directory;
+  std::unique_ptr<CFileItemList> m_vecItems;
+  std::unique_ptr<CFileItem> m_Directory;
   std::string m_strParentPath;
   std::string m_selectedPath;
   CDirectoryHistory m_history;
@@ -101,7 +104,7 @@ protected:
   int m_bFlip;
   bool m_addNetworkShareEnabled;
   bool m_flipEnabled;
-  std::string m_addSourceType;
+  std::optional<KODI::MEDIA::MediaSection> m_addSourceSection;
   bool m_browsingForImages;
   bool m_useFileDirectories;
   bool m_singleList;              // if true, we have no shares or anything

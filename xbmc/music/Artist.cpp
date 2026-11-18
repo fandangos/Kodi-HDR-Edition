@@ -11,6 +11,7 @@
 #include "ServiceBroker.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/Fanart.h"
 #include "utils/StringUtils.h"
 #include "utils/XMLUtils.h"
@@ -170,7 +171,8 @@ bool CArtist::Load(const TiXmlElement *artist, bool append, bool prioritise)
     fanart.Unpack();
     // Append fanart to other image URLs
     for (unsigned int i = 0; i < fanart.GetNumFanarts(); i++)
-      thumbURL.AddParsedUrl(fanart.GetImageURL(i), "fanart", fanart.GetPreviewURL(i));
+      thumbURL.AddParsedUrl(fanart.GetImageURL(i), KODI::ART::TYPE::FANART,
+                            fanart.GetPreviewURL(i));
   }
 
  // Current artwork  - thumb, fanart etc. (the chosen art, not the lists of those available)
@@ -194,6 +196,8 @@ bool CArtist::Save(TiXmlNode *node, const std::string &tag, const std::string& s
 
   // we start with a <tag> tag
   TiXmlElement artistElement(tag.c_str());
+  if (tag == "artist")
+    artistElement.SetAttribute("version", 0);
   TiXmlNode *artist = node->InsertEndChild(artistElement);
 
   if (!artist) return false;

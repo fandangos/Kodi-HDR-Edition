@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.20)
 if(WIN32)
   cmake_minimum_required(VERSION 3.30.6)
 endif()
@@ -108,6 +108,7 @@ option(ENABLE_AIRTUNES    "Enable AirTunes support?" ON)
 option(ENABLE_OPTICAL     "Enable optical support?" ON)
 option(ENABLE_PYTHON      "Enable python support?" ON)
 option(ENABLE_TESTING     "Enable testing support?" ON)
+option(ENABLE_PCH         "Enable precompiled headers (non-Windows)?" ON)
 
 # Internal Depends - supported on all platforms
 
@@ -116,6 +117,7 @@ option(ENABLE_INTERNAL_CROSSGUID "Enable internal crossguid?" ON)
 
 # use ffmpeg from depends or system
 option(ENABLE_INTERNAL_FFMPEG "Enable internal ffmpeg?" OFF)
+option(ENABLE_INTERNAL_OPUS "Enable internal opus?" OFF)
 
 # These are built for all platforms not using system libs or disabled by user
 dependent_option(ENABLE_INTERNAL_ASS "Enable internal libass?")
@@ -134,8 +136,11 @@ dependent_option(ENABLE_INTERNAL_NFS "Enable internal libnfs?")
 dependent_option(ENABLE_INTERNAL_PCRE2 "Enable internal pcre2?")
 dependent_option(ENABLE_INTERNAL_MARIADBCLIENT "Enable internal mariadb-c-connector?")
 dependent_option(ENABLE_INTERNAL_NLOHMANNJSON "Enable internal nlohmannjson?")
+dependent_option(ENABLE_INTERNAL_SWIG "Enable internal swig?")
 dependent_option(ENABLE_INTERNAL_UDFREAD "Enable internal libudfread?")
 dependent_option(ENABLE_INTERNAL_XSLT "Enable internal libxslt?")
+dependent_option(ENABLE_INTERNAL_ZSTD "Enable internal Zstandard?")
+dependent_option(ENABLE_INTERNAL_FRIBIDI "Enable internal fribidi?")
 
 # If ENABLE_INTERNAL_FMT is ON, we force ENABLE_INTERNAL_SPDLOG ON as it has a hard
 # dependency on fmt
@@ -177,6 +182,8 @@ if(NOT CMAKE_GENERATOR MATCHES "Visual Studio" AND NOT CMAKE_GENERATOR STREQUAL 
 else()
   set(ENABLE_STATIC_LIBS FALSE)
 endif()
+
+include(cmake/scripts/common/PrecompiledHeaders.cmake)
 
 core_find_git_rev(APP_SCMID FULL)
 
@@ -273,7 +280,7 @@ set(optional_deps Alsa>=1.0.27
                   Bluetooth
                   Bluray>=0.9.3
                   CAP
-                  CEC>=4.0.0
+                  CEC>=7.0.0
                   DBus
                   Iso9660pp>=2.1.0
                   LCMS2>=2.10
@@ -372,6 +379,7 @@ add_custom_command(OUTPUT ${CORE_BUILD_DIR}/xbmc/CompileInfo.cpp
                                             -DCORE_BUILD_DIR=${CORE_BUILD_DIR}
                                             -DCMAKE_BINARY_DIR=${CMAKE_BINARY_DIR}
                                             -DARCH_DEFINES="${ARCH_DEFINES}"
+                                            -DAPP_PACKAGE=${APP_PACKAGE}
                                             -DAPP_SCMID=${APP_SCMID}
                                             -DAPP_COPYRIGHT_YEARS=${APP_COPYRIGHT_YEARS}
                                             -DAPP_BUILD_DATE=${APP_BUILD_DATE}
@@ -396,10 +404,10 @@ endif()
 if(WIN32)
   configure_file(${CMAKE_SOURCE_DIR}/xbmc/platform/win32/XBMC_PC.rc.in
                  ${CORE_BUILD_DIR}/xbmc/platform/win32/XBMC_PC.rc @ONLY)
-  add_library(resources OBJECT ${CORE_BUILD_DIR}/xbmc/platform/win32/XBMC_PC.rc)
-  set_target_properties(resources PROPERTIES FOLDER "Build Utilities")
-  target_include_directories(resources PRIVATE ${CMAKE_SOURCE_DIR}/tools/windows/packaging/media)
-  set(RESOURCES $<TARGET_OBJECTS:resources>)
+  add_library(windows_resources OBJECT ${CORE_BUILD_DIR}/xbmc/platform/win32/XBMC_PC.rc)
+  set_target_properties(windows_resources PROPERTIES FOLDER "Build Utilities")
+  target_include_directories(windows_resources PRIVATE ${CMAKE_SOURCE_DIR}/tools/windows/packaging/media)
+  set(RESOURCES $<TARGET_OBJECTS:windows_resources>)
 endif()
 
 # Generate messages
@@ -425,12 +433,15 @@ if(NOT ${CORE_SYSTEM_NAME} MATCHES "windows")
   file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/system/players/VideoPlayer)
 endif()
 
-if(NOT CORE_SYSTEM_NAME STREQUAL windows AND NOT CORE_SYSTEM_NAME STREQUAL android AND NOT CORE_SYSTEM_NAME STREQUAL windowsstore)
-  configure_file(${CMAKE_SOURCE_DIR}/xbmc/DllPaths_generated.h.in
-                 ${CORE_BUILD_DIR}/DllPaths_generated.h @ONLY)
-elseif(CORE_SYSTEM_NAME STREQUAL android)
+if(CORE_SYSTEM_NAME STREQUAL android)
   configure_file(${CMAKE_SOURCE_DIR}/xbmc/DllPaths_generated_android.h.in
                  ${CORE_BUILD_DIR}/DllPaths_generated_android.h @ONLY)
+elseif(CORE_SYSTEM_NAME STREQUAL darwin_embedded)
+  configure_file(${CMAKE_SOURCE_DIR}/xbmc/DllPaths_generated_darwin_embedded.h.in
+                 ${CORE_BUILD_DIR}/DllPaths_generated_darwin_embedded.h @ONLY)
+elseif(NOT CORE_SYSTEM_NAME STREQUAL windows AND NOT CORE_SYSTEM_NAME STREQUAL windowsstore)
+  configure_file(${CMAKE_SOURCE_DIR}/xbmc/DllPaths_generated.h.in
+                 ${CORE_BUILD_DIR}/DllPaths_generated.h @ONLY)
 endif()
 
 # main library (used for main binary and tests)
@@ -446,6 +457,13 @@ if(CORE_SYSTEM_NAME STREQUAL "darwin_embedded")
   add_library(lib${APP_NAME_LC} STATIC)
   add_dependencies(lib${APP_NAME_LC} compileinfo)
   target_link_libraries(lib${APP_NAME_LC} PUBLIC compileinfo_obj)
+elseif(CCACHE_FOUND AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND
+       CMAKE_GENERATOR MATCHES "Visual Studio")
+  # Embedded debug information can exceed the static archive size limit.
+  add_library(lib${APP_NAME_LC} OBJECT)
+  set_target_properties(lib${APP_NAME_LC} PROPERTIES
+    VS_USER_PROPS "${CMAKE_SOURCE_DIR}/cmake/scripts/windows/ObjectLibrary.props")
+  target_link_libraries(lib${APP_NAME_LC} PUBLIC $<TARGET_OBJECTS:compileinfo>)
 else()
   add_library(lib${APP_NAME_LC} STATIC $<TARGET_OBJECTS:compileinfo>)
 endif()
@@ -474,6 +492,8 @@ set_target_properties(lib${APP_NAME_LC} PROPERTIES PROJECT_LABEL "xbmc")
 source_group_by_folder(lib${APP_NAME_LC} RELATIVE ${CMAKE_SOURCE_DIR}/xbmc)
 if(WIN32)
   add_precompiled_header(lib${APP_NAME_LC} pch.h ${CMAKE_SOURCE_DIR}/xbmc/platform/win32/pch.cpp)
+elseif(CORE_USE_PCH)
+  core_add_precompiled_headers()
 endif()
 
 # main binary
@@ -594,6 +614,9 @@ if(HOST_CAN_EXECUTE_TARGET AND ENABLE_TESTING)
   add_executable(${APP_NAME_LC}-test EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/xbmc/test/xbmc-test.cpp ${test_sources})
 
   add_dependencies(${APP_NAME_LC}-test LIBRARY::Gtest)
+  if(CORE_USE_PCH)
+    core_target_precompile_headers(${APP_NAME_LC}-test)
+  endif()
 
   set_target_properties(PROPERTIES ENABLE_EXPORTS ON)
 
@@ -604,6 +627,13 @@ if(HOST_CAN_EXECUTE_TARGET AND ENABLE_TESTING)
   # Enable unit-test related targets
   enable_testing()
   gtest_add_tests(${APP_NAME_LC}-test "" ${test_sources})
+  # Windows permits concurrent servers to bind the listening port these tests share.
+  get_property(tcp_server_tests DIRECTORY PROPERTY TESTS)
+  list(FILTER tcp_server_tests INCLUDE REGEX "^TestTCPServer\\.")
+  if(tcp_server_tests)
+    set_tests_properties(${tcp_server_tests} PROPERTIES RESOURCE_LOCK tcp_server_port)
+  endif()
+  unset(tcp_server_tests)
   find_program(TEST_DPKG_DEB_EXECUTABLE NAMES dpkg-deb)
   find_program(TEST_RSYNC_EXECUTABLE NAMES rsync)
   if(TEST_DPKG_DEB_EXECUTABLE AND TEST_RSYNC_EXECUTABLE)

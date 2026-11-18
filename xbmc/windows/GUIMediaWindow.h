@@ -126,7 +126,7 @@ protected:
    \param filter the filter to use.
    \sa FilterItems
    */
-  void OnFilterItems(const std::string &filter);
+  virtual void OnFilterItems(const std::string& filter);
 
   /* \brief Retrieve the filtered item list
    \param filter filter to apply
@@ -223,5 +223,8 @@ protected:
    \sa Update
    */
   std::string m_strFilterPath;
+  // Last library filter node and the db path of its items; that db path is loaded through the node
+  std::string m_libraryFilterNodePath;
+  std::string m_libraryFilterDbPath;
   bool m_backgroundLoad = false;
 };

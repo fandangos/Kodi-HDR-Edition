@@ -14,28 +14,36 @@
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "filesystem/CurlFile.h"
+#include "filesystem/Directory.h"
 #include "filesystem/File.h"
+#include "filesystem/SpecialProtocol.h"
 #include "interfaces/json-rpc/JSONRPC.h"
 #include "network/DNSNameCache.h"
 #include "network/WebServer.h"
 #include "network/httprequesthandler/HTTPJsonRpcHandler.h"
 #include "network/httprequesthandler/HTTPVfsHandler.h"
 #include "settings/MediaSourceSettings.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "test/TestUtils.h"
 #include "utils/JSONVariantParser.h"
+#include "utils/JSONVariantWriter.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 
+#include <cstring>
 #include <errno.h>
-#include <random>
+#include <memory>
 #include <stdlib.h>
+#include <string_view>
 
 #include <gtest/gtest.h>
 
 using namespace XFILE;
+using KODI::MEDIA::MediaSection;
 
-#define WEBSERVER_HOST          "localhost"
+#define WEBSERVER_HOST          "127.0.0.1"
 
 #define TEST_URL_JSONRPC        "jsonrpc"
 
@@ -47,47 +55,56 @@ using namespace XFILE;
 class TestWebServer : public testing::Test
 {
 protected:
-  TestWebServer()
-    : webserver(),
-      sourcePath(XBMC_REF_FILE_PATH("xbmc/network/test/data/webserver/"))
-  {
-    static uint16_t port;
-    if (port == 0)
-    {
-      std::random_device rd;
-      std::mt19937 mt(rd());
-      std::uniform_int_distribution<uint16_t> dist(49152, 65535);
-      port = dist(mt);
-    }
-    webserverPort = port;
-    baseUrl = StringUtils::Format("http://" WEBSERVER_HOST ":{}", webserverPort);
-  }
+  TestWebServer() : sourcePath(XBMC_REF_FILE_PATH("xbmc/network/test/data/webserver/")) {}
   ~TestWebServer() override = default;
 
 protected:
+  //! CWebServer's constructor needs the service broker's logger, which does not exist
+  //! during static initialisation.
+  static void StartSuiteServer(std::string_view username, std::string_view password)
+  {
+    s_webserver = std::make_unique<CWebServer>();
+    s_jsonRpcHandler = std::make_unique<CHTTPJsonRpcHandler>();
+    s_vfsHandler = std::make_unique<CHTTPVfsHandler>();
+
+    ASSERT_TRUE(s_webserver->Start(0, std::string{username}, std::string{password}));
+    s_baseUrl = StringUtils::Format("http://" WEBSERVER_HOST ":{}", s_webserver->GetPort());
+
+    s_webserver->RegisterRequestHandler(s_jsonRpcHandler.get());
+    s_webserver->RegisterRequestHandler(s_vfsHandler.get());
+  }
+
+  static void StopSuiteServer()
+  {
+    if (s_webserver->IsStarted())
+      s_webserver->Stop();
+
+    s_webserver->UnregisterRequestHandler(s_vfsHandler.get());
+    s_webserver->UnregisterRequestHandler(s_jsonRpcHandler.get());
+
+    s_vfsHandler.reset();
+    s_jsonRpcHandler.reset();
+    s_webserver.reset();
+    s_baseUrl.clear();
+  }
+
+  static void SetUpTestSuite() { StartSuiteServer(SERVER_USERNAME, SERVER_PASSWORD); }
+
+  static void TearDownTestSuite() { StopSuiteServer(); }
+
   void SetUp() override
   {
     CServiceBroker::RegisterDNSNameCache(std::make_shared<CDNSNameCache>());
 
     SetupMediaSources();
-
-    webserver.Start(webserverPort, GetServerUsername(), GetServerPassword());
-    webserver.RegisterRequestHandler(&m_jsonRpcHandler);
-    webserver.RegisterRequestHandler(&m_vfsHandler);
   }
 
-  //! \brief Credentials the test web server requires. Empty means no authentication.
-  virtual std::string GetServerUsername() const { return ""; }
-  virtual std::string GetServerPassword() const { return ""; }
+  // Credentials this suite's server requires. Empty means no authentication.
+  static constexpr std::string_view SERVER_USERNAME{""};
+  static constexpr std::string_view SERVER_PASSWORD{""};
 
   void TearDown() override
   {
-    if (webserver.IsStarted())
-      webserver.Stop();
-
-    webserver.UnregisterRequestHandler(&m_vfsHandler);
-    webserver.UnregisterRequestHandler(&m_jsonRpcHandler);
-
     TearDownMediaSources();
 
     CServiceBroker::UnregisterDNSNameCache();
@@ -104,7 +121,7 @@ protected:
     source.GetLockInfo().SetMode(LockMode::EVERYONE);
     source.m_ignore = true;
 
-    CMediaSourceSettings::GetInstance().AddShare("videos", source);
+    CMediaSourceSettings::GetInstance().AddShare(MediaSection::VIDEO, source);
   }
 
   void TearDownMediaSources()
@@ -115,9 +132,9 @@ protected:
   std::string GetUrl(const std::string& path)
   {
     if (path.empty())
-      return baseUrl;
+      return s_baseUrl;
 
-    return URIUtils::AddFileToFolder(baseUrl, path);
+    return URIUtils::AddFileToFolder(s_baseUrl, path);
   }
 
   std::string GetUrlOfTestFile(const std::string& testFile)
@@ -362,17 +379,82 @@ protected:
     return StringUtils::Format("bytes={}-{}", start, end);
   }
 
-  CWebServer webserver;
-  CHTTPJsonRpcHandler m_jsonRpcHandler;
-  CHTTPVfsHandler m_vfsHandler;
-  std::string baseUrl;
+  //! \brief Files.PrepareDownload for a test file over HTTP POST, with an optional
+  //!        X-Forwarded-Proto header.
+  CVariant PrepareDownloadOfTestFile(const std::string& testFile,
+                                     const std::string& forwardedProtocol = "")
+  {
+    CVariant request(CVariant::VariantTypeObject);
+    request["jsonrpc"] = "2.0";
+    request["id"] = 1;
+    request["method"] = "Files.PrepareDownload";
+    request["params"]["path"] = URIUtils::AddFileToFolder(sourcePath, testFile);
+
+    std::string requestData;
+    if (!CJSONVariantWriter::Write(request, requestData, true))
+      return CVariant();
+
+    CCurlFile curl;
+    curl.SetMimeType("application/json");
+    if (!forwardedProtocol.empty())
+      curl.SetRequestHeader("X-Forwarded-Proto", forwardedProtocol);
+
+    std::string response;
+    if (!curl.Post(GetUrl(TEST_URL_JSONRPC), requestData, response))
+      return CVariant();
+
+    CVariant responseObj;
+    if (!CJSONVariantParser::Parse(response, responseObj) || !responseObj.isObject())
+      return CVariant();
+
+    return responseObj["result"];
+  }
+
+  static std::unique_ptr<CWebServer> s_webserver;
+  static std::unique_ptr<CHTTPJsonRpcHandler> s_jsonRpcHandler;
+  static std::unique_ptr<CHTTPVfsHandler> s_vfsHandler;
+  static std::string s_baseUrl;
   std::string sourcePath;
-  uint16_t webserverPort;
 };
 
-TEST_F(TestWebServer, IsStarted)
+std::unique_ptr<CWebServer> TestWebServer::s_webserver;
+std::unique_ptr<CHTTPJsonRpcHandler> TestWebServer::s_jsonRpcHandler;
+std::unique_ptr<CHTTPVfsHandler> TestWebServer::s_vfsHandler;
+std::string TestWebServer::s_baseUrl;
+
+TEST(TestWebServerLifecycle, IsStarted)
 {
-  ASSERT_TRUE(webserver.IsStarted());
+  CWebServer server;
+  EXPECT_FALSE(server.IsStarted());
+
+  ASSERT_TRUE(server.Start(0, "", ""));
+  EXPECT_TRUE(server.IsStarted());
+
+  server.Stop();
+  EXPECT_FALSE(server.IsStarted());
+}
+
+TEST(TestWebServerLifecycle, ReportsThePortAssignedByTheOperatingSystem)
+{
+  CWebServer server;
+  ASSERT_TRUE(server.Start(0, "", ""));
+
+  EXPECT_TRUE(server.IsStarted());
+  EXPECT_NE(0, server.GetPort());
+
+  server.Stop();
+}
+
+TEST_F(TestWebServer, TwoServersDoNotShareAPort)
+{
+  CWebServer other;
+  ASSERT_TRUE(other.Start(0, "", ""));
+
+  EXPECT_NE(0, other.GetPort());
+  EXPECT_NE(s_webserver->GetPort(), other.GetPort());
+
+  other.Stop();
+  EXPECT_EQ(0, other.GetPort());
 }
 
 TEST_F(TestWebServer, CanGetJsonRpcApiDescriptionWithHttpGet)
@@ -544,6 +626,50 @@ TEST_F(TestWebServer, CanModifyOverJsonRpcWithHttpPost)
   EXPECT_TRUE(cacheControl.find("no-cache") != std::string::npos);
 
   // uninitialize JSON-RPC
+  JSONRPC::CJSONRPC::Cleanup();
+}
+
+TEST_F(TestWebServer, PrepareDownloadReportsTheSchemeOfThePlainRequest)
+{
+  JSONRPC::CJSONRPC::Initialize();
+
+  const CVariant result = PrepareDownloadOfTestFile(TEST_FILES_HTML);
+  ASSERT_TRUE(result.isObject());
+  EXPECT_STREQ("http", result["protocol"].asString().c_str());
+
+  JSONRPC::CJSONRPC::Cleanup();
+}
+
+TEST_F(TestWebServer, PrepareDownloadReportsTheSchemeForwardedByAProxy)
+{
+  JSONRPC::CJSONRPC::Initialize();
+
+  const CVariant result = PrepareDownloadOfTestFile(TEST_FILES_HTML, "https");
+  ASSERT_TRUE(result.isObject());
+  EXPECT_STREQ("https", result["protocol"].asString().c_str());
+
+  JSONRPC::CJSONRPC::Cleanup();
+}
+
+TEST_F(TestWebServer, PrepareDownloadReportsTheSchemeOfTheFirstProxyInAChain)
+{
+  JSONRPC::CJSONRPC::Initialize();
+
+  const CVariant result = PrepareDownloadOfTestFile(TEST_FILES_HTML, "HTTPS, http");
+  ASSERT_TRUE(result.isObject());
+  EXPECT_STREQ("https", result["protocol"].asString().c_str());
+
+  JSONRPC::CJSONRPC::Cleanup();
+}
+
+TEST_F(TestWebServer, PrepareDownloadDoesNotReportAnUnknownForwardedScheme)
+{
+  JSONRPC::CJSONRPC::Initialize();
+
+  const CVariant result = PrepareDownloadOfTestFile(TEST_FILES_HTML, "javascript");
+  ASSERT_TRUE(result.isObject());
+  EXPECT_STREQ("http", result["protocol"].asString().c_str());
+
   JSONRPC::CJSONRPC::Cleanup();
 }
 
@@ -946,8 +1072,12 @@ TEST_F(TestWebServer, CanGetCachedRangedFileWithNewerIfRange)
 class TestWebServerAuth : public TestWebServer
 {
 protected:
-  std::string GetServerUsername() const override { return "kodi"; }
-  std::string GetServerPassword() const override { return "secret"; }
+  static constexpr std::string_view SERVER_USERNAME{"kodi"};
+  static constexpr std::string_view SERVER_PASSWORD{"secret"};
+
+  static void SetUpTestSuite() { StartSuiteServer(SERVER_USERNAME, SERVER_PASSWORD); }
+
+  static void TearDownTestSuite() { StopSuiteServer(); }
 
   void SetUp() override
   {
@@ -955,9 +1085,9 @@ protected:
     TestWebServer::SetUp();
 
     // remember the credentials for the server, as saving a source with a username/password does
-    CURL authenticatedUrl{baseUrl};
-    authenticatedUrl.SetUserName(GetServerUsername());
-    authenticatedUrl.SetPassword(GetServerPassword());
+    CURL authenticatedUrl{s_baseUrl};
+    authenticatedUrl.SetUserName(std::string{SERVER_USERNAME});
+    authenticatedUrl.SetPassword(std::string{SERVER_PASSWORD});
     CPasswordManager::GetInstance().SaveAuthenticatedURL(authenticatedUrl, false);
   }
 
@@ -1056,4 +1186,70 @@ TEST_F(TestWebServerAuth, CanStatWithStoredCredentials)
   // CFile::Stat() has always applied the stored credentials, unlike the CCurlFile helpers above
   struct __stat64 buffer;
   ASSERT_EQ(0, CFile::Stat(CURL{GetUrlOfTestFile(TEST_FILES_RANGES)}, &buffer));
+}
+
+//! \brief Points debug.screenshotpath somewhere no media source covers.
+class TestWebServerScreenshots : public TestWebServer
+{
+protected:
+  void SetUp() override
+  {
+    TestWebServer::SetUp();
+
+    m_screenshotDir =
+        URIUtils::AddFileToFolder(CSpecialProtocol::TranslatePath("special://temp/"), "shots");
+    ASSERT_TRUE(CDirectory::Create(m_screenshotDir));
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetString(
+        CSettings::SETTING_DEBUG_SCREENSHOTPATH, m_screenshotDir);
+  }
+
+  void TearDown() override
+  {
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetString(
+        CSettings::SETTING_DEBUG_SCREENSHOTPATH, "");
+    CDirectory::RemoveRecursive(m_screenshotDir);
+
+    TestWebServer::TearDown();
+  }
+
+  //! \brief Writes a file and answers the /vfs URL of the special:// path
+  //!        GUI.TakeScreenshot would hand out for it.
+  std::string WriteFile(const std::string& directory, const std::string& specialPath)
+  {
+    CFile file;
+    EXPECT_TRUE(file.OpenForWrite(URIUtils::AddFileToFolder(directory, m_name), true));
+    EXPECT_EQ(static_cast<ssize_t>(std::strlen(TEST_FILES_DATA)),
+              file.Write(TEST_FILES_DATA, std::strlen(TEST_FILES_DATA)));
+    file.Close();
+
+    return GetUrl(URIUtils::AddFileToFolder("vfs", CURL::Encode(specialPath)));
+  }
+
+  const std::string m_name{"screenshot00000.png"};
+  std::string m_screenshotDir;
+};
+
+TEST_F(TestWebServerScreenshots, CanGetAScreenshotNoMediaSourceCovers)
+{
+  const std::string url = WriteFile(m_screenshotDir, "special://screenshots/" + m_name);
+
+  CCurlFile curl;
+  std::string result;
+  ASSERT_TRUE(curl.Get(url, result));
+  EXPECT_STREQ(TEST_FILES_DATA, result.c_str());
+}
+
+TEST_F(TestWebServerScreenshots, CannotGetAFileTheScreenshotFolderOnlyLeadsTo)
+{
+  // a sibling of the screenshot folder: reachable through it, and not a screenshot
+  const std::string outside = CSpecialProtocol::TranslatePath("special://temp/");
+  const std::string path = "special://screenshots/../" + m_name;
+  const std::string url = WriteFile(outside, path);
+  ASSERT_TRUE(CFile::Exists(path)) << "the guard, not the file being absent, must refuse this";
+
+  CCurlFile curl;
+  std::string result;
+  EXPECT_FALSE(curl.Get(url, result));
+
+  CFile::Delete(URIUtils::AddFileToFolder(outside, m_name));
 }

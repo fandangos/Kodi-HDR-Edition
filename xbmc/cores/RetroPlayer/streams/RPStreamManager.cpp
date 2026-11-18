@@ -13,6 +13,9 @@
 #include "RetroPlayerRendering.h"
 #include "RetroPlayerVideo.h"
 #include "cores/RetroPlayer/process/RPProcessInfo.h"
+#include "cores/RetroPlayer/rendering/RPRenderManager.h"
+
+#include <algorithm>
 
 using namespace KODI;
 using namespace RETRO;
@@ -21,12 +24,44 @@ CRPStreamManager::CRPStreamManager(CRPRenderManager& renderManager, CRPProcessIn
   : m_renderManager(renderManager),
     m_processInfo(processInfo)
 {
+  // Visual streams can overlap, so shared rendering resources belong to the session.
+  m_renderManager.Initialize();
+}
+
+CRPStreamManager::~CRPStreamManager()
+{
+  m_renderManager.Deinitialize();
 }
 
 void CRPStreamManager::EnableAudio(bool bEnable)
 {
-  if (m_audioStream != nullptr)
-    m_audioStream->Enable(bEnable);
+  for (CRetroPlayerAudio* audioStream : m_audioStreams)
+    audioStream->Enable(bEnable);
+}
+
+void CRPStreamManager::SuppressAudio(bool bSuppress)
+{
+  m_audioSuppressed = bSuppress;
+
+  for (CRetroPlayerAudio* audioStream : m_audioStreams)
+    audioStream->Suppress(bSuppress);
+}
+
+bool CRPStreamManager::AudioSentOffFrameThread() const
+{
+  return std::ranges::any_of(m_audioStreams, [](const CRetroPlayerAudio* audioStream)
+                             { return audioStream->SentOffFrameThread(); });
+}
+
+void CRPStreamManager::EnableVideo(bool bEnable)
+{
+  m_videoEnabled = bEnable;
+
+  for (CRetroPlayerVideo* videoStream : m_videoStreams)
+    videoStream->Enable(bEnable);
+
+  for (CRetroPlayerRendering* renderingStream : m_renderingStreams)
+    renderingStream->Enable(bEnable);
 }
 
 StreamPtr CRPStreamManager::CreateStream(StreamType streamType)
@@ -35,19 +70,32 @@ StreamPtr CRPStreamManager::CreateStream(StreamType streamType)
   {
     case StreamType::AUDIO:
     {
-      // Save pointer to audio stream
-      m_audioStream = new CRetroPlayerAudio(m_processInfo);
+      auto audioStream = std::make_unique<CRetroPlayerAudio>(m_processInfo);
+      audioStream->Suppress(m_audioSuppressed);
 
-      return StreamPtr(m_audioStream);
+      m_audioStreams.emplace_back(audioStream.get());
+
+      return StreamPtr{audioStream.release()};
     }
     case StreamType::VIDEO:
     case StreamType::SW_BUFFER:
     {
-      return StreamPtr(new CRetroPlayerVideo(m_renderManager, m_processInfo));
+      auto videoStream = std::make_unique<CRetroPlayerVideo>(m_renderManager, m_processInfo);
+      videoStream->Enable(m_videoEnabled);
+
+      m_videoStreams.emplace_back(videoStream.get());
+
+      return StreamPtr{videoStream.release()};
     }
     case StreamType::HW_BUFFER:
     {
-      return StreamPtr(new CRetroPlayerRendering(m_renderManager, m_processInfo));
+      auto renderingStream =
+          std::make_unique<CRetroPlayerRendering>(m_renderManager, m_processInfo);
+      renderingStream->Enable(m_videoEnabled);
+
+      m_renderingStreams.emplace_back(renderingStream.get());
+
+      return StreamPtr{renderingStream.release()};
     }
     default:
       break;
@@ -60,14 +108,37 @@ void CRPStreamManager::CloseStream(StreamPtr stream)
 {
   if (stream)
   {
-    if (stream.get() == m_audioStream)
-      m_audioStream = nullptr;
+    const auto isStream = [&stream](const IRetroPlayerStream* open)
+    { return open == stream.get(); };
+    std::erase_if(m_audioStreams, isStream);
+    std::erase_if(m_videoStreams, isStream);
+    std::erase_if(m_renderingStreams, isStream);
 
     stream->CloseStream();
   }
 }
 
+void CRPStreamManager::SetVideoFps(float fps)
+{
+  m_processInfo.SetVideoFps(fps);
+}
+
+bool CRPStreamManager::BeginClientFrame()
+{
+  return m_renderManager.BeginClientFrame();
+}
+
+void CRPStreamManager::EndClientFrame()
+{
+  m_renderManager.EndClientFrame();
+}
+
 HwProcedureAddress CRPStreamManager::GetHwProcedureAddress(const char* symbol)
 {
   return m_processInfo.GetHwProcedureAddress(symbol);
+}
+
+bool CRPStreamManager::HasHardwareRendering() const
+{
+  return m_processInfo.HasHardwareRendering();
 }

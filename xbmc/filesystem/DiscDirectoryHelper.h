@@ -9,6 +9,7 @@
 #pragma once
 
 #include "Directory.h"
+#include "IPlaylistHints.h"
 #include "video/Episode.h"
 #include "video/VideoInfoTag.h"
 
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -30,6 +32,13 @@ namespace XFILE
 using namespace std::chrono_literals;
 
 static constexpr int ALL_PLAYLISTS{-1};
+
+//! Property set on each returned special (S00) title when the disc holds several specials and
+//! nothing distinguishes them, so a library scan does not store a guess
+static constexpr const char* MULTIPLE_SPECIALS_PROPERTY{"bluray_multiple_specials"};
+
+//! Property set on each listed extra of a movie, holding what to call it
+static constexpr const char* EXTRA_TITLE_PROPERTY{"bluray_extra_title"};
 
 enum class GetTitle : uint8_t
 {
@@ -46,11 +55,24 @@ enum class SortTitles : uint8_t
   SORT_TITLES_MOVIE
 };
 
-enum class AddMenuOption : bool
+enum class AddMenuAndAllTitlesOptions : uint8_t
 {
-  NO_MENU,
-  ADD_MENU
+  NONE = 0x00,
+  ADD_MENU = 0x01,
+  ADD_ALL_TITLES = 0x02
 };
+
+constexpr AddMenuAndAllTitlesOptions operator|(AddMenuAndAllTitlesOptions lhs,
+                                               AddMenuAndAllTitlesOptions rhs)
+{
+  return static_cast<AddMenuAndAllTitlesOptions>(static_cast<uint8_t>(lhs) |
+                                                 static_cast<uint8_t>(rhs));
+}
+
+constexpr bool operator&(AddMenuAndAllTitlesOptions lhs, AddMenuAndAllTitlesOptions rhs)
+{
+  return (static_cast<uint8_t>(lhs) & static_cast<uint8_t>(rhs)) != 0;
+}
 
 enum class MenuDecision : uint8_t
 {
@@ -105,6 +127,13 @@ struct PlaylistInformation
   std::vector<SubtitleStreamInfo> pgStreams;
   std::string languages;
 
+  //! Whether the playlist carries a secondary video stream, ie. it presents the content
+  //! picture-in-picture (see IsPictureInPicturePresentation)
+  bool hasSecondaryVideo{false};
+
+  //! Whether the playlist carries a Dolby Vision enhancement layer
+  bool hasDolbyVision{false};
+
   void clear()
   {
     playlist = 0;
@@ -116,6 +145,8 @@ struct PlaylistInformation
     audioStreams.clear();
     pgStreams.clear();
     languages.clear();
+    hasSecondaryVideo = false;
+    hasDolbyVision = false;
   }
 };
 
@@ -126,6 +157,10 @@ struct ClipInfo
 };
 
 using PlaylistMap = std::map<unsigned int, PlaylistInformation>;
+
+//! What the disc calls each playlist, where it says. Shown alongside the playlist number so a
+//! listing says what the disc calls a title, not just which it is.
+using PlaylistNames = std::map<unsigned int, std::string>;
 using ClipMap = std::map<unsigned int, ClipInfo>;
 using Episode = KODI::VIDEO::EPISODE;
 using Episodes = std::vector<KODI::VIDEO::EPISODE>;
@@ -134,10 +169,33 @@ using Episodes = std::vector<KODI::VIDEO::EPISODE>;
 static constexpr std::chrono::milliseconds MAX_EPISODE_DIFFERENCE{30 * 1000}; // 30 seconds
 static constexpr std::chrono::milliseconds MIN_SPECIAL_DURATION{5 * 60 * 1000}; // 5 minutes
 static constexpr int DURATION_TOLERANCE_PERCENT{20};
+static constexpr int DURATION_TOLERANCE_RELAXED_PLAYALLPLAYLIST_PERCENT{5};
+// For comparing a playlist against a scraped episode duration, which is approximate and often no
+// more than the broadcast slot rounded to whole minutes (eg. Battlestar Galactica (2003), where an
+// hour is given for 44 minutes of content). Only wide mismatches are meaningful.
+static constexpr int DURATION_TOLERANCE_SCRAPED_PERCENT{40};
 
 // Movies
 static constexpr std::chrono::milliseconds MIN_MOVIE_DURATION{30 * 60 * 1000}; // 30 minutes
 static constexpr int MAIN_TITLE_LENGTH_PERCENT{70};
+// A playlist offering the movie as fully as the longest one is accepted as another edition of it
+// even when shorter than MAIN_TITLE_LENGTH_PERCENT. Editions do differ considerably in length (eg.
+// Das Boot (1981), whose theatrical cut is barely half the length of the television one), but an
+// extra offering the same languages and resolution as the movie is not an edition of it, however
+// long it runs (eg. Fast X (2023), whose 35 minutes of deleted scenes accompany a 2 hour movie).
+static constexpr int MIN_EDITION_LENGTH_PERCENT{40};
+// Playlists within this of each other are the same movie presented differently rather than
+// separate editions of it, which differ by minutes rather than seconds (eg. Snow White (2025),
+// whose sing along wraps the movie in a one second bumper at each end)
+static constexpr std::chrono::milliseconds MOVIE_EQUAL_LENGTH_TOLERANCE{10 * 1000}; // 10 seconds
+
+// Extras
+// Shorter than this is a slate, copyright card or title rather than an extra (eg. Aliens (1986),
+// whose shortest deleted scene runs 12 seconds)
+static constexpr std::chrono::milliseconds MIN_EXTRA_DURATION{10 * 1000}; // 10 seconds
+// Copies of an extra differ by no more than a slate (eg. Nope (2022), whose deleted scenes are
+// offered with and without one)
+static constexpr std::chrono::milliseconds EXTRA_COPY_TOLERANCE{15 * 1000}; // 15 seconds
 
 /*!
  \brief Populates the stream details of item for the given title on the disc.
@@ -163,7 +221,6 @@ class CDiscDirectoryHelper
   {
     unsigned int playlist{0};
     unsigned int index{0};
-    unsigned int playAllPlaylistEpisodesStartOffset{0};
     std::chrono::milliseconds duration{0ms};
     std::chrono::milliseconds durationDelta{0ms};
     int multiple{0};
@@ -171,12 +228,18 @@ class CDiscDirectoryHelper
     std::vector<unsigned int> clips;
     std::string languages;
 
+    // Set only when several episodes share this playlist
+    std::chrono::milliseconds episodeStart{0ms};
+    std::chrono::milliseconds episodeDuration{0ms};
+
     // Used for inserting into a set where playlist is the key
     auto operator<=>(const CandidatePlaylistInformation& rhs) const noexcept
     {
       return playlist <=> rhs.playlist;
     }
   };
+
+  using CandidatePlaylistsMap = std::map<unsigned int, CandidatePlaylistInformation>;
 
 public:
   CDiscDirectoryHelper();
@@ -187,6 +250,12 @@ public:
    *        returned items carry no stream details.
    */
   explicit CDiscDirectoryHelper(StreamDetailsProvider getStreamDetails);
+
+  /*!
+   * \brief Supply what the disc says its playlists hold, to be preferred over the heuristics.
+   * \param hints may be empty, in which case the heuristics alone decide
+   */
+  void SetPlaylistHints(std::shared_ptr<const IPlaylistHints> hints);
 
   CDiscDirectoryHelper(const CDiscDirectoryHelper&) = delete;
   CDiscDirectoryHelper& operator=(const CDiscDirectoryHelper&) = delete;
@@ -249,6 +318,45 @@ public:
                          const PlaylistMap& playlistMap);
 
   /*!
+   * \brief Populates a CFileItemList with the playlists the disc names as extras of its movie.
+   * Without hints from the disc nothing is found, as nothing else tells an extra apart.
+   * \param url bluray:// url
+   * \param items CFileItemList to populate
+   * \param allTitles CFileItemList of all titles on the disc (populated by CBlurayDirectory). Used for streamdetails.
+   * \param mainPlaylist the main playlist number (if known, from disc.inf), otherwise -1
+   * \param clips map of clips on disc (populated in CBlurayDirectory)
+   * \param playlistMap map of playlists on disc (populated in CBlurayDirectory)
+   * \return true if at least one extra is found, otherwise false
+   */
+  bool GetMovieExtraPlaylists(const CURL& url,
+                              CFileItemList& items,
+                              const CFileItemList& allTitles,
+                              int mainPlaylist,
+                              const ClipMap& clips,
+                              const PlaylistMap& playlistMap);
+
+  /*!
+   * \brief Populates a CFileItemList with the playlists a disc's titles play that may be extras
+   * of its movie - not the movie or one of its versions, not too short, and not the same content
+   * as another. They are unnamed, so are for choosing from where the disc names no extras.
+   * \param url bluray:// url
+   * \param items CFileItemList to populate, in the order of the titles
+   * \param allTitles CFileItemList of all titles on the disc (populated by CBlurayDirectory). Used for streamdetails.
+   * \param mainPlaylist the main playlist number (if known, from disc.inf), otherwise -1
+   * \param clips map of clips on disc (populated in CBlurayDirectory)
+   * \param playlistMap map of playlists on disc (populated in CBlurayDirectory)
+   * \param titlePlaylists the playlists the disc's titles play, in the order of the titles
+   * \return true if at least one playlist is found, otherwise false
+   */
+  bool GetMovieTitleExtraPlaylists(const CURL& url,
+                                   CFileItemList& items,
+                                   const CFileItemList& allTitles,
+                                   int mainPlaylist,
+                                   const ClipMap& clips,
+                                   const PlaylistMap& playlistMap,
+                                   const std::vector<unsigned int>& titlePlaylists);
+
+  /*!
    * \brief Populates a vector array of CVideoInfoTags with information for the episodes on a bluray disc
    * \param url bluray:// episode url
    * \return vector array of CVideoInfoTags containing episode information
@@ -266,22 +374,42 @@ public:
    * \param url bluray:// episode url
    * \param items CFileItemList to populate
    * \param allTitlesType Determines whether to add All Episodes or All Movies option
-   * \param addMenuOption Bluray disc has menu, so add Menu Option
+   * \param addMenuAndAllTitlesOptions whether to add Disc Menu and All Titles options
    */
   static void AddRootOptions(const CURL& url,
                              CFileItemList& items,
                              AllTitles allTitlesType,
-                             AddMenuOption addMenuOption);
+                             AddMenuAndAllTitlesOptions addMenuAndAllTitlesOptions);
 
   /*!
    * \brief Either shows simple menu to select playlist, chooses main feature (movie/episode) playlists or returns if disc menu will be used later.
    * \param item FileItem containing details of desired movie/episode.
    * \param playback Determines if the simple dialog should be shown or the main title selected (if possible).
+   * \param forPlayback false where the playlist is chosen to be stored, so the disc menu is not offered.
    * \return true if a playlist was selected or if the disc menu will be used later, false if the user cancelled.
    */
   static bool GetOrShowPlaylistSelection(const CFileItem& item,
                                          CFileItemList& items,
-                                         MenuDecision playback);
+                                         MenuDecision playback,
+                                         bool forPlayback = true);
+
+  /*!
+   * \brief Re-read the details the disc holds for an item whose playlist has already been chosen.
+   * Stream details cannot be extracted from a bluray:// path, so they have to be read from the disc
+   * again whenever the library entry is refreshed.
+   * \param item item with a bluray:// playlist path, updated in place.
+   * \return true if the playlist was read.
+   */
+  static bool ReadResolvedPlaylist(CFileItem& item);
+
+  /*!
+   * \brief Re-read the details the disc holds for an episode whose playlist has already been
+   * chosen. Matching the episode against the disc again recovers its own duration and its
+   * bookmark within a multi-episode playlist.
+   * \param item episode with a bluray:// playlist path, updated in place.
+   * \return true if the playlist was read.
+   */
+  static bool ReadEpisodePlaylist(CFileItem& item);
 
 protected:
   static bool GetDirectoryItems(const std::string& path,
@@ -290,15 +418,35 @@ protected:
                                 bool silent = false);
 
 private:
+  //! The playlists offered as the movie or a version of it, and the lengths of those long enough
+  //! to be the movie
+  struct MoviePresentations
+  {
+    std::set<unsigned int> versions;
+    std::vector<std::chrono::milliseconds> movieDurations;
+
+    //! Whether a playlist runs as long as the movie, so is the movie presented differently
+    bool IsMovie(std::chrono::milliseconds duration) const;
+  };
+  MoviePresentations GetMoviePresentations(const CURL& url,
+                                           const CFileItemList& allTitles,
+                                           int mainPlaylist,
+                                           const ClipMap& clips,
+                                           const PlaylistMap& playlistMap);
+
+  void Reset();
   void InitialiseEpisodePlaylistSearch(int episodeIndex, const Episodes& episodesOnDisc);
   void StorePlayAllPlaylist(
       unsigned int playlistNumber,
-      unsigned int playAllPlaylistEpisodesStartOffset,
       const PlaylistInformation& playlistInformation,
       const std::map<unsigned int, std::vector<unsigned int>>& playAllPlaylistClipMap);
-  void FindPlayAllPlaylists(const ClipMap& clips, const PlaylistMap& playlists);
+  void FindPlayAllPlaylists(const ClipMap& clips,
+                            const PlaylistMap& playlists,
+                            const Episodes& episodesOnDisc);
   void FindGroups(const PlaylistMap& playlists, const Episodes& episodesOnDisc);
+  void FindRelaxedPlayAllPlaylists(const PlaylistMap& playlists);
   void UsePlayAllPlaylistMethod(int episodeIndex, const PlaylistMap& playlists);
+  void UseRelaxedPlayAllPlaylistMethod(int episodeIndex, const PlaylistMap& playlists);
   void UseLongOrCommonMethodForSingleEpisode(int episodeIndex, const PlaylistMap& playlists);
   static std::vector<std::vector<CandidatePlaylistInformation>> GetGroupsWithoutDuplicates(
       const std::vector<std::vector<CandidatePlaylistInformation>>& groups);
@@ -313,15 +461,26 @@ private:
   bool CheckGroupDurations(const std::vector<CandidatePlaylistInformation>& groupA,
                            const std::vector<CandidatePlaylistInformation>& groupB,
                            int durationTolerancePercent = DURATION_TOLERANCE_PERCENT) const;
+  bool CheckGroupMultipleDurations(const std::vector<CandidatePlaylistInformation>& group,
+                                   const Episodes& episodesOnDisc) const;
   bool CheckGroup(const std::vector<CandidatePlaylistInformation>& group,
                   const Episodes& episodesOnDisc) const;
   static std::chrono::milliseconds CalculateAverageOfShortEpisodes(
       const std::vector<CandidatePlaylistInformation>& group);
-  void UseGroupsWithMultiplesMethod(int episodeIndex, const Episodes& episodesOnDisc);
+  static bool CalculateGroupMultiples(std::vector<CandidatePlaylistInformation>& group,
+                                      unsigned int numEpisodes);
+  void UseGroupsWithMultiplesMethod(int episodeIndex,
+                                    const Episodes& episodesOnDisc,
+                                    const PlaylistMap& playlists);
+  void UseSingleEpisodeClipsPlaylistMethod(int episodeIndex,
+                                           const Episodes& episodesOnDisc,
+                                           const ClipMap& clips,
+                                           const PlaylistMap& playlists);
   void ChooseSingleBestPlaylist(const Episodes& episodesOnDisc);
   void AddIdenticalPlaylists(const PlaylistMap& playlists);
   void FindCandidatePlaylists(const Episodes& episodesOnDisc,
                               int episodeIndex,
+                              const ClipMap& clips,
                               const PlaylistMap& playlists);
   void FindSpecials(const PlaylistMap& playlists);
   static void EndEpisodePlaylistSearch();
@@ -331,7 +490,41 @@ private:
                                 int episodeIndex,
                                 const Episodes& episodesOnDisc,
                                 const PlaylistMap& playlists) const;
+  void LogEpisodePlaylistSearchResult(const CFileItemList& items,
+                                      int episodeIndex,
+                                      const Episodes& episodesOnDisc) const;
   bool FilterAllEpisodesPlaylists(std::vector<PlaylistInformation>& playlists, GetTitle job);
+
+  /*!
+   * \brief Put the playlists the disc names as the movie ahead of those the heuristics chose,
+   * where it names any and they survive the filtering every playlist goes through.
+   *
+   * The main title disc.inf names stands, leading every version. Otherwise a single title is the
+   * disc's alone. Every version keeps what the heuristics found as well, as a disc can hold an
+   * edition under a name the convention does not recognise.
+   */
+  void ApplyPlaylistHintsToMovie(const CURL& url,
+                                 CFileItemList& items,
+                                 const CFileItemList& allTitles,
+                                 int mainPlaylist,
+                                 GetTitle job,
+                                 const ClipMap& clips,
+                                 const PlaylistMap& playlistMap) const;
+
+  /*!
+   * \brief Replace the episode playlists the heuristics chose with those the disc names as the
+   * episode(s), where its numbering can be matched to the episodes on the disc.
+   * \param episodeIndex index into episodesOnDisc, or ALL_PLAYLISTS for every episode
+   */
+  void ApplyPlaylistHintsToEpisodes(const CURL& url,
+                                    CFileItemList& items,
+                                    const CFileItemList& allTitles,
+                                    int episodeIndex,
+                                    const Episodes& episodesOnDisc,
+                                    const PlaylistMap& playlists) const;
+
+  //! What the disc says its playlists hold, if anything
+  std::shared_ptr<const IPlaylistHints> m_hints;
 
   //! Describes the streams of a title, supplied by the disc's directory implementation
   StreamDetailsProvider m_getStreamDetails;
@@ -339,9 +532,11 @@ private:
   std::chrono::milliseconds m_minEpisodeDuration{0ms};
 
   AllEpisodes m_allEpisodes{AllEpisodes::SINGLE};
+  PlaylistNames m_playlistNames;
   IsSpecial m_isSpecial{IsSpecial::EPISODE};
   unsigned int m_numEpisodes{0};
   unsigned int m_numSpecials{0};
+  bool m_multipleSpecials{false};
 
   struct Compare
   {
@@ -363,11 +558,23 @@ private:
   };
 
   std::set<CandidatePlaylistInformation, Compare> m_playAllPlaylists;
+
+  // UsePlayAllPlaylistMethod() selects the clip corresponding to each requested episode,
+  // then looks up that clip in m_playAllPlaylistsMap.
+  // The resulting single-episode playlist numbers become m_candidatePlaylists.
+  // play-all playlist (map index) -> clip (second map index) -> single-episode playlists
   std::map<unsigned int, std::map<unsigned int, std::vector<unsigned int>>> m_playAllPlaylistsMap;
+
+  // UseRelaxedPlayAllPlaylistMethod() walks the episode playlists in order, using each one's
+  // multiple to determine how many consecutive episodes it covers (a multiple > 1 is a double
+  // or triple episode).
+  // play-all playlist -> episode playlists, in episode order
+  std::map<unsigned int, std::vector<CandidatePlaylistInformation>> m_playAllPlaylistEpisodeMap;
+
   std::vector<std::vector<CandidatePlaylistInformation>> m_groups;
   std::vector<std::vector<CandidatePlaylistInformation>> m_allGroups;
-  std::map<unsigned int, CandidatePlaylistInformation> m_candidatePlaylists;
-  std::set<unsigned int> m_candidateSpecials;
+  CandidatePlaylistsMap m_candidatePlaylists;
+  std::vector<unsigned int> m_candidateSpecials; // Longest first
   std::vector<CandidatePlaylistInformation> m_nthLongestPlaylists;
 
   static bool GetItems(CFileItemList& items, const std::string& directory, bool silent = false);

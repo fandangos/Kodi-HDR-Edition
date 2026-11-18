@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,16 +32,40 @@ public:
   */
   static bool CanExtract(const CFileItem& fileItem);
 
-  // Probe the files streams and store the info in the VideoInfoTag
-  static bool GetFileStreamDetails(CFileItem* pItem);
+  /*!
+   * @brief Is \p path close enough to decode frames from: local, or on the LAN for HTTP and FTP?
+  */
+  static bool IsExtractableLocation(const std::string& path);
 
-  static bool GetFileDuration(const std::string& path, int& duration);
+  /*!
+   * @brief Probe the file's streams, look for its external subtitles, and store them in its tag
+   * @param listingFlags added to the flags the video's folder is listed with to look for subtitles
+   * @param[out] probed if given, the file's own streams, without the external subtitles, which
+   * another video of the same file (eg. another episode of it) can be given by AddExternalSubtitles()
+   * @param fileFlags added to the flags (XFILE::READ_*) the file, and each part of a stack, is
+   * opened with
+   */
+  static bool GetFileStreamDetails(CFileItem* pItem,
+                                   int listingFlags = 0,
+                                   CStreamDetails* probed = nullptr,
+                                   unsigned int fileFlags = 0);
+
+  /*!
+   * @brief Store streams probed already in an item's tag, with the item's own external subtitles
+   * @param streams the streams of the item's file, as GetFileStreamDetails() probed them
+   */
+  static void AddExternalSubtitles(CFileItem& item, CStreamDetails streams, int listingFlags = 0);
+
+  //! \param fileFlags as for GetFileStreamDetails()
+  static bool GetFileDuration(const std::string& path, int& duration, unsigned int fileFlags = 0);
 
 private:
+  //! \param fileFlags as for GetFileStreamDetails()
   static bool DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>& pInputStream,
                                      CDVDDemux* pDemux,
                                      CStreamDetails& details,
-                                     const std::string& path = "");
+                                     const std::string& path = "",
+                                     unsigned int fileFlags = 0);
 
   /** \brief Probe the file's internal and external streams and store the info in the StreamDetails parameter.
   *   \param[out] details The file's StreamDetails consisting of internal streams and external subtitle streams.
@@ -55,9 +80,12 @@ private:
   */
   static bool AddExternalSubtitleToDetails(const std::string &path, CStreamDetails &details, const std::string& filename, const std::string& subfilename = "");
 
-  /** \brief Checks external subtitles for a given item and adds any existing ones to the item stream details
+  /** \brief Checks external subtitles for a given item and adds any existing ones to the stream details
   *   \param item The video item
+  *   \param[out] details The stream details to add the subtitles to
   *   \sa AddExternalSubtitleToDetails
   */
-  static void ProcessExternalSubtitles(CFileItem* item);
+  static void ProcessExternalSubtitles(const CFileItem& item,
+                                       CStreamDetails& details,
+                                       int listingFlags = 0);
 };

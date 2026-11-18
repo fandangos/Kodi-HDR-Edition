@@ -100,7 +100,12 @@ bool CGUIDialogSelect::OnMessage(CGUIMessage& message)
           {
             CFileItemPtr item(m_vecList->Get(iSelected));
             if (m_multiSelection)
+            {
               item->Select(!item->IsSelected());
+              // the item layouts only pick up the changed selection when processed
+              if (CGUIControl* list = GetControl(m_viewControl.GetCurrentControl()))
+                list->MarkDirtyRegion(DIRTY_STATE_CHILD);
+            }
             else
             {
               for (int i = 0 ; i < m_vecList->Size() ; i++)
@@ -193,7 +198,7 @@ void CGUIDialogSelect::Reset()
 
 int CGUIDialogSelect::Add(const std::string& strLabel)
 {
-  CFileItemPtr pItem(new CFileItem(strLabel));
+  auto pItem = std::make_shared<CFileItem>(strLabel);
   m_vecList->Add(pItem);
   return m_vecList->Size() - 1;
 }

@@ -23,7 +23,9 @@
 #include "settings/Settings.h"
 #include "settings/dialogs/GUIDialogLibExportSettings.h"
 #include "settings/lib/Setting.h"
+#include "settings/lib/SettingDefinitions.h"
 #include "storage/MediaManager.h"
+#include "utils/ContentNames.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/XBMCTinyXML.h"
@@ -31,13 +33,18 @@
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
 #include "video/VideoLibraryQueue.h"
+#include "video/geometry/ContentGeometryScanner.h"
 
+#include <algorithm>
+#include <array>
 #include <limits.h>
 #include <mutex>
 #include <string>
 
 using namespace KODI;
 using namespace KODI::MESSAGING;
+
+namespace CONTENT = KODI::MEDIA::CONTENT;
 
 using KODI::MESSAGING::HELPERS::DialogResponse;
 
@@ -86,8 +93,13 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
       m_defaultVideoSettings.m_Brightness = 50;
     if (!XMLUtils::GetFloat(pElement, "contrast", m_defaultVideoSettings.m_Contrast, 0, 100))
       m_defaultVideoSettings.m_Contrast = 50;
-    if (!XMLUtils::GetFloat(pElement, "gamma", m_defaultVideoSettings.m_Gamma, 0, 100))
-      m_defaultVideoSettings.m_Gamma = 20;
+    if (!XMLUtils::GetFloat(pElement, "hue", m_defaultVideoSettings.m_Hue, 0, 100))
+      m_defaultVideoSettings.m_Hue = 50;
+    if (!XMLUtils::GetFloat(pElement, "saturation", m_defaultVideoSettings.m_Saturation, 0, 100))
+      m_defaultVideoSettings.m_Saturation = 50;
+    // "gamma" held an unused value with a different neutral point
+    if (!XMLUtils::GetFloat(pElement, "gammaadjust", m_defaultVideoSettings.m_Gamma, 0, 100))
+      m_defaultVideoSettings.m_Gamma = 50;
     if (!XMLUtils::GetFloat(pElement, "audiodelay", m_defaultVideoSettings.m_AudioDelay, -10.0f, 10.0f))
       m_defaultVideoSettings.m_AudioDelay = 0.0f;
     if (!XMLUtils::GetFloat(pElement, "subtitledelay", m_defaultVideoSettings.m_SubtitleDelay, -10.0f, 10.0f))
@@ -95,6 +107,7 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
     XMLUtils::GetBoolean(pElement, "nonlinstretch", m_defaultVideoSettings.m_CustomNonLinStretch);
     if (!XMLUtils::GetInt(pElement, "stereomode", m_defaultVideoSettings.m_StereoMode))
       m_defaultVideoSettings.m_StereoMode = 0;
+    XMLUtils::GetBoolean(pElement, "stereoinvert", m_defaultVideoSettings.m_StereoInvert);
     if (!XMLUtils::GetInt(pElement, "centermixlevel", m_defaultVideoSettings.m_CenterMixLevel))
       m_defaultVideoSettings.m_CenterMixLevel = 0;
 
@@ -156,14 +169,14 @@ bool CMediaSettings::Load(const TiXmlNode *settings)
   if (pElement)
   {
     int tmp;
-    if (XMLUtils::GetInt(pElement, "watchmodemovies", tmp, (int)WatchedModeAll, (int)WatchedModeWatched))
-      m_watchedModes["movies"] = (WatchedMode)tmp;
-    if (XMLUtils::GetInt(pElement, "watchmodetvshows", tmp, (int)WatchedModeAll, (int)WatchedModeWatched))
-      m_watchedModes["tvshows"] = (WatchedMode)tmp;
-    if (XMLUtils::GetInt(pElement, "watchmodemusicvideos", tmp, (int)WatchedModeAll, (int)WatchedModeWatched))
-      m_watchedModes["musicvideos"] = (WatchedMode)tmp;
-    if (XMLUtils::GetInt(pElement, "watchmoderecordings", tmp, static_cast<int>(WatchedModeAll), static_cast<int>(WatchedModeWatched)))
-      m_watchedModes["recordings"] = static_cast<WatchedMode>(tmp);
+    if (XMLUtils::GetInt(pElement, "watchmodemovies", tmp) && IsValidWatchedMode(tmp))
+      m_watchedModes[CONTENT::MOVIES] = WatchedMode{tmp};
+    if (XMLUtils::GetInt(pElement, "watchmodetvshows", tmp) && IsValidWatchedMode(tmp))
+      m_watchedModes[CONTENT::TVSHOWS] = WatchedMode{tmp};
+    if (XMLUtils::GetInt(pElement, "watchmodemusicvideos", tmp) && IsValidWatchedMode(tmp))
+      m_watchedModes[CONTENT::MUSICVIDEOS] = WatchedMode{tmp};
+    if (XMLUtils::GetInt(pElement, "watchmoderecordings", tmp) && IsValidWatchedMode(tmp))
+      m_watchedModes[CONTENT::RECORDINGS] = WatchedMode{tmp};
 
     const TiXmlElement *pChild = pElement->FirstChildElement("playlist");
     if (pChild)
@@ -212,11 +225,14 @@ bool CMediaSettings::Save(TiXmlNode *settings) const
   XMLUtils::SetBoolean(pNode, "showsubtitles", m_defaultVideoSettings.m_SubtitleOn);
   XMLUtils::SetFloat(pNode, "brightness", m_defaultVideoSettings.m_Brightness);
   XMLUtils::SetFloat(pNode, "contrast", m_defaultVideoSettings.m_Contrast);
-  XMLUtils::SetFloat(pNode, "gamma", m_defaultVideoSettings.m_Gamma);
+  XMLUtils::SetFloat(pNode, "hue", m_defaultVideoSettings.m_Hue);
+  XMLUtils::SetFloat(pNode, "saturation", m_defaultVideoSettings.m_Saturation);
+  XMLUtils::SetFloat(pNode, "gammaadjust", m_defaultVideoSettings.m_Gamma);
   XMLUtils::SetFloat(pNode, "audiodelay", m_defaultVideoSettings.m_AudioDelay);
   XMLUtils::SetFloat(pNode, "subtitledelay", m_defaultVideoSettings.m_SubtitleDelay);
   XMLUtils::SetBoolean(pNode, "nonlinstretch", m_defaultVideoSettings.m_CustomNonLinStretch);
   XMLUtils::SetInt(pNode, "stereomode", m_defaultVideoSettings.m_StereoMode);
+  XMLUtils::SetBoolean(pNode, "stereoinvert", m_defaultVideoSettings.m_StereoInvert);
   XMLUtils::SetInt(pNode, "centermixlevel", m_defaultVideoSettings.m_CenterMixLevel);
   XMLUtils::SetInt(pNode, "tonemapmethod", m_defaultVideoSettings.m_ToneMapMethod);
   XMLUtils::SetFloat(pNode, "tonemapparam", m_defaultVideoSettings.m_ToneMapParam);
@@ -267,10 +283,14 @@ bool CMediaSettings::Save(TiXmlNode *settings) const
       return false;
   }
 
-  XMLUtils::SetInt(pNode, "watchmodemovies", m_watchedModes.find("movies")->second);
-  XMLUtils::SetInt(pNode, "watchmodetvshows", m_watchedModes.find("tvshows")->second);
-  XMLUtils::SetInt(pNode, "watchmodemusicvideos", m_watchedModes.find("musicvideos")->second);
-  XMLUtils::SetInt(pNode, "watchmoderecordings", m_watchedModes.find("recordings")->second);
+  XMLUtils::SetInt(pNode, "watchmodemovies",
+                   static_cast<int>(m_watchedModes.find(CONTENT::MOVIES)->second));
+  XMLUtils::SetInt(pNode, "watchmodetvshows",
+                   static_cast<int>(m_watchedModes.find(CONTENT::TVSHOWS)->second));
+  XMLUtils::SetInt(pNode, "watchmodemusicvideos",
+                   static_cast<int>(m_watchedModes.find(CONTENT::MUSICVIDEOS)->second));
+  XMLUtils::SetInt(pNode, "watchmoderecordings",
+                   static_cast<int>(m_watchedModes.find(CONTENT::RECORDINGS)->second));
 
   TiXmlElement videoPlaylistNode("playlist");
   playlistNode = pNode->InsertEndChild(videoPlaylistNode);
@@ -352,10 +372,26 @@ void CMediaSettings::OnSettingAction(const std::shared_ptr<const CSetting>& sett
       videodatabase.Close();
     }
   }
+  else if (settingId == CSettings::SETTING_VIDEOSCREEN_SCANCONTENTGEOMETRY)
+  {
+    KODI::VIDEO::GEOMETRY::CContentGeometryScanner::GetInstance().Sweep(true);
+  }
   else if (settingId == CSettings::SETTING_MAINTENANCE_CLEANIMAGECACHE)
   {
     CServiceBroker::GetTextureCache()->CleanAllUnusedImages();
   }
+}
+
+void CMediaSettings::SettingOptionsImageAdjustmentGranularitiesFiller(
+    const std::shared_ptr<const CSetting>& setting,
+    std::vector<IntegerSettingOption>& list,
+    int& current)
+{
+  static constexpr std::array<std::pair<const char*, int>, 7> GRANULARITIES{
+      {{"1.0", 100}, {"0.5", 50}, {"0.2", 20}, {"0.1", 10}, {"0.05", 5}, {"0.02", 2}, {"0.01", 1}}};
+
+  for (const auto& [label, value] : GRANULARITIES)
+    list.emplace_back(label, value);
 }
 
 void CMediaSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
@@ -363,44 +399,96 @@ void CMediaSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& set
   if (!setting)
     return;
 
-  if (setting->GetId() == CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS)
+  const std::string& settingId{setting->GetId()};
+  if (settingId == CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS)
     CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::VideoLibrary, "OnRefresh");
+  else if (settingId == CSettings::SETTING_VIDEOSCREEN_EXTRACTCONTENTGEOMETRY ||
+           settingId == CSettings::SETTING_VIDEOSCREEN_CONTENTGEOMETRYONSCAN)
+  {
+    auto& scanner{KODI::VIDEO::GEOMETRY::CContentGeometryScanner::GetInstance()};
+    if (std::static_pointer_cast<const CSettingBool>(setting)->GetValue())
+      scanner.Sweep();
+    else
+      scanner.StopSweep();
+  }
 }
 
-int CMediaSettings::GetWatchedMode(const std::string &content) const
+WatchedMode CMediaSettings::GetWatchedMode(const std::string& content) const
 {
   std::unique_lock lock(m_critical);
-  WatchedModes::const_iterator it = m_watchedModes.find(GetWatchedContent(content));
-  if (it != m_watchedModes.end())
+  if (const auto it = m_watchedModes.find(GetWatchedContent(content)); it != m_watchedModes.end())
     return it->second;
 
-  return WatchedModeAll;
+  return WatchedMode::ALL;
 }
 
 void CMediaSettings::SetWatchedMode(const std::string &content, WatchedMode mode)
 {
   std::unique_lock lock(m_critical);
-  WatchedModes::iterator it = m_watchedModes.find(GetWatchedContent(content));
-  if (it != m_watchedModes.end())
+  if (const auto it = m_watchedModes.find(GetWatchedContent(content)); it != m_watchedModes.end())
     it->second = mode;
 }
 
-void CMediaSettings::CycleWatchedMode(const std::string &content)
+void CMediaSettings::CycleWatchedMode(const std::string& content)
 {
   std::unique_lock lock(m_critical);
-  WatchedModes::iterator it = m_watchedModes.find(GetWatchedContent(content));
-  if (it != m_watchedModes.end())
-  {
-    it->second = (WatchedMode)((int)it->second + 1);
-    if (it->second > WatchedModeWatched)
-      it->second = WatchedModeAll;
-  }
+  if (const auto it = m_watchedModes.find(GetWatchedContent(content)); it != m_watchedModes.end())
+    CycleWatchedMode(it->second);
+}
+
+void CMediaSettings::CycleWatchedMode(WatchedMode& mode)
+{
+  const int next_val = (static_cast<int>(mode) + 1) % WatchedModesCount();
+  mode = WatchedMode{next_val};
 }
 
 std::string CMediaSettings::GetWatchedContent(const std::string &content)
 {
-  if (content == "seasons" || content == "episodes")
-    return "tvshows";
+  if (content == MEDIA::CONTENT::SEASONS || content == MEDIA::CONTENT::EPISODES)
+    return MEDIA::CONTENT::TVSHOWS;
 
   return content;
+}
+
+std::string CMediaSettings::LocalizeWatchedMode(WatchedMode mode)
+{
+  static constexpr int UNMAPPED = -1;
+
+  static constexpr auto messagesMap = []()
+  {
+    // WatchedMode::COUNT itself is excluded from the array
+    std::array<int, static_cast<std::size_t>(WatchedMode::COUNT)> messages{};
+    messages.fill(UNMAPPED);
+
+    messages[static_cast<int>(WatchedMode::ALL)] = 16100; // All videos
+    messages[static_cast<int>(WatchedMode::UNWATCHED)] = 16101; // Unwatched
+    messages[static_cast<int>(WatchedMode::WATCHED)] = 16102; // Watched
+
+    return messages;
+  }();
+
+  // Compile-time check that every enum value has a message
+  static_assert(std::ranges::find(messagesMap, UNMAPPED) == messagesMap.end(),
+                "message number missing for enum value");
+
+  // Special handling for the COUNT sentinel value, excluded from the array
+  // message 13205: Unknown
+  const int msgId = (mode == WatchedMode::COUNT) ? 13205 : messagesMap[static_cast<int>(mode)];
+  return CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(msgId);
+}
+
+bool CMediaSettings::IsValidWatchedMode(int value)
+{
+  return value >= static_cast<int>(WatchedMode::ALL) &&
+         value < static_cast<int>(WatchedMode::COUNT);
+}
+
+std::optional<WatchedMode> CMediaSettings::ToWatchedMode(int value)
+{
+  return IsValidWatchedMode(value) ? std::optional{WatchedMode{value}} : std::nullopt;
+}
+
+int CMediaSettings::WatchedModesCount()
+{
+  return static_cast<int>(WatchedMode::COUNT);
 }

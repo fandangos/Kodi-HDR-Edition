@@ -14,8 +14,12 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
     find_package(Iconv REQUIRED ${SEARCH_QUIET})
     find_package(ZLIB REQUIRED ${SEARCH_QUIET})
 
-    # Patch pending review upstream (https://github.com/Exiv2/exiv2/pull/3004)
-    set(patches "${CMAKE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/0001-WIN-lib-postfix.patch")
+    if(CORE_SYSTEM_NAME STREQUAL wasm)
+      set(patches "${CMAKE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/0002-Include-ctime-for-mktime.patch")
+    else()
+      # Patch pending review upstream (https://github.com/Exiv2/exiv2/pull/3004)
+      set(patches "${CMAKE_SOURCE_DIR}/tools/depends/target/${${CMAKE_FIND_PACKAGE_NAME}_MODULE_LC}/0001-WIN-lib-postfix.patch")
+    endif()
 
     generate_patchcommand("${patches}")
     unset(patches)
@@ -48,7 +52,10 @@ if(NOT TARGET ${APP_NAME_LC}::${CMAKE_FIND_PACKAGE_NAME})
                    -DEXIV2_BUILD_EXIV2_COMMAND=OFF
                    ${EXTRA_ARGS})
 
-    if(NOT CMAKE_CXX_COMPILER_LAUNCHER STREQUAL "")
+    if(XCODE)
+      # Exiv2's ccache wrapper relies on PATH; use the toolchain's absolute launcher.
+      list(APPEND CMAKE_ARGS -DBUILD_WITH_CCACHE=OFF)
+    elseif(NOT CMAKE_CXX_COMPILER_LAUNCHER STREQUAL "")
       list(APPEND CMAKE_ARGS -DBUILD_WITH_CCACHE=ON)
     endif()
 

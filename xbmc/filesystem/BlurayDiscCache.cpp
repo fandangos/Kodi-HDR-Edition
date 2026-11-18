@@ -99,13 +99,13 @@ void CBlurayDiscCache::SetMaps(const std::string& path,
   disc.mapsSet = true;
 }
 
-void CBlurayDiscCache::SetPlaylistStreamInfo(const std::string& path,
-                                             unsigned int playlist,
-                                             const StreamMap& streams)
+void CBlurayDiscCache::SetClipStreamInfo(const std::string& path,
+                                         const std::string& clipFiles,
+                                         const StreamMap& streams)
 {
   std::unique_lock lock(m_cs);
 
-  FindOrCreate(path).streamMap[playlist] = streams;
+  FindOrCreate(path).streamMap[clipFiles] = streams;
 }
 
 void CBlurayDiscCache::SetMenuSupport(const std::string& path, bool menuSupport)
@@ -156,19 +156,76 @@ bool CBlurayDiscCache::GetMaps(const std::string& path,
   return false;
 }
 
-bool CBlurayDiscCache::GetPlaylistStreamInfo(const std::string& path,
-                                             unsigned int playlist,
-                                             StreamMap& streams) const
+bool CBlurayDiscCache::GetClipStreamInfo(const std::string& path,
+                                         const std::string& clipFiles,
+                                         StreamMap& streams) const
 {
   std::unique_lock lock(m_cs);
 
   if (const Disc * disc{Find(path)}; disc)
   {
-    if (const auto& it{disc->streamMap.find(playlist)}; it != disc->streamMap.end())
+    if (const auto& it{disc->streamMap.find(clipFiles)}; it != disc->streamMap.end())
     {
       streams = it->second;
       return true;
     }
+  }
+  return false;
+}
+
+void CBlurayDiscCache::SetDiscTitle(const std::string& path, const std::string& title)
+{
+  std::unique_lock lock(m_cs);
+
+  FindOrCreate(path).discTitle = title;
+}
+
+void CBlurayDiscCache::SetDiscId(const std::string& path, const std::string& id)
+{
+  std::unique_lock lock(m_cs);
+
+  FindOrCreate(path).discId = id;
+}
+
+bool CBlurayDiscCache::GetDiscTitle(const std::string& path, std::string& title) const
+{
+  std::unique_lock lock(m_cs);
+
+  if (const Disc * disc{Find(path)}; disc && disc->discTitle)
+  {
+    title = *disc->discTitle;
+    return true;
+  }
+  return false;
+}
+
+bool CBlurayDiscCache::GetDiscId(const std::string& path, std::string& id) const
+{
+  std::unique_lock lock(m_cs);
+
+  if (const Disc * disc{Find(path)}; disc && disc->discId)
+  {
+    id = *disc->discId;
+    return true;
+  }
+  return false;
+}
+
+void CBlurayDiscCache::SetProject(const std::string& path, const ProjectInformation& project)
+{
+  std::unique_lock lock(m_cs);
+
+  FindOrCreate(path).project = project;
+}
+
+bool CBlurayDiscCache::GetProject(const std::string& path, ProjectInformation& project) const
+{
+  std::unique_lock lock(m_cs);
+
+  if (const Disc * disc{Find(path)}; disc && disc->project)
+  {
+    project = *disc->project;
+    return true;
   }
   return false;
 }
@@ -202,6 +259,21 @@ void CBlurayDiscCache::ClearDisc(const std::string& path)
   std::unique_lock lock(m_cs);
 
   m_cache.erase(GetDiscKey(path));
+}
+
+void CBlurayDiscCache::CheckDisc(const std::string& path, const std::string& fingerprint)
+{
+  std::unique_lock lock(m_cs);
+
+  if (const Disc * disc{Find(path)};
+      disc && disc->fingerprint != fingerprint && !disc->fingerprint.empty())
+  {
+    CLog::LogF(LOGDEBUG, "Disc at {} has changed, dropping its cached information",
+               CURL::GetRedacted(path));
+    m_cache.erase(GetDiscKey(path));
+  }
+
+  FindOrCreate(path).fingerprint = fingerprint;
 }
 
 void CBlurayDiscCache::Clear()

@@ -21,12 +21,35 @@
 
 #include "platform/win32/WIN32Util.h"
 
+#include <cmath>
 #include <map>
 
 #include <DirectXPackedVector.h>
 
 using namespace DirectX::PackedVector;
 using namespace Microsoft::WRL;
+
+namespace
+{
+// HDR hue and saturation are applied to BT.2020, before any primaries conversion
+void SetHueSaturationParameters(CD3DEffect& effect,
+                                AVColorTransferCharacteristic transfer,
+                                float hue,
+                                float saturation,
+                                float peakLuminance,
+                                bool limited)
+{
+  const float peak = transfer == AVCOL_TRC_SMPTE2084 ? peakLuminance / 10000.0f : 1.0f;
+  Matrix4 hueSatMat(CConvertMatrix::GetLinearHueSatMat(AVCOL_SPC_BT2020_NCL, hue, saturation));
+  Matrix3x1 coefs = CConvertMatrix::GetRGBYuvCoefs(AVCOL_SPC_BT2020_NCL);
+  float range[2] = {limited ? 876.0f / 1023.0f : 1.0f, limited ? 64.0f / 1023.0f : 0.0f};
+
+  effect.SetMatrix("g_hsMat", hueSatMat.ToRaw());
+  effect.SetFloatArray("g_hsCoefs", coefs.data(), coefs.size());
+  effect.SetScalar("g_hsPeak", peak);
+  effect.SetFloatArray("g_hsRange", range, 2);
+}
+} // namespace
 
 //===================================================================
 
@@ -270,6 +293,19 @@ void COutputShader::ApplyEffectParameters(CD3DEffect &effect, unsigned sourceWid
     effect.SetScalar("g_toneP2", lumin_div100);
     m_toneMappingDebug = lumin;
   }
+  if (m_hueSatTransfer != AVCOL_TRC_UNSPECIFIED)
+    SetHueSaturationParameters(
+        effect, m_hueSatTransfer, m_hue, m_saturation,
+        CToneMappers::GetPeakLuminanceValue(m_hasDisplayMetadata, m_displayMetadata,
+                                            m_hasLightMetadata, m_lightMetadata),
+        DX::Windowing()->UseLimitedColor());
+  if (m_useGamma)
+  {
+    const bool limited = DX::Windowing()->UseLimitedColor();
+    float range[2] = {limited ? 876.0f / 1023.0f : 1.0f, limited ? 64.0f / 1023.0f : 0.0f};
+    effect.SetScalar("g_gammaInv", 1.0f / m_gammaExponent);
+    effect.SetFloatArray("g_gammaRange", range, 2);
+  }
 }
 
 void COutputShader::GetDefines(DefinesMap& map) const
@@ -298,6 +334,18 @@ void COutputShader::GetDefines(DefinesMap& map) const
   {
     map["KODI_HLG_TO_PQ"] = "";
   }
+  if (m_hueSatTransfer == AVCOL_TRC_SMPTE2084)
+  {
+    map["KODI_HUESAT_PQ"] = "";
+  }
+  else if (m_hueSatTransfer == AVCOL_TRC_ARIB_STD_B67)
+  {
+    map["KODI_HUESAT_HLG"] = "";
+  }
+  if (m_useGamma)
+  {
+    map["KODI_GAMMA"] = "";
+  }
 }
 
 bool COutputShader::Create(bool useLUT,
@@ -305,9 +353,13 @@ bool COutputShader::Create(bool useLUT,
                            int ditherDepth,
                            bool toneMapping,
                            ETONEMAPMETHOD toneMethod,
-                           bool HLGtoPQ)
+                           bool HLGtoPQ,
+                           AVColorTransferCharacteristic hueSatTransfer,
+                           bool gamma)
 {
   m_useLut = useLUT;
+  m_hueSatTransfer = hueSatTransfer;
+  m_useGamma = gamma;
   m_ditherDepth = ditherDepth;
   m_toneMapping = toneMapping;
   m_useHLGtoPQ = HLGtoPQ;
@@ -373,6 +425,12 @@ void COutputShader::SetDisplayMetadata(bool hasDisplayMetadata, AVMasteringDispl
   m_lightMetadata = lightMetadata;
 }
 
+void COutputShader::SetHueSaturation(float hue, float saturation)
+{
+  m_hue = hue;
+  m_saturation = saturation;
+}
+
 void COutputShader::SetToneMapParam(ETONEMAPMETHOD method, float param)
 {
   m_toneMappingMethod = method;
@@ -402,7 +460,6 @@ bool COutputShader::CreateLUTView(int lutSize, uint16_t* lutData, bool isRGB, ID
     cData = lutData;
 
   ComPtr<ID3D11Device> pDevice = DX::DeviceResources::Get()->GetD3DDevice();
-  ComPtr<ID3D11DeviceContext> pContext = DX::DeviceResources::Get()->GetImmediateContext();
   CD3D11_TEXTURE3D_DESC txDesc(DXGI_FORMAT_R16G16B16A16_UNORM, lutSize, lutSize, lutSize, 1,
                                D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_IMMUTABLE);
 
@@ -425,7 +482,6 @@ bool COutputShader::CreateLUTView(int lutSize, uint16_t* lutData, bool isRGB, ID
   ComPtr<ID3D11ShaderResourceView> lutView;
   CD3D11_SHADER_RESOURCE_VIEW_DESC srvDesc(D3D11_SRV_DIMENSION_TEXTURE3D, DXGI_FORMAT_R16G16B16A16_UNORM, 0, 1);
   hr = pDevice->CreateShaderResourceView(pLUTTex.Get(), &srvDesc, &lutView);
-  pContext->Flush();
 
   if (FAILED(hr))
   {
@@ -571,45 +627,50 @@ std::string COutputShader::GetDebugInfo()
 
 //==================================================================================
 
-bool CYUV2RGBShader::Create(AVPixelFormat fmt, AVColorPrimaries dstPrimaries,
-                            AVColorPrimaries srcPrimaries, const std::shared_ptr<COutputShader>& pOutputShader)
+bool CYUV2RGBShader::Create(AVPixelFormat fmt,
+                            AVColorPrimaries dstPrimaries,
+                            AVColorPrimaries srcPrimaries,
+                            const std::shared_ptr<COutputShader>& pOutputShader,
+                            AVColorTransferCharacteristic hueSatTransfer)
 {
   m_format = fmt;
   m_pOutShader = pOutputShader;
+  m_hueSatTransfer = hueSatTransfer;
 
   DefinesMap defines;
 
-  switch (fmt)
-  {
-  case AV_PIX_FMT_YUV420P:
-  case AV_PIX_FMT_YUV420P10:
-  case AV_PIX_FMT_YUV420P16:
+  const int planes = av_pix_fmt_count_planes(fmt);
+
+  if (fmt == AV_PIX_FMT_UYVY422)
+    defines["XBMC_UYVY"] = "";
+  else if (fmt == AV_PIX_FMT_YUYV422)
+    defines["XBMC_YUY2"] = "";
+  else if (planes == 3)
     defines["XBMC_YV12"] = "";
-    break;
-  case AV_PIX_FMT_D3D11VA_VLD:
-  case AV_PIX_FMT_NV12:
-  case AV_PIX_FMT_P010:
-  case AV_PIX_FMT_P016:
+  else if (planes == 2 || fmt == AV_PIX_FMT_D3D11VA_VLD)
+  {
     defines["XBMC_NV12"] = "";
     // FL 9.x doesn't support DXGI_FORMAT_R8G8_UNORM, so we have to use SNORM and correct values in shader
     if (!DX::Windowing()->IsFormatSupport(DXGI_FORMAT_R8G8_UNORM, D3D11_FORMAT_SUPPORT_TEXTURE2D))
       defines["NV12_SNORM_UV"] = "";
-    break;
-  case AV_PIX_FMT_UYVY422:
-    defines["XBMC_UYVY"] = "";
-    break;
-  case AV_PIX_FMT_YUYV422:
-    defines["XBMC_YUY2"] = "";
-    break;
-  default:
-    return false;
   }
+  else
+    return false;
+
+  m_convMatrix.SetSourceRGB((av_pix_fmt_desc_get(fmt)->flags & AV_PIX_FMT_FLAG_RGB) != 0);
 
   if (srcPrimaries != dstPrimaries)
   {
     m_colorConversion = true;
     defines["XBMC_COL_CONVERSION"] = "";
   }
+
+  if (m_hueSatTransfer == AVCOL_TRC_SMPTE2084)
+    defines["KODI_HUESAT_PQ"] = "";
+  else if (m_hueSatTransfer == AVCOL_TRC_ARIB_STD_B67)
+    defines["KODI_HUESAT_HLG"] = "";
+  if (m_hueSatTransfer != AVCOL_TRC_UNSPECIFIED)
+    defines["KODI_HUESAT_YUV"] = "";
 
   if (m_pOutShader)
     m_pOutShader->GetDefines(defines);
@@ -648,11 +709,22 @@ void CYUV2RGBShader::Render(CRect sourceRect, CPoint dest[], CRenderBuffer* vide
   Execute({ &target }, 4);
 }
 
-void CYUV2RGBShader::SetParams(float contrast, float black, bool limited)
+void CYUV2RGBShader::SetParams(
+    float contrast, float black, float hue, float saturation, bool limited)
 {
   m_convMatrix.SetDestinationContrast(contrast * 0.02f)
       .SetDestinationBlack(black * 0.01f - 0.5f)
+      .SetDestinationHue((hue - 50.0f) * 3.6f)
+      .SetDestinationSaturation(saturation * 0.02f)
       .SetDestinationLimitedRange(limited);
+  m_limited = limited;
+}
+
+void CYUV2RGBShader::SetHueSaturation(float hue, float saturation, float peakLuminance)
+{
+  m_hue = hue;
+  m_saturation = saturation;
+  m_peakLuminance = peakLuminance;
 }
 
 void CYUV2RGBShader::SetColParams(AVColorSpace colSpace, int bits, bool limited, int texBits)
@@ -685,6 +757,13 @@ void CYUV2RGBShader::PrepareParameters(CRenderBuffer* videoBuffer, CRect sourceR
     m_sourceWidth = videoBuffer->GetWidth();
     m_sourceHeight = videoBuffer->GetHeight();
 
+    // the second and third planes are smaller where the format subsamples chroma, rounded up
+    const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(m_format);
+    const float chromaScaleX = static_cast<float>(1 << desc->log2_chroma_w);
+    const float chromaScaleY = static_cast<float>(1 << desc->log2_chroma_h);
+    const float chromaWidth = std::ceil(m_sourceWidth / chromaScaleX);
+    const float chromaHeight = std::ceil(m_sourceHeight / chromaScaleY);
+
     Vertex* v;
     CWinShader::LockVertexBuffer(reinterpret_cast<void**>(&v));
 
@@ -693,32 +772,32 @@ void CYUV2RGBShader::PrepareParameters(CRenderBuffer* videoBuffer, CRect sourceR
     v[0].z = 0.0f;
     v[0].tu = sourceRect.x1 / m_sourceWidth;
     v[0].tv = sourceRect.y1 / m_sourceHeight;
-    v[0].tu2 = (sourceRect.x1 / 2.0f) / (m_sourceWidth>>1);
-    v[0].tv2 = (sourceRect.y1 / 2.0f) / (m_sourceHeight>>1);
+    v[0].tu2 = (sourceRect.x1 / chromaScaleX) / chromaWidth;
+    v[0].tv2 = (sourceRect.y1 / chromaScaleY) / chromaHeight;
 
     v[1].x = m_dest[1].x;
     v[1].y = m_dest[1].y;
     v[1].z = 0.0f;
     v[1].tu = sourceRect.x2 / m_sourceWidth;
     v[1].tv = sourceRect.y1 / m_sourceHeight;
-    v[1].tu2 = (sourceRect.x2 / 2.0f) / (m_sourceWidth>>1);
-    v[1].tv2 = (sourceRect.y1 / 2.0f) / (m_sourceHeight>>1);
+    v[1].tu2 = (sourceRect.x2 / chromaScaleX) / chromaWidth;
+    v[1].tv2 = (sourceRect.y1 / chromaScaleY) / chromaHeight;
 
     v[2].x = m_dest[2].x;
     v[2].y = m_dest[2].y;
     v[2].z = 0.0f;
     v[2].tu = sourceRect.x2 / m_sourceWidth;
     v[2].tv = sourceRect.y2 / m_sourceHeight;
-    v[2].tu2 = (sourceRect.x2 / 2.0f) / (m_sourceWidth>>1);
-    v[2].tv2 = (sourceRect.y2 / 2.0f) / (m_sourceHeight>>1);
+    v[2].tu2 = (sourceRect.x2 / chromaScaleX) / chromaWidth;
+    v[2].tv2 = (sourceRect.y2 / chromaScaleY) / chromaHeight;
 
     v[3].x = m_dest[3].x;
     v[3].y = m_dest[3].y;
     v[3].z = 0.0f;
     v[3].tu = sourceRect.x1 / m_sourceWidth;
     v[3].tv = sourceRect.y2 / m_sourceHeight;
-    v[3].tu2 = (sourceRect.x1 / 2.0f) / (m_sourceWidth>>1);
-    v[3].tv2 = (sourceRect.y2 / 2.0f) / (m_sourceHeight>>1);
+    v[3].tu2 = (sourceRect.x1 / chromaScaleX) / chromaWidth;
+    v[3].tv2 = (sourceRect.y2 / chromaScaleY) / chromaHeight;
 
     CWinShader::UnlockVertexBuffer();
   }
@@ -743,6 +822,10 @@ void CYUV2RGBShader::SetShaderParameters(CRenderBuffer* videoBuffer)
 
   Matrix4 yuvMat = m_convMatrix.GetYuvMat();
   m_effect.SetMatrix("g_ColorMatrix", yuvMat.ToRaw());
+
+  if (m_hueSatTransfer != AVCOL_TRC_UNSPECIFIED)
+    SetHueSaturationParameters(m_effect, m_hueSatTransfer, m_hue, m_saturation, m_peakLuminance,
+                               m_limited);
 
   if (m_colorConversion)
   {

@@ -18,7 +18,6 @@
 #include "addons/addoninfo/AddonType.h"
 #include "cores/DataCacheCore.h"
 #include "cores/IPlayerCallback.h"
-#include "cores/RetroPlayer/cheevos/Cheevos.h"
 #include "cores/RetroPlayer/guibridge/GUIGameMessenger.h"
 #include "cores/RetroPlayer/guibridge/GUIGameRenderManager.h"
 #include "cores/RetroPlayer/guiplayback/GUIPlaybackControl.h"
@@ -27,14 +26,15 @@
 #include "cores/RetroPlayer/playback/ReversiblePlayback.h"
 #include "cores/RetroPlayer/process/RPProcessInfo.h"
 #include "cores/RetroPlayer/rendering/RPRenderManager.h"
-#include "cores/RetroPlayer/savestates/ISavestate.h"
-#include "cores/RetroPlayer/savestates/SavestateDatabase.h"
+#include "cores/RetroPlayer/rendering/RenderContext.h"
 #include "cores/RetroPlayer/streams/RPStreamManager.h"
-#include "dialogs/GUIDialogYesNo.h"
+#include "cores/VideoPlayer/VideoReferenceClock.h"
+#include "dialogs/GUIDialogKaiToast.h"
 #include "games/GameServices.h"
 #include "games/GameSettings.h"
 #include "games/GameUtils.h"
 #include "games/addons/GameClient.h"
+#include "games/addons/cheevos/GameClientCheevos.h"
 #include "games/addons/disc/GameClientDiscs.h"
 #include "games/addons/input/GameClientInput.h"
 #include "games/tags/GameInfoTag.h"
@@ -48,6 +48,8 @@
 #include "messaging/ApplicationMessenger.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 #include "windowing/WinSystem.h"
@@ -75,6 +77,24 @@ CRetroPlayer::~CRetroPlayer()
 
 bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options)
 {
+  // A dialog shown while a game opens, such as the one reporting that it
+  // failed to load, runs the message loop, which can ask this player to open
+  // another game before the first has finished opening or been unloaded
+  if (m_opening)
+  {
+    CLog::Log(LOGERROR, "RetroPlayer[PLAYER]: Can't open a game while another is opening");
+    return false;
+  }
+
+  m_opening = true;
+  const bool opened = Open(file, options);
+  m_opening = false;
+
+  return opened;
+}
+
+bool CRetroPlayer::Open(const CFileItem& file, const CPlayerOptions& options)
+{
   CFileItem fileCopy(file);
 
   std::string savestatePath;
@@ -91,7 +111,7 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
   }
 
   // Check if we should open in standalone mode
-  const bool bStandalone = fileCopy.GetPath().empty();
+  const bool bStandalone = fileCopy.GetDynPath().empty();
 
   m_processInfo = CRPProcessInfo::CreateInstance();
   if (!m_processInfo)
@@ -102,6 +122,20 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
 
   m_processInfo->SetDataCache(&CServiceBroker::GetDataCacheCore());
   m_processInfo->ResetInfo();
+  // The screen's refresh rate follows its vblanks, whether or not videos are
+  // synced to the display
+  m_displayClock = std::make_unique<CVideoReferenceClock>(true);
+  m_processInfo->GetDisplayPacing().SetRefreshRateSource([clock = m_displayClock.get()]
+                                                         { return clock->GetRefreshRate(); });
+  m_processInfo->GetDisplayPacing().SetEnabled(
+      m_gameServices.GameSettings().SyncPlaybackToDisplay());
+  m_processInfo->GetDisplayPacing().SetMaxRateDifference(
+      m_gameServices.GameSettings().SyncToDisplayLimit());
+  const float pacingMarginMs =
+      CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_gamesPacingMarginMs;
+  m_processInfo->GetDisplayPacing().SetMargin(
+      std::chrono::duration_cast<CDisplayPacing::Clock::duration>(
+          std::chrono::duration<float, std::milli>(pacingMarginMs)));
 
   m_guiMessenger = std::make_unique<CGUIGameMessenger>(*m_processInfo);
   m_renderManager = std::make_unique<CRPRenderManager>(*m_processInfo);
@@ -141,7 +175,7 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
 
       if (!bStandalone)
       {
-        std::string redactedPath = CURL::GetRedacted(fileCopy.GetPath());
+        std::string redactedPath = CURL::GetRedacted(fileCopy.GetDynPath());
         CLog::Log(LOGINFO, "RetroPlayer[PLAYER]: Opening: {}", redactedPath);
         bSuccess = m_gameClient->OpenFile(fileCopy, *m_streamManager, m_input.get());
       }
@@ -160,47 +194,10 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
       CLog::Log(LOGERROR, "RetroPlayer[PLAYER]: Failed to initialize {}", gameClientId);
   }
 
-  if (bSuccess && !bStandalone)
-  {
-    CSavestateDatabase savestateDb;
-
-    std::unique_ptr<ISavestate> save = CSavestateDatabase::AllocateSavestate();
-    if (savestateDb.GetSavestate(savestatePath, *save))
-    {
-      // Check if game client is the same
-      if (save->GameClientID() != m_gameClient->ID())
-      {
-        ADDON::AddonPtr addon;
-        if (CServiceBroker::GetAddonMgr().GetAddon(save->GameClientID(), addon,
-                                                   ADDON::OnlyEnabled::CHOICE_YES))
-        {
-          // Warn the user that continuing with a different game client will
-          // overwrite the save
-          bool dummy;
-          if (!CGUIDialogYesNo::ShowAndGetInput(
-                  438,
-                  StringUtils::Format(
-                      CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(35217),
-                      addon->Name()),
-                  dummy, 222, 35218, 0))
-            bSuccess = false;
-        }
-      }
-    }
-  }
-
   if (bSuccess)
   {
     // Switch to fullscreen
     CServiceBroker::GetAppMessenger()->PostMsg(TMSG_SWITCHTOFULLSCREEN);
-
-    m_cheevos = std::make_shared<CCheevos>(m_gameClient.get(),
-                                           m_gameServices.GameSettings().GetRAUsername(),
-                                           m_gameServices.GameSettings().GetRAToken());
-
-    m_cheevos->EnableRichPresence();
-
-    m_cheevos->ActivateAchievement();
 
     // Initialize gameplay
     CreatePlayback(savestatePath);
@@ -217,10 +214,12 @@ bool CRetroPlayer::OpenFile(const CFileItem& file, const CPlayerOptions& options
   else
   {
     m_input.reset();
-    m_streamManager.reset();
     if (m_gameClient)
       m_gameClient->Unload();
     m_gameClient.reset();
+    m_streamManager.reset();
+    m_processInfo->GetDisplayPacing().SetRefreshRateSource({});
+    m_displayClock.reset();
   }
 
   return bSuccess;
@@ -230,37 +229,39 @@ bool CRetroPlayer::CloseFile(bool reopen /* = false */)
 {
   CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Closing file");
 
+  const bool autosaveEligible = m_autoSave && m_autoSave->HasInitialDelayElapsed();
   m_autoSave.reset();
 
   UnregisterWindowCallbacks();
+
+  if (m_renderManager)
+    m_renderManager->FlushRendered();
 
   m_playbackControl.reset();
 
   std::unique_lock lock(m_mutex);
 
-  if (m_gameClient && m_gameServices.GameSettings().AutosaveEnabled())
+  if (m_playback)
+    m_playback->Quiesce();
+
+  if (autosaveEligible && m_gameClient && m_playback &&
+      m_gameServices.GameSettings().AutosaveEnabled())
   {
     std::string savePath = m_playback->CreateSavestate(true);
-    if (!savePath.empty())
+    const bool saved = m_playback->WaitForSavestates();
+    if (!savePath.empty() && saved)
       CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Saved state to {}", CURL::GetRedacted(savePath));
     else
       CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Failed to save state at close");
   }
 
-  m_playback.reset();
+  ResetPlayback();
 
   if (m_input)
     m_input->StopAgentManager();
 
-  // Stop threads that access the game client, but keep the achievement callback
-  // alive until CloseFile() has stopped the add-on from invoking it.
-  if (m_cheevos)
-    m_cheevos->Stop();
-
   if (m_gameClient)
     m_gameClient->CloseFile();
-
-  m_cheevos.reset();
 
   m_input.reset();
 
@@ -270,14 +271,24 @@ bool CRetroPlayer::CloseFile(bool reopen /* = false */)
     m_gameClient->Unload();
   m_gameClient.reset();
 
+  // A game client that renders on the GPU shares it with Kodi and releases its
+  // resources as it unloads, without restoring the state Kodi left set up. The
+  // global vertex array object matters most: every GUI draw is rejected while
+  // it is unbound, so the screen stays black after the game ends. Put Kodi's
+  // state back now that the client is gone, the same way Kodi does after a
+  // visualisation or screensaver add-on has had the context.
+  if (m_processInfo)
+    m_processInfo->GetRenderContext().ApplyStateBlock();
+
   m_renderManager.reset();
   if (m_processInfo)
   {
     m_processInfo->ResetInfo();
   }
   m_processInfo.reset();
-  CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Playback ended");
-  m_callback.OnPlayBackEnded();
+  m_displayClock.reset();
+  CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Playback stopped");
+  m_callback.OnPlayBackStopped();
 
   return true;
 }
@@ -405,6 +416,9 @@ uint64_t CRetroPlayer::GetTotalTime()
 
 void CRetroPlayer::SetSpeed(float speed)
 {
+  if (RefuseSpeedInHardcore(static_cast<double>(speed)))
+    return;
+
   if (m_playback->GetSpeed() != static_cast<double>(speed))
   {
     if (speed == 1.0f)
@@ -438,14 +452,13 @@ bool CRetroPlayer::OnAction(const CAction& action)
     case ACTION_PLAYER_RESET:
     {
       std::unique_lock lock(m_mutex);
-      if (m_gameClient && m_playback && m_cheevos)
+      if (m_gameClient && m_playback)
       {
         float speed = static_cast<float>(m_playback->GetSpeed());
 
         m_playback->SetSpeed(0.0);
 
         CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Sending reset command via ACTION_PLAYER_RESET");
-        m_cheevos->ResetRuntime();
         m_gameClient->Input().HardwareReset();
 
         // If rewinding or paused, begin playback
@@ -473,27 +486,6 @@ bool CRetroPlayer::OnAction(const CAction& action)
   return false;
 }
 
-std::string CRetroPlayer::GetPlayerState()
-{
-  std::string savestatePath;
-
-  if (m_autoSave)
-  {
-    savestatePath = m_playback->CreateSavestate(true);
-    if (savestatePath.empty())
-    {
-      CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Continuing without saving");
-      m_autoSave.reset();
-    }
-  }
-  return savestatePath;
-}
-
-bool CRetroPlayer::SetPlayerState(const std::string& state)
-{
-  return m_playback->LoadSavestate(state);
-}
-
 void CRetroPlayer::FrameMove()
 {
   if (m_renderManager)
@@ -501,6 +493,8 @@ void CRetroPlayer::FrameMove()
 
   if (m_playbackControl)
     m_playbackControl->FrameMove();
+
+  LeaveSpeedRefusedInHardcore();
 
   if (m_processInfo)
     m_processInfo->SetPlayTimes(0, GetTime(), 0, GetTotalTime());
@@ -596,12 +590,6 @@ bool CRetroPlayer::LoadSavestate(const std::string& savestatePath)
   return false;
 }
 
-void CRetroPlayer::FreeSavestateResources(const std::string& savestatePath)
-{
-  if (m_renderManager)
-    m_renderManager->ClearVideoFrame(savestatePath);
-}
-
 void CRetroPlayer::CloseOSDCallback()
 {
   CloseOSD();
@@ -609,6 +597,9 @@ void CRetroPlayer::CloseOSDCallback()
 
 void CRetroPlayer::SetPlaybackSpeed(double speed)
 {
+  if (RefuseSpeedInHardcore(speed))
+    return;
+
   if (m_playback)
   {
     if (m_playback->GetSpeed() != speed)
@@ -642,9 +633,45 @@ bool CRetroPlayer::IsAutoSaveEnabled() const
   return m_playback->GetSpeed() > 0.0;
 }
 
-std::string CRetroPlayer::CreateAutosave()
+void CRetroPlayer::RequestAutosave()
 {
-  return m_playback->CreateSavestate(true);
+  m_playback->RequestAutosave();
+}
+
+bool CRetroPlayer::RefuseSpeedInHardcore(double speed) const
+{
+  if (!m_gameClient || !m_gameClient->Cheevos().IsHardcoreActive())
+    return false;
+
+  // Rewind runs the game backwards, so it arrives here as a negative speed
+  if (speed < 0.0)
+  {
+    CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Refusing to rewind in hardcore mode");
+    GAME::CGameUtils::NotifyBlockedByHardcore(35309); // "Rewind"
+    return true;
+  }
+
+  if (speed > 0.0 && speed < 1.0)
+  {
+    CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Refusing to slow down in hardcore mode");
+    GAME::CGameUtils::NotifyBlockedByHardcore(35701); // "Slow motion"
+    return true;
+  }
+
+  return false;
+}
+
+void CRetroPlayer::LeaveSpeedRefusedInHardcore()
+{
+  if (!m_playback || !m_gameClient || !m_gameClient->Cheevos().IsHardcoreActive())
+    return;
+
+  const double speed = m_playback->GetSpeed();
+  if (speed < 0.0 || (speed > 0.0 && speed < 1.0))
+  {
+    CLog::Log(LOGDEBUG, "RetroPlayer[PLAYER]: Hardcore mode started, returning to normal speed");
+    SetPlaybackSpeed(1.0);
+  }
 }
 
 void CRetroPlayer::SetSpeedInternal(double speed)
@@ -654,7 +681,13 @@ void CRetroPlayer::SetSpeedInternal(double speed)
   if (speed == 0.0)
     m_playback->PauseAsync();
   else
+  {
     m_playback->SetSpeed(speed);
+
+    // Rewinding runs the game loop slower than the speed shown
+    if (speed < 0.0 && m_gameClient && m_gameClient->RequiresGameLoop())
+      m_renderManager->SetSpeed(m_playback->GetSpeed());
+  }
 }
 
 void CRetroPlayer::OnSpeedChange(double newSpeed)
@@ -663,6 +696,12 @@ void CRetroPlayer::OnSpeedChange(double newSpeed)
   m_input->SetSpeed(newSpeed);
   m_renderManager->SetSpeed(newSpeed);
   m_processInfo->SetSpeed(static_cast<float>(newSpeed));
+
+  // Told rather than asked, because a client can ask for this from any thread
+  // and at any point inside a call of its own, where reaching back into the
+  // player would mean locking against the thread that is driving it.
+  if (m_gameClient)
+    m_gameClient->SetPlaybackSpeed(newSpeed);
 }
 
 void CRetroPlayer::CreatePlayback(const std::string& savestatePath)
@@ -671,8 +710,9 @@ void CRetroPlayer::CreatePlayback(const std::string& savestatePath)
   {
     m_playback->Deinitialize();
     m_playback = std::make_unique<CReversiblePlayback>(
-        m_gameClient.get(), *m_renderManager, m_cheevos.get(), *m_guiMessenger,
-        m_gameClient->GetFrameRate(), m_gameClient->GetSerializeSize());
+        m_gameClient.get(), *m_renderManager, *m_streamManager, *m_guiMessenger,
+        m_processInfo->GetDisplayPacing(), m_gameClient->GetFrameRate(),
+        m_gameClient->GetSerializeSize());
   }
   else
     ResetPlayback();
@@ -684,7 +724,22 @@ void CRetroPlayer::CreatePlayback(const std::string& savestatePath)
     {
       CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Loading savestate");
 
-      if (!SetPlayerState(savestatePath))
+      // RetroAchievements requires a resumed session to drop to casual: the
+      // player did not reach the state being resumed from in this session.
+      // Done before the load, which is otherwise refused while hardcore is on.
+      // Only this session: the next game starts in hardcore again.
+      if (m_gameClient->Cheevos().IsHardcoreActive())
+      {
+        CLog::Log(LOGINFO, "RetroPlayer[SAVE]: Resuming from a savestate, dropping to casual mode");
+        m_gameClient->Cheevos().LeaveHardcore();
+
+        // "RetroAchievements", "Hardcore mode turned off. Achievements will be..."
+        const auto& strings = CServiceBroker::GetResourcesComponent().GetLocalizeStrings();
+        CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, strings.Get(35264),
+                                              strings.Get(35306));
+      }
+
+      if (!LoadSavestate(savestatePath))
         CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Failed to load savestate");
     }
   }
@@ -703,7 +758,8 @@ void CRetroPlayer::ResetPlayback()
 
 void CRetroPlayer::OpenOSD()
 {
-  CServiceBroker::GetGUI()->GetWindowManager().ActivateWindow(WINDOW_DIALOG_GAME_OSD);
+  // Posted, as the OSD is modal and a pause can come in a message its sender waits on
+  CServiceBroker::GetAppMessenger()->PostMsg(TMSG_GUI_ACTIVATE_WINDOW, WINDOW_DIALOG_GAME_OSD, 0);
 }
 
 void CRetroPlayer::CloseOSD()

@@ -10,6 +10,7 @@
 
 #include "GameTypes.h"
 
+#include <cstdint>
 #include <mutex>
 #include <set>
 #include <string>
@@ -51,6 +52,37 @@ public:
   static bool FillInGameClient(CFileItem& item, std::string& savestatePath);
 
   /*!
+   * \brief Ask which emulator to remember for a game or folder
+   *
+   * A folder offers every installed emulator, a game only the ones that can
+   * open it. Choosing "None" forgets the path again.
+   *
+   * \param item The game or folder
+   *
+   * \return True if the choice was stored
+   */
+  static bool ChooseAndSetDefaultGameClient(const CFileItem& item);
+
+  /*!
+   * \brief The game client playing right now, if a game is playing
+   *
+   * For callers outside the player that need the client itself rather than
+   * what it is playing, such as the OSD.
+   *
+   * \return The client, or empty if no game is playing
+   */
+  static GameClientPtr GetPlayingGameClient();
+
+  /*!
+   * \brief Tell the player that hardcore mode withheld what they asked for
+   *
+   * Silently ignoring the request would read as a broken control.
+   *
+   * \param featureStringId The localized name of the feature that was withheld
+   */
+  static void NotifyBlockedByHardcore(uint32_t featureStringId);
+
+  /*!
    * \brief Check if the file extension is supported by an add-on in
    *        a local or remote repository
    *
@@ -66,6 +98,19 @@ public:
   static std::set<std::string> GetGameExtensions();
 
   /*!
+   * \brief Get the folder that holds everything kept for one game: its
+   * savestates, in-game saves, disc state and cheat choice
+   *
+   * The folder follows the game's file name and the two folders above it, so
+   * it stays the same when the library moves to another drive or share.
+   *
+   * \param gamePath The path of the game file
+   *
+   * \return The folder, which may not exist yet
+   */
+  static std::string GetGameFolder(const std::string& gamePath);
+
+  /*!
    * \brief Check if game script or game add-on can be launched directly
    *
    * \return true if the add-on can be launched, false otherwise
@@ -79,10 +124,31 @@ public:
   static void UpdateInstallableAddons();
 
 private:
-  static void GetGameClients(const CFileItem& file,
-                             GameClientVector& candidates,
-                             GameClientVector& installable,
-                             bool& bHasVfsGameClient);
+  /*!
+   * \brief The emulator remembered for a game, or for the nearest folder above it
+   *
+   * \param path The game
+   * \param candidates The emulators that can open this game
+   *
+   * \return The add-on ID of the remembered emulator, or empty if there is
+   *         none or it can no longer open this game
+   */
+  static std::string GetDefaultGameClient(const std::string& path,
+                                          const GameClientVector& candidates);
+
+  static void GetInstalledGameClients(const CFileItem& file,
+                                      GameClientVector& candidates,
+                                      bool& bHasVfsGameClient);
+
+  /*!
+   * \brief Get the game clients that could be installed to open a file
+   *
+   * Reads the whole add-on repository, so it is only worth asking once the
+   * installed clients have failed to answer the question.
+   */
+  static void GetInstallableGameClients(const CFileItem& file,
+                                        GameClientVector& installable,
+                                        bool& bHasVfsGameClient);
   static void GetGameClients(const ADDON::VECADDONS& addons,
                              const CURL& translatedUrl,
                              GameClientVector& candidates,

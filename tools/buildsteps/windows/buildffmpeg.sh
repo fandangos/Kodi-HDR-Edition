@@ -81,6 +81,11 @@ do_removeOption() {
 
 do_getFFmpegConfig
 
+if [ "$ENABLE_LIBOPUS" == "ON" ]; then
+  do_addOption "--enable-libopus"
+  export PKG_CONFIG_PATH="/depends/$TRIPLET/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+fi
+
 # enable OpenSSL, because schannel has issues
 do_removeOption "--enable-gnutls"
 do_addOption "--disable-gnutls"
@@ -132,8 +137,16 @@ do_print_status "$LIBNAME-$VERSION (${TRIPLET})" "$blue_color" "Configuring"
 [[ -z "$extra_cflags" ]] && extra_cflags=-DPTW32_STATIC_LIB
 [[ -z "$extra_ldflags" ]] && extra_ldflags=-static-libgcc
 
+ccache_options=()
+if [[ -n "$CCACHE_PROGRAM" ]]; then
+  ccache_program=$(cygpath -u "$CCACHE_PROGRAM")
+  export PATH="$(dirname "$ccache_program"):$PATH"
+  ccache_executable=$(basename "$ccache_program")
+  ccache_options=("--cc=$ccache_executable cl.exe" "--cxx=$ccache_executable cl.exe")
+fi
+
 $LOCALSRCDIR/configure --target-os=$FFMPEG_TARGET_OS --prefix=$FFMPEGDESTDIR --arch=$ARCH \
-  $FFMPEG_OPTS_SHARED \
+  $FFMPEG_OPTS_SHARED "${ccache_options[@]}" \
   --extra-cflags="$extra_cflags" --extra-ldflags="$extra_ldflags"
 
 do_makelib

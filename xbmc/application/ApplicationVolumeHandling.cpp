@@ -14,13 +14,25 @@
 #include "cores/AudioEngine/Interfaces/AE.h"
 #include "dialogs/GUIDialogVolumeBar.h"
 #include "guilib/GUIComponent.h"
+#include "guilib/GUIMessage.h"
 #include "guilib/GUIWindowManager.h"
+#include "guilib/WindowIDs.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
 #include "interfaces/AnnouncementManager.h"
+#include "music/tags/ReplayGain.h"
 #include "peripherals/Peripherals.h"
 #include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
 #include "utils/Variant.h"
 #include "utils/XMLUtils.h"
+
+#if defined(TARGET_ANDROID)
+#include "platform/android/activity/XBMCApp.h"
+#endif
+
+#include <cmath>
 
 #include <tinyxml.h>
 
@@ -139,11 +151,13 @@ void CApplicationVolumeHandling::SetVolume(float iValue, bool isPercentage)
 void CApplicationVolumeHandling::CacheReplayGainSettings(const CSettings& settings)
 {
   // initialize m_replayGainSettings
-  m_replayGainSettings.iType = settings.GetInt(CSettings::SETTING_MUSICPLAYER_REPLAYGAINTYPE);
-  m_replayGainSettings.iPreAmp = settings.GetInt(CSettings::SETTING_MUSICPLAYER_REPLAYGAINPREAMP);
-  m_replayGainSettings.iNoGainPreAmp =
-      settings.GetInt(CSettings::SETTING_MUSICPLAYER_REPLAYGAINNOGAINPREAMP);
-  m_replayGainSettings.bAvoidClipping =
+  m_replayGainSettings.m_type =
+      static_cast<ReplayGain::Type>(settings.GetInt(CSettings::SETTING_MUSICPLAYER_REPLAYGAINTYPE));
+  m_replayGainSettings.m_preAmp =
+      static_cast<float>(settings.GetNumber(CSettings::SETTING_MUSICPLAYER_REPLAYGAINPREAMP));
+  m_replayGainSettings.m_noGainPreAmp =
+      static_cast<float>(settings.GetNumber(CSettings::SETTING_MUSICPLAYER_REPLAYGAINNOGAINPREAMP));
+  m_replayGainSettings.m_avoidClipping =
       settings.GetBool(CSettings::SETTING_MUSICPLAYER_REPLAYGAINAVOIDCLIPPING);
 }
 
@@ -180,22 +194,112 @@ bool CApplicationVolumeHandling::Save(TiXmlNode* settings) const
   return true;
 }
 
-bool CApplicationVolumeHandling::OnSettingChanged(const CSetting& setting)
+void CApplicationVolumeHandling::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
 {
-  const std::string& settingId = setting.GetId();
+  const std::string& settingId = setting->GetId();
 
-  if (StringUtils::EqualsNoCase(settingId, CSettings::SETTING_MUSICPLAYER_REPLAYGAINTYPE))
-    m_replayGainSettings.iType = static_cast<const CSettingInt&>(setting).GetValue();
-  else if (StringUtils::EqualsNoCase(settingId, CSettings::SETTING_MUSICPLAYER_REPLAYGAINPREAMP))
-    m_replayGainSettings.iPreAmp = static_cast<const CSettingInt&>(setting).GetValue();
-  else if (StringUtils::EqualsNoCase(settingId,
-                                     CSettings::SETTING_MUSICPLAYER_REPLAYGAINNOGAINPREAMP))
-    m_replayGainSettings.iNoGainPreAmp = static_cast<const CSettingInt&>(setting).GetValue();
-  else if (StringUtils::EqualsNoCase(settingId,
-                                     CSettings::SETTING_MUSICPLAYER_REPLAYGAINAVOIDCLIPPING))
-    m_replayGainSettings.bAvoidClipping = static_cast<const CSettingBool&>(setting).GetValue();
+  if (settingId == CSettings::SETTING_MUSICPLAYER_REPLAYGAINTYPE)
+    m_replayGainSettings.m_type =
+        static_cast<ReplayGain::Type>(static_cast<const CSettingInt&>(*setting).GetValue());
+  else if (settingId == CSettings::SETTING_MUSICPLAYER_REPLAYGAINPREAMP ||
+           settingId == CSettings::SETTING_MUSICPLAYER_REPLAYGAINNOGAINPREAMP)
+  {
+    const float gain{static_cast<float>(static_cast<const CSettingNumber&>(*setting).GetValue())};
+
+    // 0 dB gain value needs to be exactly 0 to avoid unwanted sign flips
+    if (gain != 0.0f && (std::abs(gain) < 0.01f))
+    {
+      CServiceBroker::GetSettingsComponent()->GetSettings()->SetNumber(settingId, 0.0);
+      return;
+    }
+    if (settingId == CSettings::SETTING_MUSICPLAYER_REPLAYGAINPREAMP)
+      m_replayGainSettings.m_preAmp = gain;
+    else
+      m_replayGainSettings.m_noGainPreAmp = gain;
+  }
+  else if (settingId == CSettings::SETTING_MUSICPLAYER_REPLAYGAINAVOIDCLIPPING)
+    m_replayGainSettings.m_avoidClipping = static_cast<const CSettingBool&>(*setting).GetValue();
+}
+
+bool CApplicationVolumeHandling::OnAction(const CAction& action)
+{
+  switch (action.GetID())
+  {
+    case ACTION_MUTE:
+      ToggleMute();
+      ShowVolumeBar(&action);
+      return true;
+
+    case ACTION_TOGGLE_DIGITAL_ANALOG:
+      TogglePassthrough();
+      return true;
+
+    case ACTION_VOLUME_UP:
+    case ACTION_VOLUME_DOWN:
+      if (!action.GetAmount())
+        return false;
+      [[fallthrough]];
+    case ACTION_VOLUME_SET:
+      ChangeVolume(action);
+      // show visual feedback of volume or passthrough indicator
+      ShowVolumeBar(&action);
+      return true;
+
+    default:
+      return false;
+  }
+}
+
+void CApplicationVolumeHandling::TogglePassthrough()
+{
+  const auto settings{CServiceBroker::GetSettingsComponent()->GetSettings()};
+  settings->SetBool(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH,
+                    !settings->GetBool(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGH));
+
+  auto& windowManager{CServiceBroker::GetGUI()->GetWindowManager()};
+  if (windowManager.GetActiveWindow() == WINDOW_SETTINGS_SYSTEM)
+  {
+    CGUIMessage msg(GUI_MSG_WINDOW_INIT, 0, 0, WINDOW_INVALID, windowManager.GetActiveWindow());
+    windowManager.SendMessage(msg);
+  }
+}
+
+void CApplicationVolumeHandling::ChangeVolume(const CAction& action)
+{
+  const auto settings{CServiceBroker::GetSettingsComponent()->GetSettings()};
+  const auto appPlayer{CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()};
+
+  // The level cannot be applied to a bitstream, but with volume control enabled
+  // it is still adjusted and announced, so an external processor can follow it
+  if (appPlayer->IsPassthrough() &&
+      !settings->GetBool(CSettings::SETTING_AUDIOOUTPUT_PASSTHROUGHVOLUMECONTROL))
+    return;
+
+  if (IsMuted())
+    UnMute();
+
+// Android has steps based on the max available volume level
+#if defined(TARGET_ANDROID)
+  const float step = (VOLUME_MAXIMUM - VOLUME_MINIMUM) / CXBMCApp::GetMaxSystemVolume();
+#else
+  int volumesteps = settings->GetInt(CSettings::SETTING_AUDIOOUTPUT_VOLUMESTEPS);
+  // sanity check
+  if (volumesteps == 0)
+    volumesteps = 90;
+
+  float step = (VOLUME_MAXIMUM - VOLUME_MINIMUM) / volumesteps;
+  if (action.GetRepeat())
+    step *= action.GetRepeat() * 50; // 50 fps
+#endif
+
+  float volume = GetVolumeRatio();
+  if (action.GetID() == ACTION_VOLUME_UP)
+    volume += action.GetAmount() * action.GetAmount() * step;
+  else if (action.GetID() == ACTION_VOLUME_DOWN)
+    volume -= action.GetAmount() * action.GetAmount() * step;
   else
-    return false;
+    volume = action.GetAmount() * step;
 
-  return true;
+  if (volume != GetVolumeRatio())
+    SetVolume(volume, false);
 }

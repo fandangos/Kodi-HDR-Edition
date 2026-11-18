@@ -12,6 +12,7 @@
 #include "utils/ColorUtils.h"
 #include "utils/Geometry.h"
 
+#include <array>
 #include <memory>
 #include <stdint.h>
 #include <string>
@@ -45,7 +46,7 @@ typedef struct FT_GlyphSlotRec_* FT_GlyphSlot;
 typedef struct FT_BitmapGlyphRec_* FT_BitmapGlyph;
 typedef struct FT_StrokerRec_* FT_Stroker;
 
-typedef uint32_t character_t;
+typedef uint64_t character_t;
 typedef std::vector<character_t> vecText;
 
 /*!
@@ -60,6 +61,14 @@ struct SVertex
   XMFLOAT4 col;
   float u, v;
   float u2, v2;
+};
+#elif defined(HAS_GLES)
+struct SVertex
+{
+  float x, y;
+  unsigned char r, g, b, a;
+  // Texture coordinates in texels, offset by half a texel so that the edges are whole numbers
+  uint16_t u, v;
 };
 #else
 struct SVertex
@@ -78,7 +87,6 @@ class CGUIFontTTF
   // use lookup table for the first 4096 glyphs (almost any letter or symbol) to
   // speed up GUI rendering and decrease CPU usage and less memory reallocations
   static constexpr int MAX_GLYPH_IDX = 4096;
-  static constexpr size_t LOOKUPTABLE_SIZE = MAX_GLYPH_IDX * FONT_STYLES_COUNT;
 
   friend class CGUIFont;
 
@@ -110,13 +118,25 @@ public:
 protected:
   explicit CGUIFontTTF(const std::string& fontIdent);
 
+  enum class FontFace
+  {
+    Primary,
+    Emoji,
+    Symbols,
+  };
+
   struct Glyph
   {
     hb_glyph_info_t m_glyphInfo{};
     hb_glyph_position_t m_glyphPosition{};
+    FontFace m_fontFace{FontFace::Primary};
 
-    Glyph(const hb_glyph_info_t& glyphInfo, const hb_glyph_position_t& glyphPosition)
-      : m_glyphInfo(glyphInfo), m_glyphPosition(glyphPosition)
+    Glyph(const hb_glyph_info_t& glyphInfo,
+          const hb_glyph_position_t& glyphPosition,
+          FontFace fontFace)
+      : m_glyphInfo(glyphInfo),
+        m_glyphPosition(glyphPosition),
+        m_fontFace(fontFace)
     {
     }
   };
@@ -140,6 +160,7 @@ protected:
     unsigned int m_endOffset;
     hb_buffer_t* m_buffer;
     hb_script_t m_script;
+    FontFace m_fontFace;
     hb_glyph_info_t* m_glyphInfos;
     hb_glyph_position_t* m_glyphPositions;
   };
@@ -151,6 +172,9 @@ protected:
 
   float GetTextWidthInternal(std::span<const character_t> text);
   float GetTextWidthInternal(std::span<const character_t> text, const std::vector<Glyph>& glyph);
+  // Returns how many characters from the start of text fit into maxPixelWidth, without splitting
+  // a cluster
+  size_t GetFittingLengthInternal(std::span<const character_t> text, float maxPixelWidth);
   float GetCharWidthInternal(character_t ch);
   float GetTextHeight(float lineSpacing, int numLines) const;
   float GetTextBaseLine() const { return static_cast<float>(m_cellBaseLine); }
@@ -167,13 +191,19 @@ protected:
                         bool hScrolling,
                         bool vScrolling,
                         float dx = 0.0f,
-                        float dy = 0.0f);
+                        float dy = 0.0f,
+                        bool shadow = false);
 
   float m_height{0.0f};
 
   // Stuff for pre-rendering for speed
-  Character* GetCharacter(character_t letter, FT_UInt glyphIndex);
-  bool CacheCharacter(FT_UInt glyphIndex, uint32_t style, Character* ch);
+  // silhouette: get emoji in the vertex color instead of their own colors
+  Character* GetCharacter(character_t letter,
+                          FT_UInt glyphIndex,
+                          FontFace fontFace = FontFace::Primary,
+                          bool silhouette = false);
+  bool CacheCharacter(
+      FT_UInt glyphIndex, uint32_t style, FontFace fontFace, bool silhouette, Character* ch);
   void RenderCharacter(CGraphicContext& context,
                        float posX,
                        float posY,
@@ -184,19 +214,35 @@ protected:
   void ClearCharacterCache();
 
   virtual std::unique_ptr<CTexture> ReallocTexture(unsigned int& newHeight) = 0;
-  virtual bool CopyCharToTexture(FT_BitmapGlyph bitGlyph,
+  // pixels: RGBA, starting at (x1, y1)
+  virtual bool CopyCharToTexture(const uint8_t* pixels,
+                                 unsigned int pitch,
                                  unsigned int x1,
                                  unsigned int y1,
                                  unsigned int x2,
                                  unsigned int y2) = 0;
   virtual void DeleteHardwareTexture() = 0;
 
+  // Fills RGBA pixels with transparent white, so that filtering at glyph edges keeps the color
+  static void ClearTexturePixels(uint8_t* pixels, size_t size);
+  // Clears newTexture and copies the glyphs of m_texture into it, converting them to RGBA if
+  // m_texture is alpha only and newTexture is not
+  void FillNewTexture(CTexture& newTexture) const;
+  // Writes RGBA glyph pixels to m_texture, only their alpha if m_texture is alpha only
+  void WriteCharPixels(const uint8_t* pixels,
+                       unsigned int pitch,
+                       unsigned int x1,
+                       unsigned int y1,
+                       unsigned int x2,
+                       unsigned int y2);
+
   // modifying glyphs
   void SetGlyphStrength(FT_GlyphSlot slot, int glyphStrength);
   static void ObliqueGlyph(FT_GlyphSlot slot);
 
-  std::unique_ptr<CTexture>
-      m_texture; // texture that holds our rendered characters (8bit alpha only)
+  std::unique_ptr<CTexture> m_texture; // texture that holds our rendered characters
+  // m_texture is RGBA once it holds color glyphs, and alpha only before
+  bool m_colorTexture{false};
 
   unsigned int m_textureWidth{0}; // width of our texture
   unsigned int m_textureHeight{0}; // height of our texture
@@ -213,8 +259,8 @@ protected:
 
   std::vector<Character> m_char; // our characters
 
-  // room for the first MAX_GLYPH_IDX glyphs in 7 styles
-  Character* m_charquick[LOOKUPTABLE_SIZE]{nullptr};
+  // room for the first MAX_GLYPH_IDX glyphs of each style, allocated when the style is first used
+  std::array<std::unique_ptr<Character*[]>, FONT_STYLES_COUNT> m_charquick;
 
   bool m_ellipseCached{false};
   float m_ellipsesWidth{0.0f}; // this is used every character (width of '.')
@@ -228,8 +274,16 @@ protected:
   // freetype stuff
   FT_Face m_face{nullptr};
   FT_Stroker m_stroker{nullptr};
+  int m_borderRadius{0}; // in pixels, for glyphs without outlines to stroke
 
   hb_font_t* m_hbFont{nullptr};
+
+  // fallback for emoji the font has no glyphs for
+  FT_Face m_emojiFace{nullptr};
+  hb_font_t* m_hbEmojiFont{nullptr};
+
+  FT_Face m_symbolsFace{nullptr};
+  hb_font_t* m_hbSymbolsFont{nullptr};
 
   float m_originX{0.0f};
   float m_originY{0.0f};
@@ -278,6 +332,11 @@ protected:
   CRenderSystemBase* m_renderSystem;
 
 private:
+  FT_Face GetFace(FontFace fontFace) const;
+  static character_t GlyphAndStyle(FT_UInt glyphIndex,
+                                   uint32_t style,
+                                   FontFace fontFace,
+                                   bool silhouette);
   float GetTabSpaceLength();
 
   virtual bool FirstBegin() = 0;

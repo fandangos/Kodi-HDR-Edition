@@ -8,11 +8,12 @@
 
 #include "AdvancedSettings.h"
 
-#include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "application/AppParams.h"
 #include "filesystem/SpecialProtocol.h"
+#include "language/LangInfo.h"
+#include "language/i18n/LanguageTable.h"
 #include "network/DNSNameCache.h"
 #include "profiles/ProfileManager.h"
 #include "resources/LocalizeStrings.h"
@@ -31,6 +32,7 @@
 #include "utils/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <regex>
 #include <string>
@@ -40,6 +42,36 @@ using namespace ADDON;
 
 namespace
 {
+
+/*!
+ * \brief Take the languages declared in a <languagecodes> block into the language table.
+ * \param[in] element The block, or nullptr when the file has none.
+ */
+void LoadLanguageCodes(const TiXmlElement* element)
+{
+  if (element == nullptr)
+    return;
+
+  std::map<std::string, std::string> languages;
+  for (const TiXmlElement* code = element->FirstChildElement("code"); code != nullptr;
+       code = code->NextSiblingElement("code"))
+  {
+    const TiXmlNode* shortCode = code->FirstChildElement("short");
+    const TiXmlNode* longName = code->FirstChildElement("long");
+
+    if (shortCode != nullptr && shortCode->FirstChild() != nullptr && longName != nullptr &&
+        longName->FirstChild() != nullptr)
+    {
+      languages.emplace(shortCode->FirstChild()->Value(), longName->FirstChild()->Value());
+    }
+    else
+    {
+      CLog::Log(LOGWARNING, "<languagecodes>: a <code> needs both <short> and <long>, ignored");
+    }
+  }
+
+  KODI::LANGUAGE::I18N::CLanguageTable::GetInstance().Declare(languages);
+}
 
 bool ValidateVideoStackRegex(const CRegExp& regex)
 {
@@ -70,6 +102,26 @@ void ParseDatabaseSettings(const TiXmlElement* element, DatabaseSettings& settin
 }
 } // unnamed namespace
 
+const std::vector<std::string>& CAdvancedSettings::GetExcludeFromListingRegExps(
+    KODI::MEDIA::MediaSection section) const
+{
+  static const std::vector<std::string> none;
+  switch (section)
+  {
+    case KODI::MEDIA::MediaSection::VIDEO:
+      return m_videoExcludeFromListingRegExps;
+    case KODI::MEDIA::MediaSection::MUSIC:
+      return m_audioExcludeFromListingRegExps;
+    case KODI::MEDIA::MediaSection::PICTURES:
+      return m_pictureExcludeFromListingRegExps;
+    case KODI::MEDIA::MediaSection::FILES:
+    case KODI::MEDIA::MediaSection::PROGRAMS:
+    case KODI::MEDIA::MediaSection::GAMES:
+      break;
+  }
+  return none;
+}
+
 void CAdvancedSettings::OnSettingsLoaded()
 {
   const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
@@ -95,14 +147,11 @@ void CAdvancedSettings::OnSettingsLoaded()
   }
   CServiceBroker::GetLogging().SetLogLevel(m_logLevel);
 
-  std::vector<AdvancedSettingsCallback> callbacks;
   {
     std::lock_guard lock{m_listCritSection};
-    callbacks.reserve(m_settingsLoadedCallbacks.size());
-    std::ranges::transform(m_settingsLoadedCallbacks, std::back_inserter(callbacks),
-                           [](const auto& pair) { return pair.second; });
+    for (const auto& [handle, callback] : m_settingsLoadedCallbacks)
+      callback();
   }
-  std::ranges::for_each(callbacks, &AdvancedSettingsCallback::operator());
 }
 
 void CAdvancedSettings::OnSettingsUnloaded()
@@ -122,10 +171,11 @@ void CAdvancedSettings::OnSettingChanged(const std::shared_ptr<const CSetting>& 
 
 int CAdvancedSettings::RegisterSettingsLoadedCallback(AdvancedSettingsCallback callback)
 {
-  static int idx{0};
+  static std::atomic<int> nextHandle{0};
   std::lock_guard lock{m_listCritSection};
-  m_settingsLoadedCallbacks.emplace(idx, std::move(callback));
-  return ++idx;
+  const int handle{nextHandle++};
+  m_settingsLoadedCallbacks.emplace(handle, std::move(callback));
+  return handle;
 }
 
 void CAdvancedSettings::UnregisterSettingsLoadedCallback(int handle)
@@ -216,6 +266,7 @@ void CAdvancedSettings::Initialize()
   m_videoDefaultPlayer = "VideoPlayer";
   m_videoIgnoreSecondsAtStart = 3*60;
   m_videoIgnorePercentAtEnd   = 8.0f;
+  m_videoContentGeometryVariesShare = 0.10f;
   m_videoPlayCountMinimumPercent = 90.0f;
   m_videoVDPAUScaling = -1;
   m_videoNonLinStretchRatio = 0.5f;
@@ -225,6 +276,7 @@ void CAdvancedSettings::Initialize()
   m_DXVACheckCompatibility = false;
   m_DXVACheckCompatibilityPresent = false;
   m_videoFpsDetect = 1;
+  m_gamesPacingMarginMs = 2.5f;
   m_maxTempo = 1.55f;
   m_videoPreferStereoStream = false;
 
@@ -325,18 +377,25 @@ void CAdvancedSettings::Initialize()
   // foo.ep01, foo.EP_01, foo.E01
   m_tvshowEnumRegExps.emplace_back(
       false, "[\\._ -]?()e(?:p[ ._-]?)?([0-9]+(?:(?:[a-i]|\\.[1-9])(?![0-9]))?)([^\\\\/]*)$");
-  // foo.yyyy.mm.dd.* (byDate=true)
-  m_tvshowEnumRegExps.emplace_back(true, "([0-9]{4})[\\.-]([0-9]{2})[\\.-]([0-9]{2})");
-  // foo.mm.dd.yyyy.* (byDate=true)
-  m_tvshowEnumRegExps.emplace_back(true, "([0-9]{2})[\\.-]([0-9]{2})[\\.-]([0-9]{4})");
+  // foo.yyyy.mm.dd.* (byDate=true), in the file's name. A date in a folder's name is looked for
+  // further down, so that it doesn't win over an episode's number in the file's name.
+  m_tvshowEnumRegExps.emplace_back(true,
+                                   "([0-9]{4})[\\.-]([0-9]{2})[\\.-]([0-9]{2})(?=[^\\\\/]*$)");
+  // foo.mm.dd.yyyy.* (byDate=true), in the file's name
+  m_tvshowEnumRegExps.emplace_back(true,
+                                   "([0-9]{2})[\\.-]([0-9]{2})[\\.-]([0-9]{4})(?=[^\\\\/]*$)");
   // foo.1x09* or just /1x09*
   m_tvshowEnumRegExps.emplace_back(
       false, "[\\\\/\\._ \\[\\(-]([0-9]+)x([0-9]+(?:(?:[a-i]|\\.[1-9])(?![0-9]))?)([^\\\\/]*)$");
   // Part I, Pt.VI, Part 1
   m_tvshowEnumRegExps.emplace_back(false,
-                                   "[\\/._ -]p(?:ar)?t[_. -]()([ivx]+|[0-9]+)([._ -][^\\/]*)$");
+                                   "[\\\\/._ -]p(?:ar)?t[_. -]()([ivx]+|[0-9]+)([._ -][^\\\\/]*)$");
   // This regexp is for matching special episodes by their title, e.g. foo.special.mp4
   m_tvshowEnumRegExps.emplace_back(false, "[\\\\/]([^\\\\/]+)\\.special\\.[a-z0-9]+$", 0, true);
+  // foo/yyyy.mm.dd/*, foo/mm.dd.yyyy/* (byDate=true), a date in a folder's name. It still wins
+  // over the greedy pattern below, which would take a year in the file's name for an episode.
+  m_tvshowEnumRegExps.emplace_back(true, "([0-9]{4})[\\.-]([0-9]{2})[\\.-]([0-9]{2})");
+  m_tvshowEnumRegExps.emplace_back(true, "([0-9]{2})[\\.-]([0-9]{2})[\\.-]([0-9]{4})");
 
   // foo.103*, 103 foo
   // This regex is greedy and will match years in show names.  It should always be last.
@@ -344,7 +403,9 @@ void CAdvancedSettings::Initialize()
       false,
       "[\\\\/\\._ -]([0-9]+)([0-9][0-9](?:(?:[a-i]|\\.[1-9])(?![0-9]))?)([\\._ -][^\\\\/]*)$");
 
-  m_tvshowMultiPartEnumRegExp = "^([-_ex]+)([0-9]+)(.*)";
+  // E02, _E02, -E02, x02 or -02 after an episode. An episode's number has at most three digits, so
+  // a date or a codec after one (_2023-11-05, _x264) gives no more episodes.
+  m_tvshowMultiPartEnumRegExp = "^([-_]?e|x|-)([0-9]{1,3})(?![0-9])(.*)";
 
   // Build regex inserting local specific spelling of disc (xxx)
   // [ _.-]*\((?:xxx|dis[ck])[ _.-]*\d{1,3}\)$
@@ -404,6 +465,7 @@ void CAdvancedSettings::Initialize()
   m_iVideoLibraryDateAdded = 1; // prefer mtime over ctime and current time
   m_minimumEpisodePlaylistDuration = 5 * 60; // 5 minutes
   m_disableEpisodeRanges = false;
+  m_parseBlurayProjectFile = true;
 
   m_caseSensitiveLocalArtMatch = true; // case sensitive local art matching
   m_bNoRemoteArtWithLocalScraper =
@@ -540,6 +602,7 @@ void CAdvancedSettings::Initialize()
 
   m_nfsTimeout = 30;
   m_nfsRetries = -1;
+  m_nfsMaxConnections = 4;
 
   m_initialized = true;
 }
@@ -559,6 +622,16 @@ bool CAdvancedSettings::Load(const CProfileManager &profileManager)
   // Add the list of disc stub extensions (if any) to the list of video extensions
   if (!m_discStubExtensions.empty())
     m_videoExtensions += "|" + m_discStubExtensions;
+
+  // Built after parsing so the defaults apply without an advancedsettings.xml or a
+  // <videoscanner> section.
+  StringUtils::ToLower(m_metadataSourcesPriv);
+  m_videoScannerMetadataSources.clear();
+  for (auto& source : StringUtils::Split(m_metadataSourcesPriv, '|'))
+  {
+    if (!source.empty())
+      m_videoScannerMetadataSources.insert(std::move(source));
+  }
 
   return true;
 }
@@ -692,6 +765,8 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
     XMLUtils::GetFloat(pElement, "playcountminimumpercent", m_videoPlayCountMinimumPercent, 0.0f, 101.0f);
     XMLUtils::GetInt(pElement, "ignoresecondsatstart", m_videoIgnoreSecondsAtStart, 0, 900);
     XMLUtils::GetFloat(pElement, "ignorepercentatend", m_videoIgnorePercentAtEnd, 0, 100.0f);
+    XMLUtils::GetFloat(pElement, "contentgeometryvariesshare", m_videoContentGeometryVariesShare,
+                       0.0f, 1.0f);
 
     XMLUtils::GetBoolean(pElement, "usetimeseeking", m_videoUseTimeSeeking);
     XMLUtils::GetBoolean(pElement, "smoothpercenttotimeseeking", m_videoSmoothPercentToTimeSeeking);
@@ -873,6 +948,10 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
     }
   }
 
+  pElement = pRootElement->FirstChildElement("games");
+  if (pElement)
+    XMLUtils::GetFloat(pElement, "pacingmargin", m_gamesPacingMarginMs, 0.0f, 10.0f);
+
   pElement = pRootElement->FirstChildElement("musiclibrary");
   if (pElement)
   {
@@ -915,6 +994,7 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
     XMLUtils::GetBoolean(pElement, "casesensitivelocalartmatch", m_caseSensitiveLocalArtMatch);
     XMLUtils::GetInt(pElement, "minimumepisodeplaylistduration", m_minimumEpisodePlaylistDuration);
     XMLUtils::GetBoolean(pElement, "disableepisoderanges", m_disableEpisodeRanges);
+    XMLUtils::GetBoolean(pElement, "parseblurayprojectfile", m_parseBlurayProjectFile);
     XMLUtils::GetBoolean(pElement, "noremoteartwithlocalscraper", m_bNoRemoteArtWithLocalScraper);
     XMLUtils::GetBoolean(pElement, "ignorefoldernamesinarchives", m_ignoreFolderNamesInArchives);
   }
@@ -924,14 +1004,11 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
   {
     XMLUtils::GetBoolean(pElement, "ignoreerrors", m_bVideoScannerIgnoreErrors);
 
-    // Adjust the builtin list with the advanced setting then prepare for use.
+    // Adjust the builtin list with the advanced setting.
     if (const TiXmlElement* elem = pElement->FirstChildElement("metadatasources"); elem != nullptr)
       GetCustomExtensions(elem, m_metadataSourcesPriv);
 
     StringUtils::ToLower(m_metadataSourcesPriv);
-    const std::vector<std::string> split = StringUtils::Split(m_metadataSourcesPriv, '|');
-    m_videoScannerMetadataSources = std::unordered_set<std::string>(
-        std::make_move_iterator(split.begin()), std::make_move_iterator(split.end()));
   }
 
   // Backward-compatibility of ExternalPlayer config
@@ -960,6 +1037,7 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
     XMLUtils::GetString(pElement, "catrustfile", m_caTrustFile);
     XMLUtils::GetUInt(pElement, "nfstimeout", m_nfsTimeout, 0, 3600);
     XMLUtils::GetInt(pElement, "nfsretries", m_nfsRetries, -1, 30);
+    XMLUtils::GetUInt(pElement, "nfsmaxconnections", m_nfsMaxConnections, 1, 16);
   }
 
   pElement = pRootElement->FirstChildElement("jsonrpc");
@@ -1096,7 +1174,8 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
     m_cachePath = tmp;
   URIUtils::AddSlashAtEnd(m_cachePath);
 
-  g_LangCodeExpander.LoadUserCodes(pRootElement->FirstChildElement("languagecodes"));
+  CLangCodeExpander::LoadUserCodes(pRootElement->FirstChildElement("languagecodes"));
+  LoadLanguageCodes(pRootElement->FirstChildElement("languagecodes"));
 
   // trailer matching regexps
   const TiXmlElement* pTrailerMatching = pRootElement->FirstChildElement("trailermatching");

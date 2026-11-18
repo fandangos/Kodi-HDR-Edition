@@ -27,6 +27,7 @@ class CRenderContext;
 namespace SHADER
 {
 class IShader;
+class IShaderLut;
 class IShaderTexture;
 
 class CShaderPreset : public IShaderPreset
@@ -46,6 +47,7 @@ public:
   bool SetShaderPreset(const std::string& shaderPresetPath) override;
   const std::string& GetShaderPreset() const override;
   std::vector<ShaderPass>& GetPasses() override { return m_passes; }
+  void ReleaseTextures() override;
 
 protected:
   // Shader interface
@@ -62,15 +64,14 @@ protected:
   bool Update();
   void UpdateOutputSize(const float2 outputSize);
   void UpdateMVPs();
-  void PrepareParameters(IShaderTexture& sourceTexture);
+  bool PrepareParameters(IShaderTexture& sourceTexture);
   void CalculateScaledSize(const KODI::SHADER::ShaderPass& pass,
                            const float2& prevSize,
                            float2& scaledSize);
   void DisposeShaders();
   void DisposeShaderTextures();
   bool HasPathFailed(const std::string& path) const;
-  ShaderParameterMap GetShaderParameters(const std::vector<ShaderParameter>& parameters,
-                                         const std::string& sourceStr) const;
+  ShaderParameterMap GetShaderParameters(const std::vector<ShaderParameter>& parameters) const;
 
   // Construction parameters
   RETRO::CRenderContext& m_context;
@@ -88,6 +89,9 @@ protected:
 
   // Video shaders for the shader passes
   std::vector<std::unique_ptr<IShader>> m_pShaders;
+
+  // Look-up textures shared by the shader passes
+  std::vector<std::shared_ptr<IShaderLut>> m_luts;
 
   // Intermediate textures used for pixel shader passes
   std::vector<std::unique_ptr<IShaderTexture>> m_pShaderTextures;

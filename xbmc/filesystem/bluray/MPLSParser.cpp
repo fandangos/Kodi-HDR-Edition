@@ -8,7 +8,7 @@
 
 #include "MPLSParser.h"
 
-#include "BitReader.h"
+#include "ByteHelpers.h"
 #include "PlaylistStructure.h"
 #include "filesystem/DiscDirectoryHelper.h"
 #include "filesystem/File.h"
@@ -386,8 +386,8 @@ constexpr unsigned int OFFSET_STREAM_TABLE_NUM_VIDEO_STREAMS = 4;
 constexpr unsigned int OFFSET_STREAM_TABLE_NUM_AUDIO_STREAMS = 5;
 constexpr unsigned int OFFSET_STREAM_TABLE_NUM_PG_STREAMS = 6;
 constexpr unsigned int OFFSET_STREAM_TABLE_NUM_IG_STREAMS = 7;
-constexpr unsigned int OFFSET_STREAM_TABLE_NUM_SECONDARY_VIDEO_STREAMS = 8;
-constexpr unsigned int OFFSET_STREAM_TABLE_NUM_SECONDARY_AUDIO_STREAMS = 9;
+constexpr unsigned int OFFSET_STREAM_TABLE_NUM_SECONDARY_AUDIO_STREAMS = 8;
+constexpr unsigned int OFFSET_STREAM_TABLE_NUM_SECONDARY_VIDEO_STREAMS = 9;
 constexpr unsigned int OFFSET_STREAM_TABLE_NUM_PIP_STREAMS = 10;
 constexpr unsigned int OFFSET_STREAM_TABLE_NUM_DV_STREAMS = 11;
 
@@ -501,10 +501,10 @@ bool ParsePlayItem(std::vector<std::byte>& buffer,
       GetByte(buffer, offset + OFFSET_STREAM_TABLE_NUM_PG_STREAMS)};
   const unsigned int numInteractiveGraphicStreams{
       GetByte(buffer, offset + OFFSET_STREAM_TABLE_NUM_IG_STREAMS)};
-  const unsigned int numSecondaryVideoStreams{
-      GetByte(buffer, offset + OFFSET_STREAM_TABLE_NUM_SECONDARY_VIDEO_STREAMS)};
   const unsigned int numSecondaryAudioStreams{
       GetByte(buffer, offset + OFFSET_STREAM_TABLE_NUM_SECONDARY_AUDIO_STREAMS)};
+  const unsigned int numSecondaryVideoStreams{
+      GetByte(buffer, offset + OFFSET_STREAM_TABLE_NUM_SECONDARY_VIDEO_STREAMS)};
   const unsigned int numPictureInPictureSubtitleStreams{
       GetByte(buffer, offset + OFFSET_STREAM_TABLE_NUM_PIP_STREAMS)};
   const unsigned int numDolbyVisionStreams{
@@ -537,6 +537,15 @@ bool ParsePlayItem(std::vector<std::byte>& buffer,
   {
     playItem.presentationGraphicStreams.emplace_back(
         ParseStream(buffer, offset, STREAM_TYPE::PRESENTATION_GRAPHIC_STREAM));
+  }
+
+  // The picture-in-picture subtitle entries share the presentation graphic block, immediately
+  // following it
+  playItem.pictureInPictureSubtitleStreams.reserve(numPictureInPictureSubtitleStreams);
+  for (unsigned int k = 0; k < numPictureInPictureSubtitleStreams; ++k)
+  {
+    playItem.pictureInPictureSubtitleStreams.emplace_back(
+        ParseStream(buffer, offset, STREAM_TYPE::PICTURE_IN_PICTURE_SUBTITLE_STREAM));
   }
 
   playItem.interactiveGraphicStreams.reserve(numInteractiveGraphicStreams);
@@ -709,34 +718,34 @@ bool ProcessClips(const CURL& url,
 {
   for (const auto& playItem : playlistInformation.playItems)
   {
-    for (const auto& clip : playItem.angleClips)
+    // The first angle only, as the clips are taken one per play item
+    const ClipInformation& clip{playItem.angleClips.front()};
+
+    if (const auto& it = clipCache.find(clip.clip); it != clipCache.end())
     {
-      if (const auto& it = clipCache.find(clip.clip); it != clipCache.end())
-      {
-        // In local cache
-        playlistInformation.clips.push_back(it->second);
-        continue;
-      }
-
-      if (streamDetails == StreamDetails::DEFER)
-      {
-        // The .clpi holds nothing but the clip's stream information, and reading one per clip is
-        // the bulk of the cost of examining a disc. Record the clip as named by the play item -
-        // its timings are derived from the play item anyway (see DeriveChaptersAndTimings).
-        playlistInformation.clips.push_back(clip);
-        continue;
-      }
-
-      // Not in local cache
-      ClipInformation& clipInformation = playlistInformation.clips.emplace_back();
-      if (!ReadCLPI(url, clip.clip, clipInformation))
-      {
-        CLog::LogFC(LOGDEBUG, LOGBLURAY, "Cannot read clip {} information", clip.clip);
-        playlistInformation.clips.pop_back();
-        return false;
-      }
-      clipCache[clip.clip] = clipInformation;
+      // In local cache
+      playlistInformation.clips.push_back(it->second);
+      continue;
     }
+
+    if (streamDetails == StreamDetails::DEFER)
+    {
+      // The .clpi holds nothing but the clip's stream information, and reading one per clip is
+      // the bulk of the cost of examining a disc. Record the clip as named by the play item -
+      // its timings are derived from the play item anyway (see DeriveChaptersAndTimings).
+      playlistInformation.clips.push_back(clip);
+      continue;
+    }
+
+    // Not in local cache
+    ClipInformation& clipInformation = playlistInformation.clips.emplace_back();
+    if (!ReadCLPI(url, clip.clip, clipInformation))
+    {
+      CLog::LogFC(LOGDEBUG, LOGBLURAY, "Cannot read clip {} information", clip.clip);
+      playlistInformation.clips.pop_back();
+      return false;
+    }
+    clipCache[clip.clip] = clipInformation;
   }
   return true;
 }
@@ -1012,9 +1021,27 @@ bool ParseMPLS(const CURL& url,
     return false;
 
   // Parse extension data
+  // As libbluray, a bad extension does not invalidate the playlist, as it only holds optional
+  // data. Some discs have an ExtensionData_start_address that does not point to the extension.
   offset = extensionDataPosition;
-  if (offset != 0 && !ParseExtensionData(buffer, offset, playlistInformation))
-    return false;
+  bool extensionValid{true};
+  if (offset != 0)
+  {
+    try
+    {
+      extensionValid = ParseExtensionData(buffer, offset, playlistInformation);
+    }
+    catch (const std::logic_error&) // a read past the buffer, or a clip name that is not a number
+    {
+      extensionValid = false;
+    }
+  }
+  if (!extensionValid)
+  {
+    CLog::LogFC(LOGDEBUG, LOGBLURAY, "Invalid MPLS - extension data at {} ignored",
+                extensionDataPosition);
+    playlistInformation.extensionSubPlayItems.clear();
+  }
 
   DeriveChaptersAndTimings(playlistInformation);
 

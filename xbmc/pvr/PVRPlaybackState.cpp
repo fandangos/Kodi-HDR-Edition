@@ -30,6 +30,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "threads/Timer.h"
+#include "utils/ItemProperties.h"
 #include "utils/log.h"
 
 #include <algorithm>
@@ -50,6 +51,8 @@ public:
       m_time(time)
   {
   }
+
+  ~CLastWatchedUpdateTimer() override { Stop(true); }
 
   // ITimerCallback implementation
   void OnTimeout() override { m_state.UpdateLastWatched(m_channel, m_time); }
@@ -388,7 +391,7 @@ bool CPVRPlaybackState::OnPlaybackStopped(const CFileItem& item)
 
 std::unique_ptr<CFileItem> CPVRPlaybackState::GetNextAutoplayItem(const CFileItem& item)
 {
-  if (!item.GetProperty("epg_playlist_item").asBoolean(false))
+  if (!item.GetProperty(KODI::ITEM::PROPERTY::EPG_PLAYLIST_ITEM).asBoolean(false))
     return {};
 
   std::unique_lock lock(m_critSection);
@@ -456,11 +459,11 @@ void CPVRPlaybackState::StartPlayback(std::unique_ptr<CFileItem>& item,
     {
       if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
               CSettings::SETTING_PVRPLAYBACK_AUTOPLAYNEXTPROGRAMME))
-        item->SetProperty("epg_playlist_item", true);
+        item->SetProperty(KODI::ITEM::PROPERTY::EPG_PLAYLIST_ITEM, true);
     }
     else if (mode == ContentUtils::PlayMode::PLAY_FROM_HERE)
     {
-      item->SetProperty("epg_playlist_item", true);
+      item->SetProperty(KODI::ITEM::PROPERTY::EPG_PLAYLIST_ITEM, true);
     }
   }
 
@@ -680,6 +683,21 @@ void CPVRPlaybackState::SetActiveChannelGroup(
     group = GetFirstNonDeletedAndNonHiddenChannelGroup(channel);
 
   SetActiveChannelGroup(group);
+}
+
+bool CPVRPlaybackState::RestorePlayingChannelGroup()
+{
+  const std::shared_ptr<CPVRChannelGroupMember> playingMember{GetPlayingChannelGroupMember()};
+  if (!playingMember)
+    return false;
+
+  const std::shared_ptr<const CPVRChannelGroup> activeGroup{
+      GetActiveChannelGroup(playingMember->IsRadio())};
+  if (activeGroup && activeGroup->GroupID() == playingMember->GroupID())
+    return false;
+
+  SetActiveChannelGroup(playingMember);
+  return true;
 }
 
 std::shared_ptr<CPVRChannelGroup> CPVRPlaybackState::GetActiveChannelGroup(bool bRadio) const

@@ -1,5 +1,7 @@
-set(SOURCES TestNetwork.cpp
-            TestNetworkFileItemClassify.cpp)
+set(SOURCES TestDNSNameCache.cpp
+            TestNetwork.cpp
+            TestNetworkFileItemClassify.cpp
+            TestTCPServer.cpp)
 
 if(TARGET ${APP_NAME_LC}::MicroHttpd)
   list(APPEND SOURCES TestWebServer.cpp)

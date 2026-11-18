@@ -9,13 +9,17 @@
 #include "WinSystemGbmGLContext.h"
 
 #include "OptionalsReg.h"
+#include "ServiceBroker.h"
 #include "cores/RetroPlayer/process/gbm/RPProcessInfoGbm.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererDMAOpenGL.h"
+#include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererFBO.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPRendererOpenGL.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDFactoryCodec.h"
 #include "cores/VideoPlayer/Process/gbm/ProcessInfoGBM.h"
 #include "cores/VideoPlayer/VideoRenderers/LinuxRendererGL.h"
 #include "cores/VideoPlayer/VideoRenderers/RenderFactory.h"
+#include "guilib/GUIComponent.h"
+#include "guilib/GUIWindowManager.h"
 #include "rendering/gl/GuiCompositeShaderGL.h"
 #include "rendering/gl/ScreenshotSurfaceGL.h"
 #include "utils/BufferObjectFactory.h"
@@ -59,6 +63,7 @@ bool CWinSystemGbmGLContext::InitWindowSystem()
   RETRO::CRPProcessInfoGbm::Register();
   RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryDMAOpenGL);
   RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryOpenGL);
+  RETRO::CRPProcessInfoGbm::RegisterRendererFactory(new RETRO::CRendererFactoryFBO);
 
   if (!CWinSystemGbmEGLContext::InitWindowSystemEGL(EGL_OPENGL_BIT, EGL_OPENGL_API))
   {
@@ -122,7 +127,8 @@ void CWinSystemGbmGLContext::PresentRender(bool rendered, bool videoLayer)
 
   if (rendered || videoLayer)
   {
-    bool async = !videoLayer && m_eglFence;
+    // A frame committed without waiting reaches the screen a vblank later
+    bool async = !videoLayer && m_eglFence && !m_lowLatencyPresentation;
     if (rendered)
     {
 #if defined(EGL_ANDROID_native_fence_sync) && defined(EGL_KHR_fence_sync)
@@ -165,13 +171,8 @@ void CWinSystemGbmGLContext::PresentRender(bool rendered, bool videoLayer)
 
   if (m_dispReset && m_dispResetTimer.IsTimePast())
   {
-    CLog::Log(LOGDEBUG, "CWinSystemGbmGLContext::{} - Sending display reset to all clients",
-              __FUNCTION__);
     m_dispReset = false;
-    std::unique_lock lock(m_resourceSection);
-
-    for (auto resource : m_resources)
-      resource->OnResetDisplay();
+    CWinSystemGbm::OnResetDisplay();
   }
 }
 
@@ -210,6 +211,7 @@ bool CWinSystemGbmGLContext::CreateContext()
 
 bool CWinSystemGbmGLContext::SetGuiCompositing(int colorTransfer)
 {
+  m_guiColorTransfer = colorTransfer;
   // TODO: add CreateLUTs(colorTransfer) support to GL composite shader to match
   // GLES (WinSystemGbmGLESContext). Currently GL only handles PQ via pow shader;
   // HLG and LUT-based PQ are not yet implemented.
@@ -220,7 +222,8 @@ bool CWinSystemGbmGLContext::SetGuiCompositing(int colorTransfer)
     if (!m_compositeShader)
     {
       std::string defines;
-      if (UseLimitedColor())
+      m_compositeShaderLimited = UseLimitedColor();
+      if (m_compositeShaderLimited)
         defines += "#define KODI_LIMITED_RANGE 1\n";
       m_compositeShader = std::make_unique<CGuiCompositeShaderGL>(defines);
       if (!m_compositeShader->CompileAndLink())
@@ -247,6 +250,17 @@ bool CWinSystemGbmGLContext::BeginGuiComposite(bool guiWillRender)
   if (!m_guiCompositing)
     return false;
 
+  // the range is a compile time define, rebuild the shader when it changes
+  if (m_compositeShader && m_compositeShaderLimited != UseLimitedColor())
+  {
+    m_compositeShader.reset();
+    if (!SetGuiCompositing(m_guiColorTransfer))
+      return false;
+    // a skipped GUI walk would leave the GUI plane with the old range
+    if (!guiWillRender)
+      CServiceBroker::GetGUI()->GetWindowManager().MarkDirty();
+  }
+
   m_guiWillRender = guiWillRender;
 
   int width = m_nWidth;
@@ -270,7 +284,7 @@ bool CWinSystemGbmGLContext::BeginGuiComposite(bool guiWillRender)
       return false;
     }
 
-    if (GetEnabledFrontToBackRendering() && !m_guiFbo.AttachDepthBuffer(width, height))
+    if (!m_guiFbo.AttachDepthBuffer(width, height))
     {
       CLog::Log(LOGERROR, "CWinSystemGbmGLContext: failed to attach depth buffer to GUI FBO {}x{}",
                 width, height);

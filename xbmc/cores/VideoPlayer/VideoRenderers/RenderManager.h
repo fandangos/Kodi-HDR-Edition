@@ -45,6 +45,7 @@ class CLinuxRenderer;
 class CLinuxRendererGL;
 class CLinuxRendererGLES;
 class CRenderManager;
+struct DEBUG_INFO_PLAYER;
 
 class IRenderMsg
 {
@@ -53,7 +54,8 @@ public:
   virtual ~IRenderMsg() = default;
 protected:
   virtual void VideoParamsChange() = 0;
-  virtual void GetDebugInfo(std::string &audio, std::string &video, std::string &general) = 0;
+  //! \brief Fill the player's rows of \p info.
+  virtual void GetDebugInfo(DEBUG_INFO_PLAYER& info) = 0;
   virtual void UpdateClockSync(bool enabled) = 0;
   virtual void UpdateRenderInfo(CRenderInfo &info) = 0;
   virtual void UpdateRenderBuffers(int queued, int discard, int free) = 0;
@@ -75,6 +77,7 @@ public:
   void FrameMove();
   void FrameWait(std::chrono::milliseconds duration);
   void Render(bool clear, DWORD flags = 0, DWORD alpha = 255, bool gui = true);
+  bool CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result);
 
   RESOLUTION GetResolution();
   void UpdateResolution();
@@ -138,6 +141,11 @@ public:
 
   void SetDelay(int delay) { m_videoDelay = delay; }
   int GetDelay() { return m_videoDelay; }
+
+  /*!
+   * \brief How far ahead of the clock the picture on screen is, in DVD clock units.
+   */
+  double GetDisplayLatency() const { return m_displayLatency; }
 
   void SetVideoSettings(const CVideoSettings& settings);
 
@@ -206,7 +214,7 @@ protected:
   /// in milliseconds
   double m_latencyTweak = 0.0;
   /// Display latency updated in PrepareNextRender in DVD clock units, includes m_latencyTweak
-  double m_displayLatency = 0.0;
+  std::atomic<double> m_displayLatency = 0.0;
   std::atomic_int m_videoDelay = {};
 
   int m_QueueSize = 2;
@@ -217,6 +225,9 @@ protected:
     double         pts;
     EFIELDSYNC     presentfield;
     EPRESENTMETHOD presentmethod;
+
+    //! \brief VideoPicture::contentRect, held per buffer.
+    CRectInt contentRect;
   } m_Queue[NUM_BUFFERS]{};
 
   std::deque<int> m_free;
@@ -224,6 +235,8 @@ protected:
   std::deque<int> m_discard;
 
   std::unique_ptr<VideoPicture> m_pConfigPicture;
+  //! m_pConfigPicture differs from the pictures before it in size alone
+  bool m_configSizeOnly = false;
 
   VideoPicture m_picture{};
 

@@ -34,9 +34,9 @@ public:
 /**
  * @brief Special CRPBaseRenderer implementation to handle Direct Memory
  *        Access (DMA) buffer types. For specific use with
- *        CRenderBufferPoolDMA and CRenderBufferDMA. A windowing system
- *        must register use of this renderer and register at least one
- *        CBufferObject types.
+ *        CRenderBufferPoolDMAOpenGL and CRenderBufferDMAOpenGL. A windowing
+ *        system must register use of this renderer and register at least one
+ *        CBufferObject type.
  */
 class CRPRendererDMAOpenGL : public CRPRendererOpenGL
 {
@@ -48,6 +48,7 @@ public:
 
 protected:
   // Implementation of CRPRendererOpenGL
+  void FlushInternal() override;
   void Render(uint8_t alpha) override;
 
   std::map<CRenderBufferDMA*, std::unique_ptr<RenderBufferTextures>> m_RBTexturesMap;

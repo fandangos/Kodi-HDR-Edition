@@ -25,10 +25,14 @@
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
 #include "utils/log.h"
+#include "windowing/GuiGeometry.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <mutex>
 
+using namespace KODI::WINDOWING;
 using KODI::UTILS::COLOR::Color;
 
 CGraphicContext::CGraphicContext() = default;
@@ -279,9 +283,36 @@ CRect CGraphicContext::StereoCorrection(const CRect &rect) const
 
 void CGraphicContext::SetScissors(const CRect &rect)
 {
-  m_scissors = rect;
-  m_scissors.Intersect(CRect(0,0,(float)m_iScreenWidth, (float)m_iScreenHeight));
-  CServiceBroker::GetRenderSystem()->SetScissors(StereoCorrection(m_scissors));
+  CRect scissors = rect;
+  scissors.Intersect(ClipBounds());
+  SetClip(scissors);
+}
+
+CRect CGraphicContext::ScreenRect() const
+{
+  return {0.0f, 0.0f, static_cast<float>(m_iScreenWidth), static_cast<float>(m_iScreenHeight)};
+}
+
+CRect CGraphicContext::ClipBounds() const
+{
+  // Every window is bounded, the unscaled ones included. The picture lifts the clip explicitly.
+  return ComputeClipBounds(ScreenRect(), GetRasterRect(), GetGuiKeepShapeRect());
+}
+
+float CGraphicContext::RasterAspectInForce() const
+{
+  return ComputeRasterAspectInForce(m_rasterAspect, m_bCalibrating);
+}
+
+bool CGraphicContext::GuiKeepShapeInForce() const
+{
+  return ComputeGuiKeepShape(m_guiKeepShape, m_bFullScreenVideo, m_bCalibrating);
+}
+
+CRect CGraphicContext::ClipToVideo()
+{
+  // The picture is contained by scaling, never by the scissor.
+  return SetClip(ScreenRect());
 }
 
 const CRect &CGraphicContext::GetScissors() const
@@ -298,15 +329,7 @@ void CGraphicContext::ResetScissors()
 const CRect CGraphicContext::GetViewWindow() const
 {
   if (m_bCalibrating || m_bFullScreenVideo)
-  {
-    CRect rect;
-    RESOLUTION_INFO info = GetResInfo();
-    rect.x1 = (float)info.Overscan.left;
-    rect.y1 = (float)info.Overscan.top;
-    rect.x2 = (float)info.Overscan.right;
-    rect.y2 = (float)info.Overscan.bottom;
-    return rect;
-  }
+    return ComputeViewWindow(GetResInfo(), RasterAspectInForce());
   return m_videoRect;
 }
 
@@ -316,6 +339,79 @@ void CGraphicContext::SetViewWindow(float left, float top, float right, float bo
   m_videoRect.y1 = ScaleFinalYCoord(left, top);
   m_videoRect.x2 = ScaleFinalXCoord(right, bottom);
   m_videoRect.y2 = ScaleFinalYCoord(right, bottom);
+}
+
+bool CGraphicContext::SetGuiContentRect(const CRect& rect)
+{
+  std::unique_lock lock(*this);
+
+  if (rect == m_guiContentRect)
+    return false;
+
+  m_guiContentRect = rect;
+  return true;
+}
+
+void CGraphicContext::SetRasterAspect(float aspect)
+{
+  std::unique_lock lock(*this);
+  m_rasterAspect = aspect;
+}
+
+float CGraphicContext::GetRasterAspect() const
+{
+  return m_rasterAspect;
+}
+
+CRect CGraphicContext::ClipToGui()
+{
+  CRect clip = m_scissors;
+  clip.Intersect(ClipBounds());
+  return SetClip(clip);
+}
+
+CRect CGraphicContext::SetClip(const CRect& rect)
+{
+  const CRect previous = m_scissors;
+  m_scissors = rect;
+
+  auto* const renderSystem = CServiceBroker::GetRenderSystem();
+  if (renderSystem)
+    renderSystem->SetScissors(StereoCorrection(m_scissors));
+
+  return previous;
+}
+
+void CGraphicContext::SetGuiKeepShape(bool keepShape)
+{
+  std::unique_lock lock(*this);
+  m_guiKeepShape = keepShape;
+}
+
+CRect CGraphicContext::GetGuiKeepShapeRect() const
+{
+  if (!GuiKeepShapeInForce())
+    return {};
+  return m_guiRect;
+}
+
+CRect CGraphicContext::GetRasterRect() const
+{
+  const float raster = RasterAspectInForce();
+
+  if (!(raster > 0.0f) || m_Resolution == RES_INVALID)
+    return ScreenRect();
+
+  return ComputeRasterRect(GetResInfo(), raster);
+}
+
+RESOLUTION_INFO CGraphicContext::GetRasterResInfo() const
+{
+  RESOLUTION_INFO info = GetResInfo();
+  const CRect raster = ComputeRasterRect(info, RasterAspectInForce());
+  info.iWidth = static_cast<int>(raster.Width() + 0.5f);
+  info.iHeight = static_cast<int>(raster.Height() + 0.5f);
+  return info;
 }
 
 void CGraphicContext::SetFullScreenVideo(bool bOnOff)
@@ -385,11 +481,16 @@ bool CGraphicContext::IsValidResolution(RESOLUTION res)
 }
 
 // call SetVideoResolutionInternal and ensure its done from mainthread
-void CGraphicContext::SetVideoResolution(RESOLUTION res, bool forceUpdate)
+void CGraphicContext::SetVideoResolution(RESOLUTION res, bool forceUpdate, CEvent* abortEvent)
 {
   if (CServiceBroker::GetAppMessenger()->IsProcessThread())
   {
     SetVideoResolutionInternal(res, forceUpdate);
+  }
+  else if (abortEvent)
+  {
+    CServiceBroker::GetAppMessenger()->SendMsgAbortable(TMSG_SETVIDEORESOLUTION, res,
+                                                        forceUpdate ? 1 : 0, nullptr, *abortEvent);
   }
   else
   {
@@ -674,33 +775,23 @@ void CGraphicContext::GetGUIScaling(const RESOLUTION_INFO &res, float &scaleX, f
 {
   if (m_Resolution != RES_INVALID)
   {
-    // calculate necessary scalings
-    RESOLUTION_INFO info = GetResInfo();
-    float fFromWidth  = (float)res.iWidth;
-    float fFromHeight = (float)res.iHeight;
-    auto fToPosX = info.Overscan.left + info.guiInsets.left;
-    auto fToPosY = info.Overscan.top + info.guiInsets.top;
-    auto fToWidth = info.Overscan.right - info.guiInsets.right - fToPosX;
-    auto fToHeight = info.Overscan.bottom - info.guiInsets.bottom - fToPosY;
+    const RESOLUTION_INFO info = GetResInfo();
+    const float zoomFraction = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+                                   CSettings::SETTING_LOOKANDFEEL_SKINZOOM) *
+                               0.01f;
 
-    float fZoom = (100 + CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(CSettings::SETTING_LOOKANDFEEL_SKINZOOM)) * 0.01f;
+    // The hold governs the menus, not the playback overlay, which spans the area in force.
+    const bool keepShape = GuiKeepShapeInForce();
 
-    fZoom -= 1.0f;
-    fToPosX -= fToWidth * fZoom * 0.5f;
-    fToWidth *= fZoom + 1.0f;
+    m_guiRect = ComputeGuiRect(res, info, RasterAspectInForce(), m_guiContentRect, keepShape,
+                               zoomFraction, scaleX, scaleY);
 
-    // adjust for aspect ratio as zoom is given in the vertical direction and we don't
-    // do aspect ratio corrections in the gui code
-    fZoom = fZoom / info.fPixelRatio;
-    fToPosY -= fToHeight * fZoom * 0.5f;
-    fToHeight *= fZoom + 1.0f;
-
-    scaleX = fFromWidth / fToWidth;
-    scaleY = fFromHeight / fToHeight;
     if (matrix)
     {
-      TransformMatrix guiScaler = TransformMatrix::CreateScaler(fToWidth / fFromWidth, fToHeight / fFromHeight, fToHeight / fFromHeight);
-      TransformMatrix guiOffset = TransformMatrix::CreateTranslation(fToPosX, fToPosY);
+      TransformMatrix guiScaler = TransformMatrix::CreateScaler(
+          m_guiRect.Width() / (float)res.iWidth, m_guiRect.Height() / (float)res.iHeight,
+          m_guiRect.Height() / (float)res.iHeight);
+      TransformMatrix guiOffset = TransformMatrix::CreateTranslation(m_guiRect.x1, m_guiRect.y1);
       *matrix = guiOffset * guiScaler;
     }
   }
@@ -876,6 +967,52 @@ CRect CGraphicContext::GenerateAABB(const CRect &rect) const
                 std::min(std::min(std::min(y1, y2), y3), y4),
                 std::max(std::max(std::max(x1, x2), x3), x4),
                 std::max(std::max(std::max(y1, y2), y3), y4));
+}
+
+// simple bucket "allocator". It could be improved to cram more rects into the
+// available layers, but realistically, it should suffice. there are 8 layers
+// available, as a typical stencil buffer is 8 bits.
+STENCIL_LAYER CGraphicContext::AddStencilRectToBucket(const CRect& newRect)
+{
+  for (size_t i = 0; i < m_stencilBuckets.size(); i++)
+  {
+    // try to find
+    bool intersects = false;
+    for (auto& existingRect : m_stencilBuckets[i])
+      intersects |= existingRect.Intersects(newRect);
+
+    if (!intersects)
+    {
+      m_stencilBuckets[i].emplace_back(newRect);
+      return STENCIL_LAYER(i);
+    }
+  }
+
+  return STENCIL_LAYER::INVALID;
+}
+
+void CGraphicContext::ClearStencilBuckets()
+{
+  for (auto& bucket : m_stencilBuckets)
+    bucket.clear();
+}
+
+void CGraphicContext::SetStencilLayer(const STENCIL_LAYER stencilLayer)
+{
+  m_stencilLayers.push(stencilLayer);
+}
+
+void CGraphicContext::RestoreStencilLayer()
+{
+  if (!m_stencilLayers.empty())
+    m_stencilLayers.pop();
+}
+
+STENCIL_LAYER CGraphicContext::GetStencilLayer()
+{
+  if (m_stencilLayers.empty())
+    return STENCIL_LAYER::NONE;
+  return m_stencilLayers.top();
 }
 
 // NOTE: This routine is currently called (twice) every time there is a <camera>

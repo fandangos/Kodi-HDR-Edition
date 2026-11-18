@@ -1,11 +1,25 @@
 set(SOURCES Bookmark.cpp
             ContextMenus.cpp
             FilenameAttributes.cpp
+            geometry/ContentBarDetector.cpp
+            geometry/ContentGeometryCombiner.cpp
+            geometry/ContentGeometryRecord.cpp
+            geometry/ContentGeometryScanner.cpp
+            geometry/EffectiveGeometry.cpp
+            geometry/FrameReduction.cpp
+            geometry/FrameSampling.cpp
+            geometry/GeometryPublication.cpp
+            geometry/GeometrySettings.cpp
+            geometry/GeometryTransforms.cpp
+            geometry/LiveGeometrySelector.cpp
+            geometry/SampledGeometry.cpp
             GUIViewStateVideo.cpp
             PlayerController.cpp
+            PlayerControllerActions.cpp
             SetInfoTag.cpp
             Teletext.cpp
             VideoDatabase.cpp
+            VideoDatabaseContentGeometry.cpp
             VideoDatabaseDDL.cpp
             VideoDatabaseMigration.cpp
             VideoDbUrl.cpp
@@ -14,9 +28,12 @@ set(SOURCES Bookmark.cpp
             VideoGeneratedImageFileLoader.cpp
             VideoInfoDownloader.cpp
             VideoInfoScanner.cpp
+            VideoInfoScannerArt.cpp
+            VideoInfoScannerExtras.cpp
             VideoInfoTag.cpp
             VideoItemArtworkHandler.cpp
             VideoLibraryQueue.cpp
+            VideoStreamSelect.cpp
             VideoThumbLoader.cpp
             VideoUtils.cpp
             ViewModeSettings.cpp)
@@ -25,23 +42,42 @@ set(HEADERS Bookmark.h
             ContextMenus.h
             Episode.h
             FilenameAttributes.h
+            geometry/ContentBarDetector.h
+            geometry/ContentBarHistogram.h
+            geometry/ContentGeometryCombiner.h
+            geometry/ContentGeometryRecord.h
+            geometry/ContentGeometryScanner.h
+            geometry/EffectiveGeometry.h
+            geometry/FrameReduction.h
+            geometry/FrameSampling.h
+            geometry/GeometryPublication.h
+            geometry/GeometrySettings.h
+            geometry/GeometryTransforms.h
+            geometry/LiveGeometrySelector.h
+            geometry/SampledGeometry.h
             GUIViewStateVideo.h
             PlayerController.h
+            PlayerControllerActions.h
             SetInfoTag.h
             Teletext.h
             TeletextDefines.h
             VideoDatabase.h
             VideoDatabaseColumns.h
             VideoDatabaseDDL.h
+            VideoDatabaseMigration.h
+            VideoDbPaths.h
             VideoDbUrl.h
             VideoEmbeddedImageFileLoader.h
             VideoFileItemClassify.h
             VideoGeneratedImageFileLoader.h
             VideoInfoDownloader.h
             VideoInfoScanner.h
+            VideoInfoScannerArt.h
+            VideoInfoScannerExtras.h
             VideoInfoTag.h
             VideoItemArtworkHandler.h
             VideoLibraryQueue.h
+            VideoStreamSelect.h
             VideoThumbLoader.h
             VideoUtils.h
             VideoManagerTypes.h

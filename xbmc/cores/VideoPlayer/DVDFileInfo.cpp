@@ -13,15 +13,14 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "ServiceBroker.h"
+#include "VideoDecodeSession.h"
 #include "filesystem/StackDirectory.h"
 #include "guilib/Texture.h"
 #include "network/NetworkFileItemClassify.h"
-#include "pictures/Picture.h"
 #include "playlists/PlayListFileItemClassify.h"
 #include "pvr/utils/PVRStreamUtils.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
-#include "utils/MemUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 #include "video/VideoFileItemClassify.h"
@@ -31,21 +30,17 @@
 #endif
 #include "DVDCodecs/DVDFactoryCodec.h"
 #include "DVDCodecs/Video/DVDVideoCodec.h"
-#include "DVDCodecs/Video/DVDVideoCodecFFmpeg.h"
 #include "DVDDemuxers/DVDDemux.h"
-#include "DVDDemuxers/DVDDemuxUtils.h"
 #include "DVDDemuxers/DVDDemuxVobsub.h"
 #include "DVDDemuxers/DVDFactoryDemuxer.h"
 #include "DVDInputStreams/DVDFactoryInputStream.h"
 #include "Process/ProcessInfo.h"
-#include "TextureCache.h"
 #include "Util.h"
-#include "cores/FFmpeg.h"
 #include "filesystem/File.h"
-#include "utils/LangCodeExpander.h"
 
-#include <cstdlib>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 extern "C" {
@@ -57,16 +52,20 @@ extern "C" {
 
 using namespace KODI;
 
-bool CDVDFileInfo::GetFileDuration(const std::string &path, int& duration)
+bool CDVDFileInfo::GetFileDuration(const std::string& path,
+                                   int& duration,
+                                   unsigned int fileFlags /* = 0 */)
 {
   std::unique_ptr<CDVDDemux> demux;
 
   CFileItem item(path, false);
-  auto input = CDVDFactoryInputStream::CreateInputStream(NULL, item);
+  auto input = CDVDFactoryInputStream::CreateInputStream(NULL, item, false, fileFlags);
   if (!input)
     return false;
 
-  if (!input->Open())
+  // A DVD can only be read through a navigator driven by a player, and the title that would
+  // give a meaningful duration is not known here anyway
+  if (input->IsStreamType(DVDSTREAM_TYPE_DVD) || !input->Open())
     return false;
 
   demux.reset(CDVDFactoryDemuxer::CreateDemuxer(input, true));
@@ -97,63 +96,6 @@ int DegreeToOrientation(int degrees)
 
 namespace
 {
-//! Seek to the thumbnail position (chapter start or one third in) and decode the
-//! first clean picture.
-bool SeekAndDecodeFirstPicture(CDVDDemux& demuxer,
-                               CDVDVideoCodec& codec,
-                               int videoStream,
-                               int chapterNumber,
-                               const std::string& redactPath,
-                               VideoPicture& picture,
-                               int& packetsTried)
-{
-  const int nTotalLen = demuxer.GetStreamLength();
-
-  const bool seekToChapter = chapterNumber > 0 && demuxer.GetChapterCount() > 0;
-  const int64_t nSeekTo =
-      seekToChapter ? demuxer.GetChapterPos(chapterNumber).count() : nTotalLen / 3;
-
-  CLog::LogF(LOGDEBUG, "seeking to pos {}ms (total: {}ms) in {}", nSeekTo, nTotalLen, redactPath);
-
-  if (!demuxer.SeekTime(static_cast<double>(nSeekTo), true))
-    return false;
-
-  CDVDVideoCodec::VCReturn iDecoderState = CDVDVideoCodec::VC_NONE;
-
-  // num streams * 160 frames, should get a valid frame, if not abort.
-  for (int attemptsLeft = demuxer.GetNrOfStreams() * 160; attemptsLeft >= 0; attemptsLeft--)
-  {
-    DemuxPacket* pPacket = demuxer.Read();
-    packetsTried++;
-
-    if (!pPacket)
-      break;
-
-    if (pPacket->iStreamId != videoStream)
-    {
-      CDVDDemuxUtils::FreeDemuxPacket(pPacket);
-      continue;
-    }
-
-    codec.AddData(*pPacket);
-    CDVDDemuxUtils::FreeDemuxPacket(pPacket);
-
-    iDecoderState = CDVDVideoCodec::VC_NONE;
-    while (iDecoderState == CDVDVideoCodec::VC_NONE)
-    {
-      iDecoderState = codec.GetPicture(&picture);
-    }
-
-    if (iDecoderState == CDVDVideoCodec::VC_PICTURE)
-    {
-      if (!(picture.iFlags & DVP_FLAG_DROPPED))
-        break;
-    }
-  }
-
-  return iDecoderState == CDVDVideoCodec::VC_PICTURE && !(picture.iFlags & DVP_FLAG_DROPPED);
-}
-
 //! Convert a decoded picture to a BGRA texture sized for the thumbnail cache.
 std::unique_ptr<CTexture> PictureToTexture(const VideoPicture& picture, const CDVDStreamInfo& hint)
 {
@@ -263,6 +205,7 @@ std::unique_ptr<CTexture> PictureToTexture(const VideoPicture& picture, const CD
 
   return result;
 }
+
 } // namespace
 
 std::unique_ptr<CTexture> CDVDFileInfo::ExtractThumbToTexture(const CFileItem& fileItem,
@@ -274,78 +217,26 @@ std::unique_ptr<CTexture> CDVDFileInfo::ExtractThumbToTexture(const CFileItem& f
   const std::string redactPath = CURL::GetRedacted(fileItem.GetPath());
   auto start = std::chrono::steady_clock::now();
 
-  CFileItem item(fileItem);
-  item.SetMimeTypeForInternetFile();
-  auto pInputStream = CDVDFactoryInputStream::CreateInputStream(NULL, item);
-  if (!pInputStream)
-  {
-    CLog::Log(LOGERROR, "InputStream: Error creating stream for {}", redactPath);
+  std::optional<VideoDecodeSession> session =
+      OpenVideoDecodeSession(fileItem, CODEC_FORCE_SOFTWARE, redactPath);
+  if (!session)
     return {};
-  }
-
-  if (!pInputStream->Open())
-  {
-    CLog::Log(LOGERROR, "InputStream: Error opening, {}", redactPath);
-    return {};
-  }
-
-  std::unique_ptr<CDVDDemux> demuxer{CDVDFactoryDemuxer::CreateDemuxer(pInputStream, true)};
-  if (!demuxer)
-  {
-    CLog::LogF(LOGERROR, "Error creating demuxer");
-    return {};
-  }
-
-  int nVideoStream = -1;
-  int64_t demuxerId = -1;
-  for (CDemuxStream* pStream : demuxer->GetStreams())
-  {
-    if (pStream)
-    {
-      // ignore if it's a picture attachment (e.g. jpeg artwork)
-      // assume the first video stream is the one we want, ie the base layer in DV DTDL files
-      if (pStream->type == StreamType::VIDEO && !(pStream->flags & AV_DISPOSITION_ATTACHED_PIC) &&
-          nVideoStream == -1)
-      {
-        nVideoStream = pStream->uniqueId;
-        demuxerId = pStream->demuxerId;
-      }
-      else
-        demuxer->EnableStream(pStream->demuxerId, pStream->uniqueId, false);
-    }
-  }
 
   int packetsTried = 0;
 
   std::unique_ptr<CTexture> result{};
-  if (nVideoStream != -1)
-  {
-    std::unique_ptr<CProcessInfo> pProcessInfo(CProcessInfo::CreateInstance());
-    std::vector<AVPixelFormat> pixFmts;
-    pixFmts.push_back(AV_PIX_FMT_YUV420P);
-    pixFmts.push_back(AV_PIX_FMT_YUV420P10);
-    pixFmts.push_back(AV_PIX_FMT_YUV422P);
-    pixFmts.push_back(AV_PIX_FMT_YUV422P10);
-    pixFmts.push_back(AV_PIX_FMT_YUV444P);
-    pixFmts.push_back(AV_PIX_FMT_YUV444P10);
-    pProcessInfo->SetPixFormats(pixFmts);
+  // Thumbnail position: the chapter start, or one third in
+  const int nTotalLen = session->demuxer->GetStreamLength();
+  const bool seekToChapter = chapterNumber > 0 && session->demuxer->GetChapterCount() > 0;
+  const int64_t nSeekTo =
+      seekToChapter ? session->demuxer->GetChapterPos(chapterNumber).count() : nTotalLen / 3;
 
-    CDVDStreamInfo hint(*demuxer->GetStream(demuxerId, nVideoStream), true);
-    hint.codecOptions = CODEC_FORCE_SOFTWARE;
-
-    std::unique_ptr<CDVDVideoCodec> pVideoCodec =
-        CDVDFactoryCodec::CreateVideoCodec(hint, *pProcessInfo);
-
-    if (pVideoCodec)
-    {
-      VideoPicture picture = {};
-      if (SeekAndDecodeFirstPicture(*demuxer, *pVideoCodec, nVideoStream, chapterNumber, redactPath,
-                                    picture, packetsTried))
-        result = PictureToTexture(picture, hint);
-      else
-        CLog::LogF(LOGDEBUG, "decode failed in {} after {} packets.", redactPath, packetsTried);
-    }
-  }
+  VideoPicture picture = {};
+  if (SeekAndDecodePictureAt(*session->demuxer, *session->codec, session->videoStream, nSeekTo,
+                             redactPath, picture, packetsTried))
+    result = PictureToTexture(picture, session->hint);
+  else
+    CLog::LogF(LOGDEBUG, "decode failed in {} after {} packets.", redactPath, packetsTried);
 
   auto end = std::chrono::steady_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -379,19 +270,29 @@ bool CDVDFileInfo::CanExtract(const CFileItem& fileItem)
       URIUtils::IsOpticalMediaFile(fileItem.GetPath()) || URIUtils::IsDiscImage(fileItem.GetPath()))
     return false;
 
-  // For HTTP/FTP we only allow extraction when on a LAN
-  if (URIUtils::IsRemote(fileItem.GetPath()) && !URIUtils::IsOnLAN(fileItem.GetPath()) &&
-      (URIUtils::IsFTP(fileItem.GetPath()) || URIUtils::IsHTTP(fileItem.GetPath())))
+  // ..nor from a stack still holding unresolved disc parts.
+  // A stack of bluray:// playlists is extractable and DemuxerToStreamDetails() sums their durations
+  if (URIUtils::IsDiscImageStack(fileItem.GetDynPath()))
     return false;
 
-  return true;
+  return IsExtractableLocation(fileItem.GetPath());
+}
+
+bool CDVDFileInfo::IsExtractableLocation(const std::string& path)
+{
+  // For HTTP/FTP we only allow extraction when on a LAN
+  return !URIUtils::IsRemote(path) || URIUtils::IsOnLAN(path) ||
+         (!URIUtils::IsFTP(path) && !URIUtils::IsHTTP(path));
 }
 
 /**
  * \brief Open the item pointed to by pItem and extract streamdetails
  * \return true if the stream details have changed
  */
-bool CDVDFileInfo::GetFileStreamDetails(CFileItem *pItem)
+bool CDVDFileInfo::GetFileStreamDetails(CFileItem* pItem,
+                                        int listingFlags /* = 0 */,
+                                        CStreamDetails* probed /* = nullptr */,
+                                        unsigned int fileFlags /* = 0 */)
 {
   if (!pItem)
     return false;
@@ -412,7 +313,7 @@ bool CDVDFileInfo::GetFileStreamDetails(CFileItem *pItem)
 
   CFileItem item(playablePath, false);
   item.SetMimeTypeForInternetFile();
-  auto pInputStream = CDVDFactoryInputStream::CreateInputStream(NULL, item);
+  auto pInputStream = CDVDFactoryInputStream::CreateInputStream(NULL, item, false, fileFlags);
   if (!pInputStream)
     return false;
 
@@ -421,13 +322,20 @@ bool CDVDFileInfo::GetFileStreamDetails(CFileItem *pItem)
     return false;
   }
 
-  CDVDDemux *pDemuxer = CDVDFactoryDemuxer::CreateDemuxer(pInputStream, true);
+  CDVDDemux* pDemuxer = CDVDFactoryDemuxer::CreateDemuxer(pInputStream, true);
   if (pDemuxer)
   {
-    bool retVal = DemuxerToStreamDetails(pInputStream, pDemuxer, pItem->GetVideoInfoTag()->m_streamDetails, strFileNameAndPath);
+    // Filled locally and published once, as the item may be shown while its streams are probed
+    CStreamDetails details;
+    bool retVal =
+        DemuxerToStreamDetails(pInputStream, pDemuxer, details, strFileNameAndPath, fileFlags);
+    if (probed)
+      *probed = details;
 
     if (!pInputStream->IsStreamType(DVDSTREAM_TYPE_PVRMANAGER))
-      ProcessExternalSubtitles(pItem);
+      ProcessExternalSubtitles(*pItem, details, listingFlags);
+
+    pItem->GetVideoInfoTag()->m_streamDetails = details;
 
     delete pDemuxer;
     return retVal;
@@ -448,6 +356,8 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
   {
     CStreamDetailSubtitle* sub = new CStreamDetailSubtitle();
     sub->m_strLanguage = subs[i].m_strLanguage;
+    sub->m_flags = subs[i].m_flags;
+    sub->SetSource(CStreamDetail::MEDIA);
     details.AddStream(sub);
     result = true;
   }
@@ -456,12 +366,11 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
 
 static bool GetDetailsFromFrame(CDemuxStreamVideo* stream,
                                 CDVDDemux* demuxer,
+                                const std::string& redactPath,
                                 CStreamDetailVideo& vDetail)
 {
   std::unique_ptr<CProcessInfo> processInfo(CProcessInfo::CreateInstance());
-  std::vector<AVPixelFormat> pixFmts;
-
-  pixFmts.push_back(AV_PIX_FMT_YUV420P);
+  std::vector<AVPixelFormat> pixFmts{AV_PIX_FMT_YUV420P};
   processInfo->SetPixFormats(pixFmts);
 
   CDVDStreamInfo hint(*stream, true);
@@ -475,59 +384,12 @@ static bool GetDetailsFromFrame(CDemuxStreamVideo* stream,
     return false;
   }
 
-  int totalLen_ms = demuxer->GetStreamLength();
-  int seekTo_ms = totalLen_ms / 5;
-
-  CLog::LogF(LOGDEBUG, "seeking to pos {} ms (total: {} ms)", seekTo_ms, totalLen_ms);
-
-  if (!demuxer->SeekTime(static_cast<double>(seekTo_ms), true))
-  {
-    CLog::LogF(LOGERROR, "Unable to seek to pos {} ms", seekTo_ms);
-    return false;
-  }
-
-  CDVDVideoCodec::VCReturn decoderState = CDVDVideoCodec::VC_NONE;
-
   VideoPicture picture = {};
-
-  // num streams * 160 frames, should get a valid frame, if not abort.
-  int abort_index = demuxer->GetNrOfStreams() * 160;
-
-  do
+  int packetsTried = 0;
+  if (!SeekAndDecodePictureAt(*demuxer, *videoCodec, stream->uniqueId,
+                              demuxer->GetStreamLength() / 5, redactPath, picture, packetsTried))
   {
-    DemuxPacket* packet = demuxer->Read();
-
-    if (!packet)
-      break;
-
-    if (packet->iStreamId != stream->uniqueId)
-    {
-      CDVDDemuxUtils::FreeDemuxPacket(packet);
-      continue;
-    }
-
-    videoCodec->AddData(*packet);
-    CDVDDemuxUtils::FreeDemuxPacket(packet);
-
-    decoderState = CDVDVideoCodec::VC_NONE;
-    int maxSeeks = 50;
-    while (maxSeeks > 0 && decoderState == CDVDVideoCodec::VC_NONE)
-    {
-      decoderState = videoCodec->GetPicture(&picture);
-      maxSeeks--;
-    }
-
-    if (decoderState == CDVDVideoCodec::VC_PICTURE)
-    {
-      if (!(picture.iFlags & DVP_FLAG_DROPPED))
-        break;
-    }
-
-  } while (abort_index--);
-
-  if (decoderState != CDVDVideoCodec::VC_PICTURE || (picture.iFlags & DVP_FLAG_DROPPED))
-  {
-    CLog::LogF(LOGERROR, "Decoder couldn't find valid picture");
+    CLog::LogF(LOGERROR, "no picture decoded after {} packets", packetsTried);
     return false;
   }
 
@@ -542,12 +404,15 @@ static bool GetDetailsFromFrame(CDemuxStreamVideo* stream,
 bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>& pInputStream,
                                           CDVDDemux* pDemux,
                                           CStreamDetails& details,
-                                          const std::string& path)
+                                          const std::string& path,
+                                          unsigned int fileFlags)
 {
   bool retVal = false;
   details.Reset();
 
   const CURL pathToUrl(path);
+  // How long the parts of a stack after the first last, which every video stream lasts too
+  std::optional<int> otherPartsDuration;
   for (CDemuxStream* stream : pDemux->GetStreams())
   {
     if (stream->type == StreamType::VIDEO && !(stream->flags & AV_DISPOSITION_ATTACHED_PIC))
@@ -562,7 +427,7 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
       p->m_strCodec = pDemux->GetStreamCodecName(stream->demuxerId, stream->uniqueId);
       p->m_iDuration = pDemux->GetStreamLength();
       p->m_strStereoMode = vstream->stereo_mode;
-      p->m_strLanguage = vstream->language;
+      p->m_strLanguage = vstream->language.AsIso6392B();
       p->m_strHdrType = CStreamDetails::HdrTypeToString(vstream->hdr_type);
       if (vstream->hdr_type == StreamHdrType::HDR_TYPE_DOLBYVISION)
       {
@@ -584,24 +449,30 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
           vstream->hdr_type != StreamHdrType::HDR_TYPE_HLG && vstream->dovi.dv_profile != 5 &&
           vstream->dovi.dv_profile <= 10 && p->m_strHdrTypeAlt != "hlg")
       {
-        if (!GetDetailsFromFrame(vstream, pDemux, *p))
+        if (!GetDetailsFromFrame(vstream, pDemux, CURL::GetRedacted(path), *p))
           CLog::LogF(LOGERROR, "Failed to get HDR details from frame");
       }
+      p->SetSource(CStreamDetail::MEDIA);
 
       // stack handling
       if (URIUtils::IsStack(path))
       {
-        CFileItemList files;
-        XFILE::CStackDirectory stack;
-        stack.GetDirectory(pathToUrl, files);
-
-        // skip first path as we already know the duration
-        for (int i = 1; i < files.Size(); i++)
+        if (!otherPartsDuration)
         {
-           int duration = 0;
-           if (CDVDFileInfo::GetFileDuration(files[i]->GetDynPath(), duration))
-             p->m_iDuration = p->m_iDuration + duration;
+          CFileItemList files;
+          XFILE::CStackDirectory stack;
+          stack.GetDirectory(pathToUrl, files);
+
+          // skip first path as we already know the duration
+          otherPartsDuration = 0;
+          for (int i = 1; i < files.Size(); i++)
+          {
+            int duration = 0;
+            if (CDVDFileInfo::GetFileDuration(files[i]->GetDynPath(), duration, fileFlags))
+              *otherPartsDuration += duration;
+          }
         }
+        p->m_iDuration = p->m_iDuration + *otherPartsDuration;
       }
 
       // finally, calculate seconds
@@ -631,8 +502,10 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
     {
       CStreamDetailAudio *p = new CStreamDetailAudio();
       p->m_iChannels = static_cast<CDemuxStreamAudio*>(stream)->iChannels;
-      p->m_strLanguage = stream->language;
+      p->m_strLanguage = stream->language.AsIso6392B();
       p->m_strCodec = pDemux->GetStreamCodecName(stream->demuxerId, stream->uniqueId);
+      p->m_flags = stream->flags;
+      p->SetSource(CStreamDetail::MEDIA);
       details.AddStream(p);
       retVal = true;
     }
@@ -640,7 +513,9 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
     else if (stream->type == StreamType::SUBTITLE)
     {
       CStreamDetailSubtitle *p = new CStreamDetailSubtitle();
-      p->m_strLanguage = stream->language;
+      p->m_strLanguage = stream->language.AsIso6392B();
+      p->m_flags = stream->flags;
+      p->SetSource(CStreamDetail::MEDIA);
       details.AddStream(p);
       retVal = true;
     }
@@ -663,12 +538,24 @@ bool CDVDFileInfo::DemuxerToStreamDetails(const std::shared_ptr<CDVDInputStream>
   return retVal;
 }
 
-void CDVDFileInfo::ProcessExternalSubtitles(CFileItem* item)
+void CDVDFileInfo::AddExternalSubtitles(CFileItem& item,
+                                        CStreamDetails streams,
+                                        int listingFlags /* = 0 */)
+{
+  ProcessExternalSubtitles(item, streams, listingFlags);
+  item.GetVideoInfoTag()->m_streamDetails = streams;
+}
+
+void CDVDFileInfo::ProcessExternalSubtitles(const CFileItem& item,
+                                            CStreamDetails& details,
+                                            int listingFlags /* = 0 */)
 {
   std::vector<std::string> externalSubtitles;
-  const std::string videoPath = item->GetDynPath();
+  const std::string videoPath = item.GetSubtitleAnchorPath();
 
-  CUtil::ScanForExternalSubtitles(videoPath, externalSubtitles);
+  CUtil::ScanForExternalSubtitles(videoPath, externalSubtitles,
+                                  item.HasVideoInfoTag() ? item.GetVideoInfoTag() : nullptr,
+                                  listingFlags);
 
   for (const auto& externalSubtitle : externalSubtitles)
   {
@@ -677,15 +564,13 @@ void CDVDFileInfo::ProcessExternalSubtitles(CFileItem* item)
     {
       std::string subFile;
       if (CUtil::FindVobSubPair(externalSubtitles, externalSubtitle, subFile))
-        AddExternalSubtitleToDetails(videoPath, item->GetVideoInfoTag()->m_streamDetails,
-                                     externalSubtitle, subFile);
+        AddExternalSubtitleToDetails(videoPath, details, externalSubtitle, subFile);
     }
     else
     {
       if (!CUtil::IsVobSub(externalSubtitles, externalSubtitle))
       {
-        AddExternalSubtitleToDetails(videoPath, item->GetVideoInfoTag()->m_streamDetails,
-                                     externalSubtitle);
+        AddExternalSubtitleToDetails(videoPath, details, externalSubtitle);
       }
     }
   }
@@ -704,11 +589,18 @@ bool CDVDFileInfo::AddExternalSubtitleToDetails(const std::string &path, CStream
     if (!v.Open(filename, STREAM_SOURCE_NONE, vobsubfile))
       return false;
 
+    const ExternalStreamInfo idxInfo = CUtil::GetExternalStreamDetailsFromFilename(path, filename);
+
     for(CDemuxStream* stream : v.GetStreams())
     {
       CStreamDetailSubtitle *dsub = new CStreamDetailSubtitle();
-      std::string lang = stream->language;
-      dsub->m_strLanguage = g_LangCodeExpander.ConvertToISO6392B(lang);
+      dsub->m_strLanguage = stream->language.AsIso6392B();
+      // Mirror CVideoPlayer::AddSubtitleFile: a flag in the filename overrides the demuxer,
+      // so the scanner and the player agree
+      dsub->m_flags = static_cast<StreamFlags>(idxInfo.flag) != StreamFlags::FLAG_NONE
+                          ? static_cast<StreamFlags>(idxInfo.flag)
+                          : stream->flags;
+      dsub->SetSource(CStreamDetail::MEDIA);
       details.AddStream(dsub);
     }
     return true;
@@ -722,7 +614,9 @@ bool CDVDFileInfo::AddExternalSubtitleToDetails(const std::string &path, CStream
 
   CStreamDetailSubtitle *dsub = new CStreamDetailSubtitle();
   ExternalStreamInfo info = CUtil::GetExternalStreamDetailsFromFilename(path, filename);
-  dsub->m_strLanguage = g_LangCodeExpander.ConvertToISO6392B(info.language);
+  dsub->m_strLanguage = info.language.AsIso6392B();
+  dsub->m_flags = static_cast<StreamFlags>(info.flag);
+  dsub->SetSource(CStreamDetail::MEDIA);
   details.AddStream(dsub);
 
   return true;

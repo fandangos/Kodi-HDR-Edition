@@ -19,6 +19,7 @@ set(HEADERS Album.h
             ContextMenus.h
             GUIViewStateMusic.h
             MusicDatabase.h
+            MusicDbPaths.h
             MusicDbUrl.h
             MusicEmbeddedCoverLoaderFFmpeg.h
             MusicEmbeddedImageFileLoader.h
@@ -26,7 +27,6 @@ set(HEADERS Album.h
             MusicInfoLoader.h
             MusicLibraryQueue.h
             MusicThumbLoader.h
-            MusicType.h
             MusicUtils.h
             Song.h)
 

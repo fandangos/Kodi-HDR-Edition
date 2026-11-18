@@ -30,9 +30,9 @@
 
 using namespace JSONRPC;
 
-JSONRPC_STATUS CSettingsOperations::GetSections(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CSettingsOperations::GetSections(const CVariant& parameterObject, CVariant& result)
 {
-  SettingLevel level = ParseSettingLevel(parameterObject["level"].asString());
+  SettingLevel level = SettingLevelFromString(parameterObject["level"].asString());
   bool listCategories = !parameterObject["properties"].empty() && parameterObject["properties"][0].asString() == "categories";
 
   result["sections"] = CVariant(CVariant::VariantTypeArray);
@@ -68,9 +68,9 @@ JSONRPC_STATUS CSettingsOperations::GetSections(const std::string &method, ITran
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::GetCategories(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CSettingsOperations::GetCategories(const CVariant& parameterObject, CVariant& result)
 {
-  SettingLevel level = ParseSettingLevel(parameterObject["level"].asString());
+  SettingLevel level = SettingLevelFromString(parameterObject["level"].asString());
   std::string strSection = parameterObject["section"].asString();
   bool listSettings = !parameterObject["properties"].empty() && parameterObject["properties"][0].asString() == "settings";
 
@@ -133,9 +133,9 @@ JSONRPC_STATUS CSettingsOperations::GetCategories(const std::string &method, ITr
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::GetSettings(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CSettingsOperations::GetSettings(const CVariant& parameterObject, CVariant& result)
 {
-  SettingLevel level = ParseSettingLevel(parameterObject["level"].asString());
+  SettingLevel level = SettingLevelFromString(parameterObject["level"].asString());
   const CVariant &filter = parameterObject["filter"];
   bool doFilter = filter.isMember("section") && filter.isMember("category");
   std::string strSection, strCategory;
@@ -198,7 +198,8 @@ JSONRPC_STATUS CSettingsOperations::GetSettings(const std::string &method, ITran
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::GetSettingValue(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CSettingsOperations::GetSettingValue(const CVariant& parameterObject,
+                                                    CVariant& result)
 {
   std::string settingId = parameterObject["setting"].asString();
 
@@ -243,7 +244,8 @@ JSONRPC_STATUS CSettingsOperations::GetSettingValue(const std::string &method, I
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::SetSettingValue(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CSettingsOperations::SetSettingValue(const CVariant& parameterObject,
+                                                    CVariant& result)
 {
   std::string settingId = parameterObject["setting"].asString();
   CVariant value = parameterObject["value"];
@@ -305,7 +307,8 @@ JSONRPC_STATUS CSettingsOperations::SetSettingValue(const std::string &method, I
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::ResetSettingValue(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CSettingsOperations::ResetSettingValue(const CVariant& parameterObject,
+                                                      CVariant& result)
 {
   std::string settingId = parameterObject["setting"].asString();
 
@@ -331,18 +334,6 @@ JSONRPC_STATUS CSettingsOperations::ResetSettingValue(const std::string &method,
   }
 
   return ACK;
-}
-
-SettingLevel CSettingsOperations::ParseSettingLevel(const std::string &strLevel)
-{
-  if (StringUtils::EqualsNoCase(strLevel, "basic"))
-    return SettingLevel::Basic;
-  if (StringUtils::EqualsNoCase(strLevel, "advanced"))
-    return SettingLevel::Advanced;
-  if (StringUtils::EqualsNoCase(strLevel, "expert"))
-    return SettingLevel::Expert;
-
-  return SettingLevel::Standard;
 }
 
 bool CSettingsOperations::SerializeISetting(const std::shared_ptr<const ISetting>& setting,
@@ -404,28 +395,11 @@ bool CSettingsOperations::SerializeSetting(const std::shared_ptr<const CSetting>
     obj["help"] =
         CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(setting->GetHelp());
 
-  switch (setting->GetLevel())
-  {
-    case SettingLevel::Basic:
-      obj["level"] = "basic";
-      break;
+  const char* const level = SettingLevelToString(setting->GetLevel());
+  if (level == nullptr)
+    return false;
 
-    case SettingLevel::Standard:
-      obj["level"] = "standard";
-      break;
-
-    case SettingLevel::Advanced:
-      obj["level"] = "advanced";
-      break;
-
-    case SettingLevel::Expert:
-      obj["level"] = "expert";
-      break;
-
-    default:
-      return false;
-  }
-
+  obj["level"] = level;
   obj["enabled"] = setting->IsEnabled();
   obj["parent"] = setting->GetParent();
 
@@ -827,10 +801,7 @@ void CSettingsOperations::SerializeSettingListValues(const std::vector<CVariant>
     obj.push_back(itValue);
 }
 
-JSONRPC_STATUS CSettingsOperations::GetSkinSettings(const std::string& method,
-                                                    ITransportLayer* transport,
-                                                    IClient* client,
-                                                    const CVariant& parameterObject,
+JSONRPC_STATUS CSettingsOperations::GetSkinSettings(const CVariant& parameterObject,
                                                     CVariant& result)
 {
   const std::set<ADDON::CSkinSettingPtr> settings = CSkinSettings::GetInstance().GetSettings();
@@ -863,10 +834,7 @@ JSONRPC_STATUS CSettingsOperations::GetSkinSettings(const std::string& method,
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::GetSkinSettingValue(const std::string& method,
-                                                        ITransportLayer* transport,
-                                                        IClient* client,
-                                                        const CVariant& parameterObject,
+JSONRPC_STATUS CSettingsOperations::GetSkinSettingValue(const CVariant& parameterObject,
                                                         CVariant& result)
 {
   const std::string settingId = parameterObject["setting"].asString();
@@ -887,10 +855,7 @@ JSONRPC_STATUS CSettingsOperations::GetSkinSettingValue(const std::string& metho
   return OK;
 }
 
-JSONRPC_STATUS CSettingsOperations::SetSkinSettingValue(const std::string& method,
-                                                        ITransportLayer* transport,
-                                                        IClient* client,
-                                                        const CVariant& parameterObject,
+JSONRPC_STATUS CSettingsOperations::SetSkinSettingValue(const CVariant& parameterObject,
                                                         CVariant& result)
 {
   const std::string settingId = parameterObject["setting"].asString();

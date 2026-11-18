@@ -13,8 +13,8 @@
 #include "URL.h"
 #include "commons/ilog.h"
 #include "dialogs/GUIDialogProgress.h"
+#include "filesystem/Directory.h"
 #include "filesystem/File.h"
-#include "filesystem/IFileTypes.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "guilib/Texture.h"
@@ -25,18 +25,29 @@
 #include "profiles/ProfileManager.h"
 #include "settings/SettingsComponent.h"
 #include "utils/Crc32.h"
+#include "utils/Mime.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
+#include <algorithm>
 #include <chrono>
-#include <exception>
+#include <cstring>
 #include <mutex>
 #include <optional>
-#include <string.h>
+#include <vector>
 
 using namespace XFILE;
 using namespace std::chrono_literals;
+
+namespace
+{
+//! \brief Images to cache at once in the background
+unsigned int BackgroundJobsAtOnce()
+{
+  return std::max(1U, CJobManager::GetMaxPausableWorkers() / 2);
+}
+} // namespace
 
 CTextureCache::CTextureCache()
   : CJobQueue(false, 1, CJob::PRIORITY_LOW_PAUSABLE), m_cleanTimer{[this]() { CleanTimer(); }}
@@ -44,6 +55,19 @@ CTextureCache::CTextureCache()
 }
 
 CTextureCache::~CTextureCache() = default;
+
+CTextureCache::CCachingQueue::CCachingQueue(CTextureCache& cache)
+  : CJobQueue(false, BackgroundJobsAtOnce(), CJob::PRIORITY_LOW_PAUSABLE),
+    m_cache(cache)
+{
+}
+
+void CTextureCache::CCachingQueue::OnJobComplete(unsigned int jobID, bool success, CJob* job)
+{
+  if (strcmp(job->GetType(), CTextureCacheJob::JOB_TYPE_CACHE_IMAGE) == 0)
+    m_cache.OnCachingComplete(success, static_cast<CTextureCacheJob*>(job));
+  return CJobQueue::OnJobComplete(jobID, success, job);
+}
 
 void CTextureCache::Initialize()
 {
@@ -56,6 +80,7 @@ void CTextureCache::Initialize()
 void CTextureCache::Deinitialize()
 {
   m_cleanTimer.Stop(true);
+  m_cachingQueue.CancelJobs();
   CancelJobs();
 
   std::unique_lock lock(m_databaseSection);
@@ -117,14 +142,15 @@ std::string CTextureCache::CheckCachedImage(const std::string &url, bool &needsR
   return "";
 }
 
-void CTextureCache::BackgroundCacheImage(const std::string &url)
+void CTextureCache::BackgroundCacheImage(const std::string& url, const std::string& knownHash)
 {
   if (url.empty())
     return;
 
   CTextureDetails details;
   std::string path(GetCachedImage(url, details));
-  if (!path.empty() && details.hash.empty())
+  // A row whose file has gone is cached again, the job replacing the row
+  if (!path.empty() && details.hash.empty() && (details.file.empty() || CFile::Exists(path)))
     return; // image is already cached and doesn't need to be checked further
 
   path = IMAGE_FILES::ToCacheKey(url);
@@ -132,7 +158,7 @@ void CTextureCache::BackgroundCacheImage(const std::string &url)
     return;
 
   // needs (re)caching
-  AddJob(new CTextureCacheJob(path, details.hash));
+  m_cachingQueue.AddJob(new CTextureCacheJob(path, details, knownHash));
 }
 
 bool CTextureCache::StartCacheImage(const std::string& image)
@@ -147,34 +173,61 @@ bool CTextureCache::StartCacheImage(const std::string& image)
   return false;
 }
 
+std::string CTextureCache::CacheImage(const std::string& image, const std::string& knownHash)
+{
+  return CacheImage(image, nullptr, nullptr, 0, 0, CAspectRatio::CENTER, knownHash);
+}
+
 std::string CTextureCache::CacheImage(
     const std::string& image,
     std::unique_ptr<CTexture>* texture /*= nullptr*/,
     CTextureDetails* details /*= nullptr*/,
     unsigned int idealWidth /*= 0*/,
     unsigned int idealHeight /*= 0*/,
-    CAspectRatio::AspectRatio aspectRatio /*= CAspectRatio::CENTER*/)
+    CAspectRatio::AspectRatio aspectRatio /*= CAspectRatio::CENTER*/,
+    const std::string& knownHash /*= ""*/)
 {
   std::string url = IMAGE_FILES::ToCacheKey(image);
   if (url.empty())
     return "";
 
-  std::unique_lock lock(m_processingSection);
-  if (!m_processinglist.contains(url))
+  if (StartCacheImage(url))
   {
-    m_processinglist.insert(url);
-    lock.unlock();
-    // cache the texture directly
-    CTextureCacheJob job(url);
-    bool success = job.CacheTexture(texture);
-    OnCachingComplete(success, &job);
-    if (success && details)
-      *details = job.m_details;
-    return success ? GetCachedPath(job.m_details.file) : "";
-  }
-  lock.unlock();
+    // Retrieve the hash the image was last cached with, so an unchanged source can be revalidated
+    CTextureDetails cached;
+    GetCachedImage(url, cached);
 
-  // wait for currently processing job to end.
+    CTextureDetails oldDetails{cached};
+    if (texture)
+      oldDetails.file.clear();
+
+    // cache the texture directly. The url was reserved above, so this job owns that reservation
+    CTextureCacheJob job(url, oldDetails, knownHash);
+    job.m_holdsProcessingClaim = true;
+
+    const bool success = job.CacheTexture();
+    OnCachingComplete(success, &job);
+    if (!success)
+      return "";
+
+    // Unchanged, so the copy already in the cache stands
+    if (job.m_details.hashRevalidated)
+    {
+      if (details)
+        *details = cached;
+      return GetCachedPath(cached.file);
+    }
+
+    if (details)
+      *details = job.m_details;
+
+    const std::string cachedPath = GetCachedPath(job.m_details.file);
+    if (texture)
+      *texture = CTexture::LoadFromFile(cachedPath, idealWidth, idealHeight, aspectRatio);
+    return cachedPath;
+  }
+
+  // wait for currently processing job to end
   while (true)
   {
     m_completeEvent.Wait(1000ms);
@@ -311,6 +364,7 @@ void CTextureCache::OnCachingComplete(bool success, CTextureCacheJob *job)
       AddCachedTexture(job->m_url, job->m_details);
   }
 
+  if (job->m_holdsProcessingClaim)
   { // remove from our processing list
     std::unique_lock lock(m_processingSection);
     std::set<std::string>::iterator i = m_processinglist.find(job->m_url);
@@ -328,18 +382,88 @@ void CTextureCache::OnJobComplete(unsigned int jobID, bool success, CJob *job)
   return CJobQueue::OnJobComplete(jobID, success, job);
 }
 
-bool CTextureCache::Export(const std::string &image, const std::string &destination, bool overwrite)
+std::string CTextureCache::EnsureCachedFile(const std::string& image,
+                                            const CTextureDetails& details,
+                                            const std::string& cachedImage)
+{
+  if (details.file.empty() || CFile::Exists(cachedImage))
+    return cachedImage;
+  return CacheImage(image);
+}
+
+bool CTextureCache::Export(const std::string& image,
+                           const std::string& destination,
+                           bool overwrite,
+                           UncachedImage uncached)
 {
   CTextureDetails details;
   std::string cachedImage(GetCachedImage(image, details));
+  if (cachedImage.empty())
+  {
+    // Not cached yet, so whether it is a .jpg or a .png is only known once it has been fetched
+    if (uncached == UncachedImage::SKIP || (!overwrite && (CFile::Exists(destination + ".jpg") ||
+                                                           CFile::Exists(destination + ".png"))))
+      return false;
+
+    // Art that isn't cached until shown is copied as it is from its source, rather than cached
+    const IMAGE_FILES::CImageFileURL imageURL{image};
+    if (std::vector<uint8_t> data; uncached == UncachedImage::COPY && !imageURL.IsSpecialImage() &&
+                                   !imageURL.flipped &&
+                                   CFile().LoadFile(imageURL.GetTargetFile(), data) > 0)
+    {
+      const CMime::EFileType type{CMime::GetFileTypeFromContent(
+          {data.begin(), data.begin() + std::min<size_t>(data.size(), 8)})};
+      if (type == CMime::FileTypeJpeg || type == CMime::FileTypePng)
+      {
+        const std::string dest{destination + (type == CMime::FileTypePng ? ".png" : ".jpg")};
+        // As CFile::Copy() does: a single file export's tvshows/<title> folder exists only once art
+        // is written to it
+        if (URIUtils::IsHD(dest))
+          CDirectory::Create(URIUtils::GetDirectory(dest));
+        if (CFile file; file.OpenForWrite(dest, true))
+        {
+          // A write can be short, as CFile::Copy() allows for
+          size_t written{0};
+          while (written < data.size())
+          {
+            const ssize_t count{file.Write(data.data() + written, data.size() - written)};
+            if (count <= 0)
+              break;
+            written += static_cast<size_t>(count);
+          }
+          if (written == data.size())
+            return true;
+        }
+        // As CFile::Copy() does, so a later export doesn't take a partial file for a written one
+        CFile::Delete(dest);
+        CLog::Log(LOGERROR, "{} failed exporting '{}' to '{}'", __FUNCTION__,
+                  CURL::GetRedacted(imageURL.GetTargetFile()), dest);
+        return false;
+      }
+    }
+
+    // Art a scan caches is cached here too, and generated or flipped art, or another type, is
+    // converted by it
+    cachedImage = CacheImage(image);
+  }
   if (!cachedImage.empty())
   {
     std::string dest = destination + URIUtils::GetExtension(cachedImage);
     if (overwrite || !CFile::Exists(dest))
     {
-      if (CFile::Copy(cachedImage, dest))
+      const std::string staleImage{cachedImage};
+      cachedImage = EnsureCachedFile(image, details, cachedImage);
+      // Cached again, the image may have changed type
+      if (!cachedImage.empty() && cachedImage != staleImage)
+      {
+        dest = destination + URIUtils::GetExtension(cachedImage);
+        if (!overwrite && CFile::Exists(dest))
+          return false;
+      }
+      if (!cachedImage.empty() && CFile::Copy(cachedImage, dest))
         return true;
-      CLog::Log(LOGERROR, "{} failed exporting '{}' to '{}'", __FUNCTION__, cachedImage, dest);
+      CLog::Log(LOGERROR, "{} failed exporting '{}' to '{}'", __FUNCTION__,
+                CURL::GetRedacted(IMAGE_FILES::CImageFileURL(image).GetTargetFile()), dest);
     }
   }
   return false;
@@ -351,9 +475,11 @@ bool CTextureCache::Export(const std::string &image, const std::string &destinat
   std::string cachedImage(GetCachedImage(image, details));
   if (!cachedImage.empty())
   {
-    if (CFile::Copy(cachedImage, destination))
+    cachedImage = EnsureCachedFile(image, details, cachedImage);
+    if (!cachedImage.empty() && CFile::Copy(cachedImage, destination))
       return true;
-    CLog::Log(LOGERROR, "{} failed exporting '{}' to '{}'", __FUNCTION__, cachedImage, destination);
+    CLog::Log(LOGERROR, "{} failed exporting '{}' to '{}'", __FUNCTION__,
+              CURL::GetRedacted(IMAGE_FILES::CImageFileURL(image).GetTargetFile()), destination);
   }
   return false;
 }
@@ -437,15 +563,20 @@ void CTextureCache::CleanTimer()
   if (IsSleeping())
   {
     CLog::LogF(LOGDEBUG, "Texture cleanup postponed. System is sleeping.");
-    m_cleanTimer.Start(1h);
+    m_cleanTimer.RestartAsync(1h);
     return;
   }
 
   Submit(
       [this]()
       {
-        auto next = m_cleaningInProgress.test_and_set() ? 1h : ScanOldestCache();
-        m_cleaningInProgress.clear();
+        std::chrono::milliseconds next = 1h;
+        if (!m_cleaningInProgress.test_and_set())
+        {
+          next = ScanOldestCache();
+          m_cleaningInProgress.clear();
+        }
+        m_cleanTimer.Stop(true);
         m_cleanTimer.Start(next);
       });
 }
@@ -458,9 +589,14 @@ std::chrono::milliseconds CTextureCache::ScanOldestCache()
 
   const unsigned int cleanAmount = 1000;
   const auto result = cleaner->ScanOldestCache(cleanAmount);
+
+  // Something may have come to refer to one of these since the scan looked, a scan adding artwork
+  // being the obvious way, and removing it then would only have it fetched again
+  const auto usedSince = cleaner->GetUsedImages(result.imagesToClean);
   for (const auto& image : result.imagesToClean)
   {
-    ClearCachedImage(image);
+    if (std::ranges::find(usedSince, image) == usedSince.cend())
+      ClearCachedImage(image);
   }
 
   // update in the next 6 - 48 hours depending on number of items processed

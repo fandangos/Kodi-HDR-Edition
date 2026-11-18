@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -11,19 +11,24 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "ServiceBroker.h"
+#include "Util.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "filesystem/FileDirectoryFactory.h"
 #include "music/MusicDatabase.h"
+#include "music/MusicDbPaths.h"
 #include "music/MusicDbUrl.h"
 #include "playlists/PlayListTypes.h"
 #include "playlists/SmartPlayList.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ContentNames.h"
+#include "utils/ItemProperties.h"
 #include "utils/SortUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "video/VideoDatabase.h"
+#include "video/VideoDbPaths.h"
 #include "video/VideoDbUrl.h"
 
 #include <memory>
@@ -35,6 +40,8 @@
 #define PROPERTY_GROUP_MIXED        "group.mixed"
 
 using namespace KODI;
+using KODI::MEDIA::MediaTypeFromName;
+using KODI::MEDIA::PluralNameOf;
 
 namespace XFILE
 {
@@ -50,7 +57,7 @@ namespace XFILE
       return false;
     bool result = GetDirectory(playlist, items);
     if (result)
-      items.SetProperty("library.smartplaylist", true);
+      items.SetProperty(ITEM::PROPERTY::LIBRARY_SMARTPLAYLIST, true);
 
     return result;
   }
@@ -99,23 +106,23 @@ namespace XFILE
       }
     }
 
-    if (playlist.GetType() == "movies" ||
-        playlist.GetType() == "tvshows" ||
-        playlist.GetType() == "episodes")
+    if (playlist.GetType() == MEDIA::CONTENT::MOVIES ||
+        playlist.GetType() == MEDIA::CONTENT::TVSHOWS ||
+        playlist.GetType() == MEDIA::CONTENT::EPISODES)
     {
       playlistTypeHint = PLAYLIST::Id::TYPE_VIDEO;
       CVideoDatabase db;
       if (db.Open())
       {
-        MediaType mediaType = CMediaTypes::FromString(playlist.GetType());
+        MEDIA::TYPE mediaType = MediaTypeFromName(playlist.GetType());
 
         std::string baseDir = strBaseDir;
         if (strBaseDir.empty())
         {
-          if (mediaType == MediaTypeTvShow || mediaType == MediaTypeEpisode)
-            baseDir = "videodb://tvshows/";
-          else if (mediaType == MediaTypeMovie)
-            baseDir = "videodb://movies/";
+          if (mediaType == MEDIA::TYPE::TV_SHOW || mediaType == MEDIA::TYPE::EPISODE)
+            baseDir = VIDEO::DB_PATH::TVSHOWS;
+          else if (mediaType == MEDIA::TYPE::MOVIE)
+            baseDir = VIDEO::DB_PATH::MOVIES;
           else
             return false;
 
@@ -125,7 +132,7 @@ namespace XFILE
             baseDir += group;
           URIUtils::AddSlashAtEnd(baseDir);
 
-          if (mediaType == MediaTypeEpisode)
+          if (mediaType == MEDIA::TYPE::EPISODE)
             baseDir += "-1/-1/";
         }
 
@@ -152,7 +159,7 @@ namespace XFILE
 
         // if we retrieve a list of episodes and we didn't receive
         // a pre-defined base path, we need to fix it
-        if (strBaseDir.empty() && mediaType == MediaTypeEpisode && !isGrouped)
+        if (strBaseDir.empty() && mediaType == MEDIA::TYPE::EPISODE && !isGrouped)
           videoUrl.AppendPath("-1/-1/");
         items.SetProperty(PROPERTY_PATH_DB, videoUrl.ToString());
       }
@@ -164,25 +171,21 @@ namespace XFILE
       if (db.Open())
       {
         PLAYLIST::CSmartPlaylist plist(playlist);
-        if (playlist.GetType() == "mixed" || playlist.GetType().empty())
-          plist.SetType("songs");
+        if (playlist.GetType() == MEDIA::CONTENT::MIXED || playlist.GetType().empty())
+          plist.SetType(MEDIA::CONTENT::SONGS);
 
-        MediaType mediaType = CMediaTypes::FromString(plist.GetType());
+        MEDIA::TYPE mediaType = MediaTypeFromName(plist.GetType());
 
         std::string baseDir = strBaseDir;
         if (strBaseDir.empty())
         {
-          baseDir = "musicdb://";
+          baseDir = MUSIC::DB_PATH::ROOT;
           if (!isGrouped)
           {
-            if (mediaType == MediaTypeArtist)
-              baseDir += "artists";
-            else if (mediaType == MediaTypeAlbum)
-              baseDir += "albums";
-            else if (mediaType == MediaTypeSong)
-              baseDir += "songs";
-            else
+            if (mediaType != MEDIA::TYPE::ARTIST && mediaType != MEDIA::TYPE::ALBUM &&
+                mediaType != MEDIA::TYPE::SONG)
               return false;
+            baseDir += PluralNameOf(mediaType);
           }
           else
             baseDir += group;
@@ -215,20 +218,21 @@ namespace XFILE
       }
     }
 
-    if (playlist.GetType() == "musicvideos" || playlist.GetType() == "mixed")
+    if (playlist.GetType() == MEDIA::CONTENT::MUSICVIDEOS ||
+        playlist.GetType() == MEDIA::CONTENT::MIXED)
     {
       playlistTypeHint = PLAYLIST::Id::TYPE_VIDEO;
       CVideoDatabase db;
       if (db.Open())
       {
         PLAYLIST::CSmartPlaylist mvidPlaylist(playlist);
-        if (playlist.GetType() == "mixed")
-          mvidPlaylist.SetType("musicvideos");
+        if (playlist.GetType() == MEDIA::CONTENT::MIXED)
+          mvidPlaylist.SetType(MEDIA::CONTENT::MUSICVIDEOS);
 
         std::string baseDir = strBaseDir;
         if (baseDir.empty())
         {
-          baseDir = "videodb://musicvideos/";
+          baseDir = VIDEO::DB_PATH::MUSICVIDEOS;
 
           if (!isGrouped)
             baseDir += "titles";
@@ -272,13 +276,6 @@ namespace XFILE
           items.SetPath(videoUrl.ToString());
 
         items.Append(items2);
-        if (items2.Size())
-        {
-          if (items.Size() > items2.Size())
-            items.SetContent("mixed");
-          else
-            items.SetContent("musicvideos");
-        }
         items.SetProperty(PROPERTY_PATH_DB, videoUrl.ToString());
       }
     }
@@ -302,7 +299,7 @@ namespace XFILE
     if (items.Size() > 1 && !group.empty())
     {
       if (playlist.GetOrder() == SortBy::RANDOM && group == "actors" &&
-          playlist.GetType() == "musicvideos")
+          playlist.GetType() == MEDIA::CONTENT::MUSICVIDEOS)
         items.Sort(SortBy::RANDOM, SortOrder::ASCENDING,
                    CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
                        CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING)
@@ -316,6 +313,9 @@ namespace XFILE
                        : SortAttributeNone);
     }
 
+    if (auto watchedMode = playlist.GetWatchedMode(); watchedMode.has_value())
+      items.SetProperty(ITEM::PROPERTY::WATCHED_MODE, static_cast<int>(watchedMode.value()));
+
     // go through and set the playlist order
     for (int i = 0; i < items.Size(); i++)
     {
@@ -324,9 +324,9 @@ namespace XFILE
       item->SetProperty("playlist_type_hint", static_cast<int>(playlistTypeHint));
     }
 
-    if (playlist.GetType() == "mixed")
+    if (playlist.GetType() == MEDIA::CONTENT::MIXED)
       return success || success2;
-    else if (playlist.GetType() == "musicvideos")
+    else if (playlist.GetType() == MEDIA::CONTENT::MUSICVIDEOS)
       return success2;
     else
       return success;
@@ -343,9 +343,13 @@ namespace XFILE
     CFileItemList list;
     bool filesExist = false;
     if (PLAYLIST::CSmartPlaylist::IsMusicType(playlistType))
-      filesExist = CDirectory::GetDirectory("special://musicplaylists/", list, ".xsp", DIR_FLAG_DEFAULTS);
+      filesExist =
+          CDirectory::GetDirectory(CUtil::PlaylistsPathOf(KODI::MEDIA::MediaSection::MUSIC), list,
+                                   ".xsp", DIR_FLAG_DEFAULTS);
     else // all others are video
-      filesExist = CDirectory::GetDirectory("special://videoplaylists/", list, ".xsp", DIR_FLAG_DEFAULTS);
+      filesExist =
+          CDirectory::GetDirectory(CUtil::PlaylistsPathOf(KODI::MEDIA::MediaSection::VIDEO), list,
+                                   ".xsp", DIR_FLAG_DEFAULTS);
     if (filesExist)
     {
       for (int i = 0; i < list.Size(); i++)

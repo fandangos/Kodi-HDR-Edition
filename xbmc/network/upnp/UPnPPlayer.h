@@ -1,6 +1,6 @@
 /*
  *  Copyright (c) 2006 elupus (Joakim Plate)
- *  Copyright (C) 2006-2018 Team Kodi
+ *  Copyright (C) 2006-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -10,10 +10,12 @@
 #pragma once
 
 #include "cores/IPlayer.h"
+#include "threads/CriticalSection.h"
 #include "threads/SystemClock.h"
 #include "threads/Thread.h"
 #include "utils/logtypes.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -55,6 +57,8 @@ public:
                XbmcThreads::EndTime<>& timeout);
 
 private:
+  bool BuildResource(const CFileItem& file, std::string& uri, std::string& metadata);
+  void FollowQueue();
   bool IsPaused() const;
   int64_t GetTime();
   int64_t GetTotalTime();
@@ -66,13 +70,17 @@ private:
 
   PLT_MediaController* m_control = nullptr;
   std::unique_ptr<CUPnPPlayerController> m_delegate;
-  std::string m_current_uri;
-  std::string m_current_meta;
   bool m_started = false;
-  bool m_stopremote = false;
+  std::atomic<bool> m_stopremote{false};
   bool m_hasVideo{false};
   bool m_hasAudio{false};
   XbmcThreads::EndTime<> m_updateTimer;
+
+  CCriticalSection m_queueSection;
+  bool m_canQueueNext{false};
+  std::string m_trackUri;
+  std::unique_ptr<CFileItem> m_queued;
+  bool m_nextRequested{false};
 
   Logger m_logger;
 };

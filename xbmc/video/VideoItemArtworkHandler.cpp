@@ -12,6 +12,7 @@
 #include "FileItemList.h"
 #include "MediaSource.h"
 #include "ServiceBroker.h"
+#include "Util.h"
 #include "filesystem/Directory.h"
 #include "imagefiles/ImageFileURL.h"
 #include "music/Artist.h"
@@ -20,14 +21,18 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/ArtUtils.h"
+#include "utils/DefaultArt.h"
 #include "utils/FileExtensionProvider.h"
 #include "utils/FileUtils.h"
+#include "utils/ItemProperties.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
+#include "video/VideoDbPaths.h"
 #include "video/VideoFileItemClassify.h"
 #include "video/VideoInfoScanner.h"
 #include "video/VideoInfoTag.h"
@@ -35,12 +40,84 @@
 #include "video/tags/VideoTagExtractionHelper.h"
 
 using namespace XFILE;
+using KODI::MEDIA::NameOf;
 
 namespace KODI::VIDEO
 {
 
 namespace
 {
+//! The art of a version (playlist) of a bluray, or of an episode of several in one file, named for
+//! it as a scan looks for it (index-00800-poster.jpg, Show-S01E01-thumb.jpg), or for a disc folder
+//! rip by its playlist or episode alone (00800-poster.jpg, S01E01-thumb.jpg)
+std::string GetOwnLocalArt(const CFileItem& item, const std::string& artType)
+{
+  if (!item.HasVideoInfoTag() || item.SkipLocalArt())
+    return {};
+
+  // A library item's path is the database's, and its file is its dynamic path
+  CFileItem fileItem{item};
+  fileItem.SetPath(item.GetDynPath());
+
+  const CVideoInfoTag& tag{*item.GetVideoInfoTag()};
+  ART::AdditionalIdentifiers identifiers;
+  std::string ownName;
+  if (tag.GetMediaType() == MEDIA::TYPE::EPISODE && tag.m_iSeason > -1 && tag.m_iEpisode > -1)
+  {
+    identifiers = ART::AdditionalIdentifiers::SEASON_AND_EPISODE;
+    ownName = StringUtils::Format("S{:02}E{:02}", tag.m_iSeason, tag.m_iEpisode);
+  }
+  else if (const int playlist{URIUtils::GetBlurayPlaylistFromPath(item.GetDynPath())};
+           playlist > -1 &&
+           (tag.GetMediaType() == MEDIA::TYPE::VIDEO_VERSION || tag.HasVideoVersions()))
+  {
+    fileItem.SetProperty(ITEM::PROPERTY::BLURAY_PLAYLIST, playlist);
+    identifiers = ART::AdditionalIdentifiers::PLAYLIST;
+    ownName = StringUtils::Format("{:05}", playlist);
+  }
+  else
+    return {};
+
+  bool useFolder{false};
+  const std::string base{ART::GetLocalArtBaseFilename(fileItem, useFolder, identifiers)};
+  if (useFolder)
+    return {};
+
+  // Matched as a scan matches them, the name by itself first so the prefixed one wins
+  ART::Artwork art;
+  if (URIUtils::HasExtension(base, ".bdmv|.ifo"))
+    ART::AddLocalItemArtwork(art, {artType},
+                             URIUtils::AddFileToFolder(URIUtils::GetDirectory(base),
+                                                       ownName + URIUtils::GetExtension(base)),
+                             false, true, false);
+  ART::AddLocalItemArtwork(art, {artType}, base, false, true, false);
+
+  const auto found{art.find(artType)};
+  return found != art.end() ? found->second : std::string{};
+}
+
+//! Whether the plain art beside a video is another's, so a scan takes none of it for the video: that
+//! of a disc an extra shares, such as a featurette on the movie's disc, or of a file or disc holding
+//! several episodes, as the export tells them apart
+bool IsPlainArtAnothers(const CFileItem& item)
+{
+  if (!item.HasVideoInfoTag())
+    return false;
+
+  const CVideoInfoTag& tag{*item.GetVideoInfoTag()};
+  if (CUtil::IsDiscPlaylistExtra(item.GetDynPath(), &tag))
+    return true;
+  if (tag.GetMediaType() != MEDIA::TYPE::EPISODE || tag.m_iIdShow < 0)
+    return false;
+
+  CVideoDatabase db;
+  EpisodeFileMap episodes;
+  if (!db.Open() || !db.GetEpisodeMap(tag.m_iIdShow, episodes))
+    return false;
+  const std::string& file{item.GetDynPath()};
+  return episodes.count(URIUtils::IsBlurayPath(file) ? URIUtils::GetDiscFile(file) : file) > 1;
+}
+
 //-------------------------------------------------------------------------------------------------
 // CVideoItemArtworkHandler (Generic handler)
 //-------------------------------------------------------------------------------------------------
@@ -85,8 +162,9 @@ std::string CVideoItemArtworkHandler::GetCurrentArt() const
   std::string currentArt;
   if (m_item->HasArt(m_artType))
     currentArt = m_item->GetArt(m_artType);
-  else if (m_item->HasArt("thumb") && (m_artType == "poster" || m_artType == "banner"))
-    currentArt = m_item->GetArt("thumb");
+  else if (m_item->HasArt(ART::TYPE::THUMB) &&
+           (m_artType == ART::TYPE::POSTER || m_artType == ART::TYPE::BANNER))
+    currentArt = m_item->GetArt(ART::TYPE::THUMB);
 
   return currentArt;
 }
@@ -110,12 +188,18 @@ std::vector<std::string> CVideoItemArtworkHandler::GetRemoteArt() const
 
 std::string CVideoItemArtworkHandler::GetLocalArt() const
 {
+  if (std::string art{GetOwnLocalArt(*m_item, m_artType)}; !art.empty())
+    return art;
+
+  // As a scan, the plain art is offered only where it's the video's own
+  if (IsPlainArtAnothers(*m_item))
+    return {};
   return CVideoThumbLoader::GetLocalArt(*m_item, m_artType);
 }
 
 std::string CVideoItemArtworkHandler::GetDefaultIcon() const
 {
-  return m_item->IsFolder() ? "DefaultFolder.png" : "DefaultPicture.png";
+  return m_item->IsFolder() ? ART::DEFAULT::FOLDER : ART::DEFAULT::PICTURE;
 }
 
 void CVideoItemArtworkHandler::AddItemPathToFileBrowserSources(std::vector<CMediaSource>& sources)
@@ -143,10 +227,15 @@ void CVideoItemArtworkHandler::PersistArt(const std::string& art)
     return;
   }
 
-  videodb.SetArtForItem(m_item->GetVideoInfoTag()->m_iDbId, m_item->GetVideoInfoTag()->m_type,
-                        m_artType, art);
+  const CVideoInfoTag* tag = m_item->GetVideoInfoTag();
 
-  videodb.UpdateArtForItem(m_item->GetVideoInfoTag()->m_iDbId, m_artType);
+  const bool isAssetArt{VIDEO::IsVideoAssetFile(*m_item)};
+  const int mediaId = isAssetArt ? tag->m_iFileId : tag->m_iDbId;
+  const std::string& mediaType = isAssetArt ? NameOf(MEDIA::TYPE::VIDEO_VERSION) : tag->m_type;
+
+  videodb.SetArtForItem(mediaId, mediaType, m_artType, art);
+
+  videodb.UpdateArtForItem(tag->m_iDbId, tag->m_type);
 }
 
 void CVideoItemArtworkHandler::AddItemPathStringToFileBrowserSources(
@@ -177,7 +266,7 @@ public:
   std::vector<std::string> GetRemoteArt() const override;
   std::string GetLocalArt() const override;
 
-  std::string GetDefaultIcon() const override { return "DefaultArtist.png"; }
+  std::string GetDefaultIcon() const override { return ART::DEFAULT::ARTIST; }
 
   void PersistArt(const std::string& art) override;
 };
@@ -194,7 +283,7 @@ std::string CVideoItemArtworkArtistHandler::GetCurrentArt() const
   std::string currentArt;
   const int idArtist = musicdb.GetArtistByName(m_item->GetLabel());
   if (idArtist >= 0)
-    currentArt = musicdb.GetArtForItem(idArtist, MediaTypeArtist, "thumb");
+    currentArt = musicdb.GetArtForItem(idArtist, MEDIA::TYPE::ARTIST, ART::TYPE::THUMB);
 
   if (currentArt.empty())
   {
@@ -206,7 +295,7 @@ std::string CVideoItemArtworkArtistHandler::GetCurrentArt() const
     }
 
     currentArt = videodb.GetArtForItem(m_item->GetVideoInfoTag()->m_iDbId,
-                                       m_item->GetVideoInfoTag()->m_type, "thumb");
+                                       m_item->GetVideoInfoTag()->m_type, ART::TYPE::THUMB);
   }
   return currentArt;
 }
@@ -273,7 +362,7 @@ void CVideoItemArtworkArtistHandler::PersistArt(const std::string& art)
 
   const int idArtist = musicdb.GetArtistByName(m_item->GetLabel());
   if (idArtist >= 0)
-    musicdb.SetArtForItem(idArtist, MediaTypeArtist, m_artType, art);
+    musicdb.SetArtForItem(idArtist, MEDIA::TYPE::ARTIST, m_artType, art);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -292,7 +381,7 @@ public:
   std::string GetCurrentArt() const override;
   std::string GetLocalArt() const override;
 
-  std::string GetDefaultIcon() const override { return "DefaultActor.png"; }
+  std::string GetDefaultIcon() const override { return ART::DEFAULT::ACTOR; }
 };
 
 std::string CVideoItemArtworkActorHandler::GetCurrentArt() const
@@ -305,7 +394,7 @@ std::string CVideoItemArtworkActorHandler::GetCurrentArt() const
   }
 
   return videodb.GetArtForItem(m_item->GetVideoInfoTag()->m_iDbId,
-                               m_item->GetVideoInfoTag()->m_type, "thumb");
+                               m_item->GetVideoInfoTag()->m_type, ART::TYPE::THUMB);
 }
 
 std::string CVideoItemArtworkActorHandler::GetLocalArt() const
@@ -368,7 +457,7 @@ public:
   std::vector<std::string> GetRemoteArt() const override;
   std::string GetLocalArt() const override;
 
-  std::string GetDefaultIcon() const override { return "DefaultVideo.png"; }
+  std::string GetDefaultIcon() const override { return ART::DEFAULT::VIDEO; }
 
   void AddItemPathToFileBrowserSources(std::vector<CMediaSource>& sources) override;
 };
@@ -384,7 +473,7 @@ std::vector<std::string> CVideoItemArtworkMovieSetHandler::GetRemoteArt() const
 
   std::vector<std::string> remoteArt;
   const std::string baseDir =
-      StringUtils::Format("videodb://movies/sets/{}", m_item->GetVideoInfoTag()->m_iDbId);
+      StringUtils::Format("{}{}", KODI::VIDEO::DB_PATH::MOVIE_SETS, m_item->GetVideoInfoTag()->m_iDbId);
   CFileItemList items;
   if (videodb.GetMoviesNav(baseDir, items))
   {
@@ -456,7 +545,7 @@ public:
   std::vector<std::string> GetRemoteArt() const override;
   std::string GetLocalArt() const override;
 
-  std::string GetDefaultIcon() const override { return "DefaultPicture.png"; }
+  std::string GetDefaultIcon() const override { return ART::DEFAULT::PICTURE; }
   bool SupportsFlippedArt() const override { return true; }
 
   std::string UpdateEmbeddedArt(const std::string& art) override;
@@ -465,7 +554,7 @@ public:
 
 std::string CVideoItemArtworkFanartHandler::GetCurrentArt() const
 {
-  return m_item->GetArt("fanart");
+  return m_item->GetArt(ART::TYPE::FANART);
 }
 
 std::vector<std::string> CVideoItemArtworkFanartHandler::GetRemoteArt() const
@@ -485,6 +574,11 @@ std::vector<std::string> CVideoItemArtworkFanartHandler::GetRemoteArt() const
 
 std::string CVideoItemArtworkFanartHandler::GetLocalArt() const
 {
+  if (std::string art{GetOwnLocalArt(*m_item, ART::TYPE::FANART)}; !art.empty())
+    return art;
+
+  if (IsPlainArtAnothers(*m_item))
+    return {};
   return ART::GetLocalFanart(*m_item);
 }
 
@@ -548,15 +642,15 @@ std::unique_ptr<IVideoItemArtworkHandler> IVideoItemArtworkHandlerFactory::Creat
 {
   std::unique_ptr<IVideoItemArtworkHandler> artHandler;
 
-  if (artType == "fanart" && mediaType != MediaTypeVideoCollection)
+  if (artType == ART::TYPE::FANART && mediaType != NameOf(MEDIA::TYPE::VIDEO_COLLECTION))
     artHandler = std::make_unique<CVideoItemArtworkFanartHandler>(item, artType);
-  else if (mediaType == MediaTypeArtist)
+  else if (mediaType == NameOf(MEDIA::TYPE::ARTIST))
     artHandler = std::make_unique<CVideoItemArtworkArtistHandler>(item, artType);
   else if (mediaType == "actor")
     artHandler = std::make_unique<CVideoItemArtworkActorHandler>(item, artType);
-  else if (mediaType == MediaTypeSeason)
+  else if (mediaType == NameOf(MEDIA::TYPE::SEASON))
     artHandler = std::make_unique<CVideoItemArtworkSeasonHandler>(item, artType);
-  else if (mediaType == MediaTypeVideoCollection)
+  else if (mediaType == NameOf(MEDIA::TYPE::VIDEO_COLLECTION))
     artHandler = std::make_unique<CVideoItemArtworkMovieSetHandler>(item, artType);
   else
     artHandler = std::make_unique<CVideoItemArtworkHandler>(item, artType);

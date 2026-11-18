@@ -10,26 +10,37 @@
 
 #include "FileItem.h"
 #include "FileItemList.h"
+#include "GUIPassword.h"
+#include "InfoScanner.h"
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "Util.h"
 #include "filesystem/Directory.h"
+#include "filesystem/File.h"
 #include "filesystem/StackDirectory.h"
+#include "interfaces/AnnouncementManager.h"
+#include "media/MediaType.h"
 #include "network/NetworkFileItemClassify.h"
 #include "playlists/PlayListFileItemClassify.h"
+#include "profiles/ProfileManager.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingUtils.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
 #include "utils/ArtUtils.h"
+#include "utils/Digest.h"
 #include "utils/FileExtensionProvider.h"
 #include "utils/FileUtils.h"
+#include "utils/ItemProperties.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "utils/Variant.h"
 #include "utils/XBMCTinyXML2.h"
 #include "utils/log.h"
 #include "video/VideoDatabase.h"
+#include "video/VideoFileItemClassify.h"
+#include "video/VideoInfoScanner.h"
 #include "video/VideoInfoTag.h"
 
 #include <algorithm>
@@ -42,7 +53,9 @@
 namespace KODI::VIDEO::UTILS
 {
 
-std::string FindTrailer(const CFileItem& item, KODI::REGEXP::RegExpCache* cache /* = nullptr */)
+std::string FindTrailer(const CFileItem& item,
+                        bool movieFolder,
+                        KODI::REGEXP::RegExpCache* cache /* = nullptr */)
 {
   std::string strFile2;
   std::string strFile = item.GetPath();
@@ -66,19 +79,26 @@ std::string FindTrailer(const CFileItem& item, KODI::REGEXP::RegExpCache* cache 
     strFile = URIUtils::AddFileToFolder(strParent, URIUtils::GetFileName(item.GetPath()));
   }
 
-  // no local trailer available for these
-  if (NETWORK::IsInternetStream(item) || URIUtils::IsUPnP(strFile) ||
-      URIUtils::IsBlurayPath(strFile) || item.IsLiveTV() || item.IsPlugin() || item.IsDVD())
-    return "";
+  if (URIUtils::IsBlurayPath(strFile))
+    strFile = URIUtils::GetDiscFile(strFile);
 
-  std::string strDir = URIUtils::GetDirectory(strFile);
-  CFileItemList items;
-  XFILE::CDirectory::GetDirectory(
-      strDir, items, CServiceBroker::GetFileExtensionProvider().GetVideoExtensions(),
-      XFILE::DIR_FLAG_READ_CACHE | XFILE::DIR_FLAG_NO_FILE_INFO | XFILE::DIR_FLAG_NO_FILE_DIRS);
-  URIUtils::RemoveExtension(strFile);
-  strFile += "-trailer";
-  std::string strFile3 = URIUtils::AddFileToFolder(strDir, "movie-trailer");
+  // A disc folder rip's trailer is beside BDMV/VIDEO_TS, named after the movie as its subtitles
+  // are, which skips a folder of the disc's own (disc 1)
+  std::string discFile;
+  if (URIUtils::IsOpticalMediaFile(strFile))
+  {
+    discFile = strFile;
+    std::string folder;
+    std::string name;
+    CUtil::GetVideoBasePathAndFileName(strFile, folder, name);
+    // The disc file's extension stands in for the name's, so a name with dots keeps them all
+    strFile = URIUtils::AddFileToFolder(folder, name + URIUtils::GetExtension(strFile));
+  }
+
+  // no local trailer available for these
+  if (NETWORK::IsInternetStream(item) || URIUtils::IsUPnP(strFile) || item.IsLiveTV() ||
+      item.IsPlugin() || item.IsDVD())
+    return "";
 
   // Precompile our REs
   std::vector<std::shared_ptr<CRegExp>> matchRegExps;
@@ -93,33 +113,71 @@ std::string FindTrailer(const CFileItem& item, KODI::REGEXP::RegExpCache* cache 
       matchRegExps.push_back(r);
   }
 
-  std::string strTrailer;
-  for (int i = 0; i < items.Size(); i++)
+  // movie-trailer is no particular video's, so only a movie with a folder of its own has it
+  const bool hasMovieTrailer{movieFolder || !discFile.empty()};
+  const auto findTrailerFor = [&strFile2, &matchRegExps, hasMovieTrailer](std::string strFile)
   {
-    std::string strCandidate = items[i]->GetPath();
-    URIUtils::RemoveExtension(strCandidate);
-    if (StringUtils::EqualsNoCase(strCandidate, strFile) ||
-        StringUtils::EqualsNoCase(strCandidate, strFile2) ||
-        StringUtils::EqualsNoCase(strCandidate, strFile3))
+    std::string strDir = URIUtils::GetDirectory(strFile);
+    CFileItemList items;
+    XFILE::CDirectory::GetDirectory(
+        strDir, items, CServiceBroker::GetFileExtensionProvider().GetVideoExtensions(),
+        XFILE::DIR_FLAG_READ_CACHE | XFILE::DIR_FLAG_NO_FILE_INFO | XFILE::DIR_FLAG_NO_FILE_DIRS);
+    URIUtils::RemoveExtension(strFile);
+    strFile += "-trailer";
+    const std::string strFile3{hasMovieTrailer ? URIUtils::AddFileToFolder(strDir, "movie-trailer")
+                                               : ""};
+
+    std::string strTrailer;
+    for (int i = 0; i < items.Size(); i++)
     {
-      strTrailer = items[i]->GetPath();
-      break;
-    }
-    else
-    {
-      for (auto& expr : matchRegExps)
+      std::string strCandidate = items[i]->GetPath();
+      URIUtils::RemoveExtension(strCandidate);
+      // Not even through a trailer expression matching it
+      if (!hasMovieTrailer &&
+          StringUtils::EqualsNoCase(URIUtils::GetFileName(strCandidate), "movie-trailer"))
+        continue;
+      if (StringUtils::EqualsNoCase(strCandidate, strFile) ||
+          StringUtils::EqualsNoCase(strCandidate, strFile2) ||
+          StringUtils::EqualsNoCase(strCandidate, strFile3))
       {
-        if (expr->RegFind(strCandidate) != -1)
+        strTrailer = items[i]->GetPath();
+        break;
+      }
+      else
+      {
+        for (auto& expr : matchRegExps)
         {
-          strTrailer = items[i]->GetPath();
-          i = items.Size();
-          break;
+          if (expr->RegFind(strCandidate) != -1)
+          {
+            strTrailer = items[i]->GetPath();
+            i = items.Size();
+            break;
+          }
         }
       }
     }
-  }
+    return strTrailer;
+  };
+
+  std::string strTrailer{findTrailerFor(strFile)};
+
+  //! @todo Up to v21 a disc folder rip's trailer was looked for inside BDMV/VIDEO_TS, as
+  //! index-trailer or movie-trailer. Deprecate in v23.
+  if (strTrailer.empty() && !discFile.empty())
+    strTrailer = findTrailerFor(discFile);
 
   return strTrailer;
+}
+
+bool HasMovieFolder(CVideoDatabase& database, const std::string& videoPath)
+{
+  // A playlist's path (bluray://.../BDMV/PLAYLIST/) is deeper than its disc's, so would be taken
+  // for a folder below the source's root
+  const std::string path{URIUtils::IsBlurayPath(videoPath) ? URIUtils::GetDiscFile(videoPath)
+                                                           : videoPath};
+  SScanSettings settings;
+  bool foundDirectly{false};
+  return database.GetScraperForPath(path, settings, foundDirectly) && settings.parent_name_root;
 }
 
 std::string GetOpticalMediaPath(const CFileItem& item)
@@ -160,6 +218,116 @@ std::string GetOpticalMediaPath(const CFileItem& item)
   return std::string{};
 }
 
+void EnumerateVideoExtras(const std::string& folder,
+                          const std::function<void(const std::shared_ptr<CFileItem>&)>& callback)
+{
+  if (const std::string disc{GetOpticalMediaPath(CFileItem{folder, true})}; !disc.empty())
+  {
+    callback(std::make_shared<CFileItem>(disc, false));
+    return;
+  }
+
+  CFileItemList items;
+  if (!XFILE::CDirectory::GetDirectory(
+          folder, items, CServiceBroker::GetFileExtensionProvider().GetVideoExtensions(),
+          XFILE::DIR_FLAG_DEFAULTS))
+    return;
+
+  for (const auto& item : items)
+  {
+    if (!item->IsFolder())
+      callback(item);
+  }
+
+  for (const auto& item : items)
+  {
+    if (item->IsFolder() && !CInfoScanner::HasNoMedia(item->GetPath()))
+      EnumerateVideoExtras(item->GetPath(), callback);
+  }
+}
+
+std::string GetFastHash(const std::string& directory, const std::vector<std::string>& excludes)
+{
+  struct __stat64 buffer;
+  if (XFILE::CFile::Stat(directory, &buffer) == 0)
+  {
+    int64_t time = buffer.st_mtime;
+    if (!time)
+      time = buffer.st_ctime;
+    if (time)
+      return GetFastHash(excludes, time);
+  }
+  return "";
+}
+
+std::string GetFastHash(const std::vector<std::string>& excludes, int64_t time)
+{
+  KODI::UTILITY::CDigest digest{KODI::UTILITY::CDigest::Type::MD5};
+
+  if (!excludes.empty())
+    digest.Update(StringUtils::Join(excludes, "|"));
+
+  digest.Update((unsigned char*)&time, sizeof(time));
+  return digest.Finalize();
+}
+
+int GetPathHash(const CFileItemList& items, std::string& hash)
+{
+  // Create a hash based on the filenames, filesize and filedate.  Also count the number of files
+  if (0 == items.Size())
+    return 0;
+  KODI::UTILITY::CDigest digest{KODI::UTILITY::CDigest::Type::MD5};
+  int count = 0;
+  for (int i = 0; i < items.Size(); ++i)
+  {
+    const CFileItemPtr pItem = items[i];
+    digest.Update(pItem->GetPath());
+    if (pItem->IsPlugin())
+    {
+      // allow plugin to calculate hash itself using strings rather than binary data for size and date
+      // according to ListItem.setInfo() documentation date format should be "d.m.Y"
+      const int64_t size{pItem->GetSize()};
+      if (size)
+        digest.Update(std::to_string(size));
+
+      const CDateTime& dateTime{pItem->GetDateTime()};
+      if (dateTime.IsValid())
+      {
+        digest.Update(StringUtils::Format("{:02}.{:02}.{:04}", dateTime.GetDay(),
+                                          dateTime.GetMonth(), dateTime.GetYear()));
+      }
+    }
+    else
+    {
+      // linux and windows platform don't follow the same output format
+      // (linux return a zero value for milliseconds member).
+      // for consistency, use less precise format instead which discard
+      // milliseconds value.
+      // Unless a modification occur during the 1 second window when
+      // kodi hash and update this particular file, we are safe.
+      if (const std::string stackParts{pItem->GetProperty(PROPERTY_STACK_DIGEST).asString()};
+          !stackParts.empty())
+      {
+        // add a digest of every part (calculated in Stack())
+        digest.Update(stackParts);
+      }
+      else
+      {
+        const int64_t size{pItem->GetSize()};
+        digest.Update(&size, sizeof(size));
+
+        time_t tt{};
+        pItem->GetDateTime().GetAsTime(tt);
+        digest.Update(&tt, sizeof(tt));
+      }
+    }
+    if (IsVideo(*pItem) && !PLAYLIST::IsPlayList(*pItem) && !pItem->IsNFO())
+      count++;
+  }
+  hash = digest.Finalize();
+  return count;
+}
+
 bool IsAutoPlayNextItem(const CFileItem& item)
 {
   if (!item.HasVideoInfoTag())
@@ -170,16 +338,17 @@ bool IsAutoPlayNextItem(const CFileItem& item)
 
 bool IsAutoPlayNextItem(const std::string& content)
 {
+  const auto isA = [&content](MEDIA::TYPE type)
+  { return content == NameOf(type) || content == PluralNameOf(type); };
+
   int settingValue = CSettings::SETTING_AUTOPLAYNEXT_UNCATEGORIZED;
-  if (content == MediaTypeMovie || content == MediaTypeMovies ||
-      content == MediaTypeVideoCollections)
+  if (isA(MEDIA::TYPE::MOVIE) || content == PluralNameOf(MEDIA::TYPE::VIDEO_COLLECTION))
     settingValue = CSettings::SETTING_AUTOPLAYNEXT_MOVIES;
-  else if (content == MediaTypeEpisode || content == MediaTypeSeasons ||
-           content == MediaTypeEpisodes)
+  else if (isA(MEDIA::TYPE::EPISODE) || content == PluralNameOf(MEDIA::TYPE::SEASON))
     settingValue = CSettings::SETTING_AUTOPLAYNEXT_EPISODES;
-  else if (content == MediaTypeMusicVideo || content == MediaTypeMusicVideos)
+  else if (isA(MEDIA::TYPE::MUSIC_VIDEO))
     settingValue = CSettings::SETTING_AUTOPLAYNEXT_MUSICVIDEOS;
-  else if (content == MediaTypeTvShow || content == MediaTypeTvShows)
+  else if (isA(MEDIA::TYPE::TV_SHOW))
     settingValue = CSettings::SETTING_AUTOPLAYNEXT_TVSHOWS;
 
   const auto setting = std::dynamic_pointer_cast<CSettingList>(
@@ -187,6 +356,39 @@ bool IsAutoPlayNextItem(const std::string& content)
           CSettings::SETTING_VIDEOPLAYER_AUTOPLAYNEXTITEM));
 
   return setting && CSettingUtils::FindIntInList(setting, settingValue);
+}
+
+bool IsPlotHidden(const CVideoInfoTag& tag)
+{
+  if (tag.GetPlayCount() != 0)
+    return false;
+
+  const auto setting = std::dynamic_pointer_cast<CSettingList>(
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetSetting(
+          CSettings::SETTING_VIDEOLIBRARY_SHOWUNWATCHEDPLOTS));
+  if (!setting)
+    return false;
+
+  switch (tag.GetMediaType())
+  {
+    case MEDIA::TYPE::MOVIE:
+      return !CSettingUtils::FindIntInList(setting,
+                                           CSettings::VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_MOVIES);
+    case MEDIA::TYPE::EPISODE:
+      return !CSettingUtils::FindIntInList(
+          setting, CSettings::VIDEOLIBRARY_PLOTS_SHOW_UNWATCHED_TVSHOWEPISODES);
+    default:
+      return false;
+  }
+}
+
+void SetEpisodeCounts(CFileItem& item, int total, int watched)
+{
+  item.SetProperty(ITEM::PROPERTY::TOTAL_EPISODES, total);
+  item.SetProperty(ITEM::PROPERTY::NUM_EPISODES, total);
+  item.SetProperty(ITEM::PROPERTY::WATCHED_EPISODES, watched);
+  item.SetProperty(ITEM::PROPERTY::UNWATCHED_EPISODES, total - watched);
+  item.SetProperty(ITEM::PROPERTY::WATCHED_EPISODE_PERCENT, total > 0 ? watched * 100 / total : 0);
 }
 
 std::optional<int> GetNextPartFromBookmark(const CBookmark& bookmark)
@@ -203,6 +405,40 @@ std::optional<int> GetNextPartFromBookmark(const CBookmark& bookmark)
     return std::nullopt;
 
   return std::stoi(hRoot.ToElement()->GetText());
+}
+
+std::string MakeNextPartPlayerState(int part, const std::string& playerState)
+{
+  CXBMCTinyXML2 xmlDoc;
+  auto* eRoot{xmlDoc.NewElement("nextpart")};
+  eRoot->SetText(part);
+  if (!playerState.empty())
+    eRoot->SetAttribute("state", playerState.c_str());
+  xmlDoc.InsertEndChild(eRoot);
+
+  tinyxml2::XMLPrinter printer(nullptr, true);
+  xmlDoc.Accept(&printer);
+  return printer.CStr();
+}
+
+std::optional<std::string> GetNextPartPlayerStateFromBookmark(const CBookmark& bookmark)
+{
+  if (!bookmark.HasSavedPlayerState())
+    return std::nullopt;
+
+  CXBMCTinyXML2 xmlDoc;
+  if (!xmlDoc.Parse(bookmark.playerState))
+    return std::nullopt;
+
+  const auto* eRoot{xmlDoc.RootElement()};
+  if (!eRoot || !StringUtils::EqualsNoCase(eRoot->Value(), "nextpart"))
+    return std::nullopt;
+
+  const char* state{eRoot->Attribute("state")};
+  if (!state)
+    return std::nullopt;
+
+  return std::string{state};
 }
 
 namespace
@@ -229,7 +465,14 @@ std::optional<std::tuple<int64_t, unsigned int>> GetStackResumeOffsetAndPartNumb
     if (bookmark.IsPartWay())
     {
       if (std::optional<int> nextPart{GetNextPartFromBookmark(bookmark)}; nextPart)
-        return std::make_optional(std::make_tuple(0, *nextPart + 1));
+      {
+        // Resumes within the part (time relative to it) or from its start
+        const int64_t offset{GetNextPartPlayerStateFromBookmark(bookmark)
+                                 ? CUtil::ConvertSecsToMilliSecs(bookmark.timeInSeconds)
+                                 : 0};
+        return std::make_optional(
+            std::make_tuple(offset, static_cast<unsigned int>(*nextPart + 1)));
+      }
 
       int64_t offset{CUtil::ConvertSecsToMilliSecs(bookmark.timeInSeconds)};
       unsigned int partNumber{1};
@@ -259,8 +502,19 @@ int64_t GetStackPartResumeOffset(const CFileItem& item, unsigned int partNumber)
     const CBookmark bookmark{item.GetVideoInfoTag()->GetResumePoint()};
     if (bookmark.IsPartWay())
     {
+      // A next part bookmark names its part, and its time (if any) is relative to that part
+      if (const std::optional<int> nextPart{GetNextPartFromBookmark(bookmark)}; nextPart)
+      {
+        if (static_cast<unsigned int>(*nextPart + 1) != partNumber)
+          return 0;
+
+        return GetNextPartPlayerStateFromBookmark(bookmark)
+                   ? CUtil::ConvertSecsToMilliSecs(bookmark.timeInSeconds)
+                   : 0;
+      }
+
       std::vector<std::chrono::milliseconds> times;
-      if (GetStackTimes(path, times))
+      if (GetStackTimes(path, times) && partNumber <= times.size())
       {
         offset = 0;
         const int64_t offsetToCheck{CUtil::ConvertSecsToMilliSecs(bookmark.timeInSeconds)};
@@ -315,8 +569,20 @@ ResumeInformation GetItemResumeInformation(const CFileItem& item)
   if (item.GetCurrentResumeTimeAndPartNumber(startOffset, partNumber) && startOffset > 0)
   {
     ResumeInformation resumeInfo;
-    resumeInfo.startOffset = CUtil::ConvertSecsToMilliSecs(startOffset);
-    resumeInfo.partNumber = partNumber;
+    // Take a stack's part from its stack times (or next part bookmark) as the resume choice does
+    if (const auto stackResume{item.IsStack() ? GetStackResumeOffsetAndPartNumber(item)
+                                              : std::nullopt};
+        stackResume)
+    {
+      const auto& [offset, part] = *stackResume;
+      resumeInfo.startOffset = offset;
+      resumeInfo.partNumber = static_cast<int>(part);
+    }
+    else
+    {
+      resumeInfo.startOffset = CUtil::ConvertSecsToMilliSecs(startOffset);
+      resumeInfo.partNumber = partNumber;
+    }
     resumeInfo.isResumable = true;
     return resumeInfo;
   }
@@ -371,5 +637,151 @@ std::shared_ptr<CFileItem> LoadVideoFilesFolderInfo(const CFileItem& folder)
     }
   }
   return loadedItem;
+}
+
+std::string NormaliseEditionName(const std::string& name)
+{
+  std::string apostropheless{name};
+  StringUtils::Replace(apostropheless, "\xE2\x80\x99", ""); // Right single quotation mark
+
+  std::string result{" "};
+  result.reserve(apostropheless.size() + 2);
+  for (const char c : apostropheless)
+  {
+    if (StringUtils::isasciialphanum(c) || static_cast<unsigned char>(c) >= 0x80)
+      result.push_back(c);
+    else if (c != '\'' && result.back() != ' ')
+      result.push_back(' ');
+  }
+  if (result.back() != ' ')
+    result.push_back(' ');
+
+  StringUtils::ToLower(result);
+  return result;
+}
+
+std::string FindEditionInName(const std::string& name, const std::vector<std::string>& editions)
+{
+  const std::string normalisedName{NormaliseEditionName(name)};
+
+  std::string match;
+  size_t matchLength{0};
+  for (const std::string& edition : editions)
+  {
+    const std::string normalisedEdition{NormaliseEditionName(edition)};
+
+    // A name that starts with an edition belongs to a movie whose title happens to be one, not to a
+    // version of some other movie. Longer matches win, so the shorter ones they contain are ignored
+    if (const size_t pos{normalisedName.find(normalisedEdition)};
+        pos != std::string::npos && pos > 0 && normalisedEdition.size() > matchLength)
+    {
+      match = edition;
+      matchLength = normalisedEdition.size();
+    }
+  }
+  return match;
+}
+
+bool CanSaveDiscPlaylist(const CFileItem& item)
+{
+  if (!item.HasVideoInfoTag())
+    return false;
+
+  const auto profileManager{CServiceBroker::GetSettingsComponent()->GetProfileManager()};
+  if (!profileManager->GetCurrentProfile().canWriteDatabases() && !g_passwordManager.bMasterUser)
+    return false;
+
+  // The path is not a guide, as an item listed in Videos > Files carries the library's tag
+  // (see CGUIWindowVideoBase::LoadVideoInfo) but keeps its file path
+  const CVideoInfoTag* tag{item.GetVideoInfoTag()};
+  return (tag->GetMediaType() == MEDIA::TYPE::MOVIE ||
+          tag->GetMediaType() == MEDIA::TYPE::EPISODE) &&
+         tag->m_iDbId > 0 && tag->m_iFileId > 0;
+}
+
+int SaveDiscPlaylistToLibrary(const CFileItem& item, CVideoDatabase& db)
+{
+  return SaveDiscPlaylistToLibrary(item, item.GetVideoContentType(),
+                                   item.GetVideoInfoTag()->m_iDbId, db);
+}
+
+int SaveDiscPlaylistToLibrary(const CFileItem& item,
+                              VideoDbContentType type,
+                              int mediaId,
+                              CVideoDatabase& db)
+{
+  const CVideoInfoTag* tag{item.GetVideoInfoTag()};
+  const int idFile{db.SetFileForMedia(item.GetDynPath(), type, mediaId,
+                                      CVideoDatabase::FileRecord{.m_idFile = tag->m_iFileId,
+                                                                 .m_playCount = tag->GetPlayCount(),
+                                                                 .m_lastPlayed = tag->m_lastPlayed,
+                                                                 .m_dateAdded = tag->m_dateAdded})};
+  if (idFile <= 0)
+  {
+    CLog::LogF(LOGERROR, "Unable to save playlist {}", CURL::GetRedacted(item.GetDynPath()));
+    return -1;
+  }
+
+  if (!db.SetStreamDetailsForFileId(tag->m_streamDetails, idFile))
+    return -1;
+
+  return idFile;
+}
+
+bool SaveDiscPlaylist(CFileItem& item)
+{
+  CVideoDatabase db;
+  if (!db.Open())
+  {
+    CLog::LogF(LOGERROR, "Failed to open video database");
+    return false;
+  }
+
+  db.BeginTransaction();
+  const int idFile{SaveDiscPlaylistToLibrary(item, db)};
+  if (idFile < 0)
+  {
+    db.RollbackTransaction();
+    return false;
+  }
+  if (!db.CommitTransaction())
+  {
+    CLog::LogF(LOGERROR, "Failed to commit playlist {}", CURL::GetRedacted(item.GetDynPath()));
+    db.RollbackTransaction();
+    return false;
+  }
+
+  // Cached library listings still hold the old path, and widgets reload on the announcement
+  CUtil::DeleteVideoDatabaseDirectoryCache();
+  CVideoDatabase::AnnounceUpdate(item.GetVideoInfoTag()->GetMediaType(),
+                                 item.GetVideoInfoTag()->m_iDbId);
+
+  item.GetVideoInfoTag()->m_iFileId = idFile;
+  return true;
+}
+
+namespace
+{
+void AnnounceFileChange(const std::string& file, const std::string& message, CVariant data)
+{
+  // As JSON-RPC hands out paths elsewhere, without credentials
+  data["file"] = CURL(file).GetWithoutUserDetails();
+  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Files, message, data);
+}
+} // unnamed namespace
+
+void AnnouncePlayCountChanged(const std::string& file, int playCount)
+{
+  CVariant data;
+  data["playcount"] = playCount;
+  AnnounceFileChange(file, "OnPlayCountChanged", data);
+}
+
+void AnnounceResumePointChanged(const std::string& file, const CBookmark& resumePoint)
+{
+  CVariant data;
+  data["resume"]["position"] = resumePoint.timeInSeconds;
+  data["resume"]["total"] = resumePoint.totalTimeInSeconds;
+  AnnounceFileChange(file, "OnResumePointChanged", data);
 }
 } // namespace KODI::VIDEO::UTILS

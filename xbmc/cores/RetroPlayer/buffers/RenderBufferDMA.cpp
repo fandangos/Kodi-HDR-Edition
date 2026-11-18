@@ -10,7 +10,13 @@
 
 #include "ServiceBroker.h"
 #include "utils/BufferObject.h"
+#if defined(HAVE_LINUX_DMA_HEAP)
+#include "utils/DMAHeapBufferObject.h"
+#endif
 #include "utils/EGLImage.h"
+#if defined(HAVE_LINUX_MEMFD) && defined(HAVE_LINUX_UDMABUF)
+#include "utils/UDMABufferObject.h"
+#endif
 #include "utils/log.h"
 #include "windowing/WinSystem.h"
 #include "windowing/linux/WinSystemEGL.h"
@@ -18,9 +24,8 @@
 using namespace KODI;
 using namespace RETRO;
 
-CRenderBufferDMA::CRenderBufferDMA(CRenderContext& context, int fourcc)
-  : m_context(context),
-    m_fourcc(fourcc),
+CRenderBufferDMA::CRenderBufferDMA(int fourcc)
+  : m_fourcc(fourcc),
     m_bo(CBufferObject::GetBufferObject(false))
 {
   auto winSystemEGL =
@@ -55,19 +60,50 @@ bool CRenderBufferDMA::Allocate(AVPixelFormat format, unsigned int width, unsign
 
 size_t CRenderBufferDMA::GetFrameSize() const
 {
-  return m_bo->GetStride() * m_height;
+  return static_cast<size_t>(m_bo->GetStride()) * m_height;
+}
+
+uint32_t CRenderBufferDMA::GetStride() const
+{
+  return m_bo->GetStride();
 }
 
 uint8_t* CRenderBufferDMA::GetMemory()
 {
-  m_bo->SyncStart();
-  return m_bo->GetMemory();
+  std::unique_lock lock(m_memoryMutex);
+
+  // A frame being uploaded can be read at the same time to save it, so they
+  // share one mapping, and it lasts until the last of them is done
+  if (m_memoryUsers == 0)
+  {
+    // Map first, then open CPU access over the mapping that will be written
+    uint8_t* const memory = m_bo->GetMemory();
+    if (memory == nullptr)
+      return nullptr;
+
+    m_bo->SyncStart();
+
+    m_memory = memory;
+  }
+
+  ++m_memoryUsers;
+
+  return m_memory;
 }
 
 void CRenderBufferDMA::ReleaseMemory()
 {
-  m_bo->ReleaseMemory();
+  std::unique_lock lock(m_memoryMutex);
+
+  if (m_memoryUsers == 0 || --m_memoryUsers > 0)
+    return;
+
+  // Close CPU access while the mapping is still there, then drop it. Ending it
+  // after the unmap leaves the writes outside the bracket the GPU relies on.
   m_bo->SyncEnd();
+  m_bo->ReleaseMemory();
+
+  m_memory = nullptr;
 }
 
 void CRenderBufferDMA::CreateTexture()
@@ -80,13 +116,23 @@ void CRenderBufferDMA::CreateTexture()
   glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-  // Force alpha to 1, because game client can leave it undefined
-#if defined(HAS_GL) || defined(GL_ES_VERSION_3_0)
-  if (m_fourcc == DRM_FORMAT_ARGB8888 || m_fourcc == DRM_FORMAT_ARGB1555)
-    glTexParameteri(m_textureTarget, GL_TEXTURE_SWIZZLE_A, GL_ONE);
-#endif
+  ConfigureTexture();
 
   glBindTexture(m_textureTarget, 0);
+}
+
+bool CRenderBufferDMA::RequiresCoherencyWorkaround() const
+{
+#if defined(HAVE_LINUX_DMA_HEAP)
+  if (dynamic_cast<const CDMAHeapBufferObject*>(m_bo.get()) != nullptr)
+    return true;
+#endif
+#if defined(HAVE_LINUX_MEMFD) && defined(HAVE_LINUX_UDMABUF)
+  if (dynamic_cast<const CUDMABufferObject*>(m_bo.get()) != nullptr)
+    return true;
+#endif
+
+  return false;
 }
 
 bool CRenderBufferDMA::UploadTexture()
@@ -98,6 +144,18 @@ bool CRenderBufferDMA::UploadTexture()
     CreateTexture();
 
   glBindTexture(m_textureTarget, m_textureId);
+
+  // Directly sampling CPU-written DMAHeap and UDMABuf buffers has demonstrated
+  // stale/torn data on tested systems, so currently upload those two backends
+  // as a coherency workaround.
+  if (RequiresCoherencyWorkaround())
+  {
+    const bool bUploaded = UploadFromMemory();
+
+    glBindTexture(m_textureTarget, 0);
+
+    return bUploaded;
+  }
 
   std::array<CEGLImage::EglPlane, CEGLImage::MAX_NUM_PLANES> planes;
 

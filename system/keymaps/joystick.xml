@@ -114,8 +114,8 @@
       <start>Info</start>
       <back>FullScreen</back>
       <guide>OSD</guide>
-      <up>ChapterOrBigStepForward</up>
-      <down>ChapterOrBigStepBack</down>
+      <up>ChapterOrSceneOrBigStepForward</up>
+      <down>ChapterOrSceneOrBigStepBack</down>
       <right>StepForward</right>
       <left>StepBack</left>
       <leftthumb>ShowSubtitles</leftthumb>
@@ -130,6 +130,12 @@
       <leftstick direction="down">noop</leftstick>
     </joystick>
   </FullscreenVideo>
+  <GameAchievements>
+    <joystick profile="game.controller.default">
+      <leftbumper>SkipPrevious</leftbumper>
+      <rightbumper>SkipNext</rightbumper>
+    </joystick>
+  </GameAchievements>
   <FullscreenGame>
     <joystick profile="game.controller.default">
       <start holdtime="1000">OSD</start>

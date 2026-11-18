@@ -8,7 +8,11 @@
 
 #pragma once
 
+#include "media/MediaType.h"
+#include "utils/Artwork.h"
+
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -94,6 +98,16 @@ public:
     std::string param;
     std::string join;
     std::string where;
+  };
+
+  /*!
+   \brief The outcome of a query for a single record.
+   */
+  enum class GetResult
+  {
+    Ok, ///< the record was found and has been returned
+    NotFound, ///< the database was queried successfully and holds no such record
+    Error, ///< the record could not be returned, so whether it exists may be unknown
   };
 
   explicit CDatabase(const std::string& dbType);
@@ -267,6 +281,71 @@ public:
 
   ConnectionState Connect(const std::string& dbName, const DatabaseSettings& db, bool create);
 
+  /*! \brief Sets art for a library item.
+   \param mediaId the id in the item's table.
+   \param mediaType the type of the item, which corresponds to the table it resides in.
+   \param artType the type of art to set, e.g. "thumb"; a type of a parent's art, such as
+   "tvshow.poster", is not stored.
+   \param url the url to the art (the original url, not a cached url).
+   \return false on a database error
+   */
+  bool SetArtForItem(int mediaId,
+                     const std::string& mediaType,
+                     const std::string& artType,
+                     const std::string& url);
+
+  /*! \brief Sets each piece of \p art, a map of art type to url, for a library item.
+   \return false once a piece cannot be set, leaving the rest unset
+   */
+  virtual bool SetArtForItem(int mediaId,
+                             const std::string& mediaType,
+                             const KODI::ART::Artwork& art);
+
+  /*! \brief Adds the art a library item has to \p art, a map of art type to url.
+   \return false on a database error
+   */
+  virtual bool GetArtForItem(int mediaId, const std::string& mediaType, KODI::ART::Artwork& art);
+
+  //! \brief The url of one type of art for a library item, empty if it has none.
+  std::string GetArtForItem(int mediaId, const std::string& mediaType, const std::string& artType);
+
+  bool RemoveArtForItem(int mediaId, const std::string& mediaType, const std::string& artType);
+  bool RemoveArtForItem(int mediaId,
+                        const std::string& mediaType,
+                        const std::set<std::string, std::less<>>& artTypes);
+
+  /*! \brief Adds the distinct types of art held for a type of item to \p artTypes.
+   \return false on a database error
+   */
+  bool GetArtTypes(const std::string& mediaType, std::vector<std::string>& artTypes);
+
+  //! \brief The art functions above, for an item whose table is a media type.
+  bool SetArtForItem(int mediaId,
+                     KODI::MEDIA::TYPE mediaType,
+                     const std::string& artType,
+                     const std::string& url)
+  {
+    return SetArtForItem(mediaId, KODI::MEDIA::NameOf(mediaType), artType, url);
+  }
+  bool SetArtForItem(int mediaId, KODI::MEDIA::TYPE mediaType, const KODI::ART::Artwork& art)
+  {
+    return SetArtForItem(mediaId, KODI::MEDIA::NameOf(mediaType), art);
+  }
+  bool GetArtForItem(int mediaId, KODI::MEDIA::TYPE mediaType, KODI::ART::Artwork& art)
+  {
+    return GetArtForItem(mediaId, KODI::MEDIA::NameOf(mediaType), art);
+  }
+  std::string GetArtForItem(int mediaId, KODI::MEDIA::TYPE mediaType, const std::string& artType)
+  {
+    return GetArtForItem(mediaId, KODI::MEDIA::NameOf(mediaType), artType);
+  }
+  bool RemoveArtForItem(int mediaId,
+                        KODI::MEDIA::TYPE mediaType,
+                        const std::set<std::string, std::less<>>& artTypes)
+  {
+    return RemoveArtForItem(mediaId, KODI::MEDIA::NameOf(mediaType), artTypes);
+  }
+
 protected:
   friend class CDatabaseManager;
 
@@ -296,6 +375,12 @@ protected:
    function, so don't rely on them.
    */
   virtual void UpdateTables(int version) {}
+
+  /*! \brief Rebuild a table so that its integer primary key never hands out a deleted row's id.
+   For UpdateTables() only: the analytics must be dropped. MySQL already declares every integer
+   primary key auto_increment, so there it does nothing.
+   */
+  void AddAutoIncrement(const std::string& table);
 
   /* \brief The minimum schema version that we support updating from.
    */

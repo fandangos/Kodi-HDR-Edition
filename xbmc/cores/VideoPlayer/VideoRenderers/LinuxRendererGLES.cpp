@@ -46,7 +46,7 @@ CLinuxRendererGLES::CLinuxRendererGLES()
   std::tie(m_useDithering, m_ditherDepth) = CServiceBroker::GetWinSystem()->GetDitherSettings();
   if (m_useDithering)
   {
-    if (m_renderSystem && !m_renderSystem->IsExtSupported("GL_EXT_texture_norm16"))
+    if (m_renderSystem && !CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_texture_norm16))
     {
       CLog::Log(LOGWARNING,
                 "GLES: dithering requested but GL_EXT_texture_norm16 not supported, disabling");
@@ -414,17 +414,26 @@ bool CLinuxRendererGLES::Flush(bool saveBuffers)
 {
   glFinish();
 
-  for (int i = 0; i < m_NumYUVBuffers; i++)
+  // When asked to save buffers, leave the currently held textures/picture
+  // references alone so the renderer can keep presenting the last frame.
+  if (!saveBuffers)
   {
-    DeleteTexture(i);
+    for (int i = 0; i < m_NumYUVBuffers; i++)
+    {
+      DeleteTexture(i);
+    }
+
+    m_iYUVRenderBuffer = 0;
+
+    // Only invalidate the render target when we actually tore the buffers
+    // down above.
+    m_bValidated = false;
   }
 
   glFinish();
-  m_bValidated = false;
   m_fbo.fbo.Cleanup();
-  m_iYUVRenderBuffer = 0;
 
-  return false;
+  return saveBuffers;
 }
 
 void CLinuxRendererGLES::Update()
@@ -457,40 +466,17 @@ void CLinuxRendererGLES::ClearBackBufferQuad()
 {
   CRect windowRect(0, 0, CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
                    CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight());
-  struct Svertex
-  {
-    float x, y;
-  };
-
-  std::vector<Svertex> vertices{
-      {windowRect.x1, windowRect.y2 * 2},
-      {windowRect.x1, windowRect.y1},
-      {windowRect.x2 * 2, windowRect.y1},
-  };
 
   glDisable(GL_BLEND);
 
   m_renderSystem->EnableGUIShader(ShaderMethodGLES::SM_DEFAULT);
-  GLint posLoc = m_renderSystem->GUIShaderGetPos();
   GLint uniCol = m_renderSystem->GUIShaderGetUniCol();
   GLint depthLoc = m_renderSystem->GUIShaderGetDepth();
 
   glUniform4f(uniCol, 0.0f, 0.0f, 0.0f, 1.0f);
   glUniform1f(depthLoc, -1);
 
-  GLuint vertexVBO;
-  glGenBuffers(1, &vertexVBO);
-  glBindBuffer(GL_ARRAY_BUFFER, vertexVBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(Svertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
-
-  glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, sizeof(Svertex), 0);
-  glEnableVertexAttribArray(posLoc);
-
-  glDrawArrays(GL_TRIANGLES, 0, vertices.size());
-
-  glDisableVertexAttribArray(posLoc);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glDeleteBuffers(1, &vertexVBO);
+  m_renderSystem->DrawGUIQuad(windowRect);
 
   m_renderSystem->DisableGUIShader();
 }
@@ -502,31 +488,6 @@ void CLinuxRendererGLES::DrawBlackBars()
 
   auto quads = windowRect.SubtractRect(m_destRect);
 
-  struct Svertex
-  {
-    float x, y;
-  };
-
-  std::vector<Svertex> vertices(6 * quads.size());
-
-  GLubyte count = 0;
-  for (const auto& quad : quads)
-  {
-    vertices[count + 1].x = quad.x1;
-    vertices[count + 1].y = quad.y1;
-
-    vertices[count + 0].x = vertices[count + 5].x = quad.x1;
-    vertices[count + 0].y = vertices[count + 5].y = quad.y2;
-
-    vertices[count + 2].x = vertices[count + 3].x = quad.x2;
-    vertices[count + 2].y = vertices[count + 3].y = quad.y1;
-
-    vertices[count + 4].x = quad.x2;
-    vertices[count + 4].y = quad.y2;
-
-    count += 6;
-  }
-
   glDisable(GL_BLEND);
 
   CRenderSystemGLES* renderSystem =
@@ -535,26 +496,14 @@ void CLinuxRendererGLES::DrawBlackBars()
     return;
 
   renderSystem->EnableGUIShader(ShaderMethodGLES::SM_DEFAULT);
-  GLint posLoc = renderSystem->GUIShaderGetPos();
   GLint uniCol = renderSystem->GUIShaderGetUniCol();
   GLint depthLoc = m_renderSystem->GUIShaderGetDepth();
 
   glUniform4f(uniCol, 0.0f, 0.0f, 0.0f, 1.0f);
   glUniform1f(depthLoc, -1);
 
-  GLuint vertexVBO;
-  glGenBuffers(1, &vertexVBO);
-  glBindBuffer(GL_ARRAY_BUFFER, vertexVBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(Svertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
-
-  glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, sizeof(Svertex), 0);
-  glEnableVertexAttribArray(posLoc);
-
-  glDrawArrays(GL_TRIANGLES, 0, vertices.size());
-
-  glDisableVertexAttribArray(posLoc);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-  glDeleteBuffers(1, &vertexVBO);
+  for (const auto& quad : quads)
+    renderSystem->DrawGUIQuad(quad);
 
   renderSystem->DisableGUIShader();
 }
@@ -566,6 +515,13 @@ void CLinuxRendererGLES::RenderUpdate(int index, int index2, bool clear, unsigne
   if (!m_bConfigured)
   {
     return;
+  }
+
+  if (const bool fullRange = !CServiceBroker::GetWinSystem()->UseLimitedColor();
+      fullRange != m_fullRange)
+  {
+    m_fullRange = fullRange;
+    m_reloadShaders = true;
   }
 
   // if its first pass, just init textures and return
@@ -642,6 +598,13 @@ void CLinuxRendererGLES::RenderUpdateVideo(bool clear, unsigned int flags, unsig
   if (!m_bConfigured)
     return;
 
+  if (const bool fullRange = !CServiceBroker::GetWinSystem()->UseLimitedColor();
+      fullRange != m_fullRange)
+  {
+    m_fullRange = fullRange;
+    m_reloadShaders = true;
+  }
+
   if (IsGuiLayer())
     return;
 
@@ -703,7 +666,8 @@ void CLinuxRendererGLES::UpdateVideoFilter()
   // TODO: GL also checks nonLinStretchChanged and cmsChanged in the early exit
   // and the reload check below. Add when non-linear stretch and CMS are ported to GLES.
   if (m_scalingMethodGui == m_videoSettings.m_ScalingMethod &&
-      viewRect.Height() == m_lastViewRect.Height() && viewRect.Width() == m_lastViewRect.Width())
+      viewRect.Height() == m_lastViewRect.Height() && viewRect.Width() == m_lastViewRect.Width() &&
+      srcRect.Height() == m_lastSourceRect.Height() && srcRect.Width() == m_lastSourceRect.Width())
   {
     return;
   }
@@ -712,9 +676,11 @@ void CLinuxRendererGLES::UpdateVideoFilter()
   if (m_scalingMethod != m_videoSettings.m_ScalingMethod)
     m_reloadShaders = true;
 
+  const ESCALINGMETHOD previousMethod = m_scalingMethod;
   m_scalingMethodGui = m_videoSettings.m_ScalingMethod;
   m_scalingMethod = m_scalingMethodGui;
   m_lastViewRect = viewRect;
+  m_lastSourceRect = srcRect;
 
   if(!Supports(m_scalingMethod))
   {
@@ -750,6 +716,9 @@ void CLinuxRendererGLES::UpdateVideoFilter()
     else
       m_scalingMethod = VS_SCALINGMETHOD_LINEAR;
   }
+
+  if (m_scalingMethod != previousMethod)
+    m_reloadShaders = true;
 
   switch (m_scalingMethod)
   {
@@ -958,7 +927,8 @@ void CLinuxRendererGLES::LoadShaders(int field)
           {
             m_pYUVProgShader = new YUV2RGBFilterShader(
                 shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
-                m_srcPrimaries, m_toneMap, m_toneMapMethod, m_scalingMethod, m_useDithering);
+                m_srcPrimaries, m_toneMap, m_toneMapMethod, m_hueSatTransfer, m_useGamma,
+                m_scalingMethod, m_useDithering);
             // TODO: GL gates this on !m_cmsOn. Add when CMS is ported to GLES.
             m_pYUVProgShader->SetConvertFullColorRange(m_fullRange);
 
@@ -984,14 +954,16 @@ void CLinuxRendererGLES::LoadShaders(int field)
           // Fall back to regular progressive shader
           m_pYUVProgShader = new YUV2RGBProgressiveShader(
               shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
-              m_srcPrimaries, m_toneMap, m_toneMapMethod, m_useDithering);
+              m_srcPrimaries, m_toneMap, m_toneMapMethod, m_hueSatTransfer, m_useGamma,
+              m_useDithering);
           m_pYUVProgShader->SetConvertFullColorRange(m_fullRange);
 
           CLog::Log(LOGINFO, "GLES: Selecting YUV 2 RGB shader");
 
           m_pYUVBobShader = new YUV2RGBBobShader(
               shaderFormat, m_passthroughHDR ? m_srcPrimaries : AVColorPrimaries::AVCOL_PRI_BT709,
-              m_srcPrimaries, m_toneMap, m_toneMapMethod, m_useDithering);
+              m_srcPrimaries, m_toneMap, m_toneMapMethod, m_hueSatTransfer, m_useGamma,
+              m_useDithering);
           m_pYUVBobShader->SetConvertFullColorRange(m_fullRange);
 
           if ((m_pYUVProgShader && m_pYUVProgShader->CompileAndLink())
@@ -1232,6 +1204,9 @@ void CLinuxRendererGLES::RenderSinglePass(int index, int field)
 
   pYUVShader->SetBlack(m_videoSettings.m_Brightness * 0.01f - 0.5f);
   pYUVShader->SetContrast(m_videoSettings.m_Contrast * 0.02f);
+  pYUVShader->SetHue((m_videoSettings.m_Hue - 50.0f) * 3.6f);
+  pYUVShader->SetSaturation(m_videoSettings.m_Saturation * 0.02f);
+  pYUVShader->SetGamma(CConvertMatrix::GetGammaExponent(m_videoSettings.m_Gamma));
   pYUVShader->SetWidth(planes[0].texwidth);
   pYUVShader->SetHeight(planes[0].texheight);
   pYUVShader->SetColParams(buf.m_srcColSpace, buf.m_srcBits, !buf.m_srcFullRange, buf.m_srcTextureBits);
@@ -1249,45 +1224,25 @@ void CLinuxRendererGLES::RenderSinglePass(int index, int field)
   }
 
   pYUVShader->SetMatrices(glMatrixProject.Get(), glMatrixModview.Get());
+  pYUVShader->SetQuadTransform(KODI::UTILS::GL::QuadTransform(
+      m_rotatedDestCoords[0], m_rotatedDestCoords[1], m_rotatedDestCoords[3]));
+  for (int i = 0; i < 3; i++)
+    pYUVShader->SetTextureRect(i, planes[i].rect);
   pYUVShader->Enable();
-
-  GLubyte idx[4] = {0, 1, 3, 2}; // determines order of triangle strip
-  GLfloat m_vert[4][3];
-  GLfloat m_tex[3][4][2];
 
   GLint vertLoc = pYUVShader->GetVertexLoc();
   GLint Yloc = pYUVShader->GetYcoordLoc();
   GLint Uloc = pYUVShader->GetUcoordLoc();
   GLint Vloc = pYUVShader->GetVcoordLoc();
 
-  glVertexAttribPointer(vertLoc, 3, GL_FLOAT, 0, 0, m_vert);
-  glVertexAttribPointer(Yloc, 2, GL_FLOAT, 0, 0, m_tex[0]);
-  glVertexAttribPointer(Uloc, 2, GL_FLOAT, 0, 0, m_tex[1]);
-  glVertexAttribPointer(Vloc, 2, GL_FLOAT, 0, 0, m_tex[2]);
-
-  glEnableVertexAttribArray(vertLoc);
-  glEnableVertexAttribArray(Yloc);
-  glEnableVertexAttribArray(Uloc);
-  glEnableVertexAttribArray(Vloc);
-
-  // Setup vertex position values
-  for(int i = 0; i < 4; i++)
+  m_renderSystem->BindGUIUnitQuad();
+  for (GLint loc : {vertLoc, Yloc, Uloc, Vloc})
   {
-    m_vert[i][0] = m_rotatedDestCoords[i].x;
-    m_vert[i][1] = m_rotatedDestCoords[i].y;
-    m_vert[i][2] = 0.0f;// set z to 0
+    glVertexAttribPointer(loc, 2, GL_FLOAT, 0, 0, 0);
+    glEnableVertexAttribArray(loc);
   }
 
-  // Setup texture coordinates
-  for (int i = 0; i < 3; i++)
-  {
-    m_tex[i][0][0] = m_tex[i][3][0] = planes[i].rect.x1;
-    m_tex[i][0][1] = m_tex[i][1][1] = planes[i].rect.y1;
-    m_tex[i][1][0] = m_tex[i][2][0] = planes[i].rect.x2;
-    m_tex[i][2][1] = m_tex[i][3][1] = planes[i].rect.y2;
-  }
-
-  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
   VerifyGLState();
 
@@ -1298,6 +1253,8 @@ void CLinuxRendererGLES::RenderSinglePass(int index, int field)
   glDisableVertexAttribArray(Yloc);
   glDisableVertexAttribArray(Uloc);
   glDisableVertexAttribArray(Vloc);
+
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
   VerifyGLState();
 }
@@ -1370,6 +1327,9 @@ void CLinuxRendererGLES::RenderToFBO(int index, int field)
 
   pYUVShader->SetBlack(m_videoSettings.m_Brightness * 0.01f - 0.5f);
   pYUVShader->SetContrast(m_videoSettings.m_Contrast * 0.02f);
+  pYUVShader->SetHue((m_videoSettings.m_Hue - 50.0f) * 3.6f);
+  pYUVShader->SetSaturation(m_videoSettings.m_Saturation * 0.02f);
+  pYUVShader->SetGamma(CConvertMatrix::GetGammaExponent(m_videoSettings.m_Gamma));
   pYUVShader->SetWidth(planes[0].texwidth);
   pYUVShader->SetHeight(planes[0].texheight);
   pYUVShader->SetColParams(buf.m_srcColSpace, buf.m_srcBits, !buf.m_srcFullRange, buf.m_srcTextureBits);
@@ -1404,11 +1364,6 @@ void CLinuxRendererGLES::RenderToFBO(int index, int field)
   glViewport(0, 0, m_sourceWidth, m_sourceHeight);
   glScissor(0, 0, m_sourceWidth, m_sourceHeight);
 
-  if (!pYUVShader->Enable())
-  {
-    CLog::Log(LOGERROR, "GLES: Error enabling YUV shader");
-  }
-
   m_fbo.width  = planes[0].rect.x2 - planes[0].rect.x1;
   m_fbo.height = planes[0].rect.y2 - planes[0].rect.y1;
 
@@ -1422,43 +1377,29 @@ void CLinuxRendererGLES::RenderToFBO(int index, int field)
   m_fbo.height *= planes[0].pixpertex_y;
 
   // 1st Pass to video frame size
-  GLubyte idx[4] = {0, 1, 3, 2}; // determines order of triangle strip
-  GLfloat vert[4][3];
-  GLfloat tex[3][4][2];
+  pYUVShader->SetQuadTransform(
+      KODI::UTILS::GL::QuadTransform({0.0f, 0.0f}, {m_fbo.width, 0.0f}, {0.0f, m_fbo.height}));
+  for (int i = 0; i < 3; i++)
+    pYUVShader->SetTextureRect(i, planes[i].rect);
+
+  if (!pYUVShader->Enable())
+  {
+    CLog::Log(LOGERROR, "GLES: Error enabling YUV shader");
+  }
 
   GLint vertLoc = pYUVShader->GetVertexLoc();
   GLint Yloc = pYUVShader->GetYcoordLoc();
   GLint Uloc = pYUVShader->GetUcoordLoc();
   GLint Vloc = pYUVShader->GetVcoordLoc();
 
-  glVertexAttribPointer(vertLoc, 3, GL_FLOAT, 0, 0, vert);
-  glVertexAttribPointer(Yloc, 2, GL_FLOAT, 0, 0, tex[0]);
-  glVertexAttribPointer(Uloc, 2, GL_FLOAT, 0, 0, tex[1]);
-  glVertexAttribPointer(Vloc, 2, GL_FLOAT, 0, 0, tex[2]);
-
-  glEnableVertexAttribArray(vertLoc);
-  glEnableVertexAttribArray(Yloc);
-  glEnableVertexAttribArray(Uloc);
-  glEnableVertexAttribArray(Vloc);
-
-  // Setup vertex position values
-  // Set vertex coordinates
-  vert[0][0] = vert[3][0] = 0.0f;
-  vert[0][1] = vert[1][1] = 0.0f;
-  vert[1][0] = vert[2][0] = m_fbo.width;
-  vert[2][1] = vert[3][1] = m_fbo.height;
-  vert[0][2] = vert[1][2] = vert[2][2] = vert[3][2] = 0.0f;
-
-  // Setup texture coordinates
-  for (int i = 0; i < 3; i++)
+  m_renderSystem->BindGUIUnitQuad();
+  for (GLint loc : {vertLoc, Yloc, Uloc, Vloc})
   {
-    tex[i][0][0] = tex[i][3][0] = planes[i].rect.x1;
-    tex[i][0][1] = tex[i][1][1] = planes[i].rect.y1;
-    tex[i][1][0] = tex[i][2][0] = planes[i].rect.x2;
-    tex[i][2][1] = tex[i][3][1] = planes[i].rect.y2;
+    glVertexAttribPointer(loc, 2, GL_FLOAT, 0, 0, 0);
+    glEnableVertexAttribArray(loc);
   }
 
-  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
   VerifyGLState();
 
@@ -1473,6 +1414,8 @@ void CLinuxRendererGLES::RenderToFBO(int index, int field)
   glDisableVertexAttribArray(Yloc);
   glDisableVertexAttribArray(Uloc);
   glDisableVertexAttribArray(Vloc);
+
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
   m_renderSystem->SetViewPort(viewport);
 
@@ -1505,6 +1448,10 @@ void CLinuxRendererGLES::RenderFromFBO()
     m_pVideoFilterShader->SetHeight(m_sourceHeight);
     m_pVideoFilterShader->SetAlpha(1.0f);
     m_pVideoFilterShader->SetMatrices(glMatrixProject.Get(), glMatrixModview.Get());
+    m_pVideoFilterShader->SetQuadTransform(KODI::UTILS::GL::QuadTransform(
+        m_rotatedDestCoords[0], m_rotatedDestCoords[1], m_rotatedDestCoords[3]));
+    m_pVideoFilterShader->SetTextureRect(
+        CRect(0.0f, 0.0f, m_fbo.width / m_sourceWidth, m_fbo.height / m_sourceHeight));
     m_pVideoFilterShader->Enable();
   }
   else
@@ -1515,40 +1462,22 @@ void CLinuxRendererGLES::RenderFromFBO()
 
   VerifyGLState();
 
-  float imgwidth = m_fbo.width / m_sourceWidth;
-  float imgheight = m_fbo.height / m_sourceHeight;
-
-  GLubyte idx[4] = {0, 1, 3, 2}; // determines order of triangle strip
-  GLfloat vert[4][3];
-  GLfloat tex[4][2];
-
   GLint vertLoc = m_pVideoFilterShader->GetVertexLoc();
   GLint loc = m_pVideoFilterShader->GetcoordLoc();
 
-  glVertexAttribPointer(vertLoc, 3, GL_FLOAT, 0, 0, vert);
-  glVertexAttribPointer(loc, 2, GL_FLOAT, 0, 0, tex);
-
-  glEnableVertexAttribArray(vertLoc);
-  glEnableVertexAttribArray(loc);
-
-  // Setup vertex position values
-  for(int i = 0; i < 4; i++)
+  m_renderSystem->BindGUIUnitQuad();
+  for (GLint attrib : {vertLoc, loc})
   {
-    vert[i][0] = m_rotatedDestCoords[i].x;
-    vert[i][1] = m_rotatedDestCoords[i].y;
-    vert[i][2] = 0.0f; // set z to 0
+    glVertexAttribPointer(attrib, 2, GL_FLOAT, 0, 0, 0);
+    glEnableVertexAttribArray(attrib);
   }
 
-  // Setup texture coordinates
-  tex[0][0] = tex[3][0] = 0.0f;
-  tex[0][1] = tex[1][1] = 0.0f;
-  tex[1][0] = tex[2][0] = imgwidth;
-  tex[2][1] = tex[3][1] = imgheight;
-
-  glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
   glDisableVertexAttribArray(loc);
   glDisableVertexAttribArray(vertLoc);
+
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
 
   VerifyGLState();
 
@@ -1997,7 +1926,7 @@ void CLinuxRendererGLES::DeletePackedYUVTexture(int index)
 
 bool CLinuxRendererGLES::CreatePackedYUVTexture(int index)
 {
-  if (!CServiceBroker::GetRenderSystem()->IsExtSupported("GL_EXT_texture_format_BGRA8888"))
+  if (!CGLExtensions::IsExtensionSupported(CGLExtensions::EXT_texture_format_BGRA8888))
   {
     CLog::Log(LOGERROR, "CLinuxRendererGLES::CreatePackedYUVTexture - "
                         "GL_EXT_texture_format_BGRA8888 not supported");
@@ -2105,26 +2034,24 @@ void CLinuxRendererGLES::SetTextureFilter(GLenum method)
 
 bool CLinuxRendererGLES::Supports(ERENDERFEATURE feature) const
 {
-  if (feature == RENDERFEATURE_GAMMA ||
-      feature == RENDERFEATURE_NOISE ||
-      feature == RENDERFEATURE_SHARPNESS ||
+  if (feature == RENDERFEATURE_NOISE || feature == RENDERFEATURE_SHARPNESS ||
       feature == RENDERFEATURE_NONLINSTRETCH)
   {
     return false;
   }
 
-  if (feature == RENDERFEATURE_STRETCH ||
-      feature == RENDERFEATURE_ZOOM ||
-      feature == RENDERFEATURE_VERTICAL_SHIFT ||
-      feature == RENDERFEATURE_PIXEL_RATIO ||
-      feature == RENDERFEATURE_POSTPROCESS ||
-      feature == RENDERFEATURE_ROTATION ||
-      feature == RENDERFEATURE_BRIGHTNESS ||
-      feature == RENDERFEATURE_CONTRAST ||
+  if (feature == RENDERFEATURE_STRETCH || feature == RENDERFEATURE_ZOOM ||
+      feature == RENDERFEATURE_VERTICAL_SHIFT || feature == RENDERFEATURE_PIXEL_RATIO ||
+      feature == RENDERFEATURE_POSTPROCESS || feature == RENDERFEATURE_ROTATION ||
+      feature == RENDERFEATURE_BRIGHTNESS || feature == RENDERFEATURE_CONTRAST ||
+      feature == RENDERFEATURE_HUE || feature == RENDERFEATURE_SATURATION ||
       feature == RENDERFEATURE_TONEMAP)
   {
     return true;
   }
+
+  if (feature == RENDERFEATURE_GAMMA)
+    return !m_streamIsHDR;
 
   return false;
 }
@@ -2136,8 +2063,10 @@ bool CLinuxRendererGLES::SupportsMultiPassRendering()
 
 float CLinuxRendererGLES::ScalingAboveThreshold() const
 {
-  float scaleX = m_destRect.Width() / static_cast<float>(m_sourceWidth);
-  float scaleY = m_destRect.Height() / static_cast<float>(m_sourceHeight);
+  // Empty until ManageRenderArea has run, then the per-eye crop of a stereo source
+  CRect source = m_sourceRect.IsEmpty() ? CRect(0, 0, m_sourceWidth, m_sourceHeight) : m_sourceRect;
+  float scaleX = m_destRect.Width() / source.Width();
+  float scaleY = m_destRect.Height() / source.Height();
   float scaleFactor = (scaleX + scaleY) / 2.0f;
   float scalePercent = fabs(1.0f - scaleFactor) * 100;
   int minScale = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
@@ -2215,6 +2144,27 @@ void CLinuxRendererGLES::CheckVideoParameters(int index)
   bool toneMap = false;
   const bool streamIsHDRPQ =
       (buf.m_srcColTransfer == AVCOL_TRC_SMPTE2084 && buf.m_srcPrimaries == AVCOL_PRI_BT2020);
+  const bool streamIsHDR =
+      buf.m_srcPrimaries == AVCOL_PRI_BT2020 && (buf.m_srcColTransfer == AVCOL_TRC_SMPTE2084 ||
+                                                 buf.m_srcColTransfer == AVCOL_TRC_ARIB_STD_B67);
+
+  const bool hueSat =
+      streamIsHDR && (m_videoSettings.m_Hue != 50.0f || m_videoSettings.m_Saturation != 50.0f);
+  const AVColorTransferCharacteristic hueSatTransfer =
+      hueSat ? buf.m_srcColTransfer : AVCOL_TRC_UNSPECIFIED;
+  if (hueSatTransfer != m_hueSatTransfer)
+  {
+    m_hueSatTransfer = hueSatTransfer;
+    m_reloadShaders = true;
+  }
+
+  m_streamIsHDR = streamIsHDR;
+  const bool gamma = !streamIsHDR && m_videoSettings.m_Gamma != 50.0f;
+  if (gamma != m_useGamma)
+  {
+    m_useGamma = gamma;
+    m_reloadShaders = true;
+  }
 
   if (streamIsHDRPQ && !m_passthroughHDR && toneMapMethod != VS_TONEMAPMETHOD_OFF)
   {

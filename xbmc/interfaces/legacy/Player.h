@@ -572,9 +572,12 @@ namespace XBMCAddon
       ///
       /// \ingroup python_Player
       /// @brief \python_func{ getSubtitles() }
-      /// Get subtitle stream name.
+      /// Get the language of the current subtitle stream.
       ///
-      /// @return                    Stream name
+      /// @return                    BCP 47 language tag of the stream, e.g. **en** or **en-AU**,
+      ///                            or the stream name when it declares no language
+      ///
+      /// @python_v22 Language values are BCP 47 tags; previously ISO 639-2 three letter codes.
       ///
       getSubtitles();
 #else
@@ -585,9 +588,12 @@ namespace XBMCAddon
       ///
       /// \ingroup python_Player
       /// @brief \python_func{ getAvailableSubtitleStreams() }
-      /// Get Subtitle stream names.
+      /// Get the languages of the available subtitle streams.
       ///
-      /// @return                    List of subtitle streams as name
+      /// @return                    List of BCP 47 language tags, e.g. **en** or **en-AU**; a
+      ///                            stream that declares no language is listed by its name
+      ///
+      /// @python_v22 Language values are BCP 47 tags; previously ISO 639-2 three letter codes.
       ///
       getAvailableSubtitleStreams();
 #else
@@ -682,6 +688,39 @@ namespace XBMCAddon
       InfoTagVideo* getVideoInfoTag();
 #endif
 
+#ifdef DOXYGEN_SHOULD_USE_THIS
+      ///
+      /// \ingroup python_Player
+      /// @brief \python_func{ getContentGeometry() }
+      /// To get where the picture is inside the frame carrying it.
+      ///
+      /// Returns the content rectangle in force - what the film was shot at\, as against the
+      /// shape of the frame it is encoded in. A stored measurement\, a reading taken during
+      /// playback and a ratio the viewer declared all reach it\, and getSource() says which.
+      ///
+      /// Unlike the info tag getters this does not raise when nothing is playing\, reporting
+      /// the shape Kodi rests at with source `container` and no frame behind it.
+      ///
+      /// @return                    Content geometry snapshot
+      ///
+      ///
+      ///------------------------------------------------------------------------
+      /// @python_v23 New function added.
+      ///
+      /// **Example:**
+      /// ~~~~~~~~~~~~~{.py}
+      /// ...
+      /// geometry = xbmc.Player().getContentGeometry()
+      /// if geometry.getSource() != 'container':
+      ///     lens.select(geometry.getAspect())
+      /// ...
+      /// ~~~~~~~~~~~~~
+      ///
+      getContentGeometry();
+#else
+      ContentGeometry* getContentGeometry();
+#endif
+
       // Player_GetMusicInfoTag
 #ifdef DOXYGEN_SHOULD_USE_THIS
       ///
@@ -739,9 +778,12 @@ namespace XBMCAddon
       ///
       /// \ingroup python_Player
       /// @brief \python_func{ getAvailableAudioStreams() }
-      /// Get Audio stream names
+      /// Get the languages of the available audio streams.
       ///
-      /// @return                    List of audio streams as name
+      /// @return                    List of BCP 47 language tags, e.g. **en** or **en-AU**; a
+      ///                            stream that declares no language is listed by its name
+      ///
+      /// @python_v22 Language values are BCP 47 tags; previously ISO 639-2 three letter codes.
       ///
       getAvailableAudioStreams();
 #else
@@ -775,9 +817,12 @@ namespace XBMCAddon
       ///
       /// \ingroup python_Player
       /// @brief \python_func{ getAvailableVideoStreams() }
-      /// Get Video stream names
+      /// Get the languages of the available video streams.
       ///
-      /// @return                    List of video streams as name
+      /// @return                    List of BCP 47 language tags, e.g. **en** or **en-AU**; a
+      ///                            stream that declares no language is listed by its name
+      ///
+      /// @python_v22 Language values are BCP 47 tags; previously ISO 639-2 three letter codes.
       ///
       getAvailableVideoStreams();
 #else

@@ -1,4 +1,5 @@
 set(SOURCES GameClient.cpp
+            GameClientFastForward.cpp
             GameClientInGameSaves.cpp
             GameClientProperties.cpp
             GameClientSubsystem.cpp
@@ -6,8 +7,10 @@ set(SOURCES GameClient.cpp
 
 set(HEADERS GameClient.h
             GameClientCallbacks.h
+            GameClientFastForward.h
             GameClientInGameSaves.h
             GameClientProperties.h
+            GameClientRestoreResult.h
             GameClientSubsystem.h
             GameClientTranslator.h)
 

@@ -9,7 +9,6 @@
 #pragma once
 
 #include "guilib/GUIDialog.h"
-#include "media/MediaType.h"
 
 #include <memory>
 #include <vector>
@@ -68,7 +67,7 @@ public:
   static bool RemoveItemsFromTag(const std::shared_ptr<CFileItem>& tagItem);
 
   static bool ChooseAndManageVideoItemArtwork(const std::shared_ptr<CFileItem>& item);
-  static bool ManageVideoItemArtwork(const std::shared_ptr<CFileItem>& item, const MediaType& type);
+  static bool ManageVideoItemArtwork(const std::shared_ptr<CFileItem>& item, const std::string& type);
 
   static std::string GetLocalizedVideoType(const std::string &strType);
 
@@ -104,6 +103,7 @@ protected:
   void OnGetArt();
   void OnGetFanart();
   void OnSetUserrating() const;
+  void SaveUserrating();
   void PlayTrailer();
 
   static bool UpdateVideoItemSortTitle(const std::shared_ptr<CFileItem>& pItem);
@@ -119,12 +119,12 @@ protected:
   bool m_hasUpdatedThumb = false;
   bool m_hasUpdatedUserrating = false;
   int m_startUserrating = -1;
-  bool m_hasUpdatedItems{false};
+  bool m_hasUpdatedItems{false}; //!< Other items changed, or the art of an item moved on from
   bool m_refreshEnabled{false}; //!< May the item be refreshed
 
 private:
   static bool ManageVideoItemArtwork(const std::shared_ptr<CFileItem>& item,
-                                     const MediaType& mediaType,
+                                     const std::string& mediaType,
                                      const std::string& artType);
   bool ChooseVideoVersion();
 };

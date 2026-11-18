@@ -121,17 +121,17 @@ TEST_F(TestCharsetConverter, utf8ToW)
   EXPECT_STREQ(refstrw1.c_str(), varstrw1.c_str());
 }
 
+TEST_F(TestCharsetConverter, utf8ToUtf32_BeyondBMP)
+{
+  EXPECT_EQ(U"a \U0001F600 b", g_charsetConverter.utf8ToUtf32("a \xF0\x9F\x98\x80 b"));
+}
 
-//TEST_F(TestCharsetConverter, utf16LEtoW)
-//{
-//  refstrw1 = L"ｔｅｓｔ＿ｕｔｆ１６ＬＥｔｏｗ";
-//  //! @todo Should be able to use '=' operator instead of assign()
-//  std::wstring refstr16_1;
-//  refstr16_1.assign(refutf16LE1);
-//  varstrw1.clear();
-//  g_charsetConverter.utf16LEtoW(refstr16_1, varstrw1);
-//  EXPECT_STREQ(refstrw1.c_str(), varstrw1.c_str());
-//}
+TEST_F(TestCharsetConverter, utf8ToW_BeyondBMP)
+{
+  varstrw1.clear();
+  g_charsetConverter.utf8ToW("a \xF0\x9F\x98\x80 b", varstrw1, false);
+  EXPECT_EQ(L"a \U0001F600 b", varstrw1);
+}
 
 TEST_F(TestCharsetConverter, subtitleCharsetToUtf8)
 {
@@ -156,14 +156,6 @@ TEST_F(TestCharsetConverter, utf8ToStringCharset_2)
   refstra1 = "test utf8ToStringCharset";
   varstra1 = "test utf8ToStringCharset";
   g_charsetConverter.utf8ToStringCharset(varstra1);
-  EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
-}
-
-TEST_F(TestCharsetConverter, utf8ToSystem)
-{
-  refstra1 = "test utf8ToSystem";
-  varstra1 = "test utf8ToSystem";
-  g_charsetConverter.utf8ToSystem(varstra1);
   EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
 }
 
@@ -241,6 +233,13 @@ TEST_F(TestCharsetConverter, isValidUtf8_4)
   EXPECT_FALSE(CUtf8Utils::isValidUtf8(refutf16LE3));
 }
 
+TEST_F(TestCharsetConverter, isValidUtf8_FourByteSequences)
+{
+  EXPECT_TRUE(CUtf8Utils::isValidUtf8("\xF0\x90\x80\x80")); // U+10000
+  EXPECT_TRUE(CUtf8Utils::isValidUtf8("\xF0\x9F\x8C\x8D")); // U+1F30D
+  EXPECT_FALSE(CUtf8Utils::isValidUtf8("\xF0\x8F\xBF\xBF")); // overlong U+FFFF
+}
+
 //! @todo Resolve correct input/output for this function
 // TEST_F(TestCharsetConverter, ucs2CharsetToStringCharset)
 // {
@@ -266,31 +265,40 @@ TEST_F(TestCharsetConverter, wToUTF8)
 //  EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
 //}
 
-//TEST_F(TestCharsetConverter, utf16LEtoUTF8)
-//{
-//  refstr16_1.assign(refutf16LE4);
-//  refstra1 = "ｔｅｓｔ＿ｕｔｆ１６ＬＥｔｏＵＴＦ８";
-//  varstra1.clear();
-//  g_charsetConverter.utf16LEtoUTF8(refstr16_1, varstra1);
-//  EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
-//}
-
-//TEST_F(TestCharsetConverter, ucs2ToUTF8)
-//{
-//  refstr16_1.assign(refucs2);
-//  refstra1 = "ｔｅｓｔ＿ｕｃｓ２ｔｏＵＴＦ８";
-//  varstra1.clear();
-//  g_charsetConverter.ucs2ToUTF8(refstr16_1, varstra1);
-//  EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
-//}
-
-TEST_F(TestCharsetConverter, utf8logicalToVisualBiDi)
+TEST_F(TestCharsetConverter, utf32logicalToVisualBiDi_KeepsEmojiSequences)
 {
-  refstra1 = "ｔｅｓｔ＿ｕｔｆ８ｌｏｇｉｃａｌＴｏＶｉｓｕａｌＢｉＤｉ";
-  refstra2 = "ｔｅｓｔ＿ｕｔｆ８ｌｏｇｉｃａｌＴｏＶｉｓｕａｌＢｉＤｉ";
-  varstra1.clear();
-  g_charsetConverter.utf8logicalToVisualBiDi(refstra1, varstra1);
-  EXPECT_STREQ(refstra2.c_str(), varstra1.c_str());
+  // man ZWJ woman, black flag with tags for England
+  const std::u32string text =
+      U"\x1F468\x200D\x1F469 \x1F3F4\xE0067\xE0062\xE0065\xE006E\xE0067\xE007F";
+  std::u32string visual;
+  g_charsetConverter.utf32logicalToVisualBiDi(text, visual);
+  EXPECT_EQ(text, visual);
+}
+
+TEST_F(TestCharsetConverter, utf32logicalToVisualBiDi_RemovesBidiMarks)
+{
+  std::u32string visual;
+  g_charsetConverter.utf32logicalToVisualBiDi(U"a\x200E"
+                                              U"b",
+                                              visual);
+  EXPECT_EQ(U"ab", visual);
+}
+
+TEST_F(TestCharsetConverter, utf32logicalToVisualBiDi_KeepsEmojiSequencesInRtlText)
+{
+  // woman, skin tone, ZWJ, laptop after Hebrew text
+  const std::u32string emoji = U"\x1F469\x1F3FD\x200D\x1F4BB";
+  std::u32string visual;
+  g_charsetConverter.utf32logicalToVisualBiDi(U"\x5E9\x5DC\x5D5\x5DD " + emoji, visual);
+  EXPECT_NE(std::u32string::npos, visual.find(emoji));
+}
+
+TEST_F(TestCharsetConverter, utf32logicalToVisualBiDi_ReordersJoinedRtlLetters)
+{
+  // alef, ZWJ, bet
+  std::u32string visual;
+  g_charsetConverter.utf32logicalToVisualBiDi(U"\x5D0\x200D\x5D1", visual);
+  EXPECT_EQ(U"\x5D1\x200D\x5D0", visual);
 }
 
 //! @todo Resolve correct input/output for this function
@@ -337,16 +345,6 @@ TEST_F(TestCharsetConverter, getCharsetLabels)
   }
 }
 
-TEST_F(TestCharsetConverter, getCharsetLabelByName)
-{
-  std::string varstr =
-    g_charsetConverter.getCharsetLabelByName("ISO-8859-1");
-  EXPECT_STREQ("Western Europe (ISO)", varstr.c_str());
-  varstr.clear();
-  varstr = g_charsetConverter.getCharsetLabelByName("Bogus");
-  EXPECT_STREQ("", varstr.c_str());
-}
-
 TEST_F(TestCharsetConverter, getCharsetNameByLabel)
 {
   std::string varstr =
@@ -373,29 +371,3 @@ TEST_F(TestCharsetConverter, unknownToUTF8_2)
   EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
 }
 
-TEST_F(TestCharsetConverter, toW)
-{
-  refstra1 = "ｔｅｓｔ＿ｔｏＷ：＿ｃｈａｒｓｅｔ＿ＵＴＦ－１６ＬＥ";
-  refstrw1 = L"\xBDEF\xEF94\x85BD\xBDEF\xEF93\x94BD\xBCEF\xEFBF"
-             L"\x94BD\xBDEF\xEF8F\xB7BC\xBCEF\xEF9A\xBFBC\xBDEF"
-             L"\xEF83\x88BD\xBDEF\xEF81\x92BD\xBDEF\xEF93\x85BD"
-             L"\xBDEF\xEF94\xBFBC\xBCEF\xEFB5\xB4BC\xBCEF\xEFA6"
-             L"\x8DBC\xBCEF\xEF91\x96BC\xBCEF\xEFAC\xA5BC";
-  varstrw1.clear();
-  g_charsetConverter.toW(refstra1, varstrw1, "UTF-16LE");
-  EXPECT_STREQ(refstrw1.c_str(), varstrw1.c_str());
-}
-
-TEST_F(TestCharsetConverter, fromW)
-{
-  refstrw1 = L"\xBDEF\xEF94\x85BD\xBDEF\xEF93\x94BD\xBCEF\xEFBF"
-             L"\x86BD\xBDEF\xEF92\x8FBD\xBDEF\xEF8D\xB7BC\xBCEF"
-             L"\xEF9A\xBFBC\xBDEF\xEF83\x88BD\xBDEF\xEF81\x92BD"
-             L"\xBDEF\xEF93\x85BD\xBDEF\xEF94\xBFBC\xBCEF\xEFB5"
-             L"\xB4BC\xBCEF\xEFA6\x8DBC\xBCEF\xEF91\x96BC\xBCEF"
-             L"\xEFAC\xA5BC";
-  refstra1 = "ｔｅｓｔ＿ｆｒｏｍＷ：＿ｃｈａｒｓｅｔ＿ＵＴＦ－１６ＬＥ";
-  varstra1.clear();
-  g_charsetConverter.fromW(refstrw1, varstra1, "UTF-16LE");
-  EXPECT_STREQ(refstra1.c_str(), varstra1.c_str());
-}

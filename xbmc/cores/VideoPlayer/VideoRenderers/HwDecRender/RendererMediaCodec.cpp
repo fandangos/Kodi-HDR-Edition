@@ -107,6 +107,21 @@ bool CRendererMediaCodec::LoadShadersHook()
   return true;
 }
 
+bool CRendererMediaCodec::Supports(ERENDERFEATURE feature) const
+{
+  // RGB input, the YUV conversion matrix is not used
+  if (feature == RENDERFEATURE_HUE || feature == RENDERFEATURE_SATURATION ||
+      feature == RENDERFEATURE_GAMMA)
+    return false;
+
+  return CLinuxRendererGLES::Supports(feature);
+}
+
+EShaderFormat CRendererMediaCodec::GetShaderFormat()
+{
+  return SHADER_RGB;
+}
+
 bool CRendererMediaCodec::RenderHook(int index)
 {
   CYuvPlane &plane = m_buffers[index].fields[0][0];

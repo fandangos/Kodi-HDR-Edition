@@ -14,6 +14,7 @@
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDCodecs/Overlay/contrib/cc_decoder708.h"
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
+#include "language/LanguageTag.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
@@ -28,6 +29,9 @@
 #include <utility>
 
 namespace COLOR = KODI::UTILS::COLOR;
+
+using namespace KODI::UTILS;
+using namespace KODI::LANGUAGE;
 
 namespace
 {
@@ -237,7 +241,7 @@ void CDVDDemuxCC::Handler(int service, void *userdata)
     stream.source = STREAM_SOURCE_VIDEOMUX;
     stream.name = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
         39206); // Closed Caption "CC"
-    stream.language = "und";
+    stream.language = CLanguageTag::Undetermined();
 
     auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
     if (settings->GetBool(CSettings::SETTING_SUBTITLES_CAPTIONSIMPAIRED))

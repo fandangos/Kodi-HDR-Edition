@@ -14,6 +14,7 @@
 #include "PartyModeManager.h"
 #include "PlayListPlayer.h"
 #include "ServiceBroker.h"
+#include "Util.h"
 #include "application/Application.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
@@ -21,6 +22,7 @@
 #include "dialogs/GUIDialogKaiToast.h"
 #include "dialogs/GUIDialogSelect.h"
 #include "filesystem/Directory.h"
+#include "filesystem/LibraryPaths.h"
 #include "filesystem/MusicDatabaseDirectory.h"
 #include "filesystem/MusicDatabaseDirectory/DirectoryNode.h"
 #include "guilib/GUIComponent.h"
@@ -42,8 +44,11 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "threads/IRunnable.h"
+#include "utils/ArtTypes.h"
 #include "utils/Artwork.h"
 #include "utils/FileUtils.h"
+#include "utils/ItemProperties.h"
+#include "utils/PlaceholderPaths.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -57,6 +62,7 @@ using namespace KODI::VIDEO;
 using namespace MUSIC_INFO;
 using namespace XFILE;
 using namespace std::chrono_literals;
+using KODI::MEDIA::MediaSection;
 
 namespace MUSIC_UTILS
 {
@@ -75,7 +81,7 @@ public:
   ~CSetArtJob(void) override = default;
 
   bool HasSongExtraArtChanged(const CFileItemPtr& pSongItem,
-                              const std::string& type,
+                              MEDIA::TYPE type,
                               const int itemID,
                               const CMusicDatabase& db)
   {
@@ -85,10 +91,10 @@ public:
     if (idSong <= 0)
       return false;
     bool result = false;
-    if (type == MediaTypeAlbum)
+    if (type == MEDIA::TYPE::ALBUM)
       // Update art when song is from album
       result = (itemID == pSongItem->GetMusicInfoTag()->GetAlbumId());
-    else if (type == MediaTypeArtist)
+    else if (type == MEDIA::TYPE::ARTIST)
     {
       // Update art when artist is song or album artist of the song
       if (pSongItem->HasProperty("artistid"))
@@ -125,7 +131,8 @@ public:
     int itemID = pItem->GetMusicInfoTag()->GetDatabaseId();
     if (itemID <= 0)
       return false;
-    std::string type = pItem->GetMusicInfoTag()->GetType();
+    const std::string& type = pItem->GetMusicInfoTag()->GetType();
+    const MEDIA::TYPE mediaType = pItem->GetMusicInfoTag()->GetMediaType();
     CMusicDatabase db;
     if (!db.Open())
       return false;
@@ -134,7 +141,7 @@ public:
     else
       db.RemoveArtForItem(itemID, type, m_artType);
     // Artwork changed so set datemodified field for artist, album or song
-    db.SetItemUpdated(itemID, type);
+    db.SetItemUpdated(itemID, mediaType);
 
     /* Update the art of the songs of the current music playlist.
       Song thumb is often a fallback from the album and fanart is from the artist(s).
@@ -149,7 +156,7 @@ public:
     for (int i = 0; i < playlist.size(); ++i)
     {
       CFileItemPtr songitem = playlist[i];
-      if (HasSongExtraArtChanged(songitem, type, itemID, db))
+      if (HasSongExtraArtChanged(songitem, mediaType, itemID, db))
       {
         songitem->ClearArt(); // Art gets reloaded when the current playlist is shown
         clearcache = true;
@@ -168,7 +175,7 @@ public:
     if (appPlayer->IsPlayingAudio() && g_application.CurrentFileItem().HasMusicInfoTag())
     {
       CFileItemPtr songitem = std::make_shared<CFileItem>(g_application.CurrentFileItem());
-      if (HasSongExtraArtChanged(songitem, type, itemID, db))
+      if (HasSongExtraArtChanged(songitem, mediaType, itemID, db))
         g_application.UpdateCurrentPlayArt();
     }
 
@@ -224,7 +231,7 @@ void UpdateArtJob(const std::shared_ptr<CFileItem>& pItem,
 // Add art types required in Kodi and configured by the user
 void AddHardCodedAndExtendedArtTypes(std::vector<std::string>& artTypes, const CMusicInfoTag& tag)
 {
-  for (const auto& artType : GetArtTypesToScan(tag.GetType()))
+  for (const auto& artType : GetArtTypesToScan(tag.GetMediaType()))
   {
     if (find(artTypes.begin(), artTypes.end(), artType) == artTypes.end())
       artTypes.push_back(artType);
@@ -264,7 +271,7 @@ void AddAvailableArtTypes(std::vector<std::string>& artTypes,
                           const CMusicInfoTag& tag,
                           CMusicDatabase& db)
 {
-  for (const auto& artType : db.GetAvailableArtTypesForItem(tag.GetDatabaseId(), tag.GetType()))
+  for (const auto& artType : db.GetAvailableArtTypesForItem(tag.GetDatabaseId(), tag.GetMediaType()))
   {
     if (find(artTypes.begin(), artTypes.end(), artType) == artTypes.end())
       artTypes.push_back(artType);
@@ -276,8 +283,8 @@ bool FillArtTypesList(CFileItem& musicitem, CFileItemList& artlist)
   const CMusicInfoTag& tag = *musicitem.GetMusicInfoTag();
   if (tag.GetDatabaseId() < 1 || tag.GetType().empty())
     return false;
-  if (tag.GetType() != MediaTypeArtist && tag.GetType() != MediaTypeAlbum &&
-      tag.GetType() != MediaTypeSong)
+  const MEDIA::TYPE type = tag.GetMediaType();
+  if (type != MEDIA::TYPE::ARTIST && type != MEDIA::TYPE::ALBUM && type != MEDIA::TYPE::SONG)
     return false;
 
   artlist.Clear();
@@ -298,13 +305,13 @@ bool FillArtTypesList(CFileItem& musicitem, CFileItemList& artlist)
   {
     CFileItemPtr artitem(new CFileItem(type, false));
     // Localise the names of common types of art
-    if (type == "banner")
+    if (type == ART::TYPE::BANNER)
       artitem->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20020));
-    else if (type == "fanart")
+    else if (type == ART::TYPE::FANART)
       artitem->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20445));
-    else if (type == "poster")
+    else if (type == ART::TYPE::POSTER)
       artitem->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20021));
-    else if (type == "thumb")
+    else if (type == ART::TYPE::THUMB)
       artitem->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21371));
     else
       artitem->SetLabel(type);
@@ -312,7 +319,7 @@ bool FillArtTypesList(CFileItem& musicitem, CFileItemList& artlist)
     artitem->SetProperty("arttype", type);
     // Set current art as art item thumb
     if (musicitem.HasArt(type))
-      artitem->SetArt("thumb", musicitem.GetArt(type));
+      artitem->SetArt(ART::TYPE::THUMB, musicitem.GetArt(type));
     artlist.Add(artitem);
   }
 
@@ -385,7 +392,7 @@ void UpdateSongRatingJob(const std::shared_ptr<CFileItem>& pItem, int userrating
   // Asynchronously update the song user rating in music library
   const CMusicInfoTag* tag = pItem->GetMusicInfoTag();
   CSetSongRatingJob* job;
-  if (tag && tag->GetType() == MediaTypeSong && tag->GetDatabaseId() > 0)
+  if (tag && tag->GetMediaType() == MEDIA::TYPE::SONG && tag->GetDatabaseId() > 0)
     // Use song ID when known
     job = new CSetSongRatingJob(tag->GetDatabaseId(), userrating);
   else
@@ -393,13 +400,13 @@ void UpdateSongRatingJob(const std::shared_ptr<CFileItem>& pItem, int userrating
   CServiceBroker::GetJobManager()->AddJob(job, nullptr);
 }
 
-std::vector<std::string> GetArtTypesToScan(const MediaType& mediaType)
+std::vector<std::string> GetArtTypesToScan(MEDIA::TYPE mediaType)
 {
   std::vector<std::string> arttypes;
   // Get default types of art that are to be automatically fetched during scanning
-  if (mediaType == MediaTypeArtist)
+  if (mediaType == MEDIA::TYPE::ARTIST)
   {
-    arttypes = {"thumb", "fanart"};
+    arttypes = {ART::TYPE::THUMB, ART::TYPE::FANART};
     for (auto& artType : CServiceBroker::GetSettingsComponent()->GetSettings()->GetList(
              CSettings::SETTING_MUSICLIBRARY_ARTISTART_WHITELIST))
     {
@@ -407,9 +414,9 @@ std::vector<std::string> GetArtTypesToScan(const MediaType& mediaType)
         arttypes.emplace_back(artType.asString());
     }
   }
-  else if (mediaType == MediaTypeAlbum)
+  else if (mediaType == MEDIA::TYPE::ALBUM)
   {
-    arttypes = {"thumb"};
+    arttypes = {ART::TYPE::THUMB};
     for (auto& artType : CServiceBroker::GetSettingsComponent()->GetSettings()->GetList(
              CSettings::SETTING_MUSICLIBRARY_ALBUMART_WHITELIST))
     {
@@ -541,7 +548,7 @@ void CAsyncGetItemsForPlaylist::GetItemsForPlaylist(const std::shared_ptr<CFileI
     // Check if we add a locked share
     if (item->IsShareOrDrive())
     {
-      if (!g_passwordManager.IsItemUnlocked(item.get(), "music"))
+      if (!g_passwordManager.IsItemUnlocked(item.get(), MediaSection::MUSIC))
         return;
     }
 
@@ -554,20 +561,7 @@ void CAsyncGetItemsForPlaylist::GetItemsForPlaylist(const std::shared_ptr<CFileI
     {
       LABEL_MASKS labelMasks;
       state->GetSortMethodLabelMasks(labelMasks);
-
-      const CLabelFormatter fileFormatter(labelMasks.m_strLabelFile, labelMasks.m_strLabel2File);
-      const CLabelFormatter folderFormatter(labelMasks.m_strLabelFolder,
-                                            labelMasks.m_strLabel2Folder);
-      for (const auto& i : items)
-      {
-        if (i->IsLabelPreformatted())
-          continue;
-
-        if (i->IsFolder())
-          folderFormatter.FormatLabels(i.get());
-        else
-          fileFormatter.FormatLabels(i.get());
-      }
+      CLabelFormatter::FormatItemLabels(items, labelMasks);
 
       SortDescription sortDesc;
       if (CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_MUSIC_NAV)
@@ -639,7 +633,7 @@ void ShowToastNotification(const CFileItem& item, int titleId)
 
   if (item.HasMusicInfoTag())
   {
-    localizedMediaType = CMediaTypes::GetCapitalLocalization(item.GetMusicInfoTag()->GetType());
+    localizedMediaType = GetCapitalLocalization(item.GetMusicInfoTag()->GetMediaType());
     title = item.GetMusicInfoTag()->GetTitle();
   }
 
@@ -660,7 +654,7 @@ std::string GetMusicDbItemPath(const CFileItem& item)
 {
   std::string path = item.GetPath();
   if (!URIUtils::IsMusicDb(path))
-    path = item.GetProperty("original_listitem_url").asString();
+    path = item.GetProperty(ITEM::PROPERTY::ORIGINAL_LISTITEM_URL).asString();
 
   if (URIUtils::IsMusicDb(path))
     return path;
@@ -744,7 +738,7 @@ void PlayItem(const std::shared_ptr<CFileItem>& itemIn,
     {
       // Add item and all its siblings to the playlist and play. Prefer musicdb path if available,
       // because it provides more information than just a plain file system path for example.
-      std::string parentPath = item->GetProperty("ParentPath").asString();
+      std::string parentPath = item->GetProperty(ITEM::PROPERTY::PARENT_PATH).asString();
       if (parentPath.empty())
       {
         std::string path = GetMusicDbItemPath(*item);
@@ -898,7 +892,7 @@ bool IsItemPlayable(const CFileItem& item)
     return false;
 
   // Exclude all video library items
-  if (IsVideoDb(item) || StringUtils::StartsWithNoCase(item.GetPath(), "library://video/"))
+  if (IsVideoDb(item) || StringUtils::StartsWithNoCase(item.GetPath(), MEDIA::LIBRARY_PATH::VIDEO))
     return false;
 
   // Exclude other components
@@ -906,8 +900,7 @@ bool IsItemPlayable(const CFileItem& item)
     return false;
 
   // Exclude special items
-  if (StringUtils::StartsWithNoCase(item.GetPath(), "newsmartplaylist://") ||
-      StringUtils::StartsWithNoCase(item.GetPath(), "newplaylist://"))
+  if (ITEM::PLACEHOLDER::IsNewPlaylist(item.GetPath()))
     return false;
 
   // Include playlists located at one of the possible music playlist locations
@@ -916,15 +909,7 @@ bool IsItemPlayable(const CFileItem& item)
     if (StringUtils::StartsWithNoCase(item.GetMimeType(), "audio/"))
       return true;
 
-    if (StringUtils::StartsWithNoCase(item.GetPath(), "special://musicplaylists/") ||
-        StringUtils::StartsWithNoCase(item.GetPath(), "special://profile/playlists/music/"))
-      return true;
-
-    // Has user changed default playlists location and the list is located there?
-    const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-    std::string path = settings->GetString(CSettings::SETTING_SYSTEM_PLAYLISTSPATH);
-    StringUtils::TrimRight(path, "/");
-    if (StringUtils::StartsWith(item.GetPath(), StringUtils::Format("{}/music/", path)))
+    if (CUtil::IsInPlaylistsFolder(item.GetPath(), MediaSection::MUSIC))
       return true;
 
     if (!item.IsFolder() && !item.HasMusicInfoTag())
@@ -938,7 +923,8 @@ bool IsItemPlayable(const CFileItem& item)
     return false;
 
   if (item.IsFolder() &&
-      (MUSIC::IsMusicDb(item) || StringUtils::StartsWithNoCase(item.GetPath(), "library://music/")))
+      (MUSIC::IsMusicDb(item) ||
+       StringUtils::StartsWithNoCase(item.GetPath(), MEDIA::LIBRARY_PATH::MUSIC)))
   {
     // Exclude top level nodes - eg can't play 'genres' just a specific genre etc
     const auto node = XFILE::CMusicDatabaseDirectory::GetDirectoryParentType(item.GetPath());
@@ -949,7 +935,7 @@ bool IsItemPlayable(const CFileItem& item)
   }
 
   if (item.IsPlugin() && MUSIC::IsAudio(item) && !IsEmptyMusicItem(item) &&
-      item.GetProperty("isplayable").asBoolean(false))
+      item.GetProperty(ITEM::PROPERTY::IS_PLAYABLE).asBoolean(false))
   {
     return true;
   }
@@ -965,7 +951,7 @@ bool IsItemPlayable(const CFileItem& item)
   {
     // Not a music-specific folder (just file:// or nfs://). Allow play if context is Music window.
     if (CServiceBroker::GetGUI()->GetWindowManager().GetActiveWindow() == WINDOW_MUSIC_NAV &&
-        item.GetPath() != "add") // Exclude "Add music source" item
+        item.GetPath() != ITEM::PLACEHOLDER::ADD_SOURCE) // Exclude "Add music source" item
       return true;
   }
   return false;

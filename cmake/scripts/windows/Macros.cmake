@@ -37,6 +37,11 @@ function(add_precompiled_header target pch_header pch_source)
   endforeach()
   # A PCH compiled in C++ mode cannot be used for C code
   list(FILTER sources EXCLUDE REGEX "\\.c$")
+
+  if(CMAKE_DISABLE_PRECOMPILE_HEADERS)
+    set_source_files_properties(${sources} PROPERTIES COMPILE_FLAGS "/FI\"${pch_header}\"")
+    return()
+  endif()
   
   set_source_files_properties(${sources}
                               PROPERTIES COMPILE_FLAGS "/Yu\"${pch_header}\" /Fp\"${pch_binary}\" /FI\"${pch_header}\""
@@ -57,6 +62,7 @@ function(add_precompiled_header target pch_header pch_source)
       set_target_properties(${PCH_PCH_TARGET}_pch PROPERTIES COMPILE_PDB_NAME vc140
                                                              COMPILE_PDB_OUTPUT_DIRECTORY ${PRECOMPILEDHEADER_DIR}
                                                              FOLDER "Build Utilities")
+      core_target_link_libraries(${PCH_PCH_TARGET}_pch)
     endif()
     # From VS2012 onwards, precompiled headers have to be linked against (LNK2011).
     target_link_libraries(${target} PUBLIC ${PCH_PCH_TARGET}_pch)

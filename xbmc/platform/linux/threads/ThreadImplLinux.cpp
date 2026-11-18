@@ -19,6 +19,9 @@
 #include <unistd.h>
 
 #if !defined(TARGET_ANDROID) && (defined(__GLIBC__) || defined(__UCLIBC__))
+#if defined(__UCLIBC__)
+#include <features.h>
+#endif
 #if defined(__UCLIBC__) || !__GLIBC_PREREQ(2, 30)
 #include <sys/syscall.h>
 #endif
@@ -53,7 +56,10 @@ constexpr int ThreadPriorityToNativePriority(const ThreadPriority& priority)
 }
 
 #if !defined(TARGET_ANDROID) && (defined(__GLIBC__) || defined(__UCLIBC__))
-#if defined(__UCLIBC__) || !__GLIBC_PREREQ(2, 30)
+#if (defined(__UCLIBC__) && \
+     (!defined(__UCLIBC_HAS_THREADS_NATIVE__) || (__UCLIBC_MAJOR__ < 1) || \
+      (__UCLIBC_MAJOR__ == 1 && __UCLIBC_MINOR__ == 0 && __UCLIBC_SUBLEVEL__ < 56))) || \
+    (!defined(__UCLIBC__) && !__GLIBC_PREREQ(2, 30))
 static pid_t gettid()
 {
   return syscall(__NR_gettid);
@@ -79,8 +85,9 @@ CThreadImplLinux::CThreadImplLinux(std::thread::native_handle_type handle)
 
 void CThreadImplLinux::SetThreadInfo(const std::string& name)
 {
-#if defined(__GLIBC__)
-  pthread_setname_np(m_handle, name.c_str());
+#if defined(__GLIBC__) || defined(TARGET_ANDROID)
+  // Names longer than 15 characters are rejected, not truncated
+  pthread_setname_np(m_handle, name.substr(0, 15).c_str());
 #endif
 
   m_name = name;

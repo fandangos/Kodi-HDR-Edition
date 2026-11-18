@@ -13,6 +13,9 @@
 #include "peripherals/PeripheralTypes.h"
 
 #include <memory>
+#include <mutex>
+#include <set>
+#include <string>
 
 namespace KODI
 {
@@ -73,6 +76,7 @@ public:
                         float position,
                         unsigned int motionTimeMs) override;
   void OnInputFrame() override {}
+  JOYSTICK::IInputReceiver* InputReceiver(void) override;
 
   // Input accessors
   const std::string& GetPortAddress() const { return m_portAddress; }
@@ -88,8 +92,11 @@ public:
 
   // Input handlers
   bool SetRumble(const std::string& feature, float magnitude);
+  void EnableRumble(bool bEnabled);
 
 private:
+  void StopMotors();
+
   // Construction parameters
   CGameClient& m_gameClient;
   const std::string m_portAddress;
@@ -98,6 +105,16 @@ private:
   // Input parameters
   std::unique_ptr<CPortInput> m_portInput;
   PERIPHERALS::PeripheralPtr m_sourcePeripheral;
+
+  // Motor events are reported once each, not once per frame of rumble
+  bool m_bLoggedRumble{false};
+  bool m_bLoggedRumbleFailure{false};
+  bool m_bLoggedRumbleUnwired{false};
+
+  // Motors left running, stopped when the controller is detached
+  std::set<std::string> m_activeMotors;
+  bool m_bRumbleEnabled{true};
+  std::mutex m_rumbleMutex;
 };
 } // namespace GAME
 } // namespace KODI

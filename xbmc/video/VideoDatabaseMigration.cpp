@@ -14,26 +14,26 @@
  *  Examples of external changes: functional changes, bug fixes, constants value changes, ...
  */
 
+#include "VideoDatabaseMigration.h"
+
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "VideoDatabase.h"
+#include "VideoDatabaseDDL.h"
 #include "dbwrappers/dataset.h"
 #include "filesystem/MultiPathDirectory.h"
+#include "language/i18n/TableLanguageCodes.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
-#include "utils/i18n/TableLanguageCodes.h"
 #include "utils/log.h"
 
 #include <algorithm>
-#include <cctype>
-#include <functional>
 #include <map>
 #include <memory>
 #include <ranges>
 #include <sstream>
-#include <stdlib.h>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -164,6 +164,80 @@ static std::string SanitiseUrlEncodingV147(const std::string& path)
   out += path.substr(hostEnd);
 
   return out;
+}
+
+// Steps 123 to 131 use the itemType values introduced in v134 (version 1, extra 2) instead of the
+// values of their time (version 0, extra 1), which turns versions and types into extras.
+void RepairVideoAssetTypesV154(CDatabase& db, Dataset& ds, Dataset& ds2, int iVersion)
+{
+  constexpr int VideoAssetType_VERSION = 1;
+  constexpr int VideoAssetType_EXTRA = 2;
+  constexpr int VideoAssetTypeOwner_SYSTEM = 0;
+  constexpr int VideoAssetTypeOwner_USER = 2;
+  // The system types of extras since v152
+  constexpr int VIDEO_EXTRA_ID_BEGIN = 40500;
+  constexpr int VIDEO_EXTRA_ID_END = 40699;
+
+  if (iVersion < 123)
+  {
+    // Step 123 created only the versions of the movies' files, using a system type
+    ds.exec(db.PrepareSQL("UPDATE videoversion SET itemType = %i", VideoAssetType_VERSION));
+    ds.exec(
+        db.PrepareSQL("UPDATE videoversiontype SET itemType = %i WHERE id NOT BETWEEN %i AND %i",
+                      VideoAssetType_VERSION, VIDEO_EXTRA_ID_BEGIN, VIDEO_EXTRA_ID_END));
+  }
+  else if (iVersion < 131 || iVersion >= 134)
+  {
+    // From v134 the damage may come from a previous upgrade, from an unknown version
+
+    // The file of a movie is always a version
+    ds.exec(db.PrepareSQL(
+        "UPDATE videoversion SET itemType = %i "
+        "WHERE media_type = 'movie' AND itemType = %i "
+        "AND idFile = (SELECT m.idFile FROM movie m WHERE m.idMovie = videoversion.idMedia)",
+        VideoAssetType_VERSION, VideoAssetType_EXTRA));
+
+    // System types are version types, except the system types of extras
+    ds.exec(db.PrepareSQL("UPDATE videoversiontype SET itemType = %i "
+                          "WHERE owner = %i AND itemType = %i AND id NOT BETWEEN %i AND %i",
+                          VideoAssetType_VERSION, VideoAssetTypeOwner_SYSTEM, VideoAssetType_EXTRA,
+                          VIDEO_EXTRA_ID_BEGIN, VIDEO_EXTRA_ID_END));
+
+    // Extras sharing a type with versions (a system type of versions, or a user-added extras type
+    // also used by versions) get a user-added extras type of the same name
+    ds.query(db.PrepareSQL("SELECT DISTINCT vvt.id, vvt.name "
+                           "FROM videoversion vv "
+                           "  JOIN videoversiontype vvt ON vvt.id = vv.idType "
+                           "WHERE vv.itemType = %i AND "
+                           "  ((vvt.owner = %i AND vvt.id NOT BETWEEN %i AND %i) OR "
+                           "  (vvt.owner = %i AND vvt.itemType = %i AND vvt.id IN "
+                           "    (SELECT idType FROM videoversion WHERE itemType = %i)))",
+                           VideoAssetType_EXTRA, VideoAssetTypeOwner_SYSTEM, VIDEO_EXTRA_ID_BEGIN,
+                           VIDEO_EXTRA_ID_END, VideoAssetTypeOwner_USER, VideoAssetType_EXTRA,
+                           VideoAssetType_VERSION));
+    while (!ds.eof())
+    {
+      const int idType{ds.fv(0).get_asInt()};
+      ds2.exec(db.PrepareSQL(
+          "INSERT INTO videoversiontype (id, name, owner, itemType) VALUES(NULL, '%s', %i, %i)",
+          ds.fv(1).get_asString().c_str(), VideoAssetTypeOwner_USER, VideoAssetType_EXTRA));
+
+      const int newId{static_cast<int>(ds2.lastinsertid())};
+      ds2.exec(
+          db.PrepareSQL("UPDATE videoversion SET idType = %i WHERE itemType = %i AND idType = %i",
+                        newId, VideoAssetType_EXTRA, idType));
+      ds.next();
+    }
+    ds.close();
+
+    // User-added types used only by versions are version types
+    ds.exec(db.PrepareSQL("UPDATE videoversiontype SET itemType = %i "
+                          "WHERE owner = %i AND itemType = %i "
+                          "AND id IN (SELECT idType FROM videoversion WHERE itemType = %i) "
+                          "AND id NOT IN (SELECT idType FROM videoversion WHERE itemType = %i)",
+                          VideoAssetType_VERSION, VideoAssetTypeOwner_USER, VideoAssetType_EXTRA,
+                          VideoAssetType_VERSION, VideoAssetType_EXTRA));
+  }
 }
 } // namespace KODI::DATABASE::MIGRATION
 
@@ -1138,11 +1212,9 @@ void CVideoDatabase::UpdateTables(int iVersion)
         // ISO 639-2/B that do not have an ISO 639-1 equivalent are left alone, as they are either
         // identical to the desired ISO 639-2/T code or unrecognized values that must have come
         // from AS.xml or a language addon. There is no easy way to tell which situation applies.
-        const auto it = std::ranges::lower_bound(LanguageCodesByIso639_2b, iso6392Lower, {},
-                                                 &ISO639::iso639_2b);
-        if (it != LanguageCodesByIso639_2b.end() && it->iso639_2b == iso6392Lower)
+        if (const auto alpha2 = KODI::LANGUAGE::I18N::Alpha2OfAlpha3B(iso6392Lower))
         {
-          const auto to = std::string{it->iso639_1};
+          const auto to = std::string{*alpha2};
           m_pDS->exec(PrepareSQL("UPDATE movie SET originalLanguage='" + to +
                                  "' WHERE originalLanguage='" + from + "'"));
           m_pDS->exec(PrepareSQL("UPDATE tvshow SET originalLanguage='" + to +
@@ -1422,9 +1494,82 @@ void CVideoDatabase::UpdateTables(int iVersion)
     }
     m_pDS->close();
   }
+
+  if (iVersion < 148)
+  {
+    m_pDS->exec("ALTER TABLE streamdetails ADD iSource INTEGER DEFAULT 40");
+    m_pDS->exec("ALTER TABLE streamdetails ADD iVersion INTEGER DEFAULT 1");
+  }
+
+  if (iVersion < 149)
+    m_pDS->exec("ALTER TABLE streamdetails ADD iFlags INTEGER DEFAULT 0");
+
+  if (iVersion < 150)
+  {
+    m_pDS->exec("ALTER TABLE `sets` ADD strSortSet TEXT");
+  }
+
+  if (iVersion < 151)
+  {
+    for (const char* table :
+         {"movie", "tvshow", "seasons", "episode", "musicvideo", "sets", "genre", "tag"})
+      AddAutoIncrement(table);
+  }
+
+  if (iVersion < 152)
+  {
+    constexpr int VideoAssetType_EXTRA = 2;
+    constexpr int VideoAssetTypeOwner_SYSTEM = 0;
+
+    // The kinds of video extra are built-in types of extras, where the rows were empty versions
+    for (int id = 40500; id <= 40699; ++id)
+    {
+      const std::string& type{CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(id)};
+      m_pDS->exec(PrepareSQL(
+          "UPDATE videoversiontype SET name = '%s', owner = %i, itemType = %i WHERE id = %i",
+          type.c_str(), VideoAssetTypeOwner_SYSTEM, VideoAssetType_EXTRA, id));
+    }
+
+    // What an extra of a kind is called is no type
+    m_pDS->exec("DELETE FROM videoversiontype WHERE id BETWEEN 40700 AND 40799");
+  }
+
+  if (iVersion < 153)
+  {
+    m_pDS->exec("ALTER TABLE settings ADD Hue float DEFAULT 50");
+    m_pDS->exec("ALTER TABLE settings ADD Saturation float DEFAULT 50");
+    // gamma was never applied and stored 20, 50 is neutral now
+    m_pDS->exec("UPDATE settings SET Gamma=50");
+  }
+
+  if (iVersion < 154)
+  {
+    // Kodi 22 runs the repair below as its v150, so its v150 databases skipped the v150 step above
+    if (m_sqlite)
+      m_pDS->query("SELECT count(*) FROM pragma_table_info('sets') WHERE name = 'strSortSet'");
+    else
+      m_pDS->query("SELECT count(*) FROM information_schema.columns "
+                   "WHERE table_schema = DATABASE() AND table_name = 'sets' "
+                   "AND column_name = 'strSortSet'");
+    const bool hasSortSet{m_pDS->fv(0).get_asInt() > 0};
+    m_pDS->close();
+    if (!hasSortSet)
+      m_pDS->exec("ALTER TABLE `sets` ADD strSortSet TEXT");
+
+    KODI::DATABASE::MIGRATION::RepairVideoAssetTypesV154(*this, *m_pDS, *m_pDS2, iVersion);
+  }
+
+  if (iVersion < 155)
+  {
+    KODI::DATABASE::CVideoDatabaseDDL::CreateContentGeometryTable(*this);
+
+    m_pDS->exec("ALTER TABLE settings ADD COLUMN DeclaredAspect float");
+    m_pDS->exec("ALTER TABLE settings ADD COLUMN DeclaredOn text");
+    m_pDS->exec("ALTER TABLE settings ADD COLUMN DetectedWhenDeclared float");
+  }
 }
 
 int CVideoDatabase::GetSchemaVersion() const
 {
-  return 147;
+  return 156;
 }

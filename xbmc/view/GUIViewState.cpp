@@ -15,6 +15,7 @@
 #include "PlayListPlayer.h"
 #include "ServiceBroker.h"
 #include "URL.h"
+#include "Util.h"
 #include "ViewDatabase.h"
 #include "addons/Addon.h"
 #include "addons/AddonManager.h"
@@ -39,6 +40,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
+#include "utils/ContentNames.h"
 #include "utils/URIUtils.h"
 #include "video/GUIViewStateVideo.h"
 #include "video/VideoUtils.h"
@@ -50,6 +52,7 @@
 using namespace KODI;
 using namespace ADDON;
 using namespace PVR;
+using KODI::MEDIA::MediaSection;
 
 std::string CGUIViewState::m_strPlaylistDirectory;
 std::vector<CMediaSource> CGUIViewState::m_sources;
@@ -78,17 +81,16 @@ CGUIViewState* CGUIViewState::GetViewState(int windowId, const CFileItemList& it
 
   if (PLAYLIST::IsSmartPlayList(items) || url.IsProtocol("upnp") || items.IsLibraryFolder())
   {
-    if (items.GetContent() == "songs" ||
-        items.GetContent() == "albums" ||
-        items.GetContent() == "mixed")
+    if (items.GetContent() == MEDIA::CONTENT::SONGS ||
+        items.GetContent() == MEDIA::CONTENT::ALBUMS || items.GetContent() == MEDIA::CONTENT::MIXED)
       return new CGUIViewStateMusicSmartPlaylist(items);
-    else if (items.GetContent() == "musicvideos")
+    else if (items.GetContent() == MEDIA::CONTENT::MUSICVIDEOS)
       return new CGUIViewStateVideoMusicVideos(items);
-    else if (items.GetContent() == "tvshows")
+    else if (items.GetContent() == MEDIA::CONTENT::TVSHOWS)
       return new CGUIViewStateVideoTVShows(items);
-    else if (items.GetContent() == "episodes")
+    else if (items.GetContent() == MEDIA::CONTENT::EPISODES)
       return new CGUIViewStateVideoEpisodes(items);
-    else if (items.GetContent() == "movies")
+    else if (items.GetContent() == MEDIA::CONTENT::MOVIES)
       return new CGUIViewStateVideoMovies(items);
   }
 
@@ -107,7 +109,7 @@ CGUIViewState* CGUIViewState::GetViewState(int windowId, const CFileItemList& it
       return new CGUIViewStateMusicPlaylist(items);
   }
 
-  if (items.GetPath() == "special://musicplaylists/")
+  if (items.GetPath() == CUtil::PlaylistsPathOf(MediaSection::MUSIC))
     return new CGUIViewStateWindowMusicNav(items);
 
   if (url.IsProtocol("androidapp"))
@@ -465,9 +467,9 @@ bool CGUIViewState::AutoPlayNextItem()
   return false;
 }
 
-std::string CGUIViewState::GetLockType()
+std::optional<KODI::MEDIA::MediaSection> CGUIViewState::GetLockType()
 {
-  return "";
+  return std::nullopt;
 }
 
 std::string CGUIViewState::GetExtensions()
@@ -482,8 +484,9 @@ std::vector<CMediaSource>& CGUIViewState::GetSources()
 
 void CGUIViewState::AddLiveTVSources()
 {
-  std::vector<CMediaSource>* sources = CMediaSourceSettings::GetInstance().GetSources("video");
-  for (std::vector<CMediaSource>::iterator it = sources->begin(); it != sources->end(); ++it)
+  std::vector<CMediaSource>& sources =
+      CMediaSourceSettings::GetInstance().GetSources(MediaSection::VIDEO);
+  for (std::vector<CMediaSource>::iterator it = sources.begin(); it != sources.end(); ++it)
   {
     if (URIUtils::IsLiveTV((*it).strPath))
     {

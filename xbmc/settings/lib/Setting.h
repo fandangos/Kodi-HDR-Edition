@@ -16,6 +16,7 @@
 #include "SettingLevel.h"
 #include "SettingType.h"
 #include "SettingUpdate.h"
+#include "threads/CriticalSection.h"
 #include "threads/SharedSection.h"
 #include "utils/logtypes.h"
 
@@ -50,11 +51,11 @@ class CSetting : public ISetting,
                  public std::enable_shared_from_this<CSetting>
 {
 public:
-  CSetting(const std::string& id, CSettingsManager* settingsManager = nullptr);
-  CSetting(const std::string& id, const CSetting& setting);
+  CSetting(std::string_view id, CSettingsManager* settingsManager = nullptr);
+  CSetting(std::string_view id, const CSetting& setting);
   ~CSetting() override = default;
 
-  virtual std::shared_ptr<CSetting> Clone(const std::string &id) const = 0;
+  virtual std::shared_ptr<CSetting> Clone(std::string_view id) const = 0;
   void MergeBasics(const CSetting& other);
   virtual void MergeDetails(const CSetting& other) = 0;
 
@@ -128,6 +129,23 @@ protected:
     return std::static_pointer_cast<TSetting>(shared_from_this());
   }
 
+  enum class ApplyResult
+  {
+    Unchanged,
+    Applied,
+    Rejected //!< the value was invalid, or a callback refused it and it has been reverted
+  };
+
+  /*! \brief Store a value and run the change callbacks.
+
+   The callbacks run with m_critical released, unless the caller already holds it, because
+   one of them reading this setting back on another thread would otherwise deadlock against
+   the write. validate is the exception: it is called while the lock is held. The caller holds
+   m_writeSection.
+   */
+  template<class TSetting, typename TValue, typename TValidate>
+  ApplyResult ApplyValue(TValue& storage, const TValue& value, TValidate validate);
+
   ISettingCallback *m_callback = nullptr;
   bool m_enabled = true;
   std::string m_parentSetting;
@@ -137,6 +155,9 @@ protected:
   std::set<CSettingUpdate> m_updates;
   bool m_changed = false;
   mutable CSharedSection m_critical;
+  //! Held by a writer from before its value is stored until its callbacks finish, so writers apply
+  //! one at a time while readers take only m_critical. Taken before m_critical.
+  mutable CCriticalSection m_writeSection;
 
   std::string m_referencedId;
 
@@ -156,10 +177,10 @@ public:
   static SettingType Type() { return TSettingType; }
 
 protected:
-  CTraitedSetting(const std::string& id, CSettingsManager* settingsManager = nullptr)
+  CTraitedSetting(std::string_view id, CSettingsManager* settingsManager = nullptr)
     : CSetting(id, settingsManager)
   { }
-  CTraitedSetting(const std::string& id, const CTraitedSetting& setting) : CSetting(id, setting) {}
+  CTraitedSetting(std::string_view id, const CTraitedSetting& setting) : CSetting(id, setting) {}
   ~CTraitedSetting() override = default;
 };
 
@@ -171,12 +192,17 @@ protected:
 class CSettingList : public CSetting
 {
 public:
-  CSettingList(const std::string &id, std::shared_ptr<CSetting> settingDefinition, CSettingsManager *settingsManager = nullptr);
-  CSettingList(const std::string &id, std::shared_ptr<CSetting> settingDefinition, int label, CSettingsManager *settingsManager = nullptr);
-  CSettingList(const std::string &id, const CSettingList &setting);
+  CSettingList(std::string_view id,
+               std::shared_ptr<CSetting> settingDefinition,
+               CSettingsManager* settingsManager = nullptr);
+  CSettingList(std::string_view id,
+               std::shared_ptr<CSetting> settingDefinition,
+               int label,
+               CSettingsManager* settingsManager = nullptr);
+  CSettingList(std::string_view id, const CSettingList& setting);
   ~CSettingList() override = default;
 
-  std::shared_ptr<CSetting> Clone(const std::string &id) const override;
+  std::shared_ptr<CSetting> Clone(std::string_view id) const override;
   void MergeDetails(const CSetting& other) override;
 
   bool Deserialize(const TiXmlNode *node, bool update = false) override;
@@ -232,12 +258,15 @@ protected:
 class CSettingBool : public CTraitedSetting<bool, SettingType::Boolean>
 {
 public:
-  CSettingBool(const std::string &id, CSettingsManager *settingsManager = nullptr);
-  CSettingBool(const std::string &id, const CSettingBool &setting);
-  CSettingBool(const std::string &id, int label, bool value, CSettingsManager *settingsManager = nullptr);
+  CSettingBool(std::string_view id, CSettingsManager* settingsManager = nullptr);
+  CSettingBool(std::string_view id, const CSettingBool& setting);
+  CSettingBool(std::string_view id,
+               int label,
+               bool value,
+               CSettingsManager* settingsManager = nullptr);
   ~CSettingBool() override = default;
 
-  std::shared_ptr<CSetting> Clone(const std::string &id) const override;
+  std::shared_ptr<CSetting> Clone(std::string_view id) const override;
   void MergeDetails(const CSetting& other) override;
 
   bool Deserialize(const TiXmlNode *node, bool update = false) override;
@@ -277,14 +306,27 @@ private:
 class CSettingInt : public CTraitedSetting<int, SettingType::Integer>
 {
 public:
-  CSettingInt(const std::string &id, CSettingsManager *settingsManager = nullptr);
-  CSettingInt(const std::string &id, const CSettingInt &setting);
-  CSettingInt(const std::string &id, int label, int value, CSettingsManager *settingsManager = nullptr);
-  CSettingInt(const std::string &id, int label, int value, int minimum, int step, int maximum, CSettingsManager *settingsManager = nullptr);
-  CSettingInt(const std::string &id, int label, int value, const TranslatableIntegerSettingOptions &options, CSettingsManager *settingsManager = nullptr);
+  CSettingInt(std::string_view id, CSettingsManager* settingsManager = nullptr);
+  CSettingInt(std::string_view id, const CSettingInt& setting);
+  CSettingInt(std::string_view id,
+              int label,
+              int value,
+              CSettingsManager* settingsManager = nullptr);
+  CSettingInt(std::string_view id,
+              int label,
+              int value,
+              int minimum,
+              int step,
+              int maximum,
+              CSettingsManager* settingsManager = nullptr);
+  CSettingInt(std::string_view id,
+              int label,
+              int value,
+              const TranslatableIntegerSettingOptions& options,
+              CSettingsManager* settingsManager = nullptr);
   ~CSettingInt() override = default;
 
-  std::shared_ptr<CSetting> Clone(const std::string &id) const override;
+  std::shared_ptr<CSetting> Clone(std::string_view id) const override;
   void MergeDetails(const CSetting& other) override;
 
   bool Deserialize(const TiXmlNode *node, bool update = false) override;
@@ -363,13 +405,22 @@ private:
 class CSettingNumber : public CTraitedSetting<double, SettingType::Number>
 {
 public:
-  CSettingNumber(const std::string &id, CSettingsManager *settingsManager = nullptr);
-  CSettingNumber(const std::string &id, const CSettingNumber &setting);
-  CSettingNumber(const std::string &id, int label, float value, CSettingsManager *settingsManager = nullptr);
-  CSettingNumber(const std::string &id, int label, float value, float minimum, float step, float maximum, CSettingsManager *settingsManager = nullptr);
+  CSettingNumber(std::string_view id, CSettingsManager* settingsManager = nullptr);
+  CSettingNumber(std::string_view id, const CSettingNumber& setting);
+  CSettingNumber(std::string_view id,
+                 int label,
+                 float value,
+                 CSettingsManager* settingsManager = nullptr);
+  CSettingNumber(std::string_view id,
+                 int label,
+                 float value,
+                 float minimum,
+                 float step,
+                 float maximum,
+                 CSettingsManager* settingsManager = nullptr);
   ~CSettingNumber() override = default;
 
-  std::shared_ptr<CSetting> Clone(const std::string &id) const override;
+  std::shared_ptr<CSetting> Clone(std::string_view id) const override;
   void MergeDetails(const CSetting& other) override;
 
   bool Deserialize(const TiXmlNode *node, bool update = false) override;
@@ -423,12 +474,15 @@ private:
 class CSettingString : public CTraitedSetting<std::string, SettingType::String>
 {
 public:
-  CSettingString(const std::string &id, CSettingsManager *settingsManager = nullptr);
-  CSettingString(const std::string &id, const CSettingString &setting);
-  CSettingString(const std::string &id, int label, const std::string &value, CSettingsManager *settingsManager = nullptr);
+  CSettingString(std::string_view id, CSettingsManager* settingsManager = nullptr);
+  CSettingString(std::string_view id, const CSettingString& setting);
+  CSettingString(std::string_view id,
+                 int label,
+                 const std::string& value,
+                 CSettingsManager* settingsManager = nullptr);
   ~CSettingString() override = default;
 
-  std::shared_ptr<CSetting> Clone(const std::string &id) const override;
+  std::shared_ptr<CSetting> Clone(std::string_view id) const override;
   void MergeDetails(const CSetting& other) override;
 
   bool Deserialize(const TiXmlNode *node, bool update = false) override;
@@ -503,12 +557,12 @@ protected:
 class CSettingAction : public CSetting
 {
 public:
-  CSettingAction(const std::string &id, CSettingsManager *settingsManager = nullptr);
-  CSettingAction(const std::string &id, int label, CSettingsManager *settingsManager = nullptr);
-  CSettingAction(const std::string &id, const CSettingAction &setting);
+  CSettingAction(std::string_view id, CSettingsManager* settingsManager = nullptr);
+  CSettingAction(std::string_view id, int label, CSettingsManager* settingsManager = nullptr);
+  CSettingAction(std::string_view id, const CSettingAction& setting);
   ~CSettingAction() override = default;
 
-  std::shared_ptr<CSetting> Clone(const std::string &id) const override;
+  std::shared_ptr<CSetting> Clone(std::string_view id) const override;
   void MergeDetails(const CSetting& other) override;
 
   bool Deserialize(const TiXmlNode *node, bool update = false) override;

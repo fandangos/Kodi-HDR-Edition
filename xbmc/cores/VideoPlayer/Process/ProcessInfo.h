@@ -97,6 +97,7 @@ public:
   void UpdateRenderBuffers(int queued, int discard, int free);
   void GetRenderBuffers(int &queued, int &discard, int &free);
   virtual std::vector<AVPixelFormat> GetRenderFormats();
+  virtual bool WantsDolbyVisionRpu() { return false; }
 
   // player states
   /*!
@@ -109,6 +110,8 @@ public:
   bool IsSeeking();
   void SetStateRealtime(bool state);
   bool IsRealtimeStream();
+  void SetStateStreaming(bool isStreaming);
+  bool IsStreaming();
   void SetSpeed(float speed);
   void SetNewSpeed(float speed);
   float GetNewSpeed();
@@ -201,6 +204,7 @@ protected:
   int64_t m_timeMax;
   int64_t m_timeMin;
   bool m_realTimeStream;
+  bool m_isStreaming{false};
 
   // settings
   CCriticalSection m_settingsSection;

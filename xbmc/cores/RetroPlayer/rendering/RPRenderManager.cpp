@@ -8,10 +8,13 @@
 
 #include "RPRenderManager.h"
 
+#include "HdrOutput.h"
 #include "RenderContext.h"
 #include "RenderSettings.h"
 #include "RenderTranslator.h"
-#include "URL.h"
+#include "RenderUtils.h"
+#include "ServiceBroker.h"
+#include "cores/RetroPlayer/buffers/BaseRenderBuffer.h"
 #include "cores/RetroPlayer/buffers/IRenderBuffer.h"
 #include "cores/RetroPlayer/buffers/IRenderBufferPool.h"
 #include "cores/RetroPlayer/buffers/RenderBufferManager.h"
@@ -21,15 +24,18 @@
 #include "cores/RetroPlayer/guicontrols/GUIGameControl.h"
 #include "cores/RetroPlayer/process/RPProcessInfo.h"
 #include "cores/RetroPlayer/rendering/VideoRenderers/RPBaseRenderer.h"
-#include "cores/RetroPlayer/savestates/ISavestate.h"
-#include "cores/RetroPlayer/savestates/SavestateDatabase.h"
 #include "cores/RetroPlayer/streams/RetroPlayerVideo.h"
-#include "filesystem/File.h"
+#include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h"
+#include "games/GameServices.h"
+#include "games/GameSettings.h"
 #include "pictures/Picture.h"
+#include "rendering/capture/CaptureReadback.h"
 #include "threads/SingleLock.h"
 #include "utils/ColorUtils.h"
+#include "utils/ScopeGuard.h"
 #include "utils/TransformMatrix.h"
 #include "utils/log.h"
+#include "windowing/WinSystem.h"
 
 #include <cstring>
 #include <mutex>
@@ -44,6 +50,43 @@ extern "C"
 
 using namespace KODI;
 using namespace RETRO;
+
+namespace
+{
+//! A hardware frame copied into system memory, owned by whoever holds it last
+class CReadbackRenderBuffer : public CBaseRenderBuffer
+{
+public:
+  explicit CReadbackRenderBuffer(RENDERING::CAPTURE::ReadbackBuffer pixels)
+    : m_pixels(std::move(pixels.pixels)),
+      m_size(static_cast<size_t>(pixels.stride) * pixels.height)
+  {
+    // The capture has no alpha channel
+    m_format = pixels.format == AV_PIX_FMT_BGRA ? AV_PIX_FMT_BGR0 : pixels.format;
+    m_width = pixels.width;
+    m_height = pixels.height;
+  }
+
+  bool Allocate(AVPixelFormat format, unsigned int width, unsigned int height) override
+  {
+    return false;
+  }
+  size_t GetFrameSize() const override { return m_size; }
+  uint8_t* GetMemory() override { return m_pixels.get(); }
+  bool UploadTexture() override { return false; }
+  DataAccess GetMemoryAccess() const override { return DataAccess::READ_ONLY; }
+  DataAlignment GetMemoryAlignment() const override { return DataAlignment::DATA_UNALIGNED; }
+  void Release() override
+  {
+    if (--m_refCount <= 0)
+      delete this;
+  }
+
+private:
+  std::unique_ptr<uint8_t[]> m_pixels;
+  size_t m_size;
+};
+} // namespace
 
 CRPRenderManager::CRPRenderManager(CRPProcessInfo& processInfo)
   : m_processInfo(processInfo),
@@ -62,10 +105,10 @@ void CRPRenderManager::Deinitialize()
 {
   CLog::Log(LOGDEBUG, "RetroPlayer[RENDER]: Deinitializing render manager");
 
-  // Wait for savestate tasks
-  for (std::future<void>& task : m_savestateThreads)
-    task.wait();
-  m_savestateThreads.clear();
+  if (m_hdrOutput)
+    SetHdrOutput(false);
+
+  DestroyContext();
 
   for (auto& pixelScalerMap : m_scalers)
   {
@@ -77,20 +120,23 @@ void CRPRenderManager::Deinitialize()
   }
   m_scalers.clear();
 
-  for (auto renderBuffer : m_renderBuffers)
-    renderBuffer->Release();
-  m_renderBuffers.clear();
-
-  for (auto buffer : m_pendingBuffers)
-    buffer->Release();
-  m_pendingBuffers.clear();
-
-  for (auto& [savestatePath, renderBuffers] : m_savestateBuffers)
   {
-    for (auto renderBuffer : renderBuffers)
+    std::unique_lock lock(m_bufferMutex);
+    for (auto renderBuffer : m_renderBuffers)
       renderBuffer->Release();
+    m_renderBuffers.clear();
+    m_cachedFrame.clear();
+    m_bHasCachedFrame = false;
+    m_cachedWidth = m_cachedHeight = 0;
   }
-  m_savestateBuffers.clear();
+
+  for (const PendingBuffer& pending : m_pendingBuffers)
+  {
+    if (pending.memory != nullptr)
+      pending.buffer->ReleaseMemory();
+    pending.buffer->Release();
+  }
+  m_pendingBuffers.clear();
 
   // Renderers may still hold GPU resources, so defer cleanup to the rendering
   // or destructor thread
@@ -123,6 +169,13 @@ bool CRPRenderManager::Configure(AVPixelFormat format,
 
   std::unique_lock lock(m_stateMutex);
 
+  if (m_state != RENDER_STATE::UNCONFIGURED)
+  {
+    Flush();
+    std::unique_lock rendererLock(m_oldRenderersMutex);
+    m_oldRenderers.merge(m_renderers);
+  }
+
   m_state = RENDER_STATE::CONFIGURING;
 
   return true;
@@ -132,9 +185,15 @@ bool CRPRenderManager::GetVideoBuffer(unsigned int width,
                                       unsigned int height,
                                       VideoStreamBuffer& buffer)
 {
-  // Clear any previous pending buffers
-  for (IRenderBuffer* buffer : m_pendingBuffers)
-    buffer->Release();
+  // Clear any previous pending buffers. A buffer still pending here was lent
+  // to the client and never handed back. If it has mapped memory, its CPU
+  // access is still open.
+  for (const PendingBuffer& pending : m_pendingBuffers)
+  {
+    if (pending.memory != nullptr)
+      pending.buffer->ReleaseMemory();
+    pending.buffer->Release();
+  }
   m_pendingBuffers.clear();
 
   if (m_bFlush || m_state != RENDER_STATE::CONFIGURED)
@@ -172,11 +231,18 @@ bool CRPRenderManager::GetVideoBuffer(unsigned int width,
   if (renderBuffer == nullptr)
     return false;
 
-  buffer = VideoStreamBuffer{renderBuffer->GetFormat(), renderBuffer->GetMemory(),
-                             renderBuffer->GetFrameSize(), renderBuffer->GetMemoryAccess(),
-                             renderBuffer->GetMemoryAlignment()};
+  // Starts CPU access, which lasts until the client hands the frame back
+  uint8_t* const memory = renderBuffer->GetMemory();
+  if (memory == nullptr)
+  {
+    renderBuffer->Release();
+    return false;
+  }
 
-  m_pendingBuffers.emplace_back(renderBuffer);
+  buffer = VideoStreamBuffer{renderBuffer->GetFormat(), memory, renderBuffer->GetFrameSize(),
+                             renderBuffer->GetMemoryAccess(), renderBuffer->GetMemoryAlignment()};
+
+  m_pendingBuffers.emplace_back(PendingBuffer{renderBuffer, memory});
 
   return true;
 }
@@ -188,6 +254,10 @@ void CRPRenderManager::AddFrame(const uint8_t* data,
                                 float displayAspectRatio,
                                 unsigned int orientationDegCCW)
 {
+  // Keep the submitted mapping alive through the last read, and close CPU access
+  // before rendering or flushing can acquire the buffer.
+  std::unique_lock lock(m_bufferMutex);
+
   if (m_bFlush || m_state != RENDER_STATE::CONFIGURED)
     return;
 
@@ -197,16 +267,25 @@ void CRPRenderManager::AddFrame(const uint8_t* data,
 
   // Get render buffers to copy the frame into
   std::vector<IRenderBuffer*> renderBuffers;
+  IRenderBuffer* submittedBuffer = nullptr;
 
-  // Check pending buffers
-  for (IRenderBuffer* buffer : m_pendingBuffers)
+  for (const PendingBuffer& pending : m_pendingBuffers)
   {
-    if (buffer->GetMemory() == data)
+    const bool bSubmitted = (pending.memory == data);
+
+    if (pending.memory != nullptr && !bSubmitted)
+      pending.buffer->ReleaseMemory();
+
+    if (bSubmitted)
     {
-      buffer->Acquire();
-      renderBuffers.emplace_back(buffer);
+      submittedBuffer = pending.buffer;
+      pending.buffer->Acquire();
+      renderBuffers.emplace_back(pending.buffer);
     }
+
+    pending.buffer->Release();
   }
+  m_pendingBuffers.clear();
 
   // If we aren't submitting a zero-copy frame, copy into render buffer now
   if (renderBuffers.empty())
@@ -220,6 +299,10 @@ void CRPRenderManager::AddFrame(const uint8_t* data,
       IRenderBuffer* renderBuffer = bufferPool->GetBuffer(width, height);
       if (renderBuffer != nullptr)
       {
+        // Keep copying locked so CheckFlush() cannot flush the pool before publication.
+        // The measured CPU submission cost is modest: warm AddFrame() medians on M2 Pro
+        // (-O2, packed BGR0, system memory, 1/2 pools) were ~5/11 us at 320x240,
+        // ~21/41 us at 640x480, and ~149/290 us at 1920x1080.
         CopyFrame(renderBuffer, m_format, data, size, width, height);
         renderBuffers.emplace_back(renderBuffer);
       }
@@ -228,51 +311,48 @@ void CRPRenderManager::AddFrame(const uint8_t* data,
     }
   }
 
+  // Set render buffers
+  for (auto renderBuffer : m_renderBuffers)
+    renderBuffer->Release();
+  m_renderBuffers = std::move(renderBuffers);
+  ++m_framesGiven;
+
+  // Apply video properties to render buffers
+  for (auto renderBuffer : m_renderBuffers)
   {
-    std::unique_lock lock(m_bufferMutex);
+    renderBuffer->SetDisplayAspectRatio(displayAspectRatio);
+    renderBuffer->SetRotation(orientationDegCCW);
+  }
 
-    // Set render buffers
-    for (auto renderBuffer : m_renderBuffers)
-      renderBuffer->Release();
-    m_renderBuffers = std::move(renderBuffers);
+  // Cache frame if it arrived after being paused
+  if (m_speed == 0.0)
+  {
+    std::vector<uint8_t> cachedFrame = std::move(m_cachedFrame);
 
-    // Apply video properties to render buffers
-    for (auto renderBuffer : m_renderBuffers)
+    if (!m_bHasCachedFrame)
     {
-      renderBuffer->SetDisplayAspectRatio(displayAspectRatio);
-      renderBuffer->SetRotation(orientationDegCCW);
+      // In this case, cachedFrame is definitely empty (see invariant for
+      // m_bHasCachedFrame). Otherwise, cachedFrame may be empty if the frame
+      // is being copied in the rendering thread. In that case, we would want
+      // to leave cached frame empty to avoid caching another frame.
+
+      cachedFrame.resize(size);
+      m_bHasCachedFrame = true;
     }
 
-    // Cache frame if it arrived after being paused
-    if (m_speed == 0.0)
+    if (!cachedFrame.empty())
     {
-      std::vector<uint8_t> cachedFrame = std::move(m_cachedFrame);
-
-      if (!m_bHasCachedFrame)
-      {
-        // In this case, cachedFrame is definitely empty (see invariant for
-        // m_bHasCachedFrame). Otherwise, cachedFrame may be empty if the frame
-        // is being copied in the rendering thread. In that case, we would want
-        // to leave cached frame empty to avoid caching another frame.
-
-        cachedFrame.resize(size);
-        m_bHasCachedFrame = true;
-      }
-
-      if (!cachedFrame.empty())
-      {
-        {
-          CSingleExit exit(m_bufferMutex);
-          std::memcpy(cachedFrame.data(), data, size);
-        }
-        m_cachedFrame = std::move(cachedFrame);
-        m_cachedWidth = width;
-        m_cachedHeight = height;
-        m_cachedDisplayAspectRatio = displayAspectRatio;
-        m_cachedRotationCCW = orientationDegCCW;
-      }
+      std::memcpy(cachedFrame.data(), data, size);
+      m_cachedFrame = std::move(cachedFrame);
+      m_cachedWidth = width;
+      m_cachedHeight = height;
+      m_cachedDisplayAspectRatio = displayAspectRatio;
+      m_cachedRotationCCW = orientationDegCCW;
     }
   }
+
+  if (submittedBuffer != nullptr)
+    submittedBuffer->ReleaseMemory();
 }
 
 void CRPRenderManager::Flush()
@@ -280,39 +360,235 @@ void CRPRenderManager::Flush()
   m_bFlush = true;
 }
 
+bool CRPRenderManager::BeginClientFrame()
+{
+  std::unique_lock lock(m_hwMutex, std::try_to_lock);
+  if (!lock.owns_lock())
+    return false;
+  if (m_clientFrameDepth == 0 && m_hwBufferPool)
+  {
+    if (!m_hwBufferPool->BeginClientFrame())
+      return false;
+    m_hwContextBound = true;
+  }
+  ++m_clientFrameDepth;
+  lock.release();
+  return true;
+}
+
+void CRPRenderManager::EndClientFrame()
+{
+  if (--m_clientFrameDepth == 0)
+  {
+    if (m_destroyContextPending)
+      DestroyContext();
+    else if (m_hwContextBound)
+    {
+      m_hwBufferPool->EndClientFrame();
+      m_hwContextBound = false;
+    }
+  }
+  m_hwMutex.unlock();
+}
+
+bool CRPRenderManager::CreateContext(const HwContextProperties& properties)
+{
+  std::unique_lock lock(m_hwMutex);
+  // An explicit replacement ends the closed stream's context before rebinding.
+  if (m_destroyContextPending)
+    DestroyContextInternal();
+  if (m_hwBufferPool)
+    return false;
+
+  for (IRenderBufferPool* pool : m_processInfo.GetBufferManager().GetBufferPools())
+  {
+    if (!pool->SupportsHardwareRendering())
+      continue;
+    if (!pool->CreateContext(properties))
+    {
+      pool->DestroyContext();
+      continue;
+    }
+
+    // Stream creation can occur inside a call that began before negotiation.
+    if (m_clientFrameDepth > 0 && !pool->BeginClientFrame())
+    {
+      pool->DestroyContext();
+      continue;
+    }
+    m_hwBufferPool = pool;
+    m_hwContextBound = m_clientFrameDepth > 0;
+    m_hasHardwareContext = true;
+    return true;
+  }
+  return false;
+}
+
 void CRPRenderManager::DestroyContext()
 {
-  for (IRenderBufferPool* bufferPool : m_processInfo.GetBufferManager().GetBufferPools())
-    bufferPool->DestroyContext();
+  std::unique_lock lock(m_hwMutex);
+  if (m_clientFrameDepth > 0)
+  {
+    // Closing a stream can reenter from UnloadGame(), which may still use GL.
+    m_destroyContextPending = true;
+    return;
+  }
+  DestroyContextInternal();
+}
+
+void CRPRenderManager::DestroyContextInternal()
+{
+  m_destroyContextPending = false;
+  if (m_hwContextBound)
+  {
+    m_hwBufferPool->EndClientFrame();
+    m_hwContextBound = false;
+  }
+  ReleaseHwRenderBuffer();
+  if (m_hwBufferPool)
+    m_hwBufferPool->DestroyContext();
+  m_hwBufferPool = nullptr;
+  m_hwContextBound = false;
+  m_hasHardwareContext = false;
 }
 
 bool CRPRenderManager::Create(unsigned int width, unsigned int height)
 {
-  //! @todo
-  return false;
+  std::unique_lock lock(m_hwMutex);
+  if (!m_hwBufferPool || width == 0 || height == 0 || !BeginClientFrame())
+    return false;
+  const UTILS::CScopeGuard<CRPRenderManager*, nullptr, void(CRPRenderManager*)> endFrame(
+      [](CRPRenderManager* manager) { manager->EndClientFrame(); }, this);
+
+  width = std::max(width, m_hwBufferWidth);
+  height = std::max(height, m_hwBufferHeight);
+  bool success = false;
+  if (m_hwRenderBuffer)
+  {
+    success = (width == m_hwBufferWidth && height == m_hwBufferHeight) ||
+              m_hwRenderBuffer->Allocate(AV_PIX_FMT_NONE, width, height);
+  }
+  else if (m_hwBufferPool->IsConfigured() || m_hwBufferPool->Configure(AV_PIX_FMT_NONE))
+  {
+    IRenderBuffer* buffer = m_hwBufferPool->GetBuffer(width, height);
+    if (buffer && buffer->GetCurrentFramebuffer() != 0)
+    {
+      m_hwRenderBuffer = buffer;
+      success = true;
+    }
+    else if (buffer)
+      buffer->Release();
+  }
+
+  if (success)
+  {
+    m_hwBufferWidth = width;
+    m_hwBufferHeight = height;
+    {
+      std::unique_lock framebufferLock(m_framebufferMutex);
+      m_framebuffer = m_hwRenderBuffer->GetCurrentFramebuffer();
+      m_framebufferWidth = width;
+      m_framebufferHeight = height;
+    }
+    CLog::Log(LOGDEBUG, "RetroPlayer[RENDER]: Allocated a {}x{} framebuffer for the game client",
+              width, height);
+  }
+  else
+    CLog::Log(LOGERROR, "RetroPlayer[RENDER]: Failed to allocate a {}x{} framebuffer", width,
+              height);
+  return success;
+}
+
+void CRPRenderManager::ReleaseHwRenderBuffer()
+{
+  std::unique_lock hwLock(m_hwMutex);
+  if (!m_hwRenderBuffer)
+    return;
+  {
+    std::unique_lock lock(m_bufferMutex);
+    std::erase_if(m_renderBuffers,
+                  [this](IRenderBuffer* renderBuffer)
+                  {
+                    if (renderBuffer->GetPool() != m_hwBufferPool)
+                      return false;
+                    renderBuffer->Release();
+                    return true;
+                  });
+  }
+  {
+    std::unique_lock framebufferLock(m_framebufferMutex);
+    m_framebuffer = 0;
+    m_framebufferWidth = m_framebufferHeight = 0;
+  }
+  m_hwRenderBuffer->Release();
+  m_hwRenderBuffer = nullptr;
+  m_hwBufferWidth = m_hwBufferHeight = 0;
+  m_loggedFramebuffer = 0;
+  m_loggedHardwareCapture = false;
 }
 
 uintptr_t CRPRenderManager::GetCurrentFramebuffer(unsigned int width, unsigned int height)
 {
-  for (IRenderBufferPool* bufferPool : m_processInfo.GetBufferManager().GetBufferPools())
+  std::unique_lock lock(m_hwMutex, std::try_to_lock);
+  if (!lock.owns_lock())
   {
-    if (!bufferPool->HasVisibleRenderer())
-      continue;
-
-    IRenderBuffer* renderBuffer = bufferPool->GetBuffer(width, height);
-    if (renderBuffer != nullptr)
+    // A client can ask from a thread of its own while a call into it holds the
+    // lock and waits for that thread, as PPSSPP's emulation thread does.
+    // Growing the framebuffer needs the context that call has current, but one
+    // already large enough is answered as is.
     {
-      m_pendingBuffers.emplace_back(renderBuffer);
-      return renderBuffer->GetCurrentFramebuffer();
+      std::unique_lock framebufferLock(m_framebufferMutex);
+      if (m_framebuffer != 0 && width != 0 && height != 0 && width <= m_framebufferWidth &&
+          height <= m_framebufferHeight)
+        return m_framebuffer;
     }
+    lock.lock();
   }
-
-  return 0;
+  if (!m_hwRenderBuffer || width == 0 || height == 0)
+    return 0;
+  if ((width > m_hwBufferWidth || height > m_hwBufferHeight) && !Create(width, height))
+    return 0;
+  const uintptr_t framebuffer = m_hwRenderBuffer->GetCurrentFramebuffer();
+  if (framebuffer != m_loggedFramebuffer)
+  {
+    CLog::Log(LOGDEBUG, "RetroPlayer[RENDER]: Client is rendering into framebuffer {} ({}x{})",
+              framebuffer, width, height);
+    m_loggedFramebuffer = framebuffer;
+  }
+  return framebuffer;
 }
 
-void CRPRenderManager::RenderFrame()
+void CRPRenderManager::RenderFrame(unsigned int width,
+                                   unsigned int height,
+                                   float displayAspectRatio,
+                                   unsigned int orientationDegCCW)
 {
-  //! @todo
+  std::unique_lock hwLock(m_hwMutex);
+  if (m_bFlush || !m_hwContextBound || !m_hwRenderBuffer || width == 0 || height == 0 ||
+      width > m_hwBufferWidth || height > m_hwBufferHeight)
+    return;
+
+  IRenderBuffer* publishBuffer =
+      m_hwBufferPool->CaptureClientFrame(m_hwRenderBuffer, width, height);
+  if (!publishBuffer)
+    return;
+
+  if (!m_loggedHardwareCapture)
+  {
+    CLog::Log(LOGDEBUG, "RetroPlayer[RENDER]: First hardware frame captured on GPU ({}x{})", width,
+              height);
+    m_loggedHardwareCapture = true;
+  }
+  publishBuffer->SetSize(width, height);
+  publishBuffer->SetDisplayAspectRatio(displayAspectRatio);
+  publishBuffer->SetRotation(orientationDegCCW);
+  publishBuffer->SetLoaded(true);
+
+  std::unique_lock lock(m_bufferMutex);
+  for (IRenderBuffer* renderBuffer : m_renderBuffers)
+    renderBuffer->Release();
+  m_renderBuffers = {publishBuffer};
+  ++m_framesGiven;
 }
 
 void CRPRenderManager::SetSpeed(double speed)
@@ -322,6 +598,7 @@ void CRPRenderManager::SetSpeed(double speed)
 
 void CRPRenderManager::FrameMove()
 {
+  FlushRendered();
   CheckFlush();
 
   bool bIsConfigured = false;
@@ -342,9 +619,28 @@ void CRPRenderManager::FrameMove()
 
   if (bIsConfigured)
   {
-    std::unique_lock<std::mutex> lock{m_oldRenderersMutex};
-    for (auto& renderer : m_renderers)
-      renderer->FrameMove();
+    {
+      std::unique_lock<std::mutex> lock{m_oldRenderersMutex};
+      for (auto& renderer : m_renderers)
+        renderer->FrameMove();
+    }
+
+    UpdateHdrOutput();
+  }
+}
+
+void CRPRenderManager::FlushRendered()
+{
+  for (IRenderBufferPool* pool : m_processInfo.GetBufferManager().GetBufferPools())
+    pool->FlushRendered();
+}
+
+void CRPRenderManager::ReleaseUnusedTextures()
+{
+  for (const auto& renderer : m_renderers)
+  {
+    if (renderer->IsUnused())
+      renderer->ReleaseTextures();
   }
 }
 
@@ -369,6 +665,7 @@ void CRPRenderManager::CheckFlush()
       std::unique_lock<std::mutex> lock{m_oldRenderersMutex};
       for (const auto& renderer : m_renderers)
         renderer->Flush();
+      m_oldRenderers.clear();
     }
 
     m_processInfo.GetBufferManager().FlushPools();
@@ -377,12 +674,19 @@ void CRPRenderManager::CheckFlush()
   }
 }
 
-void CRPRenderManager::RenderWindow(bool bClear, const RESOLUTION_INFO& coordsRes)
+void CRPRenderManager::RenderWindow(bool bClear, const RESOLUTION_INFO& coordsRes, bool videoLayer)
 {
+  // In HDR the game goes under the GUI, which Kodi composites over it
+  if (!videoLayer)
+    m_windowRendered = true;
+  if (videoLayer != m_hdrOutput)
+    return;
+
   // Clear any old renderers on the rendering thread
   {
     std::unique_lock<std::mutex> lock{m_oldRenderersMutex};
     m_oldRenderers.clear();
+    ReleaseUnusedTextures();
   }
 
   // Get a renderer for the fullscreen window
@@ -390,14 +694,104 @@ void CRPRenderManager::RenderWindow(bool bClear, const RESOLUTION_INFO& coordsRe
   if (!renderer)
     return;
 
+  const uint64_t framesGiven = m_framesGiven.load();
+  m_processInfo.GetDisplayPacing().OnFrameTaken(CDisplayPacing::Clock::now(),
+                                                framesGiven != m_lastFrameTaken);
+  m_lastFrameTaken = framesGiven;
+
   // Get a render buffer for the renderer
   IRenderBuffer* renderBuffer = GetRenderBuffer(renderer->GetBufferPool());
 
   m_renderContext.SetRenderingResolution(m_renderContext.GetVideoResolution(), false);
 
+  if (bClear && renderBuffer == nullptr)
+    m_renderContext.Clear(m_renderContext.UseLimitedColor() ? UTILS::COLOR::LIMITED_BLACK
+                                                            : UTILS::COLOR::BLACK);
+
+  if (m_hdrOutput)
+    renderer->SetHdrLuminance(HDR_REFERENCE_WHITE, m_hdrPeak);
+
   RenderInternal(renderer, renderBuffer, bClear, 255);
 
+  // The renderer can be shared with a control, which is drawn in the GUI
+  renderer->SetHdrLuminance(0, 0);
+
   m_renderContext.SetRenderingResolution(coordsRes, false);
+}
+
+void CRPRenderManager::UpdateHdrOutput()
+{
+  const bool windowRendered = m_windowRendered;
+  m_windowRendered = false;
+
+  // HDR pays off with a video filter, whose scanlines and mask cost light
+  bool wanted = windowRendered &&
+                CServiceBroker::GetGameServices().GameSettings().HdrWithVideoFilters() &&
+                !GetEffectiveSettings(nullptr).GetShaderPreset().empty();
+  if (wanted)
+  {
+    const std::shared_ptr<CRPBaseRenderer> renderer = GetRendererForSettings(nullptr);
+    wanted = renderer && renderer->SupportsHdr();
+  }
+
+  // A display that refused HDR is asked again once something changes
+  if (!wanted)
+    m_hdrRefused = false;
+  else if (m_hdrRefused)
+    return;
+
+  if (wanted != m_hdrOutput)
+    SetHdrOutput(wanted);
+}
+
+void CRPRenderManager::SetHdrOutput(bool hdr)
+{
+  CWinSystemBase* windowing = m_renderContext.Windowing();
+  if (windowing == nullptr)
+    return;
+
+  if (!hdr)
+  {
+    windowing->SetGuiCompositing(0);
+    windowing->SetHDR(nullptr);
+    windowing->SetColorimetry(nullptr);
+    windowing->SetVideoOutput(nullptr);
+    m_hdrOutput = false;
+    CLog::Log(LOGINFO, "RetroPlayer[RENDER]: Showing the game in SDR");
+    return;
+  }
+
+  const unsigned int peak = GetHdrPeak(windowing->GetDisplayHDRCapabilities().GetMaxLuminance());
+
+  VideoPicture picture;
+  GetHdrOutputPicture(picture, HDR_REFERENCE_WHITE, peak);
+
+  if (!windowing->SetVideoOutput(&picture))
+  {
+    CLog::Log(LOGINFO, "RetroPlayer[RENDER]: The display has no 10-bit output for HDR");
+    windowing->SetVideoOutput(nullptr);
+    m_hdrRefused = true;
+    return;
+  }
+
+  windowing->SetColorimetry(&picture);
+
+  if (!windowing->SetHDR(&picture) ||
+      !windowing->SetGuiCompositing(static_cast<int>(picture.color_transfer)))
+  {
+    CLog::Log(LOGINFO, "RetroPlayer[RENDER]: The display can't show the game in HDR");
+    windowing->SetGuiCompositing(0);
+    windowing->SetHDR(nullptr);
+    windowing->SetColorimetry(nullptr);
+    windowing->SetVideoOutput(nullptr);
+    m_hdrRefused = true;
+    return;
+  }
+
+  m_hdrOutput = true;
+  m_hdrPeak = peak;
+  CLog::Log(LOGINFO, "RetroPlayer[RENDER]: Showing the game in HDR, white at {} nits, peak {} nits",
+            HDR_REFERENCE_WHITE, peak);
 }
 
 void CRPRenderManager::RenderControl(bool bClear,
@@ -409,6 +803,7 @@ void CRPRenderManager::RenderControl(bool bClear,
   {
     std::unique_lock<std::mutex> lock{m_oldRenderersMutex};
     m_oldRenderers.clear();
+    ReleaseUnusedTextures();
   }
 
   // Get a renderer for the control
@@ -416,20 +811,8 @@ void CRPRenderManager::RenderControl(bool bClear,
   if (!renderer)
     return;
 
-  IRenderBuffer* renderBuffer = nullptr;
-
-  // Get render buffer for external pixels, if requested
-  const std::string& pixelPath = renderer->GetRenderSettings().VideoSettings().GetPixels();
-  if (!pixelPath.empty())
-  {
-    renderBuffer = GetRenderBufferForSavestate(pixelPath, renderer->GetBufferPool());
-  }
-  else
-  {
-    // Get a render buffer for the renderer
-    renderBuffer = GetRenderBuffer(renderer->GetBufferPool());
-  }
-
+  // Get a render buffer for the renderer
+  IRenderBuffer* renderBuffer = GetRenderBuffer(renderer->GetBufferPool());
   if (renderBuffer == nullptr)
     return;
 
@@ -456,7 +839,8 @@ void CRPRenderManager::RenderControl(bool bClear,
     CRect region = renderRegion;
     region.Intersect(old);
     m_renderContext.SetScissors(region);
-    m_renderContext.Clear(UTILS::COLOR::BLACK);
+    m_renderContext.Clear(m_renderContext.UseLimitedColor() ? UTILS::COLOR::LIMITED_BLACK
+                                                            : UTILS::COLOR::BLACK);
     m_renderContext.SetScissors(old);
   }
 
@@ -526,6 +910,7 @@ void CRPRenderManager::RenderInternal(const std::shared_ptr<CRPBaseRenderer>& re
     renderBuffer->Release();
   }
 
+  renderer->SetSpeed(m_speed);
   renderer->RenderFrame(bClear, alpha);
 }
 
@@ -557,7 +942,6 @@ std::shared_ptr<CRPBaseRenderer> CRPRenderManager::GetRendererForSettings(
     renderer->SetStretchMode(effectiveRenderSettings.VideoSettings().GetRenderStretchMode());
     renderer->SetRenderRotation(effectiveRenderSettings.VideoSettings().GetRenderRotation());
     renderer->SetShaderPreset(effectiveRenderSettings.VideoSettings().GetShaderPreset());
-    renderer->SetPixels(effectiveRenderSettings.VideoSettings().GetPixels());
   }
 
   return renderer;
@@ -574,7 +958,17 @@ std::shared_ptr<CRPBaseRenderer> CRPRenderManager::GetRendererForPool(
     return renderer;
   }
 
+  // Don't build a renderer for a pool that cannot accept the stream's format.
+  // The pool remembers the refusal, so this costs nothing after the first frame
+  // and keeps the software pools quiet while a hardware stream is playing.
+  if (!bufferPool->Configure(m_format))
+    return renderer;
+
   std::unique_lock<std::mutex> lock{m_oldRenderersMutex};
+
+  // Serialize with teardown so an old deferred flush cannot invalidate a new renderer's pool.
+  if (m_bFlush)
+    return renderer;
 
   // Get compatible renderer for this buffer pool
   for (const auto& it : m_renderers)
@@ -615,6 +1009,9 @@ std::shared_ptr<CRPBaseRenderer> CRPRenderManager::GetRendererForPool(
     if (!renderer && !shaderPreset.empty())
       m_failedShaderPresets.insert(shaderPreset);
   }
+
+  if (renderer)
+    renderer->SetUsed();
 
   return renderer;
 }
@@ -665,42 +1062,9 @@ IRenderBuffer* CRPRenderManager::GetRenderBuffer(IRenderBufferPool* bufferPool)
   return renderBuffer;
 }
 
-IRenderBuffer* CRPRenderManager::GetRenderBufferForSavestate(const std::string& savestatePath,
-                                                             const IRenderBufferPool* bufferPool)
-{
-  IRenderBuffer* renderBuffer = nullptr;
-
-  std::unique_lock lock(m_bufferMutex);
-
-  // Check to see if we have a buffers for the specified path
-  auto it = m_savestateBuffers.find(savestatePath);
-  if (it != m_savestateBuffers.end())
-  {
-    // Get a render buffer belonging to the specified pool
-    const std::vector<IRenderBuffer*>& renderBuffers = it->second;
-
-    auto it2 = std::ranges::find_if(renderBuffers, [bufferPool](IRenderBuffer* buffer)
-                                    { return buffer->GetPool() == bufferPool; });
-
-    if (it2 != renderBuffers.end())
-    {
-      renderBuffer = *it2;
-      renderBuffer->Acquire();
-    }
-  }
-  else
-  {
-    // The path isn't loaded, mark it as seen and load asynchronously
-    m_savestateBuffers[savestatePath] = {};
-    LoadVideoFrameAsync(savestatePath);
-  }
-
-  return renderBuffer;
-}
-
 void CRPRenderManager::CreateRenderBuffer(IRenderBufferPool* bufferPool)
 {
-  if (m_bFlush || m_state != RENDER_STATE::CONFIGURED)
+  if (IsHardwareRendering() || m_bFlush || m_state != RENDER_STATE::CONFIGURED)
     return;
 
   std::unique_lock lock(m_bufferMutex);
@@ -710,7 +1074,10 @@ void CRPRenderManager::CreateRenderBuffer(IRenderBufferPool* bufferPool)
     IRenderBuffer* renderBuffer =
         CreateFromCache(m_cachedFrame, m_cachedWidth, m_cachedHeight, bufferPool, m_bufferMutex);
     if (renderBuffer != nullptr)
+    {
+      renderBuffer->SetDisplayAspectRatio(m_cachedDisplayAspectRatio);
       m_renderBuffers.emplace_back(renderBuffer);
+    }
   }
 }
 
@@ -814,8 +1181,6 @@ CRenderVideoSettings CRPRenderManager::GetEffectiveSettings(
     if (settings->HasRotation())
       effectiveSettings.SetRenderRotation(
           settings->GetSettings().VideoSettings().GetRenderRotation());
-    if (settings->HasPixels())
-      effectiveSettings.SetPixels(settings->GetSettings().VideoSettings().GetPixels());
   }
 
   // Sanitize settings
@@ -827,14 +1192,30 @@ CRenderVideoSettings CRPRenderManager::GetEffectiveSettings(
   return effectiveSettings;
 }
 
-void CRPRenderManager::SaveThumbnail(const std::string& thumbnailPath)
+void CRPRenderManager::SaveThumbnail(const std::string& thumbnailPath, const VideoFrame& frame)
 {
-  // Get a suitable render buffer for capturing the video data, or use the
-  // cached frame if a readable buffer can't be found
+  // The frame captured with the savestate, so that the thumbnail shows the
+  // moment it was taken. A hardware-rendered game has no other frame in system
+  // memory; otherwise a readable buffer on screen, or the cached frame if there
+  // isn't one.
   IRenderBuffer* renderBuffer = nullptr;
   std::vector<uint8_t> cachedFrame;
 
-  GetVideoFrame(renderBuffer, cachedFrame);
+  for (const auto& buffer : frame)
+  {
+    if (buffer->GetMemoryAccess() != DataAccess::WRITE_ONLY)
+    {
+      renderBuffer = buffer.get();
+      renderBuffer->Acquire();
+      break;
+    }
+  }
+  if (renderBuffer == nullptr)
+  {
+    if (IsHardwareRendering())
+      return;
+    GetVideoFrame(renderBuffer, cachedFrame);
+  }
 
   // Video frame properties
   AVPixelFormat sourceFormat = AV_PIX_FMT_NONE;
@@ -842,6 +1223,7 @@ void CRPRenderManager::SaveThumbnail(const std::string& thumbnailPath)
   size_t sourceSize = 0;
   unsigned int width = 0;
   unsigned int height = 0;
+  float displayAspectRatio = 0.0f;
   unsigned int rotationCCW = 0;
 
   if (renderBuffer != nullptr)
@@ -851,21 +1233,24 @@ void CRPRenderManager::SaveThumbnail(const std::string& thumbnailPath)
     sourceSize = renderBuffer->GetFrameSize();
     width = renderBuffer->GetWidth();
     height = renderBuffer->GetHeight();
+    displayAspectRatio = renderBuffer->GetDisplayAspectRatio();
     rotationCCW = renderBuffer->GetRotation();
   }
   else if (!cachedFrame.empty())
   {
     sourceFormat = m_format;
-    sourceData = m_cachedFrame.data();
-    sourceSize = m_cachedFrame.size();
+    sourceData = cachedFrame.data();
+    sourceSize = cachedFrame.size();
     width = m_cachedWidth;
     height = m_cachedHeight;
+    displayAspectRatio = m_cachedDisplayAspectRatio;
     rotationCCW = m_cachedRotationCCW;
   }
 
   if (sourceFormat == AV_PIX_FMT_NONE)
   {
     CLog::Log(LOGERROR, "Failed to get a video frame for savestate thumbnail");
+    FreeVideoFrame(renderBuffer, std::move(cachedFrame));
     return;
   }
 
@@ -873,12 +1258,14 @@ void CRPRenderManager::SaveThumbnail(const std::string& thumbnailPath)
 
   const int stride = CRenderTranslator::TranslateWidthToBytes(width, sourceFormat);
 
-  unsigned int scaleWidth = 400;
-  unsigned int scaleHeight = 220;
-  CPicture::GetScale(width, height, scaleWidth, scaleHeight);
+  // Scale to the shape the frame is shown at, so non-square pixels aren't stretched
+  unsigned int scaleWidth = 444;
+  unsigned int scaleHeight = 250;
+  CPicture::GetScale(CRenderUtils::GetDisplayWidth(width, height, displayAspectRatio), height,
+                     scaleWidth, scaleHeight);
 
   const int bytesPerPixel = 4;
-  std::vector<uint8_t> scaledImage(scaleWidth * scaleHeight * bytesPerPixel);
+  std::vector<uint8_t> scaledImage(static_cast<size_t>(scaleWidth) * scaleHeight * bytesPerPixel);
 
   const AVPixelFormat outFormat = AV_PIX_FMT_BGR0;
   const int scaleStride = CRenderTranslator::TranslateWidthToBytes(scaleWidth, outFormat);
@@ -901,101 +1288,56 @@ void CRPRenderManager::SaveThumbnail(const std::string& thumbnailPath)
   FreeVideoFrame(renderBuffer, std::move(cachedFrame));
 }
 
-void CRPRenderManager::CacheVideoFrame(const std::string& savestatePath)
+bool CRPRenderManager::TryCaptureVideoFrame(VideoFrame& frame)
 {
-  std::unique_lock lock(m_bufferMutex);
+  if (!frame.empty())
+    return false;
 
-  // Get the render buffers for this savestate path
-  std::vector<IRenderBuffer*>& savestateBuffers = m_savestateBuffers[savestatePath];
+  if (IsHardwareRendering())
+    return ReadHardwareFrame(frame);
 
-  // Release old buffers
-  for (IRenderBuffer* renderBuffer : savestateBuffers)
-    renderBuffer->Release();
+  std::unique_lock lock(m_bufferMutex, std::try_to_lock);
+  if (!lock.owns_lock())
+    return false;
 
-  // Save buffers
-  savestateBuffers = m_renderBuffers;
-
-  // Acquire new buffers
-  for (IRenderBuffer* renderBuffer : savestateBuffers)
-    renderBuffer->Acquire();
+  for (IRenderBuffer* buffer : m_renderBuffers)
+  {
+    buffer->Acquire();
+    frame.emplace_back(buffer, [](IRenderBuffer* acquired) { acquired->Release(); });
+  }
+  return true;
 }
 
-void CRPRenderManager::SaveVideoFrame(const std::string& savestatePath, ISavestate& savestate)
+bool CRPRenderManager::ReadHardwareFrame(VideoFrame& frame)
 {
-  // Get a suitable render buffer for capturing the video data, or use the
-  // cached frame if a readable buffer can't be found
-  IRenderBuffer* readableBuffer = nullptr;
-  std::vector<uint8_t> cachedFrame;
-
-  GetVideoFrame(readableBuffer, cachedFrame);
-
-  // Video frame properties
-  AVPixelFormat targetFormat = AV_PIX_FMT_NONE;
-  unsigned int width = 0;
-  unsigned int height = 0;
-  float displayAspectRatio = 0.0f;
-  unsigned int rotationCCW = 0;
-  size_t sourceSize = 0;
-  const uint8_t* sourceData = nullptr;
-
-  if (readableBuffer != nullptr)
+  IRenderBuffer* published = nullptr;
   {
-    targetFormat = readableBuffer->GetFormat();
-    width = readableBuffer->GetWidth();
-    height = readableBuffer->GetHeight();
-    displayAspectRatio = readableBuffer->GetDisplayAspectRatio();
-    rotationCCW = readableBuffer->GetRotation();
-    sourceSize = readableBuffer->GetFrameSize();
-    sourceData = readableBuffer->GetMemory();
-  }
-  else if (!cachedFrame.empty())
-  {
-    targetFormat = m_format;
-    width = m_cachedWidth;
-    height = m_cachedHeight;
-    displayAspectRatio = m_cachedDisplayAspectRatio;
-    rotationCCW = m_cachedRotationCCW;
-    sourceSize = m_cachedFrame.size();
-    sourceData = m_cachedFrame.data();
+    std::unique_lock lock(m_bufferMutex, std::try_to_lock);
+    if (!lock.owns_lock() || m_renderBuffers.empty())
+      return false;
+    published = m_renderBuffers.front();
+    published->Acquire();
   }
 
-  if (targetFormat == AV_PIX_FMT_NONE)
+  RENDERING::CAPTURE::ReadbackBuffer pixels;
+  bool read = false;
+  if (BeginClientFrame())
   {
-    CLog::Log(LOGERROR, "Failed to get a video frame for savestate video frame");
+    if (m_hwBufferPool)
+      read = m_hwBufferPool->ReadCapture(published, pixels);
+    EndClientFrame();
   }
-  else
-  {
-    // Serialize video stream properties
-    savestate.SetPixelFormat(targetFormat);
-    savestate.SetNominalWidth(m_nominalWidth);
-    savestate.SetNominalHeight(m_nominalHeight);
-    savestate.SetNominalDisplayAspectRatio(m_nominalDisplayAspectRatio);
-    savestate.SetMaxWidth(m_maxWidth);
-    savestate.SetMaxHeight(m_maxHeight);
+  const float displayAspectRatio = published->GetDisplayAspectRatio();
+  published->Release();
 
-    // Serialize video frame properties
-    savestate.SetVideoWidth(width);
-    savestate.SetVideoHeight(height);
-    savestate.SetDisplayAspectRatio(displayAspectRatio);
-    savestate.SetRotationDegCCW(rotationCCW);
-    uint8_t* const targetData = savestate.GetVideoBuffer(sourceSize);
-    std::memcpy(targetData, sourceData, sourceSize);
-  }
+  if (!read || pixels.stride <= 0)
+    return false;
 
-  FreeVideoFrame(readableBuffer, std::move(cachedFrame));
-}
-
-void CRPRenderManager::ClearVideoFrame(const std::string& savestatePath)
-{
-  std::unique_lock lock(m_bufferMutex);
-
-  auto it = m_savestateBuffers.find(savestatePath);
-  if (it != m_savestateBuffers.end())
-  {
-    for (auto renderBuffer : it->second)
-      renderBuffer->Release();
-    m_savestateBuffers.erase(it);
-  }
+  auto* buffer = new CReadbackRenderBuffer(std::move(pixels));
+  buffer->SetDisplayAspectRatio(displayAspectRatio);
+  buffer->Acquire();
+  frame.emplace_back(buffer, [](IRenderBuffer* acquired) { acquired->Release(); });
+  return true;
 }
 
 void CRPRenderManager::GetVideoFrame(IRenderBuffer*& readableBuffer,
@@ -1037,73 +1379,4 @@ void CRPRenderManager::FreeVideoFrame(IRenderBuffer* readableBuffer,
   {
     m_cachedFrame = std::move(cachedFrame);
   }
-}
-
-void CRPRenderManager::LoadVideoFrameAsync(const std::string& savestatePath)
-{
-  // Prune any finished loader threads
-  m_savestateThreads.erase(std::remove_if(m_savestateThreads.begin(), m_savestateThreads.end(),
-                                          [](std::future<void>& task) {
-                                            return task.wait_for(std::chrono::seconds::zero()) ==
-                                                   std::future_status::ready;
-                                          }),
-                           m_savestateThreads.end());
-
-  // Load the video data from the savestate asynchronously
-  std::future<void> task = std::async(std::launch::async, [this, savestatePath]()
-                                      { LoadVideoFrameSync(savestatePath); });
-
-  m_savestateThreads.emplace_back(std::move(task));
-}
-
-void CRPRenderManager::LoadVideoFrameSync(const std::string& savestatePath)
-{
-  if (!XFILE::CFile::Exists(savestatePath))
-  {
-    CLog::Log(LOGERROR, "Failed to load savestate: doesn't exist at path {}",
-              CURL::GetRedacted(savestatePath));
-    return;
-  }
-
-  std::unique_ptr<ISavestate> savestate = CSavestateDatabase::AllocateSavestate();
-  CSavestateDatabase db;
-  if (!db.GetSavestate(savestatePath, *savestate))
-    return;
-
-  // Load video data
-  const AVPixelFormat format = savestate->GetPixelFormat();
-  const uint8_t* data = savestate->GetVideoData();
-  const size_t size = savestate->GetVideoSize();
-  const unsigned int width = savestate->GetVideoWidth();
-  const unsigned int height = savestate->GetVideoHeight();
-  const unsigned int rotationCCW = savestate->GetRotationDegCCW();
-
-  // Validate parameters
-  if (format == AV_PIX_FMT_NONE || data == nullptr || size == 0 || width == 0 || height == 0)
-  {
-    CLog::Log(LOGERROR, "Invalid video data: format {}, data {}, size {}, width {}, height {}",
-              static_cast<long int>(format), static_cast<const void*>(data), size, width, height);
-    return;
-  }
-
-  // Copy frame to render buffers
-  std::vector<IRenderBuffer*> renderBuffers;
-  for (auto* bufferPool : m_processInfo.GetBufferManager().GetBufferPools())
-  {
-    IRenderBuffer* newBuffer = bufferPool->GetBuffer(width, height);
-    if (newBuffer == nullptr)
-    {
-      CLog::Log(LOGDEBUG, "RetroPlayer[RENDER]: Unable to get render buffer for savestate");
-      continue;
-    }
-
-    CopyFrame(newBuffer, format, data, size, width, height);
-    newBuffer->SetRotation(rotationCCW);
-
-    renderBuffers.emplace_back(newBuffer);
-  }
-
-  // Save render buffers
-  std::unique_lock lock(m_bufferMutex);
-  m_savestateBuffers[savestatePath] = std::move(renderBuffers);
 }

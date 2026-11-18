@@ -14,9 +14,11 @@
 #include "guilib/AspectRatio.h"
 #include "utils/ColorUtils.h"
 #include "utils/Geometry.h"
+#include "windowing/GraphicContext.h"
 
 #include <functional>
 #include <optional>
+#include <vector>
 
 class CTextureInfo
 {
@@ -44,6 +46,8 @@ public:
   CRect      border;          // scaled  - unneeded if we get rid of scale on load
   bool m_infill{
       true}; // if false, the main body of a texture is not drawn. useful for borders with no inner filling
+  bool m_mipmap{false}; // if true, mipmaps are generated, for smooth downscaling
+  bool m_subpixel{false}; // if true, corners are not snapped to whole pixels while moving
   int        orientation;     // orientation of the texture (0 - 7 == EXIForientation - 1)
   std::string diffuse;         // diffuse overlay texture
   KODI::GUILIB::GUIINFO::CGUIInfoColor diffuseColor; // diffuse color
@@ -61,6 +65,8 @@ using DrawQuadFunc = std::function<void(const CRect& coords,
                                         const float depth,
                                         const bool blending)>;
 
+using DrawStencilQuadFunc = std::function<void(const CRect& coords, const STENCIL_LAYER mask)>;
+
 class CGUITexture
 {
 public:
@@ -68,10 +74,21 @@ public:
 
   static void Register(const CreateGUITextureFunc& createFunction,
                        const DrawQuadFunc& drawQuadFunction);
+  static void Register(const CreateGUITextureFunc& createFunction,
+                       const DrawQuadFunc& drawQuadFunction,
+                       const DrawStencilQuadFunc& drawStencilQuadFunction);
+  static void UnregisterDrawQuad();
 
   static CGUITexture* CreateTexture(
       float posX, float posY, float width, float height, const CTextureInfo& texture);
   virtual CGUITexture* Clone() const = 0;
+
+  /*! \brief Screen coordinate of a texture corner.
+   \param coord the unsnapped screen coordinate
+   \param subpixel whether the texture keeps its fractional position
+   \return coord rounded to a whole pixel, or unchanged if subpixel
+   */
+  static float SnapToPixel(float coord, bool subpixel);
 
   static void DrawQuad(const CRect& coords,
                        KODI::UTILS::COLOR::Color color,
@@ -79,6 +96,8 @@ public:
                        const CRect* texCoords = nullptr,
                        const float depth = 1.0,
                        const bool blending = true);
+
+  static void DrawStencilQuad(const CRect& coords, const STENCIL_LAYER mask);
 
   bool Process(unsigned int currentTime);
   void Render(int32_t depthOffset = 0, int32_t overrideDepth = -1);
@@ -127,25 +146,32 @@ public:
   {
     return m_isAllocated == NORMAL_FAILED || m_isAllocated == LARGE_FAILED;
   }
+  bool IsLoading() const { return m_isAllocated == LARGE && (!m_texture.size() || m_largeInterim); }
   bool ReadyToRender() const;
 
 protected:
   CGUITexture(float posX, float posY, float width, float height, const CTextureInfo& texture);
   CGUITexture(const CGUITexture& left);
 
+  /*!
+   * @brief One quad of the texture, independent of the texture's position and size.
+   *
+   * Each edge lies at rect.x1 + anchor * rect.Width() + offset (and likewise vertically), where
+   * rect is the texture's render rectangle in skin coordinates.
+   */
+  struct Quad
+  {
+    CRect anchor;
+    CRect offset;
+    CRect texture;
+    CRect diffuse;
+
+    bool operator==(const Quad& other) const = default;
+  };
+
   bool CalculateSize();
   bool AllocateOnDemand();
   bool UpdateAnimFrame(unsigned int currentTime);
-  void Render(float left,
-              float top,
-              float right,
-              float bottom,
-              float u1,
-              float v1,
-              float u2,
-              float v2,
-              float u3,
-              float v3);
   static void OrientateTexture(CRect &rect, float width, float height, int orientation);
   void ResetAnimState();
 
@@ -161,6 +187,19 @@ protected:
                     int orientation) = 0;
   virtual void End() = 0;
 
+  /*!
+   * @brief Draw the quads at @p rect with the current clip region and GUI transform applied by
+   * the GPU.
+   *
+   * Called between Begin() and End(). The quads only change when @p version does, so they can be
+   * kept in GPU memory while @p rect moves or resizes. If this returns false, the quads are
+   * clipped and transformed on the CPU and passed to Draw() instead.
+   */
+  virtual bool DrawQuads(const std::vector<Quad>& quads, unsigned int version, const CRect& rect)
+  {
+    return false;
+  }
+
   bool m_visible;
   KODI::UTILS::COLOR::Color m_diffuseColor;
 
@@ -173,12 +212,17 @@ protected:
   // size used to get and release image from LargeTextureManager
   int m_requestWidth = REQUEST_SIZE_UNSET;
   int m_requestHeight = REQUEST_SIZE_UNSET;
+  bool m_largeInterim{false};
   static constexpr int REQUEST_SIZE_UNSET = -1;
 
   CRect m_vertex;       // vertex coords to render
   bool m_invalid;       // if true, we need to recalculate
   bool m_use_cache;
   std::optional<bool> m_lastReadyState; // cached ready state for change detection
+  std::optional<CRect> m_lastScreenRect; // unsnapped screen rect of the last process
+  unsigned int m_lastMoveTime{0}; // when that rect last changed
+  bool m_moving{false}; // corners stay fractional while set
+  static constexpr unsigned int SUBPIXEL_SETTLE_MS = 200; // a few frames at 24 Hz, yet immediate
   unsigned char m_alpha;
 
   float m_frameWidth, m_frameHeight;          // size in pixels of the actual frame within the texture
@@ -207,6 +251,24 @@ protected:
   CTextureArray m_texture;
 
 private:
+  struct Segment
+  {
+    CRect vertex;
+    CRect texture;
+  };
+
+  void UpdateSegments();
+  void Render(const Segment& segment);
+  void OrientateTexCoords(CRect& texture, CRect* diffuse, int orientation) const;
+
+  std::vector<Segment> m_segments;
+  std::vector<Quad> m_quads;
+  float m_frameU{0}; // frame size in texture coordinates
+  float m_frameV{0};
+  bool m_segmentsDirty{true};
+  unsigned int m_quadsVersion{0};
+
   static CreateGUITextureFunc m_createGUITextureFunc;
   static DrawQuadFunc m_drawQuadFunc;
+  static DrawStencilQuadFunc m_drawStencilQuadFunc;
 };

@@ -11,21 +11,26 @@
 #include "File.h"
 #include "FileItem.h"
 #include "FileItemList.h"
-#include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "Util.h"
+#include "bluray/BlurayPlaylistHints.h"
 #include "bluray/M2TSParser.h"
 #include "bluray/MPLSParser.h"
+#include "bluray/MovieObjectParser.h"
 #include "bluray/PlaylistStructure.h"
 #include "bluray/StreamParser.h"
 #include "filesystem/BlurayCallback.h"
 #include "filesystem/Directory.h"
 #include "filesystem/DirectoryFactory.h"
+#include "language/LangInfo.h"
 #if defined(HAS_UDFREAD)
 #include "filesystem/UDFContext.h"
 #endif
+#include "language/LanguageTag.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/EpisodeUtils.h"
-#include "utils/LangCodeExpander.h"
+#include "utils/ItemProperties.h"
 #include "utils/RegExp.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -39,6 +44,7 @@
 #include <memory>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -54,15 +60,24 @@ namespace XFILE
 {
 namespace // Bluray parsing
 {
+// Average number of times a playlist's clips must be played for it to be considered a loop
+// rather than a movie that revisits a clip
+constexpr size_t MIN_LOOPED_CLIP_PLAYS{3};
+
 void AddOptionsAndSortMethods(const CURL& url,
                               CFileItemList& items,
                               CDiscDirectoryHelper::AllTitles allTitlesType,
                               bool blurayMenuSupport)
 {
   // Add all titles and menu options
+  std::string file{url.GetFileName()};
+  URIUtils::RemoveSlashAtEnd(file);
   CDiscDirectoryHelper::AddRootOptions(url, items, allTitlesType,
-                                       blurayMenuSupport ? AddMenuOption::ADD_MENU
-                                                         : AddMenuOption::NO_MENU);
+                                       (!StringUtils::EndsWith(file, "/all")
+                                            ? AddMenuAndAllTitlesOptions::ADD_ALL_TITLES
+                                            : AddMenuAndAllTitlesOptions::NONE) |
+                                           (blurayMenuSupport ? AddMenuAndAllTitlesOptions::ADD_MENU
+                                                              : AddMenuAndAllTitlesOptions::NONE));
 
   items.AddSortMethod(SortBy::TRACK_NUMBER, 554,
                       LABEL_MASKS("%L", "%D", "%L", "")); // FileName, Duration | Foldername, empty
@@ -78,6 +93,15 @@ std::string GetCachePath(const CURL& url, const std::string& realPath)
   if (path.empty())
     path = url.Get(); // Could be drive letter
   return path;
+}
+
+//! A disc folder or image can be replaced at the same path, so what is cached for it is only kept
+//! while its index or image is unchanged
+void CheckCachedDisc(const std::string& cachePath, const std::string& discFile)
+{
+  if (struct __stat64 st{}; CFile::Stat(discFile, &st) == 0)
+    CServiceBroker::GetBlurayDiscCache()->CheckDisc(cachePath,
+                                                    fmt::format("{}:{}", st.st_mtime, st.st_size));
 }
 
 bool GetPlaylistInfoFromCache(const CURL& url,
@@ -131,15 +155,16 @@ bool GetPlaylistInfoFromDisc(const CURL& url,
   {
     const std::string path{GetCachePath(url, realPath)};
 
-    // Check cache
-    if (!CServiceBroker::GetBlurayDiscCache()->GetPlaylistStreamInfo(path, playlist, streams))
+    // Read once for each clip, as the playlists of a disc's extras often play parts of one
+    const std::string clipFiles{GetStreamClipFiles(bpi)};
+    if (!CServiceBroker::GetBlurayDiscCache()->GetClipStreamInfo(path, clipFiles, streams))
     {
       // Retrieve from disc
       if (!CM2TSParser::GetStreams(url, bpi, streams))
         return false;
 
       // Cache and return
-      CServiceBroker::GetBlurayDiscCache()->SetPlaylistStreamInfo(path, playlist, streams);
+      CServiceBroker::GetBlurayDiscCache()->SetClipStreamInfo(path, clipFiles, streams);
     }
   }
 
@@ -156,13 +181,15 @@ bool GetPlaylistsFromDisc(const CURL& url,
 {
   const CURL url2{URIUtils::AddFileToFolder(url.GetHostName(), "BDMV", "PLAYLIST", "")};
   CDirectory::CHints hints;
-  hints.flags = flags;
+  // Only the names are needed, each playlist being read in full below
+  hints.flags = flags | DIR_FLAG_NO_FILE_INFO;
   CFileItemList allTitles;
   if (!CDirectory::GetDirectory(url2, allTitles, hints))
     return false;
 
   // Get information on all playlists
-  CRegExp pl{true, CRegExp::autoUtf8, R"((\d{5}.mpls))"};
+  // Anchored, as the folder can hold other files named after a playlist (eg. 00000.mpls.hash)
+  CRegExp pl{true, CRegExp::autoUtf8, R"(^(\d{5})\.mpls$)"};
   for (const auto& title : allTitles)
   {
     const CURL url3{title->GetPath()};
@@ -180,6 +207,9 @@ bool GetPlaylistsFromDisc(const CURL& url,
     }
   }
 
+  CLog::LogF(LOGDEBUG, "{} - {} files, {} playlists read", CURL::GetRedacted(url2.Get()),
+             allTitles.Size(), playlists.size());
+
   if (playlists.empty())
   {
     CLog::LogF(LOGERROR, "No playlists could be read from {}", CURL::GetRedacted(url2.Get()));
@@ -192,17 +222,33 @@ void RemoveDuplicatePlaylists(std::vector<PlaylistInformation>& playlists)
 {
   // The stream number table describes what a playlist exposes rather than what its clip contains,
   // so two playlists sharing a clip but offering different streams are not seen as identical.
+  // The duration is compared as well as the chapters, as two playlists can play the same clips
+  // from the same chapter starts but to different out times (ie. they are distinct cuts).
+  // Kodi does not play the secondary video, so a picture-in-picture copy is a copy all the same -
+  // but it is the one discarded, as it never leads the movie search. Of other copies the one with
+  // a Dolby Vision enhancement layer is kept, then the lowest numbered.
+  const auto isDiscarded{[](const PlaylistInformation& a, const PlaylistInformation& b)
+                         {
+                           if (a.hasSecondaryVideo != b.hasSecondaryVideo)
+                             return a.hasSecondaryVideo;
+                           if (a.hasDolbyVision != b.hasDolbyVision)
+                             return b.hasDolbyVision;
+                           return a.playlist > b.playlist;
+                         }};
+
   std::unordered_set<unsigned int> duplicatePlaylists;
   for (size_t i = 0; i + 1 < playlists.size(); ++i)
   {
     for (size_t j = i + 1; j < playlists.size(); ++j)
     {
-      if (playlists[i].audioStreams == playlists[j].audioStreams &&
+      if (playlists[i].duration == playlists[j].duration &&
+          playlists[i].audioStreams == playlists[j].audioStreams &&
           playlists[i].pgStreams == playlists[j].pgStreams &&
           playlists[i].chapters == playlists[j].chapters &&
           playlists[i].clips == playlists[j].clips)
       {
-        duplicatePlaylists.emplace(playlists[j].playlist);
+        duplicatePlaylists.emplace(isDiscarded(playlists[i], playlists[j]) ? playlists[i].playlist
+                                                                           : playlists[j].playlist);
       }
     }
   }
@@ -225,17 +271,18 @@ bool SetStreamDetails(const CURL& url,
   if (!title.videoStreams.empty())
     info->m_streamDetails.SetStreams(title.videoStreams[0],
                                      static_cast<int>(title.duration.count() / 1000),
-                                     AudioStreamInfo{}, SubtitleStreamInfo{});
+                                     AudioStreamInfo{}, SubtitleStreamInfo{}, CStreamDetail::MEDIA);
   else
-    info->m_streamDetails.SetStreams(VideoStreamInfo{}, 0, AudioStreamInfo{}, SubtitleStreamInfo{});
+    info->m_streamDetails.SetStreams(VideoStreamInfo{}, 0, AudioStreamInfo{}, SubtitleStreamInfo{},
+                                     CStreamDetail::MEDIA);
 
   // Audio streams
   for (const auto& audio : title.audioStreams)
-    info->m_streamDetails.AddStream(new CStreamDetailAudio(audio));
+    info->m_streamDetails.AddStream(new CStreamDetailAudio(audio, CStreamDetail::MEDIA));
 
   // Subtitles
   for (const auto& subtitle : title.pgStreams)
-    info->m_streamDetails.AddStream(new CStreamDetailSubtitle(subtitle));
+    info->m_streamDetails.AddStream(new CStreamDetailSubtitle(subtitle, CStreamDetail::MEDIA));
 
   info->m_streamDetails.DetermineBestStreams();
   return true;
@@ -252,14 +299,14 @@ std::shared_ptr<CFileItem> GetFileItem(const CURL& url,
   const auto item{std::make_shared<CFileItem>(path.Get(), false)};
   const int duration{static_cast<int>(title.duration.count() / 1000)};
   item->GetVideoInfoTag()->SetDuration(duration);
-  item->SetProperty("bluray_playlist", title.playlist);
+  item->SetProperty(KODI::ITEM::PROPERTY::BLURAY_PLAYLIST, title.playlist);
 
   // Stream details are deferred when the playlist is only a candidate
   // as parsing the m2ts is expensive
   if (getStreamDetails == StreamDetails::INCLUDE &&
       !SetStreamDetails(url, realPath, *item, title, clipCache))
-    CLog::LogFC(LOGDEBUG, LOGBLURAY, "Unable to get stream details for playlist {} of {}",
-                title.playlist, CURL::GetRedacted(url.Get()));
+    CLog::LogF(LOGDEBUG, "Unable to get stream details for playlist {} of {}", title.playlist,
+               CURL::GetRedacted(url.Get()));
 
   return item;
 }
@@ -300,23 +347,37 @@ int GetMainPlaylistFromDisc(const CURL& url)
 
 bool CBlurayDirectory::FilterPlaylists(std::vector<PlaylistInformation>& playlists)
 {
+  // Log each removal, as a playlist dropped here is otherwise indistinguishable from one that
+  // isn't on the disc at all
+  const auto Remove{[&playlists](std::string_view reason, const auto& shouldRemove)
+                    {
+                      for (const auto& playlist : playlists | std::views::filter(shouldRemove))
+                        CLog::LogFC(LOGDEBUG, LOGBLURAY, "Discarding playlist {} - {}",
+                                    playlist.playlist, reason);
+                      std::erase_if(playlists, shouldRemove);
+                    }};
+
   // Remove playlists with no clips
-  std::erase_if(playlists,
-                [](const PlaylistInformation& playlist) { return playlist.clips.empty(); });
+  Remove("no clips", [](const PlaylistInformation& playlist) { return playlist.clips.empty(); });
 
   // Remove all clips less than a second in length
-  std::erase_if(playlists,
-                [](const PlaylistInformation& playlist) { return playlist.duration < 1s; });
+  Remove("shorter than a second",
+         [](const PlaylistInformation& playlist) { return playlist.duration < 1s; });
 
-  // Remove playlists with repeated clips (same clip appearing more than once in the playlist)
-  std::erase_if(playlists,
-                [](const PlaylistInformation& playlist)
-                {
-                  std::unordered_set<unsigned int> clips;
-                  for (const auto& clip : playlist.clips)
-                    clips.emplace(clip);
-                  return clips.size() < playlist.clips.size();
-                });
+  // Remove looping playlists - a few clips played over and over, as a menu background or a reel
+  // assembled from everything on the disc (some discs have a playlist of 3 clips repeated 80 times).
+  // A movie may revisit a clip, so a playlist is only discarded when its clips are played
+  // MIN_LOOPED_CLIP_PLAYS times over
+  Remove(
+      "looping clips",
+      [](const PlaylistInformation& playlist)
+      {
+        const std::unordered_set<unsigned int> clips{playlist.clips.begin(), playlist.clips.end()};
+        if (clips.size() == playlist.clips.size())
+          return false; // No clip is played more than once
+
+        return clips.size() == 1 || playlist.clips.size() >= clips.size() * MIN_LOOPED_CLIP_PLAYS;
+      });
 
   // Remove duplicate playlists
   RemoveDuplicatePlaylists(playlists);
@@ -337,6 +398,14 @@ void AddPlaylists(const CURL& url,
 
   for (auto& title : playlists)
     items.Add(GetFileItem(url, realPath, title, clipCache, StreamDetails::DEFER));
+}
+
+//! The streams' languages, comma separated
+template<typename Streams>
+std::string LanguagesOf(const Streams& streams)
+{
+  const auto language = [](const auto& stream) { return stream.language.ToString(); };
+  return fmt::format("{}", fmt::join(streams | std::views::transform(language), ","));
 }
 } // namespace
 
@@ -374,7 +443,7 @@ bool CBlurayDirectory::GetPlaylists(const CURL& url,
       if (!GetPlaylistsFromDisc(url, realPath, flags, playlists, clipCache))
         return false;
 
-      // Remove invalid playlists (no clips, repeated clips, duplicate playlists, length < 1s)
+      // Remove invalid playlists (no clips, looping clips, duplicate playlists, length < 1s)
       if (!FilterPlaylists(playlists))
         return false; // No playlists remain
 
@@ -401,27 +470,15 @@ bool CBlurayDirectory::GetPlaylists(const CURL& url,
   }
 }
 
-namespace
-{
-void ProcessPlaylist(PlaylistMap& playlists, PlaylistInformation& titleInfo, ClipMap& clips)
+void CBlurayDirectory::ProcessPlaylist(PlaylistMap& playlists,
+                                       PlaylistInformation& titleInfo,
+                                       ClipMap& clips)
 {
   const unsigned int playlist{titleInfo.playlist};
 
-  // Save playlist
-  PlaylistInformation info;
-  info.playlist = playlist;
-
-  // Save playlist duration and chapters
-  info.duration = titleInfo.duration;
-  info.chapters = titleInfo.chapters;
-
-  // Get clips
+  // Record which playlists each clip belongs to, and how long it is
   for (const auto& clip : titleInfo.clips)
   {
-    // Add clip to playlist
-    info.clips.push_back(clip);
-
-    // Add/extend clip information
     const auto& it = clips.find(clip);
     if (it == clips.end())
     {
@@ -434,19 +491,23 @@ void ProcessPlaylist(PlaylistMap& playlists, PlaylistInformation& titleInfo, Cli
     else
     {
       // Additional reference to clip, add this playlist
-      it->second.playlists.push_back(playlist);
+      if (std::ranges::find(it->second.playlists, playlist) == it->second.playlists.end())
+        it->second.playlists.push_back(playlist);
     }
   }
 
   // Get languages
-  const std::string langs{fmt::format(
-      "{}", fmt::join(titleInfo.audioStreams | std::views::transform(&StreamInfo::language), ","))};
-  info.languages = langs;
-  titleInfo.languages = langs;
+  titleInfo.languages = LanguagesOf(titleInfo.audioStreams);
 
-  playlists[playlist] = info;
+  // Saved as a whole, so a field added to PlaylistInformation reaches the playlist map without
+  // having to be added here too
+  PlaylistInformation info{titleInfo};
+
+  // The duration of each clip is held once, in the clip map above
+  info.clipDuration.clear();
+
+  playlists[playlist] = std::move(info);
 }
-} // namespace
 
 bool CBlurayDirectory::GetPlaylistsInformation(const CURL& url,
                                                const std::string& realPath,
@@ -459,7 +520,7 @@ bool CBlurayDirectory::GetPlaylistsInformation(const CURL& url,
   try
   {
     // Check cache
-    const std::string& path{url.GetHostName()};
+    const std::string path{GetCachePath(url, realPath)};
     if (CServiceBroker::GetBlurayDiscCache()->GetMaps(path, playlists, clips, allTitles))
     {
       CLog::LogF(LOGDEBUG, "Playlist information for {} retrieved from cache", path);
@@ -476,7 +537,7 @@ bool CBlurayDirectory::GetPlaylistsInformation(const CURL& url,
 
     for (const auto& title : allTitles)
     {
-      const int playlist{title->GetProperty("bluray_playlist").asInteger32(-1)};
+      const int playlist{title->GetProperty(KODI::ITEM::PROPERTY::BLURAY_PLAYLIST).asInteger32(-1)};
       PlaylistInformation titleInfo;
       if (playlist == -1 || !GetPlaylistInfoFromDisc(url, realPath, playlist, StreamDetails::DEFER,
                                                      titleInfo, clipCache))
@@ -487,9 +548,9 @@ bool CBlurayDirectory::GetPlaylistsInformation(const CURL& url,
 
       ProcessPlaylist(playlists, titleInfo, clips);
 
-      CLog::LogF(LOGDEBUG, "Playlist {}, Duration {}, Langs {}, Clips {} ", playlist,
+      CLog::LogF(LOGDEBUG, "Playlist {}, Duration {}, Langs {}, Subs {}, Clips {} ", playlist,
                  title->GetVideoInfoTag()->GetDuration(), titleInfo.languages,
-                 fmt::join(titleInfo.clips, ","));
+                 LanguagesOf(titleInfo.pgStreams), fmt::join(titleInfo.clips, ","));
     }
 
     // List clip info (automatically sorted as map)
@@ -600,14 +661,53 @@ void CBlurayDirectory::SetPlaylistStreamDetails(unsigned int playlist, CFileItem
                CURL::GetRedacted(m_url.Get()));
 }
 
-std::string CBlurayDirectory::GetBlurayTitle()
+std::optional<std::string> CBlurayDirectory::GetBlurayTitle()
 {
-  return GetDiscInfoString(DiscInfo::TITLE);
+  const std::string path{GetCachePath(m_url, m_realPath)};
+
+  if (std::string title; CServiceBroker::GetBlurayDiscCache()->GetDiscTitle(path, title))
+    return title;
+
+  const std::string title{GetDiscInfoString(DiscInfo::TITLE)};
+
+  // A disc that failed to open said nothing, so it is retried rather than written off
+  if (!m_blurayInitialized)
+    return std::nullopt;
+
+  CServiceBroker::GetBlurayDiscCache()->SetDiscTitle(path, title);
+  return title;
 }
 
-std::string CBlurayDirectory::GetBlurayID()
+UTILS::DISCS::DiscInfo CBlurayDirectory::ProbeDisc(const std::string& mediaPath)
 {
-  return GetDiscInfoString(DiscInfo::ID);
+  UTILS::DISCS::DiscInfo info;
+  CBlurayDirectory bdDir;
+  bdDir.SetRealPath(mediaPath);
+  CheckCachedDisc(GetCachePath(bdDir.m_url, bdDir.m_realPath),
+                  URIUtils::AddFileToFolder(bdDir.m_realPath, "BDMV", "index.bdmv"));
+  const std::optional<std::string> title{bdDir.GetBlurayTitle()};
+  if (!title)
+    return info;
+
+  info.type = UTILS::DISCS::DiscType::BLURAY;
+  info.name = *title;
+  info.serial = bdDir.GetBlurayID().value_or("");
+  return info;
+}
+
+std::optional<std::string> CBlurayDirectory::GetBlurayID()
+{
+  const std::string path{GetCachePath(m_url, m_realPath)};
+
+  if (std::string id; CServiceBroker::GetBlurayDiscCache()->GetDiscId(path, id))
+    return id;
+
+  const std::string id{GetDiscInfoString(DiscInfo::ID)};
+  if (!m_blurayInitialized)
+    return std::nullopt;
+
+  CServiceBroker::GetBlurayDiscCache()->SetDiscId(path, id);
+  return id;
 }
 
 std::string CBlurayDirectory::GetDiscInfoString(DiscInfo info)
@@ -661,6 +761,14 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
     m_url.RemoveOption("duration");
   }
 
+  // What the scraper calls the episode
+  std::string title;
+  if (m_url.HasOption("title"))
+  {
+    title = m_url.GetOption("title");
+    m_url.RemoveOption("title");
+  }
+
   std::string root{m_url.GetHostName()};
   std::string file{m_url.GetFileName()};
   URIUtils::RemoveSlashAtEnd(file);
@@ -670,6 +778,8 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
   // Most requests are now served from the disc cache or by parsing a single playlist.
   // Neither needs libbluray or disc.inf, so both are deferred.
   SetRealPath(root);
+
+  CheckCachedDisc(GetCachePath(m_url, m_realPath), URIUtils::GetDiscFile(m_url.Get()));
 
   //
   // These options also return 'All Titles' and 'Menu' options (if supported on disc)
@@ -683,6 +793,8 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
   // /root/main/all                     - get all possible main movie playlists (ie. multiple versions on disc)
   // /root/episode/<season>/<episode>   - get playlists that correspond with S<season>E<episode>
   // /root/episode/all                  - get all episodes
+  // /root/extras                       - get the playlists the disc names as extras of the movie
+  // /root/extras/titles                - get the playlists the disc's titles play that may be extras
   //
   // /root/titles/all                   - get all playlists (sorted by longest -> shortest - for movies)
   // /root/titles/episodes/all          - get all playlists (sorted by playlist number - for episodes)
@@ -695,8 +807,16 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
     CFileItemList allTitles;
     GetPlaylistsInformation(m_url, m_realPath, m_flags, allTitles, clips, playlists, m_clipCache);
 
+    // A disc whose playlists could not be read says nothing about its project either, as every
+    // record would be rejected as naming a playlist the disc does not have
+    ProjectInformation projectInformation;
+    if (!playlists.empty() &&
+        CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_parseBlurayProjectFile)
+      GetProjectInformation(playlists, projectInformation);
+
     CDiscDirectoryHelper helper{[this](unsigned int playlist, CFileItem& item)
                                 { SetPlaylistStreamDetails(playlist, item); }};
+    helper.SetPlaylistHints(std::make_shared<CBlurayPlaylistHints>(projectInformation));
 
     if (StringUtils::StartsWith(file, "root/titles") && file != "root/titles/episodes")
     {
@@ -712,14 +832,14 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
       else
         CLog::LogF(LOGDEBUG, "Invalid path {} for bluray playlist parsing", file);
 
-      const bool success{!items.IsEmpty()};
+      if (items.IsEmpty())
+        return false;
 
       // Add all titles and menu option (if menus supported on disc)
-      if (!StringUtils::EndsWith(file, "/all"))
-        AddOptionsAndSortMethods(m_url, items, CDiscDirectoryHelper::AllTitles::MOVIES,
-                                 HasMenuSupport());
+      AddOptionsAndSortMethods(m_url, items, CDiscDirectoryHelper::AllTitles::MOVIES,
+                               HasMenuSupport());
 
-      return success;
+      return true;
     }
 
     if (StringUtils::StartsWith(file, "root/main"))
@@ -734,6 +854,22 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
         CLog::LogF(LOGDEBUG, "Invalid path {} for bluray playlist parsing", file);
 
       return !items.IsEmpty();
+    }
+
+    if (file == "root/extras/titles")
+    {
+      MovieObjectInformation information;
+      CMovieObjectParser::GetMovieObject(m_url, information);
+      helper.GetMovieTitleExtraPlaylists(m_url, items, allTitles, GetMainPlaylist(), clips,
+                                         playlists, information.titlePlaylists);
+      return true;
+    }
+
+    // A disc naming no extras has none to list, which is no failure
+    if (file == "root/extras")
+    {
+      helper.GetMovieExtraPlaylists(m_url, items, allTitles, GetMainPlaylist(), clips, playlists);
+      return true;
     }
 
     if (StringUtils::StartsWith(file, "root/episode") || file == "root/titles/episodes")
@@ -784,8 +920,11 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
           return false; // Episode not on disc
         episodeIndex = static_cast<int>(std::distance(episodesOnDisc.begin(), it));
 
-        // Add duration from scraper
-        it->duration = duration;
+        // Add duration and title from scraper
+        if (duration > 0)
+          it->duration = duration;
+        if (!title.empty())
+          it->strTitle = title;
       }
 
       // Get episode playlists
@@ -803,6 +942,8 @@ bool CBlurayDirectory::GetDirectory(const CURL& url, CFileItemList& items)
         helper.GetEpisodePlaylists(m_url, items, allTitles, episodeIndex, episodesOnDisc, clips,
                                    playlists);
         success = !items.IsEmpty();
+        AddOptionsAndSortMethods(m_url, items, CDiscDirectoryHelper::AllTitles::EPISODES,
+                                 HasMenuSupport());
       }
 
       return success;
@@ -885,9 +1026,8 @@ bool CBlurayDirectory::EnsureBlurayOpen()
     return false;
   }
 
-  std::string langCode;
-  g_LangCodeExpander.ConvertToISO6392T(g_langInfo.GetDVDMenuLanguage(), langCode);
-  bd_set_player_setting_str(m_bd, BLURAY_PLAYER_SETTING_MENU_LANG, langCode.c_str());
+  const std::string menuLang{g_langInfo.GetDVDMenuLanguage().AsIso6392T()};
+  bd_set_player_setting_str(m_bd, BLURAY_PLAYER_SETTING_MENU_LANG, menuLang.c_str());
 
   m_discAccess.basePath = m_realPath;
 
@@ -900,12 +1040,6 @@ bool CBlurayDirectory::EnsureBlurayOpen()
   m_blurayInitialized = true;
 
   return true;
-}
-
-bool CBlurayDirectory::InitializeBluray(const std::string& root)
-{
-  SetRealPath(root);
-  return EnsureBlurayOpen();
 }
 
 bool CBlurayDirectory::HasMenuSupport()
@@ -928,6 +1062,31 @@ bool CBlurayDirectory::HasMenuSupport()
              menuSupport ? "supports" : "does not support");
 
   return menuSupport;
+}
+
+bool CBlurayDirectory::GetProjectInformation(const PlaylistMap& playlists,
+                                             ProjectInformation& information) const
+{
+  const std::string path{GetCachePath(m_url, m_realPath)};
+
+  if (CServiceBroker::GetBlurayDiscCache()->GetProject(path, information))
+    return true;
+
+  // The disc says which playlists it has and how long they are, so a record naming one it does not
+  // have, or giving it another length, is not a record
+  DiscPlaylistDurations discPlaylists;
+  for (const auto& [playlist, information] : playlists)
+    discPlaylists.emplace(playlist, information.duration);
+
+  const ProjectReadResult result{CProjectParser::GetProject(m_url, discPlaylists, information)};
+
+  // A disc that could not be read has not said it has no project, so it is asked again rather
+  // than written off for as long as it stays in the drive
+  if (result != ProjectReadResult::FAILED)
+    CServiceBroker::GetBlurayDiscCache()->SetProject(path, information);
+
+  CProjectParser::LogProject(information);
+  return result != ProjectReadResult::FAILED;
 }
 
 int CBlurayDirectory::GetMainPlaylist()

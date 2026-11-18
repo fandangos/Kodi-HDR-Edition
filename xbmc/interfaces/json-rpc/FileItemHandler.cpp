@@ -11,6 +11,7 @@
 #include "AudioLibrary.h"
 #include "FileItemList.h"
 #include "FileOperations.h"
+#include "PVREpgFields.h"
 #include "ServiceBroker.h"
 #include "Util.h"
 #include "VideoLibrary.h"
@@ -28,9 +29,11 @@
 #include "pvr/recordings/PVRRecordings.h"
 #include "pvr/timers/PVRTimerInfoTag.h"
 #include "pvr/timers/PVRTimers.h"
+#include "utils/ArtTypes.h"
 #include "utils/Artwork.h"
 #include "utils/FileUtils.h"
 #include "utils/ISerializable.h"
+#include "utils/ItemProperties.h"
 #include "utils/SortUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
@@ -72,16 +75,7 @@ bool CFileItemHandler::GetField(const std::string& field,
       if (field == "cast")
       {
         // string -> Video.Cast
-        const std::vector<std::string> actors =
-            StringUtils::Split(info[field].asString(), EPG_STRING_TOKEN_SEPARATOR);
-
-        result[field] = CVariant(CVariant::VariantTypeArray);
-        for (const auto& actor : actors)
-        {
-          CVariant actorVar;
-          actorVar["name"] = actor;
-          result[field].push_back(actorVar);
-        }
+        result[field] = TranslateEpgCast(info[field].asString());
         return true;
       }
       else if (field == "director" || field == "writer")
@@ -94,6 +88,19 @@ bool CFileItemHandler::GetField(const std::string& field,
       {
         result[field] = CServiceBroker::GetPVRManager().Timers()->IsRecordingOnChannel(
             *item->GetPVRChannelInfoTag());
+        return true;
+      }
+      else if (field == "broadcastnow" || field == "broadcastnext")
+      {
+        // Both slots are PVR.Details.Broadcast, whose label and field set only the handler supplies
+        const std::shared_ptr<const PVR::CPVRChannel> channel{item->GetPVRChannelInfoTag()};
+        const std::shared_ptr<PVR::CPVREpgInfoTag> tag{
+            field == "broadcastnow" ? channel->GetEPGNow() : channel->GetEPGNext()};
+        if (tag)
+        {
+          HandleFileItem("broadcastid", false, field.c_str(), std::make_shared<CFileItem>(tag),
+                         CVariant{CVariant::VariantTypeObject}, BroadcastFields(), result, false);
+        }
         return true;
       }
     }
@@ -182,7 +189,8 @@ bool CFileItemHandler::GetField(const std::string& field,
 
     if (field == "art")
     {
-      if (thumbLoader && !item->GetProperty("libraryartfilled").asBoolean() && !fetchedArt &&
+      if (thumbLoader && !item->GetProperty(KODI::ITEM::PROPERTY::LIBRARY_ART_FILLED).asBoolean() &&
+          !fetchedArt &&
           ((item->HasVideoInfoTag() && item->GetVideoInfoTag()->m_iDbId > -1) ||
            (item->HasMusicInfoTag() && item->GetMusicInfoTag()->GetDatabaseId() > -1)))
       {
@@ -204,17 +212,17 @@ bool CFileItemHandler::GetField(const std::string& field,
 
     if (field == "thumbnail")
     {
-      if (thumbLoader != NULL && !item->HasArt("thumb") && !fetchedArt &&
+      if (thumbLoader != NULL && !item->HasArt(KODI::ART::TYPE::THUMB) && !fetchedArt &&
         ((item->HasVideoInfoTag() && item->GetVideoInfoTag()->m_iDbId > -1) || (item->HasMusicInfoTag() && item->GetMusicInfoTag()->GetDatabaseId() > -1)))
       {
         thumbLoader->FillLibraryArt(*item);
         fetchedArt = true;
       }
-      else if (item->HasPictureInfoTag() && !item->HasArt("thumb"))
-        item->SetArt("thumb", IMAGE_FILES::URLFromFile(item->GetPath()));
+      else if (item->HasPictureInfoTag() && !item->HasArt(KODI::ART::TYPE::THUMB))
+        item->SetArt(KODI::ART::TYPE::THUMB, IMAGE_FILES::URLFromFile(item->GetPath()));
 
-      if (item->HasArt("thumb"))
-        result["thumbnail"] = IMAGE_FILES::URLFromFile(item->GetArt("thumb"));
+      if (item->HasArt(KODI::ART::TYPE::THUMB))
+        result["thumbnail"] = IMAGE_FILES::URLFromFile(item->GetArt(KODI::ART::TYPE::THUMB));
       else
         result["thumbnail"] = "";
 
@@ -223,15 +231,15 @@ bool CFileItemHandler::GetField(const std::string& field,
 
     if (field == "fanart")
     {
-      if (thumbLoader != NULL && !item->HasArt("fanart") && !fetchedArt &&
+      if (thumbLoader != NULL && !item->HasArt(KODI::ART::TYPE::FANART) && !fetchedArt &&
         ((item->HasVideoInfoTag() && item->GetVideoInfoTag()->m_iDbId > -1) || (item->HasMusicInfoTag() && item->GetMusicInfoTag()->GetDatabaseId() > -1)))
       {
         thumbLoader->FillLibraryArt(*item);
         fetchedArt = true;
       }
 
-      if (item->HasArt("fanart"))
-        result["fanart"] = IMAGE_FILES::URLFromFile(item->GetArt("fanart"));
+      if (item->HasArt(KODI::ART::TYPE::FANART))
+        result["fanart"] = IMAGE_FILES::URLFromFile(item->GetArt(KODI::ART::TYPE::FANART));
       else
         result["fanart"] = "";
 
@@ -242,12 +250,12 @@ bool CFileItemHandler::GetField(const std::string& field,
     {
       if (item->GetVideoInfoTag()->m_iSeason < 0 && field == "season")
       {
-        result[field] = (int)item->GetProperty("totalseasons").asInteger();
+        result[field] = (int)item->GetProperty(KODI::ITEM::PROPERTY::TOTAL_SEASONS).asInteger();
         return true;
       }
       if (field == "watchedepisodes")
       {
-        result[field] = (int)item->GetProperty("watchedepisodes").asInteger();
+        result[field] = (int)item->GetProperty(KODI::ITEM::PROPERTY::WATCHED_EPISODES).asInteger();
         return true;
       }
     }
@@ -344,15 +352,8 @@ void CFileItemHandler::HandleFileItem(const char* ID,
                                       bool append /* = true */,
                                       CThumbLoader* thumbLoader /* = NULL */)
 {
-  std::set<std::string> fields;
-  if (parameterObject.isMember("properties") && parameterObject["properties"].isArray())
-  {
-    for (CVariant::const_iterator_array field = parameterObject["properties"].begin_array();
-         field != parameterObject["properties"].end_array(); ++field)
-      fields.insert(field->asString());
-  }
-
-  HandleFileItem(ID, allowFile, resultname, item, parameterObject, fields, result, append, thumbLoader);
+  HandleFileItem(ID, allowFile, resultname, item, parameterObject, FieldNames(validFields), result,
+                 append, thumbLoader);
 }
 
 void CFileItemHandler::HandleFileItem(const char* ID,
@@ -375,8 +376,15 @@ void CFileItemHandler::HandleFileItem(const char* ID,
     {
       if (allowFile)
       {
-        if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->GetPath().empty())
+        //! @todo get rid of "videos with versions as folder" hack!
+        if (fields.contains("filetype") && item->GetProperty("IsHybridFolder").asBoolean(false))
+        {
+          object["file"] = item->GetPath().c_str();
+        }
+        else if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->GetPath().empty())
+        {
           object["file"] = item->GetVideoInfoTag()->GetPath().c_str();
+        }
         if (item->HasMusicInfoTag() && !item->GetMusicInfoTag()->GetURL().empty())
           object["file"] = item->GetMusicInfoTag()->GetURL().c_str();
         if (item->HasPVRTimerInfoTag() && !item->GetPVRTimerInfoTag()->Path().empty())
@@ -426,15 +434,15 @@ void CFileItemHandler::HandleFileItem(const char* ID,
         else if (item->HasMusicInfoTag())
         {
           std::string type = item->GetMusicInfoTag()->GetType();
-          if (type == MediaTypeAlbum || type == MediaTypeSong || type == MediaTypeArtist)
+          if (type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::ALBUM) || type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::SONG) || type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::ARTIST))
             object["type"] = type;
           else if (!item->IsFolder())
-            object["type"] = MediaTypeSong;
+            object["type"] = KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::SONG);
         }
         else if (item->HasVideoInfoTag() && !item->GetVideoInfoTag()->m_type.empty())
         {
           std::string type = item->GetVideoInfoTag()->m_type;
-          if (type == MediaTypeMovie || type == MediaTypeTvShow || type == MediaTypeEpisode || type == MediaTypeMusicVideo)
+          if (type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::MOVIE) || type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::TV_SHOW) || type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::EPISODE) || type == KODI::MEDIA::NameOf(KODI::MEDIA::TYPE::MUSIC_VIDEO))
             object["type"] = type;
         }
         else if (item->HasPictureInfoTag())

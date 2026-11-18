@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -16,9 +16,11 @@
 
 #include "ServiceBroker.h"
 #include "Util.h"
+#include "application/Application.h"
 #include "filesystem/SpecialProtocol.h"
 #include "interfaces/AnnouncementManager.h"
 #include "interfaces/legacy/AddonUtils.h"
+#include "interfaces/legacy/CallbackHandler.h"
 #include "interfaces/legacy/Monitor.h"
 #include "interfaces/python/AddonPythonInvoker.h"
 #include "interfaces/python/PythonInvoker.h"
@@ -33,6 +35,35 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <system_error>
+#include <thread>
+
+using namespace std::chrono_literals;
+
+namespace
+{
+// how long to wait for the GIL once Kodi is stopping
+constexpr auto GIL_WAIT = 5s;
+
+struct GilWait
+{
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool started{false};
+  bool done{false};
+  std::optional<bool> keep; // fn's result
+  bool timedOut{false};
+
+  // the GIL is kept until the process exits
+  [[noreturn]] void Park(std::unique_lock<std::mutex>& lock)
+  {
+    while (true)
+      cv.wait(lock);
+  }
+};
+} // namespace
 
 XBPython::XBPython()
 {
@@ -47,18 +78,24 @@ XBPython::XBPython()
   // Info about interesting python envvars available
   // at http://docs.python.org/using/cmdline.html#environment-variables
 
-#if !defined(TARGET_WINDOWS) && !defined(TARGET_ANDROID)
+#if defined(TARGET_WASM)
+  // CPython is linked statically here, so it has no install prefix to find on a
+  // real filesystem. The standard library is preloaded into the Emscripten VFS
+  // as <PYTHONHOME>/lib/pythonXY.zip, which is the zip landmark getpath() looks
+  // for; see cmake/scripts/wasm/ExtraTargets.cmake.
+  setenv("PYTHONHOME", CSpecialProtocol::TranslatePath("special://xbmc").c_str(), 1);
+  CLog::Log(LOGDEBUG, "PYTHONHOME -> {}", CSpecialProtocol::TranslatePath("special://xbmc"));
+#elif !defined(TARGET_WINDOWS) && !defined(TARGET_ANDROID)
   // check if we are running as real xbmc.app or just binary
   if (!CUtil::GetFrameworksPath(true).empty())
   {
     // using external python, its build looking for xxx/lib/python3.8
     // so point it to frameworks which is where python3.8 is located
-    setenv("PYTHONHOME", CSpecialProtocol::TranslatePath("special://frameworks").c_str(), 1);
-    setenv("PYTHONPATH", CSpecialProtocol::TranslatePath("special://frameworks").c_str(), 1);
-    CLog::Log(LOGDEBUG, "PYTHONHOME -> {}",
-              CSpecialProtocol::TranslatePath("special://frameworks"));
-    CLog::Log(LOGDEBUG, "PYTHONPATH -> {}",
-              CSpecialProtocol::TranslatePath("special://frameworks"));
+    const auto pythonRootPath = CSpecialProtocol::TranslatePath("special://frameworks");
+    setenv("PYTHONHOME", pythonRootPath.c_str(), 1);
+    setenv("PYTHONPATH", pythonRootPath.c_str(), 1);
+    CLog::Log(LOGDEBUG, "PYTHONHOME -> {}", pythonRootPath);
+    CLog::Log(LOGDEBUG, "PYTHONPATH -> {}", pythonRootPath);
   }
 #endif
 
@@ -71,6 +108,29 @@ XBPython::XBPython()
 #endif
 
   Py_Initialize();
+
+  // a module adopts types shared with the others only on its first init, so
+  // init them together here rather than in whichever sub-interpreter a script
+  // first imports them from
+  for (const auto& module : {"xbmc", "xbmcaddon", "xbmcdrm", "xbmcgui", "xbmcplugin", "xbmcvfs"
+#ifdef HAS_WEB_INTERFACE
+                             ,
+                             "xbmcwsgi"
+#endif
+       })
+  {
+    PyObject* pyModule = PyImport_ImportModule(module);
+    if (pyModule == nullptr)
+    {
+      CLog::Log(LOGFATAL, "python module {} failed to initialize", module);
+      if (PyErr_Occurred())
+        PyErr_Print();
+      m_bindingModulesLoaded = false;
+    }
+    else
+      Py_DECREF(pyModule);
+  }
+
   m_mainThreadState = PyEval_SaveThread();
 }
 
@@ -81,6 +141,10 @@ XBPython::~XBPython()
 
   if (Py_IsInitialized())
   {
+    // Uninitialize() kept the GIL for scripts or interpreters that are left, or it's lost
+    if (m_skipFinalize || m_gilLost)
+      return;
+
     // Switch to the main interpreter thread before finalizing
     PyThreadState_Swap(m_mainThreadState);
 
@@ -322,6 +386,9 @@ void XBPython::RegisterPythonMonitorCallBack(XBMCAddon::xbmc::Monitor* pCallback
   XBMC_TRACE;
   std::unique_lock lock(m_vecMonitorCallbackList);
   m_vecMonitorCallbackList.push_back(pCallback);
+  // the script may have been told to stop before it made this Monitor
+  if (m_abortedAllInvokers || m_abortedInvokers.contains(pCallback->GetInvokerId()))
+    pCallback->AbortNotify();
 }
 
 void XBPython::UnregisterPythonMonitorCallBack(XBMCAddon::xbmc::Monitor* pCallback)
@@ -468,6 +535,131 @@ void XBPython::Uninitialize()
 
   // cleanup threads that are still running
   tmpvec.clear();
+
+  // callbacks for the stopped scripts can still be queued
+  XBMCAddon::RetardedAsyncCallbackHandler::clearAllPendingCalls();
+
+  // a script that CScriptInvocationManager gave up on keeps its invoker, and a script that
+  // failed can leave its interpreter behind: then keep the GIL from now on, so no further
+  // Python code runs while Kodi exits, and don't finalize Python under them. Scripts not
+  // counted by now are refused in OnScriptInitialized().
+  int scriptsRunning;
+  {
+    std::unique_lock counterLock(m_critSection);
+    if (m_scriptsClosed)
+      return;
+    m_scriptsClosed = true;
+    scriptsRunning = static_cast<int>(m_scriptsStarted.size());
+  }
+  const auto keep = RunWithGil(
+      [scriptsRunning]
+      {
+        for (PyInterpreterState* interp = PyInterpreterState_Head(); interp;
+             interp = PyInterpreterState_Next(interp))
+        {
+          if (interp != PyInterpreterState_Main())
+            return true;
+        }
+        return scriptsRunning > 0;
+      });
+  if (!keep)
+  {
+    CLog::Log(LOGWARNING,
+              "XBPython: could not take the GIL, {} script(s) still running, not finalizing Python",
+              scriptsRunning);
+    m_skipFinalize = true;
+    return;
+  }
+  if (scriptsRunning > 0)
+    CLog::Log(LOGWARNING, "XBPython: {} script(s) still running, not finalizing Python",
+              scriptsRunning);
+  else if (*keep)
+    CLog::Log(LOGWARNING, "XBPython: a script interpreter was not ended, not finalizing Python");
+  m_skipFinalize = *keep;
+}
+
+std::optional<bool> XBPython::RunWithGil(const std::function<bool()>& fn)
+{
+  if (!g_application.IsStopping())
+  {
+    PyThreadState* ts = PyThreadState_New(PyInterpreterState_Main());
+    if (ts == nullptr)
+    {
+      CLog::LogF(LOGERROR, "PyThreadState_New failed");
+      return {};
+    }
+    PyEval_RestoreThread(ts);
+    if (fn())
+      return true;
+    PyThreadState_Clear(ts);
+    PyThreadState_DeleteCurrent();
+    return false;
+  }
+
+  if (m_gilLost)
+    return {};
+
+  // A C call can hold the GIL for good, and there's no timed way to take it, so wait on a
+  // helper thread. A helper that gets the GIL too late keeps it, so the script that held it
+  // doesn't run on while Kodi is torn down. Its thread state is in the main interpreter, which
+  // no script can free. fn only runs while the caller waits for it.
+  auto wait = std::make_shared<GilWait>();
+  try
+  {
+    std::thread(
+        [wait, fn]
+        {
+          PyThreadState* ts = PyThreadState_New(PyInterpreterState_Main());
+          if (ts != nullptr)
+            PyEval_RestoreThread(ts);
+          std::unique_lock lock(wait->mutex);
+          if (ts == nullptr)
+          {
+            wait->done = true;
+            wait->cv.notify_all();
+            return;
+          }
+          if (wait->timedOut)
+            wait->Park(lock);
+          wait->started = true;
+          wait->cv.notify_all();
+          lock.unlock();
+          const bool keep = fn();
+          if (!keep)
+          {
+            PyThreadState_Clear(ts);
+            PyThreadState_DeleteCurrent();
+          }
+          lock.lock();
+          wait->done = true;
+          wait->keep = keep;
+          wait->cv.notify_all();
+          if (keep)
+            wait->Park(lock);
+        })
+        .detach();
+  }
+  catch (const std::system_error& e)
+  {
+    CLog::LogF(LOGERROR, "no thread to take the GIL: {}", e.what());
+    return {};
+  }
+
+  std::unique_lock lock(wait->mutex);
+  if (!wait->cv.wait_for(lock, GIL_WAIT, [&wait] { return wait->started || wait->done; }))
+  {
+    wait->timedOut = true;
+    lock.unlock();
+    // a caller on another thread can still start a helper until this is set; it times out too
+    m_gilLost = true;
+    CLog::Log(LOGERROR, "XBPython: could not take the GIL within {} s, not running any more Python",
+              std::chrono::duration_cast<std::chrono::seconds>(GIL_WAIT).count());
+    return {};
+  }
+  wait->cv.wait(lock, [&wait] { return wait->done; });
+  if (!wait->keep)
+    CLog::LogF(LOGERROR, "PyThreadState_New failed");
+  return wait->keep;
 }
 
 void XBPython::Process()
@@ -499,7 +691,12 @@ bool XBPython::OnScriptInitialized(ILanguageInvoker* invoker)
   XBMC_TRACE;
   CLog::Log(LOGDEBUG, "initializing python script");
   std::unique_lock lock(m_critSection);
-  m_iDllScriptCounter++;
+  if (m_scriptsClosed)
+  {
+    CLog::Log(LOGWARNING, "XBPython: Python is shutting down, not starting the script");
+    return false;
+  }
+  m_scriptsStarted.insert(invoker);
 
   return true;
 }
@@ -522,8 +719,16 @@ void XBPython::NotifyScriptAborting(ILanguageInvoker* invoker)
   XBMC_TRACE;
 
   long invokerId(-1);
-  if (invoker != NULL)
-    invokerId = invoker->GetId();
+  {
+    std::unique_lock lock(m_vecMonitorCallbackList);
+    if (invoker != NULL)
+    {
+      invokerId = invoker->GetId();
+      m_abortedInvokers.insert(invokerId);
+    }
+    else
+      m_abortedAllInvokers = true;
+  }
 
   LOCK_AND_COPY(std::vector<XBMCAddon::xbmc::Monitor*>, tmp, m_vecMonitorCallbackList);
   for (auto& it : tmp)
@@ -538,6 +743,11 @@ void XBPython::NotifyScriptAborting(ILanguageInvoker* invoker)
 
 void XBPython::OnExecutionEnded(ILanguageInvoker* invoker)
 {
+  {
+    std::unique_lock lock(m_vecMonitorCallbackList);
+    m_abortedInvokers.erase(invoker->GetId());
+  }
+
   std::unique_lock lock(m_vecPyList);
   PyList::iterator it = m_vecPyList.begin();
   while (it != m_vecPyList.end())
@@ -558,11 +768,7 @@ void XBPython::OnScriptFinalized(ILanguageInvoker* invoker)
 {
   XBMC_TRACE;
   std::unique_lock lock(m_critSection);
-  // for linux - we never release the library. its loaded and stays in memory.
-  if (m_iDllScriptCounter)
-    m_iDllScriptCounter--;
-  else
-    CLog::Log(LOGERROR, "Python script counter attempted to become negative");
+  m_scriptsStarted.erase(invoker);
 }
 
 std::shared_ptr<ILanguageInvoker> XBPython::CreateInvoker()

@@ -634,7 +634,8 @@ bool CGameClientInput::OpenMouse(const ControllerPtr& controller)
     if (!mice.empty())
     {
       PERIPHERALS::PeripheralPtr mouse = std::move(mice.at(0));
-      m_mouse = std::make_unique<CGameClientMouse>(m_gameClient, controller->ID(), mouse.get());
+      m_mouse = std::make_unique<CGameClientMouse>(m_gameClient, controller->ID(), mouse.get(),
+                                                   MOUSE_PORT_ADDRESS);
       m_mouse->SetSource(std::move(mouse));
     }
   }
@@ -642,16 +643,48 @@ bool CGameClientInput::OpenMouse(const ControllerPtr& controller)
   return bSuccess;
 }
 
+bool CGameClientInput::OpenControllerMouse(const std::string& portAddress,
+                                           const ControllerPtr& controller,
+                                           PERIPHERALS::PeripheralPtr mouse)
+{
+  if (!controller || !mouse || m_mouse)
+    return false;
+
+  // The controller is already connected to the port, so the game client isn't
+  // asked to enable a mouse
+  m_mouse =
+      std::make_unique<CGameClientMouse>(m_gameClient, controller->ID(), mouse.get(), portAddress);
+  m_mouse->SetSource(std::move(mouse));
+  m_mouseControllerPort = portAddress;
+
+  return true;
+}
+
 bool CGameClientInput::IsMouseOpen() const
 {
   return static_cast<bool>(m_mouse);
+}
+
+bool CGameClientInput::IsControllerMouseOpen(const std::string& portAddress,
+                                             const std::string& controllerId,
+                                             const PERIPHERALS::PeripheralPtr& mouse) const
+{
+  return m_mouse && m_mouseControllerPort == portAddress &&
+         m_mouse->GetControllerID() == controllerId && m_mouse->GetSource() == mouse;
 }
 
 bool CGameClientInput::CloseMouse()
 {
   bool bSuccess = false;
 
-  if (m_mouse)
+  if (m_mouse && !m_mouseControllerPort.empty())
+  {
+    // The controller stays connected to its port
+    m_mouse.reset();
+    m_mouseControllerPort.clear();
+    bSuccess = true;
+  }
+  else if (m_mouse)
   {
     // Reset input handler
     m_mouse.reset();
@@ -702,8 +735,9 @@ bool CGameClientInput::OpenJoystick(const std::string& portAddress, const Contro
     return false;
   }
 
-  m_joysticks[portAddress] =
-      std::make_shared<CGameClientJoystick>(m_gameClient, portAddress, controller);
+  auto joystick = std::make_shared<CGameClientJoystick>(m_gameClient, portAddress, controller);
+  joystick->EnableRumble(m_bRumbleEnabled);
+  m_joysticks[portAddress] = std::move(joystick);
 
   return true;
 }
@@ -752,6 +786,15 @@ void CGameClientInput::HardwareReset()
     m_hardware->OnResetButton();
 }
 
+void CGameClientInput::EnableRumble(bool bEnabled)
+{
+  std::lock_guard<std::recursive_mutex> lock(m_portMutex);
+
+  m_bRumbleEnabled = bEnabled;
+  for (const auto& [portAddress, joystick] : m_joysticks)
+    joystick->EnableRumble(bEnabled);
+}
+
 bool CGameClientInput::ReceiveInputEvent(const game_input_event& event)
 {
   bool bHandled = false;
@@ -773,13 +816,42 @@ bool CGameClientInput::SetRumble(const std::string& portAddress,
                                  const std::string& feature,
                                  float magnitude)
 {
-  bool bHandled = false;
-
   auto it = m_joysticks.find(portAddress);
-  if (it != m_joysticks.end())
-    bHandled = it->second->SetRumble(feature, magnitude);
+  if (it == m_joysticks.end())
+    return false;
 
-  return bHandled;
+  {
+    std::lock_guard lock(m_rumbleMutex);
+    if (m_holdRumble)
+    {
+      m_heldRumble[{portAddress, feature}] = magnitude;
+      return true;
+    }
+  }
+
+  return it->second->SetRumble(feature, magnitude);
+}
+
+void CGameClientInput::HoldRumble()
+{
+  std::lock_guard lock(m_rumbleMutex);
+  m_holdRumble = true;
+}
+
+void CGameClientInput::ReleaseRumble(bool send)
+{
+  std::map<std::pair<std::string, std::string>, float> held;
+  {
+    std::lock_guard lock(m_rumbleMutex);
+    m_holdRumble = false;
+    held.swap(m_heldRumble);
+  }
+
+  if (send)
+  {
+    for (const auto& [motor, magnitude] : held)
+      SetRumble(motor.first, motor.second, magnitude);
+  }
 }
 
 ControllerVector CGameClientInput::GetControllers(const CGameClient& gameClient)

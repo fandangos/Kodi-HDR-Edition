@@ -8,46 +8,78 @@
 
 #include "ReversiblePlayback.h"
 
+#include "SavestateCapture.h"
 #include "ServiceBroker.h"
 #include "XBDateTime.h"
 #include "addons/AddonVersion.h"
-#include "cores/RetroPlayer/cheevos/Cheevos.h"
 #include "cores/RetroPlayer/guibridge/GUIGameMessenger.h"
 #include "cores/RetroPlayer/rendering/RPRenderManager.h"
 #include "cores/RetroPlayer/savestates/ISavestate.h"
 #include "cores/RetroPlayer/savestates/SavestateDatabase.h"
+#include "cores/RetroPlayer/streams/RPStreamManager.h"
 #include "cores/RetroPlayer/streams/memory/DeltaPairMemoryStream.h"
 #include "filesystem/File.h"
+#include "games/AchievementRuntime.h"
 #include "games/GameServices.h"
 #include "games/GameSettings.h"
+#include "games/GameUtils.h"
 #include "games/addons/GameClient.h"
+#include "games/addons/cheevos/GameClientCheevos.h"
+#include "games/addons/disc/GameClientDiscModel.h"
+#include "games/addons/disc/GameClientDiscs.h"
+#include "games/addons/input/GameClientInput.h"
 #include "utils/MathUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 using namespace KODI;
 using namespace RETRO;
+using GAME::RestoreResult;
 
 #define REWIND_FACTOR 0.25 // Rewind at 25% of gameplay speed
 
+namespace
+{
+/*!
+ * \brief Whether hardcore mode is currently withholding gameplay assistance
+ *
+ * RetroAchievements requires save state loading, rewind, slow motion and
+ * cheats to be unavailable while hardcore is on. Saving a state is still
+ * allowed, and so is fast forward.
+ */
+bool HardcoreRestrictionsApply(GAME::CGameClient& gameClient)
+{
+  return gameClient.Cheevos().IsHardcoreActive();
+}
+} // namespace
+
 CReversiblePlayback::CReversiblePlayback(GAME::CGameClient* gameClient,
                                          CRPRenderManager& renderManager,
-                                         CCheevos* cheevos,
+                                         CRPStreamManager& streamManager,
                                          CGUIGameMessenger& guiMessenger,
+                                         CDisplayPacing& displayPacing,
                                          double fps,
                                          size_t serializeSize)
   : m_gameClient(gameClient),
     m_renderManager(renderManager),
-    m_cheevos(cheevos),
+    m_streamManager(streamManager),
     m_guiMessenger(guiMessenger),
-    m_gameLoop(this, fps),
-    m_savestateDatabase(new CSavestateDatabase)
+    m_gameLoop(this, fps, &displayPacing),
+    m_savestateDatabase(new CSavestateDatabase),
+    m_memorySize(serializeSize),
+    m_gamePath(gameClient->GetGamePath()),
+    m_gameClientId(gameClient->ID()),
+    m_gameClientVersion(gameClient->Version().asString())
 {
+  InitializeSaveWorker();
   UpdateMemoryStream();
+  UpdateRunahead();
 
   GAME::CGameSettings& gameSettings = CServiceBroker::GetGameServices().GameSettings();
   gameSettings.RegisterObserver(this);
@@ -59,25 +91,79 @@ CReversiblePlayback::~CReversiblePlayback()
   gameSettings.UnregisterObserver(this);
 
   Deinitialize();
+  m_saveWorker.reset();
+}
+
+void CReversiblePlayback::InitializeSaveWorker()
+{
+  if (m_saveWorker)
+    return;
+  if (m_memorySize == 0)
+    m_memorySize = m_gameClient->GetSerializeSize();
+  if (m_memorySize != 0 && !m_gamePath.empty())
+  {
+    auto snapshot = std::make_unique<Snapshot>();
+    snapshot->memory =
+        std::make_unique<uint32_t[]>((m_memorySize + sizeof(uint32_t) - 1) / sizeof(uint32_t));
+    m_saveWorker = std::make_unique<CSavestateWorker<Snapshot>>(
+        std::move(snapshot),
+        [this](Snapshot& captured)
+        {
+          try
+          {
+            if (!captured.discarded)
+            {
+              m_saveSucceeded.store(false);
+              m_saveSucceeded.store(CommitSavestate(captured));
+            }
+          }
+          catch (const std::exception& e)
+          {
+            CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Save failed: {}", e.what());
+          }
+          catch (...)
+          {
+            CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Save failed");
+          }
+          captured.video.clear();
+        });
+  }
 }
 
 void CReversiblePlayback::Initialize()
 {
+  UpdateMemoryStream();
   m_gameLoop.Start();
+}
+
+void CReversiblePlayback::Quiesce()
+{
+  m_gameLoop.Quiesce();
+
+  std::unique_lock lock(m_mutex);
+  CancelAutosave();
+  m_autosaveCapture.Reset();
+  if (m_saveWorker)
+    m_saveWorker->Drain();
 }
 
 void CReversiblePlayback::Deinitialize()
 {
-  // Wait for autosave tasks
-  for (std::future<void>& task : m_savestateThreads)
-    task.wait();
-  m_savestateThreads.clear();
-
+  Quiesce();
   m_gameLoop.Stop();
+
+  std::unique_lock lock(m_mutex);
+  m_memoryStream.reset();
+  m_discStateHistory.Clear();
 }
 
 void CReversiblePlayback::SeekTimeMs(unsigned int timeMs)
 {
+  std::unique_lock lock(m_mutex);
+  if (m_restoreFailed)
+    return;
+
+  const double previousSpeed = m_gameLoop.GetSpeed();
   const int offsetTimeMs = timeMs - GetTimeMs();
   const int offsetFrames = MathUtils::round_int(offsetTimeMs / 1000.0 * m_gameLoop.FPS());
 
@@ -87,18 +173,29 @@ void CReversiblePlayback::SeekTimeMs(unsigned int timeMs)
     if (frames > 0)
     {
       m_gameLoop.SetSpeed(0.0);
-      AdvanceFrames(frames);
-      m_gameLoop.SetSpeed(1.0);
+      if (AdvanceFrames(frames) != RestoreResult::StateUncertain)
+        m_gameLoop.SetSpeed(previousSpeed);
     }
   }
   else if (offsetFrames < 0)
   {
+    // Seeking backwards is a rewind by another name, and it reaches
+    // RewindFrames() without passing through SetSpeed(). Reachable from
+    // JSON-RPC and the Python player API, so it is guarded in its own right
+    // rather than relying on the buffer being empty.
+    if (HardcoreRestrictionsApply(*m_gameClient))
+    {
+      CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Refusing to seek backwards in hardcore mode");
+      GAME::CGameUtils::NotifyBlockedByHardcore(35309); // "Rewind"
+      return;
+    }
+
     const uint64_t frames = std::min(static_cast<uint64_t>(-offsetFrames), m_pastFrameCount);
     if (frames > 0)
     {
       m_gameLoop.SetSpeed(0.0);
-      RewindFrames(frames);
-      m_gameLoop.SetSpeed(1.0);
+      if (RewindFrames(frames) != RestoreResult::StateUncertain)
+        m_gameLoop.SetSpeed(previousSpeed);
     }
   }
 }
@@ -110,6 +207,13 @@ double CReversiblePlayback::GetSpeed() const
 
 void CReversiblePlayback::SetSpeed(double speedFactor)
 {
+  std::unique_lock lock(m_mutex);
+  if (speedFactor != 0.0)
+  {
+    if (m_restoreFailed)
+      return;
+  }
+
   if (speedFactor >= 0.0)
     m_gameLoop.SetSpeed(speedFactor);
   else
@@ -121,255 +225,775 @@ void CReversiblePlayback::PauseAsync()
   m_gameLoop.PauseAsync();
 }
 
-std::string CReversiblePlayback::CreateSavestate(bool autosave,
-                                                 const std::string& savestatePath /* = "" */)
+std::string CReversiblePlayback::GetSavestatePath(bool autosave,
+                                                  const std::string& path,
+                                                  const CDateTime& created)
 {
-  const size_t memorySize = m_gameClient->SerializeSize();
-
-  // Game client must support serialization
-  if (memorySize == 0)
-    return "";
-
-  //! @todo Handle savestates for standalone game clients
-  if (m_gameClient->GetGamePath().empty())
-  {
-    return "";
-  }
-
-  // Take a timestamp of the system clock
-  const CDateTime nowUTC = CDateTime::GetUTCDateTime();
-
-  // Record the frame count
-  const uint64_t timestampFrames = m_totalFrameCount;
-
-  // Get the savestate path
-  std::string savePath(savestatePath);
-  {
-    std::unique_lock lock(m_savestateMutex);
-
-    if (autosave && savePath.empty())
-      savePath = m_autosavePath;
-
-    // Clear autosave path so the next autosave is created in a new slot and
-    // does not overwrite the newly-created manual save
-    if (!autosave && savePath == m_autosavePath)
-      m_autosavePath.clear();
-
-    // If path is still unknown, calculate it now
-    if (savePath.empty())
-      savePath = CSavestateDatabase::MakeSavestatePath(m_gameClient->GetGamePath(), nowUTC);
-
-    // Update autosave path
-    if (autosave)
-      m_autosavePath = savePath;
-  }
-
-  // Capture the current video frame
-  m_renderManager.CacheVideoFrame(savePath);
-
-  {
-    std::unique_lock lock(m_savestateMutex);
-
-    // Prune any finished autosave threads
-    m_savestateThreads.erase(std::remove_if(m_savestateThreads.begin(), m_savestateThreads.end(),
-                                            [](std::future<void>& task) {
-                                              return task.wait_for(std::chrono::seconds(0)) ==
-                                                     std::future_status::ready;
-                                            }),
-                             m_savestateThreads.end());
-
-    // Save async to not block game loop
-    std::future<void> task =
-        std::async(std::launch::async, [this, autosave, savePath, nowUTC, timestampFrames]()
-                   { CommitSavestate(autosave, savePath, nowUTC, timestampFrames); });
-
-    m_savestateThreads.emplace_back(std::move(task));
-  }
-
+  std::unique_lock lock(m_savestateMutex);
+  std::string savePath = path;
+  if (autosave && savePath.empty())
+    savePath = m_autosavePath;
+  if (!autosave && savePath == m_autosavePath)
+    m_autosavePath.clear();
+  if (savePath.empty())
+    savePath = CSavestateDatabase::MakeSavestatePath(m_gamePath, created);
+  if (autosave)
+    m_autosavePath = savePath;
   return savePath;
 }
 
-void CReversiblePlayback::CommitSavestate(bool autosave,
-                                          const std::string& savePath,
-                                          const CDateTime& nowUTC,
-                                          uint64_t timestampFrames)
+std::string CReversiblePlayback::CreateSavestate(bool autosave, const std::string& savestatePath)
 {
-  std::unique_ptr<ISavestate> savestate = CSavestateDatabase::AllocateSavestate();
-  std::unique_ptr<ISavestate> loadedSavestate;
+  std::unique_lock lock(m_mutex);
+  m_saveSucceeded.store(false);
+  if (m_restoreFailed)
+    return "";
+  InitializeSaveWorker();
+  if (!m_saveWorker)
+    return "";
 
-  const size_t memorySize = m_gameClient->SerializeSize();
-  uint8_t* const memoryData = savestate->GetMemoryBuffer(memorySize);
-
-  // Copy the savestate memory
+  // Explicit saves may wait for storage; the periodic path only uses try-locks.
+  CancelAutosave();
+  std::unique_ptr<Snapshot> snapshot;
+  if (m_rewindFrameRendered)
   {
-    std::unique_lock lock(m_mutex);
-    if (m_memoryStream && m_memoryStream->CurrentFrame() != nullptr)
+    snapshot = m_saveWorker->Acquire();
+    m_saveSucceeded.store(false);
+    auto clientLock = m_gameClient->LockForSnapshot();
+    const auto* discModel =
+        m_memoryStream ? m_discStateHistory.Get(m_memoryStream->GetDiscStateID()) : nullptr;
+    if (!m_memoryStream || !m_memoryStream->CurrentFrame() ||
+        m_memoryStream->FrameSize() != m_memorySize ||
+        (m_memoryStream->GetDiscStateID() != 0 && !discModel) ||
+        (discModel && !(m_gameClient->Discs().GetDiscsForSnapshot() == *discModel)))
     {
-      std::memcpy(memoryData, m_memoryStream->CurrentFrame(), memorySize);
+      m_saveWorker->Release(snapshot);
+      return "";
     }
-    else
+    // The preview ran ahead of the rewind cursor; persist the cursor's machine and media.
+    std::memcpy(snapshot->memory.get(), m_memoryStream->CurrentFrame(), m_memorySize);
+    CaptureMetadata(*snapshot);
+    snapshot->frames = m_memoryStream->GetFrameCounter();
+    snapshot->wallClock = snapshot->frames / m_gameLoop.FPS();
+    snapshot->discState = discModel ? std::make_optional(discModel->GetState()) : std::nullopt;
+    snapshot->achievements.clear();
+  }
+  else
+  {
+    snapshot = CaptureSavestate(*m_saveWorker, *m_gameClient, m_memorySize,
+                                [this](Snapshot& captured) { CaptureMetadata(captured); });
+  }
+  m_saveSucceeded.store(false);
+  if (!snapshot)
+    return "";
+  snapshot->autosave = autosave;
+  snapshot->rewind = m_rewindFrameRendered;
+  snapshot->serializeUs = 0;
+  snapshot->captureUs = 0;
+  snapshot->path = GetSavestatePath(autosave, savestatePath, snapshot->created);
+  const std::string savePath = snapshot->path;
+  m_saveWorker->Submit(snapshot);
+  return savePath;
+}
+
+void CReversiblePlayback::CaptureMetadata(Snapshot& snapshot)
+{
+  snapshot.created = CDateTime::GetUTCDateTime();
+  snapshot.frames = m_totalFrameCount;
+  snapshot.wallClock = snapshot.frames / m_gameLoop.FPS();
+  snapshot.path.clear();
+  snapshot.autosave = true;
+  snapshot.discarded = false;
+  snapshot.discState.reset();
+  snapshot.achievements.clear();
+  if (!m_rewindFrameRendered)
+  {
+    if (m_gameClient->SupportsDiscControl())
     {
-      lock.unlock();
-      if (!m_gameClient->Serialize(memoryData, memorySize))
-        return;
+      m_gameClient->Discs().RefreshDiscState();
+      snapshot.discState = m_gameClient->Discs().GetDiscsForSnapshot().GetState();
     }
+    m_gameClient->SerializeAchievementState(snapshot.achievements);
+  }
+  m_renderManager.TryCaptureVideoFrame(snapshot.video);
+}
+
+void CReversiblePlayback::InvalidateAutosave()
+{
+  m_autosaveCapture.Cancel(m_pendingSnapshot, m_snapshotReady);
+}
+
+void CReversiblePlayback::CancelAutosave()
+{
+  InvalidateAutosave();
+  if (m_pendingSnapshot)
+    m_saveWorker->Submit(m_pendingSnapshot);
+  m_snapshotReady = false;
+}
+
+bool CReversiblePlayback::WaitForSavestates()
+{
+  std::unique_lock lock(m_mutex);
+  CancelAutosave();
+  if (m_saveWorker && m_saveWorker->Drain())
+  {
+    m_saveSucceeded.store(false);
+    CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Save worker failed");
+    return false;
+  }
+  return m_saveSucceeded.load();
+}
+
+bool CReversiblePlayback::CommitSavestate(const Snapshot& snapshot)
+{
+  const auto started = std::chrono::steady_clock::now();
+  const std::string savePath = snapshot.path.empty()
+                                   ? GetSavestatePath(snapshot.autosave, "", snapshot.created)
+                                   : snapshot.path;
+  auto savestate = CSavestateDatabase::AllocateSavestate();
+  std::unique_ptr<ISavestate> loadedSavestate;
+  if (snapshot.discState)
+    savestate->SetDiscState(*snapshot.discState);
+  uint8_t* memoryData = savestate->GetMemoryBuffer(m_memorySize);
+  std::memcpy(memoryData, snapshot.memory.get(), m_memorySize);
+  if (!snapshot.achievements.empty())
+  {
+    if (uint8_t* data = savestate->GetAchievementBuffer(snapshot.achievements.size()))
+      std::memcpy(data, snapshot.achievements.data(), snapshot.achievements.size());
   }
 
-  // Attempt to get existing properties
   {
     std::unique_lock lock(m_savestateMutex);
-    if (!savePath.empty() && XFILE::CFile::Exists(savePath))
+    if (XFILE::CFile::Exists(savePath))
     {
       loadedSavestate = CSavestateDatabase::AllocateSavestate();
       if (!m_savestateDatabase->GetSavestate(savePath, *loadedSavestate))
         loadedSavestate.reset();
     }
   }
-
-  const std::string caption = m_cheevos->GetRichPresenceEvaluation();
-  const std::string gameFileName = URIUtils::GetFileName(m_gameClient->GetGamePath());
-  const double timestampWallClock =
-      (timestampFrames /
-       m_gameClient->GetFrameRate()); //! @todo Accumulate playtime instead of deriving it
-  const std::string gameClientId = m_gameClient->ID();
-  const std::string gameClientVersion = m_gameClient->Version().asString();
-
-  savestate->SetType(autosave ? SAVE_TYPE::AUTO : SAVE_TYPE::MANUAL);
+  savestate->SetType(snapshot.autosave ? SAVE_TYPE::AUTO : SAVE_TYPE::MANUAL);
   savestate->SetLabel(loadedSavestate ? loadedSavestate->Label() : "");
-  savestate->SetCaption(caption);
-  savestate->SetCreated(nowUTC);
-  savestate->SetGameFileName(gameFileName);
-  savestate->SetTimestampFrames(timestampFrames);
-  savestate->SetTimestampWallClock(timestampWallClock);
-  savestate->SetGameClientID(gameClientId);
-  savestate->SetGameClientVersion(gameClientVersion);
-
-  m_renderManager.SaveVideoFrame(savePath, *savestate);
+  savestate->SetCaption(CServiceBroker::GetGameServices().AchievementRuntime().GetRichPresence());
+  savestate->SetCreated(snapshot.created);
+  savestate->SetGameFileName(URIUtils::GetFileName(m_gamePath));
+  savestate->SetTimestampFrames(snapshot.frames);
+  savestate->SetTimestampWallClock(snapshot.wallClock);
+  savestate->SetGameClientID(m_gameClientId);
+  savestate->SetGameClientVersion(m_gameClientVersion);
 
   savestate->Finalize();
-
   bool success;
   {
     std::unique_lock lock(m_savestateMutex);
-    success = m_savestateDatabase->AddSavestate(savePath, m_gameClient->GetGamePath(), *savestate);
+    success = m_savestateDatabase->AddSavestate(savePath, m_gamePath, *savestate);
   }
-
   if (success)
-  {
-    std::string thumbnailPath = CSavestateDatabase::MakeThumbnailPath(savePath);
-    m_renderManager.SaveThumbnail(thumbnailPath);
-  }
-
-  // Notify the GUI that the metadata for this savestate should be refreshed
+    m_renderManager.SaveThumbnail(CSavestateDatabase::MakeThumbnailPath(savePath), snapshot.video);
+  else
+    CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Failed to write savestate");
   m_guiMessenger.RefreshSavestates(savePath, savestate.get());
+  CLog::Log(LOGDEBUG,
+            "RetroPlayer[SAVE]: Frame {}: reused rewind {}, core {} us, capture/handoff {} us, "
+            "background commit {} ms, success {}",
+            snapshot.frames, snapshot.rewind, snapshot.serializeUs, snapshot.captureUs,
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                  started)
+                .count(),
+            success);
+  return success;
 }
 
 bool CReversiblePlayback::LoadSavestate(const std::string& savestatePath)
 {
-  const size_t memorySize = m_gameClient->SerializeSize();
+  // Every route that loads a state comes through here - the in-game dialog,
+  // JSON-RPC, the Python player API - so hardcore is answered once, rather
+  // than at each caller. Creating a state is still allowed.
+  if (HardcoreRestrictionsApply(*m_gameClient))
+  {
+    CLog::Log(LOGINFO, "RetroPlayer[SAVE]: Refusing to load a savestate in hardcore mode");
+    GAME::CGameUtils::NotifyBlockedByHardcore(35308); // "Loading save states"
+    return false;
+  }
+
+  const size_t memorySize =
+      m_gameClient->GetSerializeSize(GAME::CGameClient::SerializeSizeMode::Restore);
 
   // Game client must support serialization
   if (memorySize == 0)
     return false;
 
+  std::unique_lock playbackLock(m_mutex);
+  CancelAutosave();
+  if (m_saveWorker)
+    m_saveWorker->Drain();
+  auto clientLock = m_gameClient->LockForSnapshot();
   bool bSuccess = false;
 
   std::unique_ptr<ISavestate> savestate = CSavestateDatabase::AllocateSavestate();
   if (m_savestateDatabase->GetSavestate(savestatePath, *savestate))
   {
-    if (savestate->GetMemorySize() != memorySize)
+    // The size a client reports can change as it runs, so a savestate is
+    // restored at its own size and the client decides whether it fits
+    const size_t savedSize = savestate->GetMemorySize();
+
+    if (!savestate->PrepareMemoryData(savedSize))
     {
-      CLog::Log(LOGERROR, "Invalid memory size, got {}, expected {}", memorySize,
-                savestate->GetMemorySize());
+      CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Failed to prepare memory data");
     }
     else
     {
+      if (savedSize != memorySize)
+        CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Savestate size is {}, client reports {}", savedSize,
+                  memorySize);
+
+      std::optional<GAME::CGameClientDiscModel> discModel;
+      if (const auto discState = savestate->GetDiscState())
       {
-        std::unique_lock lock(m_mutex);
-        if (m_memoryStream)
+        discModel.emplace();
+        if (!m_gameClient->SupportsDiscControl() ||
+            !m_gameClient->Discs().GetDiscsForSnapshot().ResolveState(*discState, *discModel))
         {
-          m_memoryStream->SetFrameCounter(savestate->TimestampFrames());
-          std::memcpy(m_memoryStream->BeginFrame(), savestate->GetMemoryData(), memorySize);
-          m_memoryStream->SubmitFrame();
+          CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Failed to resolve saved disc state");
+          return false;
         }
+        if (!m_gameClient->Discs().IsMediaSupported(*discModel))
+        {
+          CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Saved media is unsupported by the active core");
+          return false;
+        }
+        CLog::Log(LOGDEBUG,
+                  "RetroPlayer[SAVE]: Restoring disc state: slots={} selected={} ejected={}",
+                  discState->slots.size(), discState->selectedSlot, discState->trayEjected);
       }
 
-      if (m_gameClient->Deserialize(savestate->GetMemoryData(), memorySize))
+      const RestoreResult result = m_gameClient->Deserialize(savestate->GetMemoryData(), savedSize,
+                                                             discModel ? &*discModel : nullptr);
+      if (result == RestoreResult::Restored)
       {
+        // After the emulator, so the runtime matches its machine state, and
+        // unconditionally: a savestate written before this existed, or while
+        // signed out, carries none, but the client still has to be told the
+        // machine state jumped. Left untold, the progress it holds for the
+        // timeline being abandoned would survive the restore.
+        const uint8_t* const achievementData = savestate->GetAchievementData();
+        const size_t achievementSize = savestate->GetAchievementSize();
+
+        if (!m_gameClient->DeserializeAchievements(achievementData, achievementSize) &&
+            achievementData != nullptr && achievementSize != 0)
+        {
+          // State the runtime would not take, from another runtime version or
+          // a damaged file. Ask for a reset rather than leaving it: what it
+          // still holds describes the timeline just abandoned, and carrying
+          // that forward is how an achievement gets awarded unearned. The
+          // savestate itself is fine, so the load is not failed for it.
+          CLog::Log(LOGWARNING, "RetroPlayer[SAVE]: Achievement state refused, resetting runtime");
+
+          m_gameClient->DeserializeAchievements(nullptr, 0);
+        }
+
+        if (m_memoryStream)
+        {
+          const uint64_t maxFrames = m_memoryStream->MaxFrameCount();
+          m_memoryStream->Init(memorySize, maxFrames);
+          m_discStateHistory.Clear();
+          // Rewind frames are the client's current size
+          if (savedSize == memorySize)
+          {
+            std::memcpy(m_memoryStream->BeginFrame(), savestate->GetMemoryData(), memorySize);
+            const uint32_t discStateId =
+                m_gameClient->SupportsDiscControl()
+                    ? m_discStateHistory.Intern(m_gameClient->Discs().GetDiscsForSnapshot())
+                    : 0;
+            m_memoryStream->SubmitFrame(discStateId, savestate->TimestampFrames());
+          }
+          UpdatePlaybackStats();
+        }
         m_totalFrameCount = savestate->TimestampFrames();
+        m_restoreFailed = false;
+        m_rewindFrameRendered = false;
         bSuccess = true;
         if (savestate->Type() == SAVE_TYPE::AUTO)
+        {
+          std::unique_lock savestateLock(m_savestateMutex);
           m_autosavePath = savestatePath;
+        }
+      }
+      else if (result == RestoreResult::StateUncertain)
+      {
+        LatchRestoreFailure();
       }
     }
   }
-
-  m_cheevos->ResetRuntime();
 
   return bSuccess;
 }
 
 void CReversiblePlayback::FrameEvent()
 {
-  m_gameClient->RunFrame();
+  std::unique_lock lock(m_mutex);
+  if (!m_restoreFailed && !m_rewindFrameRendered)
+  {
+    // Input scanning calls back into the client from another thread.
+    lock.unlock();
+    m_gameClient->PollInput();
+    lock.lock();
+  }
+  std::unique_lock clientLock = m_gameClient->LockForSnapshot();
 
-  AddFrame();
+  if (m_restoreFailed)
+    return;
+
+  const uint8_t* runaheadState = nullptr;
+
+  // The rewind preview has already run and updated the frame rate.
+  if (!m_rewindFrameRendered)
+  {
+    if (const unsigned int runaheadFrames = PrepareRunahead(); runaheadFrames > 0)
+    {
+      if (m_runaheadHeld)
+        RunHeldFrame();
+      else
+        runaheadState = RunaheadFrame(runaheadFrames);
+      if (m_restoreFailed)
+        return;
+    }
+    else
+      m_gameClient->RunFrame(false);
+    UpdateFrameRate();
+
+    if (!m_memoryStreamSized)
+      UpdateMemoryStream();
+  }
+
+  InitializeSaveWorker();
+  AddFrame(runaheadState);
+}
+
+unsigned int CReversiblePlayback::PrepareRunahead()
+{
+  if (m_runaheadReset.exchange(false))
+  {
+    m_runaheadStatus = RunaheadStatus::Ready;
+    m_runaheadRestoreChecked = false;
+    m_runaheadHeld = false;
+  }
+
+  const unsigned int frames = m_runaheadFrames;
+  if (frames == 0 || m_runaheadStatus == RunaheadStatus::Failed || m_gameLoop.GetSpeed() != 1.0)
+  {
+    if (frames == 0 && !m_runaheadState.empty())
+      m_runaheadState = {};
+    return 0;
+  }
+
+  // An ordinary frame can't stand in for one: it has effects outside the
+  // emulator's state, such as evaluating achievements, that a restore doesn't
+  // undo
+  if (!m_gameClient->SupportsSpeculativeFrames())
+  {
+    if (m_runaheadStatus != RunaheadStatus::Unsupported)
+    {
+      m_runaheadStatus = RunaheadStatus::Unsupported;
+      CLog::Log(LOGINFO, "RetroPlayer[SAVE]: Run-ahead held off: {} can't run speculative frames",
+                m_gameClient->ID());
+    }
+    return 0;
+  }
+
+  // Run-ahead restores a state every frame, which only works if running on
+  // from a restored state gives the same frames. libretro's core info says
+  // which cores do, and RetroArch holds run-ahead off for the rest.
+  using SavestateFeatures = GAME::CGameClient::SavestateFeatures;
+  const SavestateFeatures savestateFeatures = m_gameClient->GetSavestateFeatures();
+  if (savestateFeatures != SavestateFeatures::UNKNOWN &&
+      savestateFeatures != SavestateFeatures::DETERMINISTIC)
+  {
+    if (m_runaheadStatus != RunaheadStatus::NotDeterministic)
+    {
+      m_runaheadStatus = RunaheadStatus::NotDeterministic;
+      CLog::Log(LOGINFO,
+                "RetroPlayer[SAVE]: Run-ahead held off: {} rates its states below deterministic",
+                m_gameClient->ID());
+    }
+    return 0;
+  }
+
+  // Sound the client sends from its own thread can't be matched to a frame, so
+  // the sound of frames that are rolled back would be heard
+  if (m_streamManager.AudioSentOffFrameThread())
+  {
+    if (m_runaheadStatus != RunaheadStatus::AudioOffFrameThread)
+    {
+      m_runaheadStatus = RunaheadStatus::AudioOffFrameThread;
+      CLog::Log(LOGINFO,
+                "RetroPlayer[SAVE]: Run-ahead held off: {} sends sound from its own thread",
+                m_gameClient->ID());
+    }
+    return 0;
+  }
+
+  if (m_gameClient->GetSerializeSize() == 0)
+    return 0;
+
+  return frames;
+}
+
+const uint8_t* CReversiblePlayback::RunaheadFrame(unsigned int frames)
+{
+  const size_t memorySize = m_gameClient->GetSerializeSize();
+
+  // The real frame is hidden; only the last speculative frame is presented, so
+  // exactly one frame of audio and video is produced per frame of real time.
+  // The client sets its motors on every frame it runs, and only the last state
+  // reaches the controller.
+  m_gameClient->Input().HoldRumble();
+  m_streamManager.SuppressAudio(true);
+  m_streamManager.EnableVideo(false);
+  m_gameClient->RunFrame(false);
+
+  m_runaheadState.resize(memorySize);
+  const bool serialized = m_gameClient->SerializeSpeculative(m_runaheadState.data(), memorySize);
+  bool ranAhead = serialized;
+  bool restored = true;
+
+  // A client that can't load back the state it saved would only find out after
+  // the frames ahead, past the real frame. Asked now, nothing has moved yet.
+  bool restoresState = true;
+  if (serialized && !m_runaheadRestoreChecked)
+  {
+    restoresState = m_gameClient->RestoreState(m_runaheadState.data(), memorySize);
+    m_runaheadRestoreChecked = restoresState;
+    ranAhead = restoresState;
+  }
+
+  if (serialized && restoresState)
+  {
+    unsigned int ran = 0;
+
+    // Speculative frames don't poll, so they repeat the input of the real frame
+    for (unsigned int frame = 1; frame <= frames && ranAhead; ++frame)
+    {
+      const bool lastFrame = (frame == frames);
+      m_streamManager.SuppressAudio(!lastFrame);
+      m_streamManager.EnableVideo(lastFrame);
+      ranAhead = m_gameClient->RunFrameSpeculative();
+      if (ranAhead)
+        ++ran;
+    }
+
+    // A client that refuses its first speculative frame is still at the real
+    // frame, and loading a state can upset one that is starting up, such as a
+    // C64 typing the command that loads its tape
+    const bool refused = !ranAhead && !m_gameClient->SupportsSpeculativeFrames();
+    if (ran > 0 || !refused)
+      restored = m_gameClient->RestoreState(m_runaheadState.data(), memorySize);
+  }
+
+  m_streamManager.SuppressAudio(false);
+  m_streamManager.EnableVideo(true);
+  // A failed restore leaves the client past the real frame and pauses the
+  // game, so its rumble would be left running
+  m_gameClient->Input().ReleaseRumble(restored);
+
+  // The client is left somewhere past the real frame
+  if (!restored)
+  {
+    m_runaheadStatus = RunaheadStatus::Failed;
+    LatchRestoreFailure();
+    return nullptr;
+  }
+
+  // A client may refuse a state it couldn't load back yet, such as while a tape
+  // is loading. This frame's picture is lost, and the next ones run as they are
+  // until it gives one.
+  if (!serialized)
+  {
+    CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Run-ahead held off: the client refused a state");
+    m_runaheadHeld = true;
+    return nullptr;
+  }
+
+  if (!ranAhead)
+  {
+    // A client that turned out not to support them is held off instead
+    if (m_gameClient->SupportsSpeculativeFrames())
+    {
+      CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Run-ahead disabled: client failed to {}",
+                !restoresState ? "restore its state" : "run a speculative frame");
+      m_runaheadStatus = RunaheadStatus::Failed;
+    }
+    return nullptr;
+  }
+
+  return m_runaheadState.data();
+}
+
+void CReversiblePlayback::RunHeldFrame()
+{
+  m_gameClient->RunFrame(false);
+
+  const size_t memorySize = m_gameClient->GetSerializeSize();
+  m_runaheadState.resize(memorySize);
+  m_runaheadHeld = !m_gameClient->SerializeSpeculative(m_runaheadState.data(), memorySize);
+  if (!m_runaheadHeld)
+    CLog::Log(LOGDEBUG, "RetroPlayer[SAVE]: Run-ahead resumed");
+}
+
+void CReversiblePlayback::UpdateRunahead()
+{
+  const GAME::CGameSettings& gameSettings = CServiceBroker::GetGameServices().GameSettings();
+
+  const unsigned int frames = gameSettings.RunaheadEnabled() ? gameSettings.RunaheadFrames() : 0;
+  if (frames == m_runaheadFrames.exchange(frames))
+    return;
+
+  m_runaheadReset = true;
+
+  if (frames == 0)
+    CLog::Log(LOGINFO, "RetroPlayer[SAVE]: Run-ahead disabled");
+  else
+    CLog::Log(LOGINFO, "RetroPlayer[SAVE]: Run-ahead: {} frame(s) ahead, {} client runs per frame",
+              frames, frames + 1);
 }
 
 void CReversiblePlayback::RewindEvent()
 {
-  RewindFrames(1);
+  m_gameClient->PollInput();
 
-  m_gameClient->RunFrame();
+  std::unique_lock lock(m_mutex);
+  std::unique_lock clientLock = m_gameClient->LockForSnapshot();
+
+  if (m_restoreFailed || RewindFrames(1) != RestoreResult::Restored)
+    return;
+
+  m_gameClient->RunFrame(false);
+  m_rewindFrameRendered = true;
+  UpdateFrameRate();
 }
 
 void CReversiblePlayback::EndEvent()
 {
-  m_renderManager.DestroyContext();
+  // Deliberately does not destroy the rendering context.
+  //
+  // The game loop ends before the client is unloaded, and a hardware-rendering
+  // client releases its GPU resources as it unloads. Destroying the context
+  // here leaves those calls to land on whatever context is current by then --
+  // Kodi's own -- where they unbind the vertex array object every one of its
+  // draws depends on, and the GUI renders nothing from that point on.
+  //
+  // The context is destroyed when the rendering stream closes, which happens
+  // while the client is unloading and its context is still current.
 }
 
-void CReversiblePlayback::AddFrame()
+void CReversiblePlayback::AddFrame(const uint8_t* runaheadState /* = nullptr */)
 {
-  std::unique_lock lock(m_mutex);
-
+  // Playback lock precedes the client lock for every snapshot and timeline change.
+  auto clientLock = m_gameClient->LockForSnapshot();
+  int64_t serializeUs = 0;
+  bool serialized = false;
   if (m_memoryStream)
   {
-    if (m_gameClient->Serialize(m_memoryStream->BeginFrame(), m_memoryStream->FrameSize()))
+    const bool measure = m_autosaveCapture.IsPending();
+    const auto started =
+        measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
+    // A state saved for run-ahead may only be one the client can load back
+    // that way, and rewind loads its states as ordinary ones
+    if (runaheadState != nullptr && m_runaheadState.size() == m_memoryStream->FrameSize() &&
+        !m_gameClient->HasSpeculativeStates())
     {
-      m_memoryStream->SubmitFrame();
+      std::memcpy(m_memoryStream->BeginFrame(), runaheadState, m_runaheadState.size());
+      serialized = true;
+    }
+    else
+    {
+      serialized =
+          m_gameClient->Serialize(m_memoryStream->BeginFrame(), m_memoryStream->FrameSize());
+    }
+
+    if (measure)
+      serializeUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - started)
+                        .count();
+    if (serialized)
+    {
+      uint32_t discStateId = 0;
+      if (m_gameClient->SupportsDiscControl())
+      {
+        m_gameClient->Discs().RefreshDiscState();
+        discStateId = m_discStateHistory.Intern(m_gameClient->Discs().GetDiscsForSnapshot());
+      }
+      m_memoryStream->SubmitFrame(discStateId, m_totalFrameCount + 1);
       UpdatePlaybackStats();
     }
   }
-
-  m_totalFrameCount++;
+  ++m_totalFrameCount;
+  m_rewindFrameRendered = false;
+  ProcessAutosave(serialized, serializeUs);
 }
 
-void CReversiblePlayback::RewindFrames(uint64_t frames)
+void CReversiblePlayback::ProcessAutosave(bool serialized, int64_t serializeUs)
+{
+  if (!m_saveWorker)
+    return;
+
+  if (m_snapshotReady)
+  {
+    if (m_saveWorker->TrySubmit(m_pendingSnapshot))
+      m_snapshotReady = false;
+    return;
+  }
+  if (!m_autosaveCapture.IsPending())
+    return;
+  if (!m_pendingSnapshot)
+    m_pendingSnapshot = m_saveWorker->TryAcquire();
+  if (!m_pendingSnapshot)
+    return;
+
+  auto& snapshot = *m_pendingSnapshot;
+  const auto started = std::chrono::steady_clock::now();
+  m_snapshotReady = m_autosaveCapture.CaptureFrame(
+      m_memoryStream.get(), serialized, snapshot.memory,
+      [this, &snapshot]
+      {
+        const auto coreStarted = std::chrono::steady_clock::now();
+        const bool success = m_gameClient->Serialize(
+            reinterpret_cast<uint8_t*>(snapshot.memory.get()), m_memorySize);
+        snapshot.serializeUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                   std::chrono::steady_clock::now() - coreStarted)
+                                   .count();
+        return success;
+      },
+      [this, &snapshot, serialized, serializeUs]
+      {
+        CaptureMetadata(snapshot);
+        snapshot.rewind = serialized;
+        if (serialized)
+          snapshot.serializeUs = serializeUs;
+        snapshot.captureUs = 0;
+      });
+  snapshot.captureUs += std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - started)
+                            .count();
+  if (m_snapshotReady)
+  {
+    if (m_saveWorker->TrySubmit(m_pendingSnapshot))
+      m_snapshotReady = false;
+  }
+}
+
+void CReversiblePlayback::UpdateFrameRate()
+{
+  const double previousFrameRate = m_gameLoop.FPS();
+  m_gameLoop.SetFrameRate(m_gameClient->GetFrameRate());
+
+  if (m_gameLoop.FPS() != previousFrameRate)
+    UpdateMemoryStream();
+}
+
+RestoreResult CReversiblePlayback::RewindFrames(uint64_t frames)
 {
   std::unique_lock lock(m_mutex);
+  InvalidateAutosave();
+  std::unique_lock clientLock = m_gameClient->LockForSnapshot();
 
+  RestoreResult result = RestoreResult::Rejected;
   if (m_memoryStream)
   {
-    m_memoryStream->RewindFrames(frames);
-    m_gameClient->Deserialize(m_memoryStream->CurrentFrame(), m_memoryStream->FrameSize());
+    const uint64_t rewound = m_memoryStream->RewindFrames(frames);
+    if (rewound > 0)
+    {
+      const RestoreResult targetResult = RestoreFrame();
+      if (targetResult == RestoreResult::Restored)
+      {
+        m_totalFrameCount = m_memoryStream->GetFrameCounter();
+        UpdatePlaybackStats();
+        return RestoreResult::Restored;
+      }
+      else
+      {
+        const uint64_t rolledBack = m_memoryStream->AdvanceFrames(rewound);
+        if (rolledBack != rewound || (targetResult == RestoreResult::StateUncertain &&
+                                      RestoreFrame() != RestoreResult::Restored))
+        {
+          result = RestoreResult::StateUncertain;
+          LatchRestoreFailure();
+        }
+      }
+    }
     UpdatePlaybackStats();
   }
 
-  m_totalFrameCount -= std::min(m_totalFrameCount, frames);
+  return result;
 }
 
-void CReversiblePlayback::AdvanceFrames(uint64_t frames)
+RestoreResult CReversiblePlayback::AdvanceFrames(uint64_t frames)
 {
   std::unique_lock lock(m_mutex);
+  InvalidateAutosave();
+  std::unique_lock clientLock = m_gameClient->LockForSnapshot();
 
+  RestoreResult result = RestoreResult::Rejected;
   if (m_memoryStream)
   {
-    m_memoryStream->AdvanceFrames(frames);
-    m_gameClient->Deserialize(m_memoryStream->CurrentFrame(), m_memoryStream->FrameSize());
+    const uint64_t advanced = m_memoryStream->AdvanceFrames(frames);
+    if (advanced > 0)
+    {
+      const RestoreResult targetResult = RestoreFrame();
+      if (targetResult == RestoreResult::Restored)
+      {
+        m_totalFrameCount = m_memoryStream->GetFrameCounter();
+        UpdatePlaybackStats();
+        return RestoreResult::Restored;
+      }
+      else
+      {
+        const uint64_t rolledBack = m_memoryStream->RewindFrames(advanced);
+        if (rolledBack != advanced || (targetResult == RestoreResult::StateUncertain &&
+                                       RestoreFrame() != RestoreResult::Restored))
+        {
+          result = RestoreResult::StateUncertain;
+          LatchRestoreFailure();
+        }
+      }
+    }
     UpdatePlaybackStats();
   }
 
-  m_totalFrameCount += frames;
+  return result;
+}
+
+RestoreResult CReversiblePlayback::RestoreFrame()
+{
+  const uint32_t discStateId = m_memoryStream->GetDiscStateID();
+  const auto* discModel = m_discStateHistory.Get(discStateId);
+  if (discStateId != 0 && !discModel)
+  {
+    CLog::Log(LOGERROR, "RetroPlayer[DISC]: Missing rewind disc state {}", discStateId);
+    return RestoreResult::Rejected;
+  }
+  if (discModel && !(m_gameClient->Discs().GetDiscsForSnapshot() == *discModel))
+  {
+    const auto selected = discModel->GetSelectedDiscIndex();
+    CLog::Log(LOGDEBUG,
+              "RetroPlayer[DISC]: Restoring rewind disc state {}: slots={} selected={} ejected={}",
+              discStateId, discModel->Size(), selected ? static_cast<int64_t>(*selected) : -1,
+              discModel->IsEjected());
+  }
+  const RestoreResult result = m_gameClient->Deserialize(m_memoryStream->CurrentFrame(),
+                                                         m_memoryStream->FrameSize(), discModel);
+  if (result == RestoreResult::Restored)
+    m_rewindFrameRendered = false;
+  return result;
+}
+
+void CReversiblePlayback::LatchRestoreFailure()
+{
+  InvalidateAutosave();
+  if (!m_restoreFailed)
+    CLog::Log(LOGERROR, "RetroPlayer[SAVE]: Machine state restore failed, pausing playback");
+  m_restoreFailed = true;
+  m_gameLoop.PauseAsync();
 }
 
 void CReversiblePlayback::UpdatePlaybackStats()
@@ -392,6 +1016,7 @@ void CReversiblePlayback::Notify(const Observable& obs, const ObservableMessage 
   {
     case ObservableMessageSettingsChanged:
       UpdateMemoryStream();
+      UpdateRunahead();
       break;
     default:
       break;
@@ -402,14 +1027,15 @@ void CReversiblePlayback::UpdateMemoryStream()
 {
   std::unique_lock lock(m_mutex);
 
-  bool bRewindEnabled = false;
-
   GAME::CGameSettings& gameSettings = CServiceBroker::GetGameServices().GameSettings();
 
-  if (m_gameClient->SerializeSize() > 0)
-    bRewindEnabled = gameSettings.RewindEnabled();
+  // Hardcore forbids rewind, so the buffer isn't allocated at all. It costs a
+  // fraction of the savestate size for every frame of the rewind window.
+  const bool rewindEnabled =
+      gameSettings.RewindEnabled() && !HardcoreRestrictionsApply(*m_gameClient);
+  const size_t memorySize = rewindEnabled ? m_gameClient->GetSerializeSize() : 0;
 
-  if (bRewindEnabled)
+  if (rewindEnabled && memorySize > 0)
   {
     unsigned int rewindBufferSec = gameSettings.MaxRewindTimeSec();
     if (rewindBufferSec < 10)
@@ -419,8 +1045,18 @@ void CReversiblePlayback::UpdateMemoryStream()
 
     if (!m_memoryStream)
     {
+      // Ceiling, not the real cost: the buffer keeps xor deltas of changed
+      // words only. Worth logging because a large state and a long window put
+      // that ceiling in the gigabytes.
+      CLog::Log(LOGINFO,
+                "RetroPlayer[SAVE]: Rewind buffer: {} frames of up to {} bytes ({:.1f} MB "
+                "worst case) for {} seconds at {:.2f} fps",
+                frameCount, memorySize,
+                static_cast<double>(memorySize) * frameCount / (1024.0 * 1024.0), rewindBufferSec,
+                m_gameLoop.FPS());
+
       m_memoryStream = std::make_unique<CDeltaPairMemoryStream>();
-      m_memoryStream->Init(m_gameClient->SerializeSize(), frameCount);
+      m_memoryStream->Init(memorySize, frameCount);
     }
 
     if (m_memoryStream->MaxFrameCount() != frameCount)
@@ -430,7 +1066,9 @@ void CReversiblePlayback::UpdateMemoryStream()
   }
   else
   {
+    InvalidateAutosave();
     m_memoryStream.reset();
+    m_discStateHistory.Clear();
 
     // Reset playback stats
     m_pastFrameCount = 0;
@@ -439,4 +1077,6 @@ void CReversiblePlayback::UpdateMemoryStream()
     m_totalTimeMs = 0;
     m_cacheTimeMs = 0;
   }
+
+  m_memoryStreamSized = !rewindEnabled || m_memoryStream != nullptr;
 }

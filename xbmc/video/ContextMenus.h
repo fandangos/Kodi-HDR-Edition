@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2016-2018 Team Kodi
+ *  Copyright (C) 2016-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -20,48 +20,48 @@ namespace CONTEXTMENU
 class CVideoInfoBase : public CStaticContextMenuAction
 {
 public:
-  explicit CVideoInfoBase(MediaType mediaType);
+  explicit CVideoInfoBase(KODI::MEDIA::TYPE mediaType);
   bool IsVisible(const CFileItem& item) const override;
   bool Execute(const std::shared_ptr<CFileItem>& item) const override;
 
 private:
-  const MediaType m_mediaType;
+  const KODI::MEDIA::TYPE m_mediaType;
 };
 
 struct CVideoInfo : CVideoInfoBase
 {
-  CVideoInfo() : CVideoInfoBase(MediaTypeVideo) {}
+  CVideoInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::VIDEO) {}
   bool IsVisible(const CFileItem& item) const override;
 };
 
 struct CTVShowInfo : CVideoInfoBase
 {
-  CTVShowInfo() : CVideoInfoBase(MediaTypeTvShow) {}
+  CTVShowInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::TV_SHOW) {}
 };
 
 struct CSeasonInfo : CVideoInfoBase
 {
-  CSeasonInfo() : CVideoInfoBase(MediaTypeSeason) {}
+  CSeasonInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::SEASON) {}
 };
 
 struct CEpisodeInfo : CVideoInfoBase
 {
-  CEpisodeInfo() : CVideoInfoBase(MediaTypeEpisode) {}
+  CEpisodeInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::EPISODE) {}
 };
 
 struct CMusicVideoInfo : CVideoInfoBase
 {
-  CMusicVideoInfo() : CVideoInfoBase(MediaTypeMusicVideo) {}
+  CMusicVideoInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::MUSIC_VIDEO) {}
 };
 
 struct CMovieInfo : CVideoInfoBase
 {
-  CMovieInfo() : CVideoInfoBase(MediaTypeMovie) {}
+  CMovieInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::MOVIE) {}
 };
 
 struct CMovieSetInfo : CVideoInfoBase
 {
-  CMovieSetInfo() : CVideoInfoBase(MediaTypeVideoCollection) {}
+  CMovieSetInfo() : CVideoInfoBase(KODI::MEDIA::TYPE::VIDEO_COLLECTION) {}
 };
 
 struct CVideoRemoveResumePoint : CStaticContextMenuAction
@@ -144,6 +144,13 @@ struct CVideoPlayAndQueue : IContextMenuItem
 struct CTVShowScanForNewContent : CStaticContextMenuAction
 {
   CTVShowScanForNewContent() : CStaticContextMenuAction(13349) {} // Scan for new content
+  bool IsVisible(const CFileItem& item) const override;
+  bool Execute(const std::shared_ptr<CFileItem>& item) const override;
+};
+
+struct CVideoShowExtras : CStaticContextMenuAction
+{
+  CVideoShowExtras() : CStaticContextMenuAction(40211) {} // Extras
   bool IsVisible(const CFileItem& item) const override;
   bool Execute(const std::shared_ptr<CFileItem>& item) const override;
 };

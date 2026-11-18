@@ -16,6 +16,7 @@
 #include "dialogs/GUIDialogBusy.h"
 #include "dialogs/GUIDialogContextMenu.h"
 #include "dialogs/GUIDialogNumeric.h"
+#include "guilib/GUIComponent.h"
 #include "guilib/GUIMessage.h"
 #include "guilib/GUIWindowManager.h"
 #include "input/actions/Action.h"
@@ -44,6 +45,7 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ItemProperties.h"
 #include "video/guilib/VideoPlayActionProcessor.h"
 #include "view/GUIViewState.h"
 
@@ -304,7 +306,7 @@ CFileItemPtr CGUIWindowPVRGuideBase::GetCurrentListItem(int offset /*= 0*/)
 int CGUIWindowPVRGuideBase::GetCurrentListItemIndex(
     const std::shared_ptr<const CFileItem>& item) const
 {
-  return item ? item->GetProperty("TimelineIndex").asInteger32() : -1;
+  return item ? item->GetProperty(KODI::ITEM::PROPERTY::TIMELINE_INDEX).asInteger32() : -1;
 }
 
 bool CGUIWindowPVRGuideBase::ShouldNavigateToGridContainer(int iAction)
@@ -653,6 +655,16 @@ bool CGUIWindowPVRGuideBase::OnMessage(CGUIMessage& message)
       GotoCurrentProgramme();
       bReturn = true;
       break;
+    case GUI_MSG_PVR_SELECT_CHANNEL_NUMBER:
+    {
+      CGUIEPGGridContainer* epgGridContainer = GetGridControl();
+      if (epgGridContainer)
+        epgGridContainer->SetChannel(
+            CPVRChannelNumber(static_cast<unsigned int>(message.GetParam1()),
+                              static_cast<unsigned int>(message.GetParam2())));
+      bReturn = true;
+      break;
+    }
     default:
       break;
   }
@@ -921,10 +933,15 @@ bool CGUIWindowPVRGuideBase::GotoPlayingChannel()
 void CGUIWindowPVRGuideBase::OnInputDone()
 {
   const CPVRChannelNumber channelNumber = GetChannelNumber();
-  if (channelNumber.IsValid())
-  {
-    GetGridControl()->SetChannel(channelNumber);
-  }
+  if (!channelNumber.IsValid())
+    return;
+
+  CGUIMessage msg(GUI_MSG_PVR_SELECT_CHANNEL_NUMBER, GetID(), 0, channelNumber.GetChannelNumber(),
+                  channelNumber.GetSubChannelNumber());
+  if (CServiceBroker::GetAppMessenger()->IsProcessThread())
+    OnMessage(msg);
+  else
+    CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg, GetID());
 }
 
 void CGUIWindowPVRGuideBase::GetChannelNumbers(std::vector<std::string>& channelNumbers)

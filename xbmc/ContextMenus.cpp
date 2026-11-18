@@ -17,6 +17,8 @@
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
 #include "storage/MediaManager.h"
+#include "utils/ItemProperties.h"
+#include "utils/PlaceholderPaths.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
@@ -38,8 +40,13 @@ namespace CONTEXTMENU
   bool CEjectDisk::Execute(const std::shared_ptr<CFileItem>& item) const
   {
 #ifdef HAS_OPTICAL_DRIVE
-    CServiceBroker::GetMediaManager().ToggleTray(
-        CServiceBroker::GetMediaManager().TranslateDevicePath(item->GetPath())[0]);
+    // Sources carry the drive, which cdda://local/ and mount points don't name. An item on the
+    // disc itself has no source, so fall back to the drive root of its own path.
+    std::string devicePath{item->GetProperty(ITEM::PROPERTY::DEVICE_PATH).asString()};
+    const std::string& path{item->GetPath()};
+    if (devicePath.empty() && URIUtils::IsDOSPath(path) && path[1] == ':')
+      devicePath = path.substr(0, 2);
+    CServiceBroker::GetMediaManager().ToggleTray(devicePath);
 #endif
     return true;
   }
@@ -83,11 +90,13 @@ std::string CAddRemoveFavourite::GetLabel(const CFileItem& item) const
 
 bool CAddRemoveFavourite::IsVisible(const CFileItem& item) const
 {
-  if (item.GetProperty("hide_add_remove_favourite").asBoolean())
+  if (item.GetProperty(ITEM::PROPERTY::HIDE_ADD_REMOVE_FAVOURITE).asBoolean())
     return false;
 
-  return (!item.GetPath().empty() && !item.IsParentFolder() && !item.IsPath("add") &&
-          !item.IsPath("newplaylist://") && !URIUtils::IsProtocol(item.GetPath(), "favourites") &&
+  return (!item.GetPath().empty() && !item.IsParentFolder() &&
+          !item.IsPath(ITEM::PLACEHOLDER::ADD_SOURCE) &&
+          !item.IsPath(ITEM::PLACEHOLDER::NEW_PLAYLIST) &&
+          !URIUtils::IsProtocol(item.GetPath(), "favourites") &&
           !URIUtils::IsProtocol(item.GetPath(), "newsmartplaylist") &&
           !URIUtils::IsProtocol(item.GetPath(), "newtag") &&
           !URIUtils::IsProtocol(item.GetPath(), "musicsearch") &&

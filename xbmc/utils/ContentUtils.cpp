@@ -9,41 +9,36 @@
 #include "ContentUtils.h"
 
 #include "FileItem.h"
+#include "utils/ArtTypes.h"
 #include "utils/StringUtils.h"
+#include "video/Bookmark.h"
 #include "video/VideoInfoTag.h"
 
 namespace
 {
-bool HasPreferredArtType(const CFileItem& item)
+bool PrefersPoster(const CFileItem& item)
 {
-  return item.HasVideoInfoTag() && (item.GetVideoInfoTag()->m_type == MediaTypeMovie ||
-                                    item.GetVideoInfoTag()->m_type == MediaTypeTvShow ||
-                                    item.GetVideoInfoTag()->m_type == MediaTypeSeason ||
-                                    item.GetVideoInfoTag()->m_type == MediaTypeVideoCollection);
-}
+  if (!item.HasVideoInfoTag())
+    return false;
 
-std::string GetPreferredArtType(const MediaType& type)
-{
-  if (type == MediaTypeMovie || type == MediaTypeTvShow || type == MediaTypeSeason ||
-      type == MediaTypeVideoCollection)
+  switch (item.GetVideoInfoTag()->GetMediaType())
   {
-    return "poster";
+    case KODI::MEDIA::TYPE::MOVIE:
+    case KODI::MEDIA::TYPE::TV_SHOW:
+    case KODI::MEDIA::TYPE::SEASON:
+    case KODI::MEDIA::TYPE::VIDEO_COLLECTION:
+      return true;
+    default:
+      return false;
   }
-  return "thumb";
 }
 } // namespace
 
 const std::string ContentUtils::GetPreferredArtImage(const CFileItem& item)
 {
-  if (HasPreferredArtType(item))
-  {
-    auto preferredArtType = GetPreferredArtType(item.GetVideoInfoTag()->m_type);
-    if (item.HasArt(preferredArtType))
-    {
-      return item.GetArt(preferredArtType);
-    }
-  }
-  return item.GetArt("thumb");
+  if (PrefersPoster(item) && item.HasArt(KODI::ART::TYPE::POSTER))
+    return item.GetArt(KODI::ART::TYPE::POSTER);
+  return item.GetArt(KODI::ART::TYPE::THUMB);
 }
 
 std::unique_ptr<CFileItem> ContentUtils::GeneratePlayableTrailerItem(const CFileItem& item,
@@ -54,6 +49,19 @@ std::unique_ptr<CFileItem> ContentUtils::GeneratePlayableTrailerItem(const CFile
   CVideoInfoTag* videoInfoTag = trailerItem->GetVideoInfoTag();
   *videoInfoTag = *item.GetVideoInfoTag();
   videoInfoTag->m_streamDetails.Reset();
+  videoInfoTag->SetFileNameAndPath(item.GetVideoInfoTag()->m_strTrailer);
+  videoInfoTag->m_strFile.clear();
+  videoInfoTag->m_strPath.clear();
+  CBookmark resumePoint;
+  resumePoint.type = CBookmark::RESUME;
+  videoInfoTag->SetResumePoint(resumePoint);
+  videoInfoTag->m_iBookmarkId = -1;
+  // Assign a new bookmark rather than Reset(), which doesn't clear the saved player state
+  CBookmark epBookmark;
+  epBookmark.type = CBookmark::EPISODE;
+  videoInfoTag->m_EpBookmark = epBookmark;
+  videoInfoTag->ResetPlayCount();
+  videoInfoTag->m_lastPlayed.Reset();
   videoInfoTag->m_strTitle = StringUtils::Format("{} ({})", videoInfoTag->m_strTitle, label);
   trailerItem->SetArt(item.GetArt());
   videoInfoTag->m_iDbId = -1;

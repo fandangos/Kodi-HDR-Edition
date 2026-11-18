@@ -3,9 +3,12 @@ set(SOURCES AddonsDirectory.cpp
             CacheStrategy.cpp
             CircularCache.cpp
             CurlFile.cpp
+            CurlHttpClient.cpp
             DAVCommon.cpp
             DAVDirectory.cpp
             DAVFile.cpp
+            DataFile.cpp
+            DataURI.cpp
             DirectoryCache.cpp
             Directory.cpp
             DirectoryFactory.cpp
@@ -15,10 +18,12 @@ set(SOURCES AddonsDirectory.cpp
             EpisodesDirectory.cpp
             EventsDirectory.cpp
             FavouritesDirectory.cpp
+            FFmpegVfsContext.cpp
             FileCache.cpp
             File.cpp
             FileDirectoryFactory.cpp
             FileFactory.cpp
+            HttpClientFactory.cpp
             FTPDirectory.cpp
             FTPParse.cpp
             HTTPDirectory.cpp
@@ -63,12 +68,16 @@ set(SOURCES AddonsDirectory.cpp
             ZipManager.cpp)
 
 set(HEADERS AddonsDirectory.h
+            AddonsPaths.h
             CacheStrategy.h
             CircularCache.h
             CurlFile.h
+            CurlHttpClient.h
             DAVCommon.h
             DAVDirectory.h
             DAVFile.h
+            DataFile.h
+            DataURI.h
             Directorization.h
             Directory.h
             DirectoryCache.h
@@ -81,17 +90,22 @@ set(HEADERS AddonsDirectory.h
             FTPDirectory.h
             FTPParse.h
             FavouritesDirectory.h
+            FFmpegVfsContext.h
             File.h
             FileCache.h
             FileDirectoryFactory.h
             FileFactory.h
+            HttpClientFactory.h
             HTTPDirectory.h
             IDirectory.h
             IFile.h
+            IHttpClient.h
+            IPlaylistHints.h
             IFileDirectory.h
             IFileTypes.h
             ImageFile.h
             LibraryDirectory.h
+            LibraryPaths.h
             MultiPathDirectory.h
             MultiPathFile.h
             MusicDatabaseDirectory.h
@@ -181,6 +195,12 @@ if(ENABLE_UPNP)
                       UPnPFile.cpp)
   list(APPEND HEADERS UPnPDirectory.h
                       UPnPFile.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL wasm)
+  list(APPEND SOURCES wasm/XhrFile.cpp)
+  list(APPEND HEADERS wasm/XhrFile.h
+                      wasm/XhrHttpClient.h)
 endif()
 
 core_add_library(filesystem)

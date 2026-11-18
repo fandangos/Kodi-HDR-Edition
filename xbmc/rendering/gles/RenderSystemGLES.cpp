@@ -31,7 +31,43 @@
 #include "utils/EGLUtils.h"
 #endif
 
+#include <array>
+
 using namespace std::chrono_literals;
+
+namespace
+{
+void ClearBuffersWithStencil(GLbitfield flags)
+{
+  GLint stencilMask, stencilBackMask, stencilClear;
+  glGetIntegerv(GL_STENCIL_WRITEMASK, &stencilMask);
+  glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &stencilBackMask);
+  glGetIntegerv(GL_STENCIL_CLEAR_VALUE, &stencilClear);
+  glStencilMask(0xFF);
+  glClearStencil(0);
+
+  GLboolean depthMask{GL_FALSE};
+  GLfloat depthClear{0.0f};
+  if (flags & GL_DEPTH_BUFFER_BIT)
+  {
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    glGetFloatv(GL_DEPTH_CLEAR_VALUE, &depthClear);
+    glDepthMask(GL_TRUE);
+    glClearDepthf(0.0f);
+  }
+
+  glClear(flags | GL_STENCIL_BUFFER_BIT);
+
+  if (flags & GL_DEPTH_BUFFER_BIT)
+  {
+    glDepthMask(depthMask);
+    glClearDepthf(depthClear);
+  }
+  glStencilMaskSeparate(GL_FRONT, stencilMask);
+  glStencilMaskSeparate(GL_BACK, stencilBackMask);
+  glClearStencil(stencilClear);
+}
+} // namespace
 
 CRenderSystemGLES::CRenderSystemGLES()
  : CRenderSystemBase()
@@ -117,7 +153,7 @@ bool CRenderSystemGLES::InitRenderSystem()
 
   InitialiseShaders();
 
-  CGUITextureGLES::Register();
+  CGUITextureGLES::Register(m_quadDrawer);
 
   return true;
 }
@@ -166,9 +202,78 @@ bool CRenderSystemGLES::DestroyRenderSystem()
   PresentRenderImpl(true);
 
   ReleaseShaders();
+  // The DrawQuad callback holds a reference to m_quadDrawer; nothing may draw through it from now on.
+  CGUITexture::UnregisterDrawQuad();
+  m_guiQuadIndexBuffer.Destroy();
+  m_guiUnitQuad.Destroy();
   m_bRenderCreated = false;
 
   return true;
+}
+
+void CRenderSystemGLES::BindGUIQuadIndices(std::size_t quadCount)
+{
+  const std::size_t needed = quadCount * 6;
+  if (m_guiQuadIndexBuffer && m_guiQuadIndices.size() >= needed)
+  {
+    m_guiQuadIndexBuffer.Bind();
+    return;
+  }
+
+  static constexpr std::array<GLushort, 6> pattern{0, 1, 2, 2, 3, 0};
+  m_guiQuadIndices.reserve(needed);
+  for (std::size_t quad = m_guiQuadIndices.size() / 6; quad < quadCount; ++quad)
+  {
+    for (GLushort offset : pattern)
+      m_guiQuadIndices.push_back(static_cast<GLushort>(quad * 4 + offset));
+  }
+  m_guiQuadIndexBuffer.SetData(m_guiQuadIndices.data(), m_guiQuadIndices.size(), GL_STATIC_DRAW);
+}
+
+void CRenderSystemGLES::BindGUIUnitQuad()
+{
+  // Triangle strip order: top left, top right, bottom left, bottom right.
+  static constexpr GLfloat unitQuad[4][2] = {
+      {0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f}};
+  m_guiUnitQuad.SetDataOnce(unitQuad);
+}
+
+void CRenderSystemGLES::DrawGUIQuad(const CPoint& origin,
+                                    const CPoint& right,
+                                    const CPoint& down,
+                                    const CRect* texCoords)
+{
+  glUniformMatrix4fv(GUIShaderGetGUIMatrix(), 1, GL_FALSE,
+                     KODI::UTILS::GL::QuadTransform(origin, right, down).data());
+
+  BindGUIUnitQuad();
+  const GLint posLoc = GUIShaderGetPos();
+  glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+  glEnableVertexAttribArray(posLoc);
+
+  const GLint texLoc = texCoords ? GUIShaderGetCoord0() : -1;
+  if (texLoc >= 0)
+  {
+    const CRect& tex = *texCoords;
+    glUniformMatrix4fv(
+        GUIShaderGetCoord0Matrix(), 1, GL_FALSE,
+        KODI::UTILS::GL::QuadTransform({tex.x1, tex.y1}, {tex.x2, tex.y1}, {tex.x1, tex.y2})
+            .data());
+    glVertexAttribPointer(texLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(texLoc);
+  }
+
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+  glDisableVertexAttribArray(posLoc);
+  if (texLoc >= 0)
+    glDisableVertexAttribArray(texLoc);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void CRenderSystemGLES::DrawGUIQuad(const CRect& rect, const CRect* texCoords)
+{
+  DrawGUIQuad({rect.x1, rect.y1}, {rect.x2, rect.y1}, {rect.x1, rect.y2}, texCoords);
 }
 
 bool CRenderSystemGLES::BeginRender()
@@ -210,14 +315,12 @@ void CRenderSystemGLES::InvalidateColorBuffer()
 
   // some platforms prefer a clear, instead of rendering over
   if (GetClearFunction() == ClearFunction::FIXED_FUNCTION)
+  {
     ClearBuffers(0);
-
-  if (!GetEnabledFrontToBackRendering())
     return;
+  }
 
-  glClearDepthf(0);
-  glDepthMask(true);
-  glClear(GL_DEPTH_BUFFER_BIT);
+  ClearBuffersWithStencil(GetEnabledFrontToBackRendering() ? GL_DEPTH_BUFFER_BIT : 0);
 }
 
 bool CRenderSystemGLES::ClearBuffers(KODI::UTILS::COLOR::Color color)
@@ -235,13 +338,9 @@ bool CRenderSystemGLES::ClearBuffers(KODI::UTILS::COLOR::Color color)
   GLbitfield flags = GL_COLOR_BUFFER_BIT;
 
   if (GetEnabledFrontToBackRendering())
-  {
-    glClearDepthf(0);
-    glDepthMask(GL_TRUE);
     flags |= GL_DEPTH_BUFFER_BIT;
-  }
 
-  glClear(flags);
+  ClearBuffersWithStencil(flags);
 
   return true;
 }
@@ -619,6 +718,28 @@ void CRenderSystemGLES::InitialiseShaders()
     m_pShader[ShaderMethodGLES::SM_TEXTURE_NOALPHA].reset();
     CLog::Log(LOGERROR, "GUI Shader gles_shader_texture_noalpha.frag - compile and link failed");
   }
+
+  const std::string definesFontsRGBA = defines + "#define KODI_FONTS_RGBA 1\n";
+
+  m_pShader[ShaderMethodGLES::SM_FONTS_RGBA] = std::make_unique<CGLESShader>(
+      "gles_shader_simple.vert", "gles_shader_fonts.frag", definesFontsRGBA);
+  if (!m_pShader[ShaderMethodGLES::SM_FONTS_RGBA]->CompileAndLink())
+  {
+    m_pShader[ShaderMethodGLES::SM_FONTS_RGBA]->Free();
+    m_pShader[ShaderMethodGLES::SM_FONTS_RGBA].reset();
+    CLog::Log(LOGERROR, "GUI Shader gles_shader_simple.vert + gles_shader_fonts.frag (RGBA) - "
+                        "compile and link failed");
+  }
+
+  m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP] = std::make_unique<CGLESShader>(
+      "gles_shader_clip.vert", "gles_shader_fonts.frag", definesFontsRGBA);
+  if (!m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP]->CompileAndLink())
+  {
+    m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP]->Free();
+    m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP].reset();
+    CLog::Log(LOGERROR, "GUI Shader gles_shader_clip.vert + gles_shader_fonts.frag (RGBA) - "
+                        "compile and link failed");
+  }
 }
 
 void CRenderSystemGLES::ReleaseShaders()
@@ -690,6 +811,14 @@ void CRenderSystemGLES::ReleaseShaders()
   if (m_pShader[ShaderMethodGLES::SM_TEXTURE_NOALPHA])
     m_pShader[ShaderMethodGLES::SM_TEXTURE_NOALPHA]->Free();
   m_pShader[ShaderMethodGLES::SM_TEXTURE_NOALPHA].reset();
+
+  if (m_pShader[ShaderMethodGLES::SM_FONTS_RGBA])
+    m_pShader[ShaderMethodGLES::SM_FONTS_RGBA]->Free();
+  m_pShader[ShaderMethodGLES::SM_FONTS_RGBA].reset();
+
+  if (m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP])
+    m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP]->Free();
+  m_pShader[ShaderMethodGLES::SM_FONTS_RGBA_SHADER_CLIP].reset();
 }
 
 void CRenderSystemGLES::EnableGUIShader(ShaderMethodGLES method)
@@ -770,6 +899,54 @@ GLint CRenderSystemGLES::GUIShaderGetSdrPeak()
   return -1;
 }
 
+GLint CRenderSystemGLES::GUIShaderGetGUIMatrix()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetGUIMatrixLoc();
+
+  return -1;
+}
+
+GLint CRenderSystemGLES::GUIShaderGetSnap()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetSnapLoc();
+
+  return -1;
+}
+
+GLint CRenderSystemGLES::GUIShaderGetAttrSnap()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetAttrSnapLoc();
+
+  return -1;
+}
+
+GLint CRenderSystemGLES::GUIShaderGetQuadClip()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetQuadClipLoc();
+
+  return -1;
+}
+
+GLint CRenderSystemGLES::GUIShaderGetQuadRect()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetQuadRectLoc();
+
+  return -1;
+}
+
+GLint CRenderSystemGLES::GUIShaderGetTexSwap()
+{
+  if (m_pShader[m_method])
+    return m_pShader[m_method]->GetTexSwapLoc();
+
+  return -1;
+}
+
 GLint CRenderSystemGLES::GUIShaderGetUniCol()
 {
   if (m_pShader[m_method])
@@ -821,14 +998,6 @@ GLint CRenderSystemGLES::GUIShaderGetBrightness()
 bool CRenderSystemGLES::SupportsStereo(RenderStereoMode mode) const
 {
   return CRenderSystemBase::SupportsStereo(mode);
-}
-
-GLint CRenderSystemGLES::GUIShaderGetModel()
-{
-  if (m_pShader[m_method])
-    return m_pShader[m_method]->GetModelLoc();
-
-  return -1;
 }
 
 GLint CRenderSystemGLES::GUIShaderGetMatrix()

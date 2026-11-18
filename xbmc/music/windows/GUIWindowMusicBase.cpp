@@ -19,13 +19,18 @@
 #include "ServiceBroker.h"
 #include "URL.h"
 #include "Util.h"
+#include "addons/Scraper.h"
 #include "addons/gui/GUIDialogAddonInfo.h"
 #include "application/Application.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationPlayer.h"
+#include "filesystem/AddonsDirectory.h"
 #include "music/MusicFileItemClassify.h"
 #include "network/NetworkFileItemClassify.h"
 #include "playlists/PlayListFileItemClassify.h"
+#include "utils/ArtTypes.h"
+#include "utils/ItemProperties.h"
+#include "utils/PlaceholderPaths.h"
 #include "video/VideoFileItemClassify.h"
 #ifdef HAS_CDDA_RIPPER
 #include "cdrip/CDDARipper.h"
@@ -63,6 +68,8 @@
 #include "settings/SettingsComponent.h"
 #include "storage/MediaManager.h"
 #include "utils/Artwork.h"
+#include "utils/ContentNames.h"
+#include "utils/DefaultArt.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -85,6 +92,7 @@ using namespace KODI::MESSAGING;
 using KODI::MESSAGING::HELPERS::DialogResponse;
 
 using namespace std::chrono_literals;
+using KODI::MEDIA::MediaSection;
 
 #define CONTROL_BTNVIEWASICONS  2
 #define CONTROL_BTNSORTBY       3
@@ -190,8 +198,8 @@ bool CGUIWindowMusicBase::OnMessage(CGUIMessage& message)
       }
       else if (iControl == CONTROL_BTNPLAYLISTS)
       {
-        if (!m_vecItems->IsPath("special://musicplaylists/"))
-          Update("special://musicplaylists/");
+        if (!m_vecItems->IsPath(CUtil::PlaylistsPathOf(MediaSection::MUSIC)))
+          Update(CUtil::PlaylistsPathOf(MediaSection::MUSIC));
       }
       else if (iControl == CONTROL_BTNSCAN)
       {
@@ -219,7 +227,7 @@ bool CGUIWindowMusicBase::OnMessage(CGUIMessage& message)
         {
           // is delete allowed?
           // must be at the playlists directory
-          if (m_vecItems->IsPath("special://musicplaylists/"))
+          if (m_vecItems->IsPath(CUtil::PlaylistsPathOf(MediaSection::MUSIC)))
             OnDeleteItem(iItem);
 
           else
@@ -283,20 +291,18 @@ bool CGUIWindowMusicBase::OnAction(const CAction &action)
 
 void CGUIWindowMusicBase::OnItemInfoAll(const std::string& strPath, bool refresh)
 {
-  if (StringUtils::EqualsNoCase(m_vecItems->GetContent(), "albums"))
-  {
-    if (CMusicLibraryQueue::GetInstance().IsScanningLibrary())
-      return;
+  ADDON::ContentType content{ADDON::ContentType::NONE};
+  if (StringUtils::EqualsNoCase(m_vecItems->GetContent(), MEDIA::CONTENT::ALBUMS))
+    content = ADDON::ContentType::ALBUMS;
+  else if (StringUtils::EqualsNoCase(m_vecItems->GetContent(), MEDIA::CONTENT::ARTISTS))
+    content = ADDON::ContentType::ARTISTS;
+  else
+    return;
 
-    CMusicLibraryQueue::GetInstance().StartAlbumScan(strPath, refresh);
-  }
-  else if (StringUtils::EqualsNoCase(m_vecItems->GetContent(), "artists"))
-  {
-    if (CMusicLibraryQueue::GetInstance().IsScanningLibrary())
-      return;
+  if (CMusicLibraryQueue::GetInstance().IsScanningLibrary())
+    return;
 
-    CMusicLibraryQueue::GetInstance().StartArtistScan(strPath, refresh);
-  }
+  CMusicLibraryQueue::GetInstance().StartScan(content, strPath, refresh);
 }
 
 void CGUIWindowMusicBase::OnItemInfo(int iItem)
@@ -308,7 +314,8 @@ void CGUIWindowMusicBase::OnItemInfo(int iItem)
 
   // Match visibility test of CMusicInfo::IsVisible
   if (VIDEO::IsVideoDb(*item) && item->HasVideoInfoTag() &&
-      (item->HasProperty("artist_musicid") || item->HasProperty("album_musicid")))
+      (item->HasProperty(ITEM::PROPERTY::ARTIST_MUSICID) ||
+       item->HasProperty(ITEM::PROPERTY::ALBUM_MUSICID)))
   {
     // Music video artist or album (navigation by music > music video > artist))
     CGUIDialogMusicInfo::ShowFor(item.get());
@@ -316,7 +323,7 @@ void CGUIWindowMusicBase::OnItemInfo(int iItem)
   }
 
   if (VIDEO::IsVideo(*item) && item->HasVideoInfoTag() &&
-      item->GetVideoInfoTag()->m_type == MediaTypeMusicVideo)
+      item->GetVideoInfoTag()->GetMediaType() == MEDIA::TYPE::MUSIC_VIDEO)
   { // Music video on a mixed current playlist or navigation by music > music video > artist > video
     CGUIDialogVideoInfo::ShowFor(*item);
     return;
@@ -329,10 +336,18 @@ void CGUIWindowMusicBase::OnItemInfo(int iItem)
   }
 
   // Match visibility test of CMusicInfo::IsVisible
-  if (item->HasMusicInfoTag() && (item->GetMusicInfoTag()->GetType() == MediaTypeSong ||
-    item->GetMusicInfoTag()->GetType() == MediaTypeAlbum ||
-    item->GetMusicInfoTag()->GetType() == MediaTypeArtist))
-    CGUIDialogMusicInfo::ShowFor(item.get());
+  if (!item->HasMusicInfoTag())
+    return;
+  switch (item->GetMusicInfoTag()->GetMediaType())
+  {
+    case MEDIA::TYPE::SONG:
+    case MEDIA::TYPE::ALBUM:
+    case MEDIA::TYPE::ARTIST:
+      CGUIDialogMusicInfo::ShowFor(item.get());
+      break;
+    default:
+      break;
+  }
 }
 
 void CGUIWindowMusicBase::RefreshContent(const std::string& strContent)
@@ -413,7 +428,7 @@ void CGUIWindowMusicBase::OnQueueItem(int iItem, bool first)
 
 void CGUIWindowMusicBase::UpdateButtons()
 {
-  CONTROL_ENABLE_ON_CONDITION(CONTROL_BTNRIP, CServiceBroker::GetMediaManager().IsAudio());
+  CONTROL_ENABLE_ON_CONDITION(CONTROL_BTNRIP, CServiceBroker::GetMediaManager().IsAudio("", true));
 
   CONTROL_ENABLE_ON_CONDITION(
       CONTROL_BTNSCAN, !(m_vecItems->IsVirtualDirectoryRoot() || MUSIC::IsMusicDb(*m_vecItems)));
@@ -464,8 +479,9 @@ void CGUIWindowMusicBase::GetContextButtons(int itemNumber, CContextButtons &but
       if (CServiceBroker::GetMediaManager().IsDiscInDrive() && MUSIC::IsCDDA(*m_vecItems))
       {
         // those cds can also include Audio Tracks: CDExtra and MixedMode!
-        MEDIA_DETECT::CCdInfo* pCdInfo = CServiceBroker::GetMediaManager().GetCdInfo();
-        if (pCdInfo->IsAudio(1) || pCdInfo->IsCDExtra(1) || pCdInfo->IsMixedMode(1))
+        const std::shared_ptr<MEDIA_DETECT::CCdInfo> pCdInfo{
+            CServiceBroker::GetMediaManager().GetCdInfo()};
+        if (pCdInfo && (pCdInfo->IsAudio(1) || pCdInfo->IsCDExtra(1) || pCdInfo->IsMixedMode(1)))
           buttons.Add(CONTEXT_BUTTON_RIP_TRACK, 610);
       }
 #endif
@@ -491,7 +507,7 @@ bool CGUIWindowMusicBase::OnContextButton(int itemNumber, CONTEXT_BUTTON button)
   if (itemNumber >= 0 && itemNumber < m_vecItems->Size())
     item = m_vecItems->Get(itemNumber);
 
-  if (CGUIDialogContextMenu::OnContextButton("music", item, button))
+  if (CGUIDialogContextMenu::OnContextButton(MediaSection::MUSIC, item, button))
   {
     if (button == CONTEXT_BUTTON_REMOVE_SOURCE)
       OnRemoveSource(itemNumber);
@@ -569,7 +585,7 @@ bool CGUIWindowMusicBase::OnContextButton(int itemNumber, CONTEXT_BUTTON button)
 
 bool CGUIWindowMusicBase::OnAddMediaSource()
 {
-  return CGUIDialogMediaSource::ShowAndAddMediaSource("music");
+  return CGUIDialogMediaSource::ShowAndAddMediaSource(MediaSection::MUSIC);
 }
 
 void CGUIWindowMusicBase::OnRipCD()
@@ -824,9 +840,9 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
     }
     if (artfound)
     {
-      std::string dirType = MediaTypeArtist;
+      std::string dirType = NameOf(MEDIA::TYPE::ARTIST);
       if (params.GetAlbumId() > 0)
-        dirType = MediaTypeAlbum;
+        dirType = NameOf(MEDIA::TYPE::ALBUM);
       KODI::ART::Artwork artmap;
       for (auto artitem : art)
       {
@@ -837,7 +853,7 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
           artname = artitem.mediaType + "." + artitem.artType;
         else
         {
-          if (dirType == MediaTypeAlbum)
+          if (dirType == NameOf(MEDIA::TYPE::ALBUM))
             StringUtils::Replace(artitem.prefix, "albumartist", "artist");
           artname = artitem.prefix + "." + artitem.artType;
         }
@@ -849,7 +865,8 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
     int iWindow = GetID();
     // Add "New Playlist" items when in the playlists folder, except on playlist editor screen
     if ((iWindow != WINDOW_MUSIC_PLAYLIST_EDITOR) &&
-        (items.GetPath() == "special://musicplaylists/") && !items.Contains("newplaylist://"))
+        (items.GetPath() == CUtil::PlaylistsPathOf(MediaSection::MUSIC)) &&
+        !items.Contains(ITEM::PLACEHOLDER::NEW_PLAYLIST))
     {
       const std::shared_ptr<CProfileManager> profileManager = CServiceBroker::GetSettingsComponent()->GetProfileManager();
 
@@ -857,22 +874,23 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
       newPlaylist->SetLabel(
           CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(16035));
       newPlaylist->SetLabelPreformatted(true);
-      newPlaylist->SetArt("icon", "DefaultPartyMode.png");
+      newPlaylist->SetArt(ART::TYPE::ICON, ART::DEFAULT::PARTY_MODE);
       newPlaylist->SetFolder(true);
       items.Add(newPlaylist);
 
-      newPlaylist = std::make_shared<CFileItem>("newplaylist://", false);
+      newPlaylist = std::make_shared<CFileItem>(ITEM::PLACEHOLDER::NEW_PLAYLIST, false);
       newPlaylist->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(525));
-      newPlaylist->SetArt("icon", "DefaultAddSource.png");
+      newPlaylist->SetArt(ART::TYPE::ICON, ART::DEFAULT::ADD_SOURCE);
       newPlaylist->SetLabelPreformatted(true);
       newPlaylist->SetSpecialSort(SortSpecial::BOTTOM);
       newPlaylist->SetCanQueue(false);
       items.Add(newPlaylist);
 
-      newPlaylist = std::make_shared<CFileItem>("newsmartplaylist://music", false);
+      newPlaylist = std::make_shared<CFileItem>(
+          std::string{ITEM::PLACEHOLDER::NEW_SMART_PLAYLIST} + "music", false);
       newPlaylist->SetLabel(
           CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(21437));
-      newPlaylist->SetArt("icon", "DefaultAddSource.png");
+      newPlaylist->SetArt(ART::TYPE::ICON, ART::DEFAULT::ADD_SOURCE);
       newPlaylist->SetLabelPreformatted(true);
       newPlaylist->SetSpecialSort(SortSpecial::BOTTOM);
       newPlaylist->SetCanQueue(false);
@@ -883,7 +901,10 @@ bool CGUIWindowMusicBase::GetDirectory(const std::string &strDirectory, CFileIte
     items.FilterCueItems();
 
     std::string label;
-    if (items.GetLabel().empty() && m_rootDir.IsSource(items.GetPath(), CMediaSourceSettings::GetInstance().GetSources("music"), &label))
+    if (items.GetLabel().empty() &&
+        m_rootDir.IsSource(items.GetPath(),
+                           &CMediaSourceSettings::GetInstance().GetSources(MediaSection::MUSIC),
+                           &label))
       items.SetLabel(label);
   }
 
@@ -894,8 +915,9 @@ bool CGUIWindowMusicBase::CheckFilterAdvanced(CFileItemList &items) const
 {
   const std::string& content = items.GetContent();
   if ((MUSIC::IsMusicDb(items) || CanContainFilter(m_strFilterPath)) &&
-      (StringUtils::EqualsNoCase(content, "artists") ||
-       StringUtils::EqualsNoCase(content, "albums") || StringUtils::EqualsNoCase(content, "songs")))
+      (StringUtils::EqualsNoCase(content, MEDIA::CONTENT::ARTISTS) ||
+       StringUtils::EqualsNoCase(content, MEDIA::CONTENT::ALBUMS) ||
+       StringUtils::EqualsNoCase(content, MEDIA::CONTENT::SONGS)))
     return true;
 
   return false;
@@ -933,7 +955,7 @@ bool CGUIWindowMusicBase::OnSelect(int iItem)
         auto choice = CGUIDialogContextMenu::Show(choices);
         if (choice == MUSIC_SELECT_ACTION_RESUME)
         {
-          (*itemIt)->SetProperty("audiobook_bookmark", bookmark);
+          (*itemIt)->SetProperty(ITEM::PROPERTY::AUDIOBOOK_BOOKMARK, bookmark);
           return CGUIMediaWindow::OnSelect(static_cast<int>(itemIt - m_vecItems->cbegin()));
         }
         else if (choice < 0)
@@ -986,9 +1008,9 @@ std::string CGUIWindowMusicBase::GetStartFolder(const std::string &dir)
 {
   std::string lower(dir); StringUtils::ToLower(lower);
   if (lower == "plugins" || lower == "addons")
-    return "addons://sources/audio/";
+    return XFILE::CAddonsDirectory::SourcesPathOf(MEDIA::MediaSection::MUSIC);
   else if (lower == "$playlists" || lower == "playlists")
-    return "special://musicplaylists/";
+    return CUtil::PlaylistsPathOf(MediaSection::MUSIC);
   return CGUIMediaWindow::GetStartFolder(dir);
 }
 

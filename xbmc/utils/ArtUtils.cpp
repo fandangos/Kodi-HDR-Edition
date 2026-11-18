@@ -11,6 +11,7 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "ServiceBroker.h"
+#include "TextureCache.h"
 #include "filesystem/Directory.h"
 #include "filesystem/File.h"
 #include "filesystem/MultiPathDirectory.h"
@@ -20,15 +21,32 @@
 #include "playlists/PlayListFileItemClassify.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
+#include "utils/DefaultArt.h"
 #include "utils/FileExtensionProvider.h"
+#include "utils/ItemProperties.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "video/VideoFileItemClassify.h"
 #include "video/VideoInfoTag.h"
+#include "video/VideoThumbLoader.h"
 
 #include <fmt/format.h>
 
 using namespace XFILE;
+
+namespace
+{
+std::string GetArtTypeFromSize(unsigned int width, unsigned int height)
+{
+  std::string type = KODI::ART::TYPE::THUMB;
+  if (width * 5 < height * 4)
+    type = KODI::ART::TYPE::POSTER;
+  else if (width > height * 4)
+    type = KODI::ART::TYPE::BANNER;
+  return type;
+}
+} // unnamed namespace
 
 namespace KODI::ART
 {
@@ -54,7 +72,7 @@ void FillInDefaultIcon(CFileItem& item)
   //   for .. folders the default picture for parent folder
   //   for other folders the defaultFolder.png
 
-  if (item.GetArt("icon").empty())
+  if (item.GetArt(ART::TYPE::ICON).empty())
   {
     if (!item.IsFolder())
     {
@@ -66,88 +84,88 @@ void FillInDefaultIcon(CFileItem& item)
       if (item.IsPVRChannel())
       {
         if (URIUtils::IsPVRRadioChannel(item.GetPath()))
-          item.SetArt("icon", "DefaultMusicSongs.png");
+          item.SetArt(ART::TYPE::ICON, ART::DEFAULT::MUSIC_SONGS);
         else
-          item.SetArt("icon", "DefaultTVShows.png");
+          item.SetArt(ART::TYPE::ICON, ART::DEFAULT::TV_SHOWS);
       }
       else if (item.IsLiveTV())
       {
         // Live TV Channel
-        item.SetArt("icon", "DefaultTVShows.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::TV_SHOWS);
       }
       else if (URIUtils::IsArchive(item.GetPath()))
       { // archive
-        item.SetArt("icon", "DefaultFile.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::FILE);
       }
       else if (item.IsUsablePVRRecording())
       {
         // PVR recording
-        item.SetArt("icon", "DefaultVideo.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::VIDEO);
       }
       else if (item.IsDeletedPVRRecording())
       {
         // PVR deleted recording
-        item.SetArt("icon", "DefaultVideoDeleted.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::VIDEO_DELETED);
       }
       else if (item.IsPVRProvider())
       {
-        item.SetArt("icon", "DefaultPVRProvider.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::PVR_PROVIDER);
       }
       else if (PLAYLIST::IsPlayList(item) || PLAYLIST::IsSmartPlayList(item))
       {
-        item.SetArt("icon", "DefaultPlaylist.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::PLAYLIST);
       }
       else if (MUSIC::IsAudio(item))
       {
         // audio
-        item.SetArt("icon", "DefaultAudio.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::AUDIO);
       }
       else if (VIDEO::IsVideo(item))
       {
         // video
-        item.SetArt("icon", "DefaultVideo.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::VIDEO);
       }
       else if (item.IsPVRTimer())
       {
-        item.SetArt("icon", "DefaultVideo.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::VIDEO);
       }
       else if (item.IsPicture())
       {
         // picture
-        item.SetArt("icon", "DefaultPicture.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::PICTURE);
       }
       else if (item.IsPythonScript())
       {
-        item.SetArt("icon", "DefaultScript.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::SCRIPT);
       }
       else if (item.IsFavourite())
       {
-        item.SetArt("icon", "DefaultFavourites.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::FAVOURITES);
       }
       else
       {
         // default icon for unknown file type
-        item.SetArt("icon", "DefaultFile.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::FILE);
       }
     }
     else
     {
       if (PLAYLIST::IsPlayList(item) || PLAYLIST::IsSmartPlayList(item))
       {
-        item.SetArt("icon", "DefaultPlaylist.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::PLAYLIST);
       }
       else if (item.IsParentFolder())
       {
-        item.SetArt("icon", "DefaultFolderBack.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::FOLDER_BACK);
       }
       else
       {
-        item.SetArt("icon", "DefaultFolder.png");
+        item.SetArt(ART::TYPE::ICON, ART::DEFAULT::FOLDER);
       }
     }
   }
   // Set the icon overlays (if applicable)
-  if (!item.HasOverlay() && !item.HasProperty("icon_never_overlay"))
+  if (!item.HasOverlay() && !item.HasProperty(ITEM::PROPERTY::ICON_NEVER_OVERLAY))
   {
     if (URIUtils::IsInZIP(item.GetPath()))
       item.SetOverlayImage(CGUIListItem::ICON_OVERLAY_ZIP);
@@ -219,7 +237,7 @@ std::string GetLocalArtBaseFilename(const CFileItem& item,
 
   const CURL url{file};
   if (URIUtils::IsInArchive(file) || URIUtils::IsArchive(url))
-    strFile = URIUtils::ReplaceExtension(url.GetHostName(), ".avi");
+    file = strFile = URIUtils::ReplaceExtension(url.GetHostName(), ".avi");
 
   if (item.IsMultiPath())
     strFile = CMultiPathDirectory::GetFirstPath(item.GetPath());
@@ -227,27 +245,33 @@ std::string GetLocalArtBaseFilename(const CFileItem& item,
   if (URIUtils::IsBlurayPath(item.GetDynPath()))
     file = strFile = URIUtils::GetDiscFile(item.GetDynPath());
 
+  bool isOpticalMediaFolder{false};
   if (URIUtils::IsOpticalMediaFile(file) && !URIUtils::IsArchive(url))
   {
     // Optical media files (VIDEO_TS.IFO/INDEX.BDMV) should be treated like folders
     useFolder = true; // ByRef so changes behaviour in GetLocalArt()
     strFile = URIUtils::GetParentPath(file);
+    isOpticalMediaFolder = true;
   }
 
   if (!URIUtils::GetFileName(file).empty() && item.HasVideoInfoTag() &&
       additionalIdentifiers != AdditionalIdentifiers::NONE)
   {
+    std::string baseFile{file};
+    URIUtils::RemoveExtension(baseFile);
+    // Like all disc folder art, an episode's or version's art is stored in the folder holding
+    // BDMV/VIDEO_TS
+    if (isOpticalMediaFolder)
+      baseFile = URIUtils::AddFileToFolder(strFile, URIUtils::GetFileName(baseFile));
+
     using enum AdditionalIdentifiers;
     switch (additionalIdentifiers)
     {
       case SEASON_AND_EPISODE:
       {
-        // Note this is an exception to the optical media rule above - episode art files will be stored alongside the episode .nfo
         const CVideoInfoTag* tag{item.GetVideoInfoTag()};
         if (tag->m_iSeason > -1 && tag->m_iEpisode > -1)
         {
-          std::string baseFile{file};
-          URIUtils::RemoveExtension(baseFile);
           strFile = fmt::format("{}-S{:02}E{:02}{}", baseFile, tag->m_iSeason, tag->m_iEpisode,
                                 URIUtils::GetExtension(file));
           useFolder = false;
@@ -256,11 +280,9 @@ std::string GetLocalArtBaseFilename(const CFileItem& item,
       }
       case PLAYLIST:
       {
-        const int playlist{item.GetProperty("bluray_playlist").asInteger32(-1)};
+        const int playlist{item.GetProperty(ITEM::PROPERTY::BLURAY_PLAYLIST).asInteger32(-1)};
         if (playlist > -1)
         {
-          std::string baseFile{file};
-          URIUtils::RemoveExtension(baseFile);
           strFile = fmt::format("{}-{:05}{}", baseFile, playlist, URIUtils::GetExtension(file));
           useFolder = false;
         }
@@ -317,15 +339,20 @@ std::string GetLocalFanart(const CFileItem& item)
     file = url.GetHostName();
   }
 
+  if (URIUtils::IsBlurayPath(file))
+    file = URIUtils::GetDiscFile(file);
+
   // no local fanart available for these
-  if (NETWORK::IsInternetStream(item) || URIUtils::IsUPnP(file) || URIUtils::IsBlurayPath(file) ||
-      item.IsLiveTV() || item.IsPlugin() || item.IsAddonsPath() || item.IsDVD() ||
+  if (NETWORK::IsInternetStream(item) || URIUtils::IsUPnP(file) || item.IsLiveTV() ||
+      item.IsPlugin() || item.IsAddonsPath() || item.IsDVD() ||
       (URIUtils::IsFTP(file) &&
        !CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_bFTPThumbs) ||
       item.GetPath().empty())
     return "";
 
-  const std::string dir{URIUtils::GetDirectory(file)};
+  // For optical media the art is in the disc root, not in the BDMV/VIDEO_TS folder
+  const std::string dir{URIUtils::IsOpticalMediaFile(file) ? URIUtils::GetDiscBasePath(file)
+                                                           : URIUtils::GetDirectory(file)};
   if (dir.empty())
     return "";
 
@@ -333,15 +360,6 @@ std::string GetLocalFanart(const CFileItem& item)
   CDirectory::GetDirectory(dir, items,
                            CServiceBroker::GetFileExtensionProvider().GetPictureExtensions(),
                            DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_READ_CACHE | DIR_FLAG_NO_FILE_INFO);
-  if (item.IsOpticalMediaFile())
-  {
-    // Get files from the optical media parent folder as well
-    CFileItemList moreItems;
-    CDirectory::GetDirectory(item.GetLocalMetadataPath(), moreItems,
-                             CServiceBroker::GetFileExtensionProvider().GetPictureExtensions(),
-                             DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_READ_CACHE | DIR_FLAG_NO_FILE_INFO);
-    items.Append(moreItems);
-  }
   if (!alternateFile.empty())
   {
     // Get files from the alternate path as well
@@ -356,7 +374,7 @@ std::string GetLocalFanart(const CFileItem& item)
     }
   }
 
-  std::vector<std::string> fanarts = {"fanart"};
+  std::vector<std::string> fanarts = {ART::TYPE::FANART};
 
   file = URIUtils::ReplaceExtension(file, "-fanart");
   fanarts.insert(item.IsFolder() ? fanarts.end() : fanarts.begin(), URIUtils::GetFileName(file));
@@ -438,6 +456,71 @@ std::string GetTBNFile(const CFileItem& item, int season /* = - 1 */, int episod
     thumbFile = url.Get();
   }
   return thumbFile;
+}
+
+void AddLocalItemArtwork(Artwork& itemArt,
+                         const std::vector<std::string>& wantedArtTypes,
+                         const std::string& itemPath,
+                         bool addAll,
+                         bool exactName,
+                         bool isInFolder)
+{
+  std::string path = URIUtils::GetDirectory(itemPath);
+  if (path.empty())
+    return;
+
+  CFileItemList availableArtFiles;
+  CDirectory::GetDirectory(path, availableArtFiles,
+                           CServiceBroker::GetFileExtensionProvider().GetPictureExtensions(),
+                           DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_READ_CACHE | DIR_FLAG_NO_FILE_INFO);
+
+  std::string baseFilename{URIUtils::GetFileName(itemPath)};
+  if (!baseFilename.empty())
+  {
+    URIUtils::RemoveExtension(baseFilename);
+    baseFilename.append("-");
+  }
+
+  const bool caseSensitive{
+      CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_caseSensitiveLocalArtMatch};
+
+  for (const auto& artFile : availableArtFiles)
+  {
+    std::string candidate{URIUtils::GetFileName(artFile->GetPath())};
+
+    bool matchesFilename{!baseFilename.empty() &&
+                         (caseSensitive ? StringUtils::StartsWith(candidate, baseFilename)
+                                        : StringUtils::StartsWithNoCase(candidate, baseFilename))};
+
+    if (!baseFilename.empty() && !matchesFilename && !isInFolder)
+      continue;
+
+    if (matchesFilename)
+      candidate.erase(0, baseFilename.length());
+    URIUtils::RemoveExtension(candidate);
+    StringUtils::ToLower(candidate);
+
+    // move 'folder' to thumb / poster / banner based on aspect ratio
+    // if such artwork doesn't already exist
+    if (!matchesFilename && StringUtils::EqualsNoCase(candidate, "folder") &&
+        !CVideoThumbLoader::IsArtTypeInWhitelist("folder", wantedArtTypes, exactName))
+    {
+      // cache the image to determine sizing
+      CTextureDetails details;
+      if (CServiceBroker::GetTextureCache()->CacheImage(artFile->GetPath(), details))
+      {
+        candidate = GetArtTypeFromSize(details.width, details.height);
+        if (itemArt.contains(candidate))
+          continue;
+      }
+    }
+
+    if ((addAll && CVideoThumbLoader::IsValidArtType(candidate)) ||
+        CVideoThumbLoader::IsArtTypeInWhitelist(candidate, wantedArtTypes, exactName))
+    {
+      itemArt[candidate] = artFile->GetPath();
+    }
+  }
 }
 
 } // namespace KODI::ART

@@ -15,6 +15,12 @@
 
 namespace XFILE
 {
+struct StackPartPlaylist
+{
+  std::string file;
+  int playlist{-1};
+};
+
   class CStackDirectory : public IDirectory
   {
     typedef struct StackPart
@@ -76,11 +82,36 @@ namespace XFILE
                                    const std::string& newPath = {});
 
     /*!
+    \brief Whether any part of a stack:// path names a disc - a disc structure
+    (BDMV/index.bdmv, VIDEO_TS/VIDEO_TS.IFO), a disc image, or a bluray:// playlist of one.
+    \param stackPath The stack:// path
+    \return True if at least one part names a disc, false otherwise
+    */
+    static bool HasDiscPart(const std::string& stackPath);
+
+    /*!
+    \brief Whether two stack:// paths describe the same movie on the same discs
+    \param stackPath The stack:// path
+    \param otherStackPath The stack:// path to compare it with
+    \return True if both describe the same movie, false otherwise
+    */
+    static bool IsSameDiscStack(const std::string& stackPath, const std::string& otherStackPath);
+
+    /*!
     \brief Get the base/parent path in common from all the parts of a stack:// path
     \param stackPath The stack:// path
     \return The base/parent path
     */
     static std::string GetBasePath(const std::string& stackPath);
+
+    /*!
+    \brief Get the disc and bluray playlist of each part of a resolved stack.
+    The discs are relative to the stack's base path, which is where its nfo is written. The disc
+    is given rather than the playlist url as that is what stacking rediscovers.
+    \param stackPath The resolved stack:// path
+    \return One entry per part that has a playlist, empty if none do
+    */
+    static std::vector<StackPartPlaylist> GetRelativePartPlaylists(const std::string& stackPath);
     static std::string GetParentPath(const std::string& stackPath);
   };
 }

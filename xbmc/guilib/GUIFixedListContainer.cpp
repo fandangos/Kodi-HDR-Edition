@@ -9,9 +9,11 @@
 #include "GUIFixedListContainer.h"
 
 #include "GUIListItemLayout.h"
+#include "GUIMessage.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 
+#include <algorithm>
 #include <functional>
 
 CGUIFixedListContainer::CGUIFixedListContainer(int parentID,
@@ -47,13 +49,13 @@ bool CGUIFixedListContainer::OnAction(const CAction &action)
   {
   case ACTION_PAGE_UP:
     {
-      Scroll(-m_itemsPerPage);
+      SelectItem(std::max(GetSelectedItem() - GetPageSize(), 0));
       return true;
     }
     break;
   case ACTION_PAGE_DOWN:
     {
-      Scroll(m_itemsPerPage);
+      SelectItem(std::min(GetSelectedItem() + GetPageSize(), static_cast<int>(m_items.size()) - 1));
       return true;
     }
     break;
@@ -86,6 +88,26 @@ bool CGUIFixedListContainer::OnAction(const CAction &action)
     break;
   }
   return CGUIBaseContainer::OnAction(action);
+}
+
+bool CGUIFixedListContainer::OnMessage(CGUIMessage& message)
+{
+  if (message.GetControlId() == GetID() && message.GetMessage() == GUI_MSG_PAGE_CHANGE &&
+      message.GetSenderId() == m_pageControl && IsVisible())
+  {
+    const int maxOffset = std::max(static_cast<int>(GetRows()) - GetPageSize(), 0);
+    const int pageOffset = std::min(std::max(message.GetParam1(), 0), maxOffset);
+    const int currentPageOffset =
+        m_lastPageControlOffset.value_or(std::min(std::max(GetOffset(), 0), maxOffset));
+    const int targetItem = GetSelectedItem() + pageOffset - currentPageOffset;
+    if (pageOffset != currentPageOffset)
+      StartPageChangeTimer();
+    SelectItem(std::min(std::max(targetItem, 0), static_cast<int>(m_items.size()) - 1));
+    m_lastPageControlOffset = pageOffset;
+    return true;
+  }
+
+  return CGUIBaseContainer::OnMessage(message);
 }
 
 bool CGUIFixedListContainer::MoveUp(bool wrapAround)
@@ -265,6 +287,8 @@ void CGUIFixedListContainer::SelectItem(int item)
   // only select an item if it's in a valid range
   if (item >= 0 && item < (int)m_items.size())
   {
+    m_lastPageControlOffset.reset();
+
     // Select the item requested - we first set the cursor position
     // which may be different at either end of the list, then the offset
     int minCursor, maxCursor;
@@ -285,6 +309,18 @@ void CGUIFixedListContainer::SelectItem(int item)
   }
 }
 
+void CGUIFixedListContainer::UpdatePageControl(int offset)
+{
+  const int maxOffset = std::max(static_cast<int>(GetRows()) - GetPageSize(), 0);
+  const int pageOffset = std::min(std::max(offset, 0), maxOffset);
+  if (m_pageControl && m_lastPageControlOffset != pageOffset)
+  {
+    CGUIMessage msg(GUI_MSG_ITEM_SELECT, GetID(), m_pageControl, pageOffset);
+    SendWindowMessage(msg);
+    m_lastPageControlOffset = pageOffset;
+  }
+}
+
 bool CGUIFixedListContainer::HasPreviousPage() const
 {
   return (GetOffset() > 0);
@@ -292,15 +328,17 @@ bool CGUIFixedListContainer::HasPreviousPage() const
 
 bool CGUIFixedListContainer::HasNextPage() const
 {
-  return (GetOffset() < (int)m_items.size() - m_itemsPerPage && (int)m_items.size() >= m_itemsPerPage);
+  return (GetOffset() < static_cast<int>(m_items.size()) - GetPageSize() &&
+          static_cast<int>(m_items.size()) >= GetPageSize());
 }
 
 int CGUIFixedListContainer::GetCurrentPage() const
 {
+  const int pageSize = GetPageSize();
   int offset = CorrectOffset(GetOffset(), GetCursor());
-  if (offset + m_itemsPerPage - GetCursor() >= (int)GetRows())  // last page
-    return (GetRows() + m_itemsPerPage - 1) / m_itemsPerPage;
-  return offset / m_itemsPerPage + 1;
+  if (offset + pageSize - GetCursor() >= static_cast<int>(GetRows())) // last page
+    return (GetRows() + pageSize - 1) / pageSize;
+  return offset / pageSize + 1;
 }
 
 void CGUIFixedListContainer::GetCursorRange(int &minCursor, int &maxCursor) const

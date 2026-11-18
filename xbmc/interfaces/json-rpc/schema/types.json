@@ -150,6 +150,18 @@
       "Other": {
         "type": "boolean",
         "required": true
+      },
+      "Info": {
+        "type": "boolean",
+        "required": true
+      },
+      "Sources": {
+        "type": "boolean",
+        "required": true
+      },
+      "Files": {
+        "type": "boolean",
+        "required": true
       }
     },
     "additionalProperties": false
@@ -171,7 +183,8 @@
       "music",
       "pictures",
       "files",
-      "programs"
+      "programs",
+      "games"
     ]
   },
   "List.Amount": {
@@ -633,7 +646,9 @@
       },
       "language": {
         "type": "string",
-        "required": true
+        "required": true,
+        "description":
+            "BCP 47 language tag (e.g. en, en-AU), empty when the stream declares none, passed through unchanged when unrecognized"
       },
       "codec": {
         "type": "string",
@@ -683,7 +698,9 @@
       },
       "language": {
         "type": "string",
-        "required": true
+        "required": true,
+        "description":
+            "BCP 47 language tag (e.g. en, en-AU), empty when the stream declares none, passed through unchanged when unrecognized"
       },
       "codec": {
         "type": "string",
@@ -713,7 +730,9 @@
       },
       "language": {
         "type": "string",
-        "required": true
+        "required": true,
+        "description":
+            "BCP 47 language tag (e.g. en, en-AU), empty when the stream declares none, passed through unchanged when unrecognized"
       },
       "isdefault": {
         "type": "boolean",
@@ -1635,6 +1654,12 @@
       "disambiguation": {
         "type": "string"
       },
+      "datemodified": {
+        "type": "string"
+      },
+      "datenew": {
+        "type": "string"
+      },
       "sourceid": {
         "$ref": "Array.Integer"
       }
@@ -1684,6 +1709,12 @@
         "$ref": "Audio.Details.Genres"
       },
       "lastplayed": {
+        "type": "string"
+      },
+      "datemodified": {
+        "type": "string"
+      },
+      "datenew": {
         "type": "string"
       },
       "sourceid": {
@@ -1740,10 +1771,19 @@
       "musicbrainzartistid": {
         "$ref": "Array.String"
       },
+      "musicbrainzalbumid": {
+        "type": "string"
+      },
       "albumid": {
         "$ref": "Library.Id"
       },
       "lastplayed": {
+        "type": "string"
+      },
+      "datemodified": {
+        "type": "string"
+      },
+      "datenew": {
         "type": "string"
       },
       "disc": {
@@ -1783,16 +1823,16 @@
         "type": "string"
       },
       "bpm": {
-        "type": "Integer"
+        "type": "integer"
       },
       "samplerate": {
-        "type": "Integer"
+        "type": "integer"
       },
       "bitrate": {
-        "type": "Integer"
+        "type": "integer"
       },
       "channels": {
-        "type": "Integer"
+        "type": "integer"
       },
       "songvideourl": {
         "type": "string"
@@ -1910,7 +1950,8 @@
         "fanart",
         "thumbnail",
         "art",
-        "plot"
+        "plot",
+        "sorttitle"
       ]
     }
   },
@@ -2087,10 +2128,26 @@
               "type": "string"
             },
             "language": {
-              "type": "string"
+              "type": "string",
+              "description":
+                  "BCP 47 language tag (e.g. en), a language only in library values, empty when the stream declares none, passed through unchanged when unrecognized"
             },
             "channels": {
               "type": "integer"
+            },
+            "source": {
+              "type": "integer",
+              "description":
+                  "Where the stream details came from: 0 undefined, 10 an external source, 20 the media file, 30 an NFO file, 40 a database migrated from before sources were tracked"
+            },
+            "version": {
+              "type": "integer",
+              "description": "Version of the stream details record"
+            },
+            "flags": {
+              "type": "integer",
+              "description":
+                  "Bitmask of the stream's dispositions: 1 default, 2 dub, 4 original, 8 commentary, 16 lyrics, 32 karaoke, 64 forced, 128 hearing impaired, 256 visually impaired"
             }
           },
           "additionalProperties": false
@@ -2117,8 +2174,28 @@
             "duration": {
               "type": "integer"
             },
+            "stereomode": {
+              "type": "string"
+            },
+            "language": {
+              "type": "string",
+              "description":
+                  "BCP 47 language tag (e.g. en), a language only in library values, empty when the stream declares none, passed through unchanged when unrecognized"
+            },
             "hdrtype": {
               "type": "string"
+            },
+            "hdrdetail": {
+              "type": "string"
+            },
+            "source": {
+              "type": "integer",
+              "description":
+                  "Where the stream details came from: 0 undefined, 10 an external source, 20 the media file, 30 an NFO file, 40 a database migrated from before sources were tracked"
+            },
+            "version": {
+              "type": "integer",
+              "description": "Version of the stream details record"
             }
           },
           "additionalProperties": false
@@ -2131,7 +2208,23 @@
           "type": "object",
           "properties": {
             "language": {
-              "type": "string"
+              "type": "string",
+              "description":
+                  "BCP 47 language tag (e.g. en), a language only in library values, empty when the stream declares none, passed through unchanged when unrecognized"
+            },
+            "source": {
+              "type": "integer",
+              "description":
+                  "Where the stream details came from: 0 undefined, 10 an external source, 20 the media file, 30 an NFO file, 40 a database migrated from before sources were tracked"
+            },
+            "version": {
+              "type": "integer",
+              "description": "Version of the stream details record"
+            },
+            "flags": {
+              "type": "integer",
+              "description":
+                  "Bitmask of the stream's dispositions: 1 default, 2 dub, 4 original, 8 commentary, 16 lyrics, 32 karaoke, 64 forced, 128 hearing impaired, 256 visually impaired"
             }
           },
           "additionalProperties": false
@@ -2279,7 +2372,7 @@
         "type": "integer"
       },
       "ratings": {
-        "type": "Video.Ratings"
+        "$ref": "Video.Ratings"
       },
       "premiered": {
         "type": "string"
@@ -2297,6 +2390,9 @@
         "required": true
       },
       "plot": {
+        "type": "string"
+      },
+      "sorttitle": {
         "type": "string"
       }
     }
@@ -2375,7 +2471,7 @@
         "type": "integer"
       },
       "ratings": {
-        "type": "Video.Ratings"
+        "$ref": "Video.Ratings"
       },
       "runtime": {
         "type": "integer",
@@ -2481,7 +2577,7 @@
         "$ref": "Library.Id"
       },
       "ratings": {
-        "type": "Video.Ratings"
+        "$ref": "Video.Ratings"
       },
       "studio": {
         "$ref": "Array.String"
@@ -2646,7 +2742,7 @@
         "type": "number"
       },
       "genre": {
-        "type": "string"
+        "$ref": "Array.String"
       },
       "episodename": {
         "type": "string"
@@ -2698,7 +2794,7 @@
         "type": "integer"
       },
       "imdbnumber": {
-        "type": "integer"
+        "type": "string"
       },
       "hastimerrule": {
         "type": "boolean"
@@ -3092,7 +3188,7 @@
         "type": "string"
       },
       "genre": {
-        "type": "string"
+        "$ref": "Array.String"
       },
       "playcount": {
         "type": "integer"
@@ -3200,7 +3296,7 @@
     "properties": {
       "textureid": {
         "$ref": "Library.Id",
-        "required": "true"
+        "required": true
       },
       "url": {
         "type": "string",
@@ -3653,6 +3749,10 @@
           "recording"
         ]
       },
+      "stationname": {
+        "type": "string",
+        "description": "Name of the radio station an internet stream is served by"
+      },
       "albumartist": {
         "$ref": "Array.String"
       },
@@ -3969,7 +4069,8 @@
         "datenew",
         "customproperties",
         "albumduration",
-        "songvideourl"
+        "songvideourl",
+        "stationname"
       ]
     }
   },

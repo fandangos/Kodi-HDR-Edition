@@ -85,6 +85,7 @@ public:
     MUTE,
     VOLUME,
     PAUSESTREAM,
+    HOLDSTREAM,
     RESUMESTREAM,
     FLUSHSTREAM,
     STREAMRGAIN,
@@ -100,6 +101,7 @@ public:
     DISPLAYRESET,
     APPFOCUSED,
     KEEPCONFIG,
+    YIELDDEVICE,
     TIMEOUT,
   };
   enum InSignal
@@ -198,6 +200,8 @@ public:
   float GetCacheTotal();
   float GetMaxDelay() const;
   float GetWaterLevel();
+  int GetBufferedSamples();
+  double GetSinkDelaySeconds();
   void SetSuspended(bool state);
   void SetCurrentSinkFormat(const AEAudioFormat& SinkFormat);
   void SetSinkCacheTotal(float time) { m_sinkCacheTotal = time; }
@@ -244,6 +248,8 @@ public:
   bool Suspend() override;
   bool Resume() override;
   bool IsSuspended() override;
+  bool YieldDevice() override;
+  bool ReclaimDevice() override;
   void OnSettingsChange();
 
   float GetVolume() override;
@@ -295,6 +301,7 @@ protected:
   float GetMaxDelay() { return m_stats.GetMaxDelay(); }
   void FlushStream(CActiveAEStream *stream);
   void PauseStream(CActiveAEStream *stream, bool pause);
+  void HoldStream(CActiveAEStream* stream);
   void StopSound(CActiveAESound *sound);
   void SetStreamAmplification(CActiveAEStream *stream, float amplify);
   void SetStreamReplaygain(CActiveAEStream *stream, float rgain);
@@ -308,6 +315,7 @@ protected:
   void Process() override;
   void StateMachine(int signal, Protocol *port, Message *msg);
   bool InitSink();
+  bool SendYieldDevice(bool yield);
   void DrainSink();
   void UnconfigureSink();
   void Dispose();
@@ -324,7 +332,7 @@ protected:
   CActiveAEStream* CreateStream(MsgStreamNew *streamMsg);
   void DiscardStream(CActiveAEStream *stream);
   void SFlushStream(CActiveAEStream *stream);
-  void FlushEngine();
+  void FlushEngine(bool discardOutput = false);
   void ClearDiscardedBuffers();
   void SStopSound(CActiveAESound *sound);
   void DiscardSound(CActiveAESound *sound);
@@ -334,6 +342,7 @@ protected:
   bool RunStages();
   bool HasWork();
   CSampleBuffer* SyncStream(CActiveAEStream *stream);
+  bool IsTrueHDPassthrough() const;
 
   void ResampleSounds();
   bool ResampleSound(CActiveAESound *sound);
@@ -350,6 +359,7 @@ protected:
   bool m_bStateMachineSelfTrigger;
   std::chrono::milliseconds m_extTimeout;
   bool m_extError;
+  unsigned int m_extErrorRetries{0};
   bool m_extDrain;
   XbmcThreads::EndTime<> m_extDrainTimer;
   std::chrono::milliseconds m_extKeepConfig;

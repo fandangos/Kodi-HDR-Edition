@@ -10,11 +10,15 @@
 
 #include "FileItem.h"
 #include "FileItemList.h"
+#include "ServiceBroker.h"
 #include "games/GameUtils.h"
 #include "guilib/WindowIDs.h"
 #include "settings/MediaSourceSettings.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 #include "view/ViewState.h"
+#include "view/ViewStateNames.h"
 #include "view/ViewStateSettings.h"
 
 #include <assert.h>
@@ -22,6 +26,7 @@
 
 using namespace KODI;
 using namespace GAME;
+using KODI::MEDIA::MediaSection;
 
 CGUIViewStateWindowGames::CGUIViewStateWindowGames(const CFileItemList& items)
   : CGUIViewState(items)
@@ -36,12 +41,18 @@ CGUIViewStateWindowGames::CGUIViewStateWindowGames(const CFileItemList& items)
   }
   else
   {
+    const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+    AddSortMethod(SortBy::LABEL,
+                  settings->GetBool(CSettings::SETTING_FILELISTS_IGNORETHEWHENSORTING)
+                      ? SortAttributeIgnoreArticle
+                      : SortAttributeNone,
+                  551, LABEL_MASKS("%L", "%I", "%L", "")); // Label, Size | Label, empty
     AddSortMethod(SortBy::FILE, 561,
-                  LABEL_MASKS("%F", "%I", "%L", "")); // Filename, Size | Label, empty
+                  LABEL_MASKS("%L", "%I", "%L", "")); // Label, Size | Label, empty
     AddSortMethod(SortBy::SIZE, 553,
                   LABEL_MASKS("%L", "%I", "%L", "%I")); // Filename, Size | Label, Size
 
-    const CViewState* viewState = CViewStateSettings::GetInstance().Get("games");
+    const CViewState* viewState = CViewStateSettings::GetInstance().Get(VIEW::STATE::GAMES);
     if (viewState)
     {
       SetSortMethod(viewState->m_sortDescription);
@@ -53,9 +64,9 @@ CGUIViewStateWindowGames::CGUIViewStateWindowGames(const CFileItemList& items)
   LoadViewState(items.GetPath(), WINDOW_GAMES);
 }
 
-std::string CGUIViewStateWindowGames::GetLockType()
+std::optional<KODI::MEDIA::MediaSection> CGUIViewStateWindowGames::GetLockType()
 {
-  return "games";
+  return KODI::MEDIA::MediaSection::GAMES;
 }
 
 std::string CGUIViewStateWindowGames::GetExtensions()
@@ -70,19 +81,14 @@ std::string CGUIViewStateWindowGames::GetExtensions()
 
 std::vector<CMediaSource>& CGUIViewStateWindowGames::GetSources()
 {
-  std::vector<CMediaSource>* pGameSources = CMediaSourceSettings::GetInstance().GetSources("games");
-
-  // Guard against source type not existing
-  if (pGameSources == nullptr)
-  {
-    static std::vector<CMediaSource> empty;
-    return empty;
-  }
-
-  return *pGameSources;
+  return CMediaSourceSettings::GetInstance().GetSources(MediaSection::GAMES);
 }
 
 void CGUIViewStateWindowGames::SaveViewState()
 {
-  SaveViewToDb(m_items.GetPath(), WINDOW_GAMES, CViewStateSettings::GetInstance().Get("games"));
+  // The root lists sources by name, so its state isn't the default for game folders
+  SaveViewToDb(m_items.GetPath(), WINDOW_GAMES,
+               m_items.IsVirtualDirectoryRoot()
+                   ? nullptr
+                   : CViewStateSettings::GetInstance().Get(VIEW::STATE::GAMES));
 }

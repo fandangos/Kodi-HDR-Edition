@@ -326,7 +326,6 @@ bool CDVDSubtitlesLibass::CreateTrack(char* buf, size_t size)
 
 ASS_Image* CDVDSubtitlesLibass::RenderImage(double pts,
                                             renderOpts opts,
-                                            bool updateStyle,
                                             const std::shared_ptr<struct style>& subStyle,
                                             int* changes)
 {
@@ -343,9 +342,10 @@ ASS_Image* CDVDSubtitlesLibass::RenderImage(double pts,
     return nullptr;
   }
 
-  if (updateStyle || m_currentDefaultStyleId == ASS_NO_ID)
+  if (subStyle != m_appliedStyle)
   {
     ApplyStyle(subStyle, opts);
+    m_appliedStyle = subStyle;
   }
 
   // Reversed par value
@@ -374,17 +374,11 @@ ASS_Image* CDVDSubtitlesLibass::RenderImage(double pts,
     useFrameMargins = opts.marginsMode == MarginsMode::INSIDE_VIDEO;
   }
 
-  int marginTop{0};
-  int marginLeft{0};
+  FrameMargins margins;
   if (useFrameMargins)
-  {
-    marginTop =
-        static_cast<int>((opts.frameHeight - std::min(opts.videoHeight, opts.frameHeight)) / 2);
-    marginLeft =
-        static_cast<int>((opts.frameWidth - std::min(opts.videoWidth, opts.frameWidth)) / 2);
-  }
+    margins = TrackMargins(opts, m_subtitleType == NATIVE);
 
-  ass_set_margins(m_renderer, marginTop, marginTop, marginLeft, marginLeft);
+  ass_set_margins(m_renderer, margins.top, margins.top, margins.left, margins.left);
   ass_set_use_margins(m_renderer, 0);
 
   float fontScale{1.0f};
@@ -393,6 +387,7 @@ ASS_Image* CDVDSubtitlesLibass::RenderImage(double pts,
     // Make font size relative to window size instead of video,
     // to show same font size even if the video do not cover in full the
     // window (e.g. cropped videos, zoom effect) and player add black bars.
+    // The video and not the picture: how much of the window it occupies, coded bars included.
     fontScale *= std::max(opts.frameHeight / opts.videoHeight, 1.0f);
   }
 

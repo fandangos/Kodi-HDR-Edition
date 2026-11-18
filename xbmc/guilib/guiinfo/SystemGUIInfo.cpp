@@ -11,7 +11,6 @@
 #include "FileItem.h"
 #include "FileItemList.h"
 #include "GUIPassword.h"
-#include "LangInfo.h"
 #include "ServiceBroker.h"
 #include "addons/AddonManager.h"
 #include "addons/addoninfo/AddonType.h"
@@ -23,6 +22,7 @@
 #include "guilib/guiinfo/GUIInfo.h"
 #include "guilib/guiinfo/GUIInfoHelper.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
+#include "language/LangInfo.h"
 #include "powermanagement/PowerManager.h"
 #include "profiles/ProfileManager.h"
 #include "rendering/RenderSystem.h"
@@ -37,6 +37,7 @@
 #include "storage/discs/IDiscDriveHandler.h"
 #include "utils/AlarmClock.h"
 #include "utils/CPUInfo.h"
+#include "utils/DefaultArt.h"
 #include "utils/GpuInfo.h"
 #include "utils/HDRCapabilities.h"
 #include "utils/MemUtils.h"
@@ -251,7 +252,7 @@ bool CSystemGUIInfo::GetLabel(std::string& value,
       return true;
 #ifdef HAS_OPTICAL_DRIVE
     case SYSTEM_DVD_LABEL:
-      value = CServiceBroker::GetMediaManager().GetDiskLabel();
+      value = CServiceBroker::GetMediaManager().GetDiskLabel("", true);
       return true;
 #endif
     case SYSTEM_ALARM_POS:
@@ -297,7 +298,7 @@ bool CSystemGUIInfo::GetLabel(std::string& value,
                                      ->GetProfileManager()
                                      ->GetCurrentProfile()
                                      .getThumb();
-      value = thumb.empty() ? "DefaultUser.png" : thumb;
+      value = thumb.empty() ? KODI::ART::DEFAULT::USER : thumb;
       return true;
     }
     case SYSTEM_LANGUAGE:
@@ -341,12 +342,13 @@ bool CSystemGUIInfo::GetLabel(std::string& value,
 #endif
     case SYSTEM_SUPPORTED_HDR_TYPES:
     {
-      if (CServiceBroker::GetWinSystem()->IsHDRDisplay())
+      CWinSystemBase* const winSystem{CServiceBroker::GetWinSystem()};
+      if (winSystem->IsHDRDisplay())
       {
         // Assumes HDR10 minimum requirement for HDR
         std::string types = "HDR10";
 
-        const CHDRCapabilities caps = CServiceBroker::GetWinSystem()->GetDisplayHDRCapabilities();
+        const CHDRCapabilities caps = winSystem->GetDisplayHDRCapabilities();
 
         if (caps.SupportsHLG())
           types += ", HLG";
@@ -510,7 +512,8 @@ bool CSystemGUIInfo::GetBool(bool& value,
 #ifdef HAS_OPTICAL_DRIVE
       if (CServiceBroker::GetMediaManager().IsDiscInDrive())
       {
-        MEDIA_DETECT::CCdInfo* pCdInfo = CServiceBroker::GetMediaManager().GetCdInfo();
+        const std::shared_ptr<MEDIA_DETECT::CCdInfo> pCdInfo{
+            CServiceBroker::GetMediaManager().GetCdInfo("", true, true)};
         value =
             pCdInfo && (pCdInfo->IsAudio(1) || pCdInfo->IsCDExtra(1) || pCdInfo->IsMixedMode(1));
       }
@@ -690,7 +693,7 @@ bool CSystemGUIInfo::GetBool(bool& value,
         if (window)
         {
           value = CMediaSettings::GetInstance().GetWatchedMode(
-                      window->CurrentDirectory().GetContent()) == WatchedModeUnwatched;
+                      window->CurrentDirectory().GetContent()) == WatchedMode::UNWATCHED;
           return true;
         }
       }

@@ -24,6 +24,7 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
 #include "utils/MathUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
@@ -182,7 +183,7 @@ void CPVRRecording::Serialize(CVariant& value) const
   value["channel"] = m_strChannelName;
   value["lifetime"] = m_iLifetime;
   value["directory"] = m_strDirectory;
-  value["icon"] = ClientIconPath();
+  value["icon"] = IconPath();
   value["starttime"] = m_recordingTime.IsValid() ? m_recordingTime.GetAsDBDateTime() : "";
   value["endtime"] = m_recordingTime.IsValid() ? EndTimeAsUTC().GetAsDBDateTime() : "";
   value["recordingid"] = m_iRecordingId;
@@ -193,17 +194,17 @@ void CPVRRecording::Serialize(CVariant& value) const
   value["genre"] = m_genre;
   value["parentalrating"] = m_parentalRating;
   value["parentalratingcode"] = m_parentalRatingCode;
-  value["parentalratingicon"] = ClientParentalRatingIconPath();
+  value["parentalratingicon"] = GetParentalRatingIcon();
   value["parentalratingsource"] = m_parentalRatingSource;
   value["episodepart"] = m_episodePartNumber;
   value["titleextrainfo"] = m_titleExtraInfo;
 
   if (!value.isMember("art"))
     value["art"] = CVariant(CVariant::VariantTypeObject);
-  if (!ClientThumbnailPath().empty())
-    value["art"]["thumb"] = ClientThumbnailPath();
-  if (!ClientFanartPath().empty())
-    value["art"]["fanart"] = ClientFanartPath();
+  if (!ThumbnailPath().empty())
+    value["art"][KODI::ART::TYPE::THUMB] = ThumbnailPath();
+  if (!FanartPath().empty())
+    value["art"][KODI::ART::TYPE::FANART] = FanartPath();
 
   value["clientid"] = m_iClientId;
 }
@@ -377,23 +378,23 @@ bool CPVRRecording::UpdateRecordingSize()
   return false;
 }
 
-void CPVRRecording::UpdateMetadata(CVideoDatabase& db, const CPVRClient& client)
+void CPVRRecording::UpdateMetadata(const CVideoInfoTag* metadata, const CPVRClient& client)
 {
-  if (m_bGotMetaData || !db.IsOpen())
+  if (m_bGotMetaData)
     return;
 
-  if (!client.GetClientCapabilities().SupportsRecordingsPlayCount())
-    CVideoInfoTag::SetPlayCount(db.GetPlayCount(m_strFileNameAndPath));
-
-  if (!client.GetClientCapabilities().SupportsRecordingsLastPlayedPosition())
+  if (metadata)
   {
-    CBookmark resumePoint;
-    if (db.GetResumeBookMark(m_strFileNameAndPath, resumePoint))
-      CVideoInfoTag::SetResumePoint(resumePoint);
-  }
+    if (!client.GetClientCapabilities().SupportsRecordingsPlayCount())
+      CVideoInfoTag::SetPlayCount(metadata->GetPlayCount());
 
-  m_lastPlayed = db.GetLastPlayed(m_strFileNameAndPath);
-  db.GetStreamDetails(m_strFileNameAndPath, m_streamDetails);
+    if (!client.GetClientCapabilities().SupportsRecordingsLastPlayedPosition())
+      CVideoInfoTag::SetResumePoint(metadata->GetResumePoint());
+
+    m_iFileId = metadata->m_iFileId;
+    m_lastPlayed = metadata->m_lastPlayed;
+    m_streamDetails = metadata->m_streamDetails;
+  }
 
   m_bGotMetaData = true;
 }

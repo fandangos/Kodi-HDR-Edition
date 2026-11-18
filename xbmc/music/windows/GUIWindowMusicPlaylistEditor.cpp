@@ -17,7 +17,9 @@
 #include "Util.h"
 #include "dialogs/GUIDialogFileBrowser.h"
 #include "dialogs/GUIDialogKaiToast.h"
+#include "filesystem/LibraryPaths.h"
 #include "filesystem/PlaylistFileDirectory.h"
+#include "filesystem/SourcesDirectory.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
@@ -27,9 +29,11 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ContentNames.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
+#include "video/VideoDbPaths.h"
 
 #define CONTROL_LABELFILES        12
 
@@ -182,20 +186,21 @@ bool CGUIWindowMusicPlaylistEditor::GetDirectory(const std::string &strDirectory
   items.Clear();
   if (strDirectory.empty())
   { // root listing - list files:// and musicdb://
-    CFileItemPtr files(new CFileItem("sources://music/", true));
+    CFileItemPtr files(
+        new CFileItem(XFILE::CSourcesDirectory::PathOf(KODI::MEDIA::MediaSection::MUSIC), true));
     files->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(744));
     files->SetLabelPreformatted(true);
     files->SetIsShareOrDrive(true);
     items.Add(files);
 
-    CFileItemPtr mdb(new CFileItem("library://music/", true));
+    CFileItemPtr mdb(new CFileItem(MEDIA::LIBRARY_PATH::MUSIC, true));
     mdb->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(14022));
     mdb->SetLabelPreformatted(true);
     mdb->SetIsShareOrDrive(true);
     items.SetPath("");
     items.Add(mdb);
 
-    CFileItemPtr vdb(new CFileItem("videodb://musicvideos/", true));
+    CFileItemPtr vdb(new CFileItem(VIDEO::DB_PATH::MUSICVIDEOS, true));
     vdb->SetLabel(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(20389));
     vdb->SetLabelPreformatted(true);
     vdb->SetIsShareOrDrive(true);
@@ -276,7 +281,7 @@ bool CGUIWindowMusicPlaylistEditor::Update(const std::string &strDirectory, bool
   if (!CGUIMediaWindow::Update(strDirectory, updateFilterPath))
     return false;
 
-  m_vecItems->SetContent("files");
+  m_vecItems->SetContent(MEDIA::CONTENT::FILES);
   m_thumbLoader.Load(*m_vecItems);
 
   // update our playlist control
@@ -350,7 +355,8 @@ void CGUIWindowMusicPlaylistEditor::OnLoadPlaylist()
   // Prompt user for file to load from music playlists folder
   std::string playlist;
   if (CGUIDialogFileBrowser::ShowAndGetFile(
-          "special://musicplaylists/", ".m3u|.m3u8|.pls|.b4s|.wpl|.xspf",
+          CUtil::PlaylistsPathOf(KODI::MEDIA::MediaSection::MUSIC),
+          ".m3u|.m3u8|.pls|.b4s|.wpl|.xspf",
           CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(656), playlist))
     LoadPlaylist(playlist);
 }

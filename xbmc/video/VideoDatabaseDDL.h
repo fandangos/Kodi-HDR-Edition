@@ -9,7 +9,6 @@
 #pragma once
 
 #include "dbwrappers/Database.h"
-#include "dbwrappers/dataset.h"
 
 #include <string>
 
@@ -31,6 +30,8 @@ public:
    * \param[in] db the database
    */
   static void CreateAnalytics(CDatabase& db);
+
+  static void CreateContentGeometryTable(CDatabase& db);
 
 private:
   static void CreateLinkIndex(CDatabase& db, const std::string& table);

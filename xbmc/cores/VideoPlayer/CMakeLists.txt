@@ -14,7 +14,12 @@ set(SOURCES AudioSinkAE.cpp
             Edl/EdlParsers/MultipleEpisodeEdlParser.cpp
             Edl/EdlParsers/PvrEdlParser.cpp
             Edl/EdlParsers/VideoReDoParser.cpp
+            LiveGeometryMonitor.cpp
             PTSTracker.cpp
+            RadioRDSCountries.cpp
+            RadioRDSLanguages.cpp
+            VideoDecodeSession.cpp
+            VideoFileGeometry.cpp
             VideoPlayer.cpp
             VideoPlayerAudio.cpp
             VideoPlayerAudioID3.cpp
@@ -43,7 +48,12 @@ set(HEADERS AudioSinkAE.h
             Edl/EdlParsers/PvrEdlParser.h
             Edl/EdlParsers/VideoReDoParser.h
             IVideoPlayer.h
+            LiveGeometryMonitor.h
             PTSTracker.h
+            RadioRDSCountries.h
+            RadioRDSLanguages.h
+            VideoDecodeSession.h
+            VideoFileGeometry.h
             VideoPlayer.h
             VideoPlayerAudio.h
             VideoPlayerAudioID3.h
@@ -67,6 +77,23 @@ if("webos" IN_LIST CORE_PLATFORM_NAME_LC)
                         VideoPlayerAudioWebOS.h
                         VideoPlayerVideoWebOS.h
                         VideoPlayerWebOS.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL wasm)
+    list(APPEND SOURCES MediaBackendEmss.cpp
+                        MediaBackendMse.cpp
+                        MediaBackendWasm.cpp
+                        MediaPipelineWasm.cpp
+                        VideoPlayerAudioWasm.cpp
+                        VideoPlayerVideoWasm.cpp
+                        VideoPlayerWasm.cpp)
+    list(APPEND HEADERS MediaBackendEmss.h
+                        MediaBackendMse.h
+                        MediaBackendWasm.h
+                        MediaPipelineWasm.h
+                        VideoPlayerAudioWasm.h
+                        VideoPlayerVideoWasm.h
+                        VideoPlayerWasm.h)
 endif()
 
 core_add_library(VideoPlayer)

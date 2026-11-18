@@ -136,7 +136,6 @@ bool CGUIWindow::LoadXML(const std::string &strPath, const std::string &strLower
     {
       CLog::Log(LOGERROR, "Unable to load window XML: {}. Line {}\n{}", strPath, xmlDoc.ErrorRow(),
                 xmlDoc.ErrorDesc());
-      SetID(WINDOW_INVALID);
       return false;
     }
 
@@ -338,11 +337,15 @@ void CGUIWindow::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregi
   CGUIControlGroup::DoProcess(currentTime, dirtyregions);
   CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
 
-  // check if currently focused control can have it
-  // and fallback to default control if not
-  CGUIControl* focusedControl = GetFocusedControl();
-  if (focusedControl && !focusedControl->CanFocus() && focusedControl->GetID() != m_defaultControl)
-    SET_CONTROL_FOCUS(m_defaultControl, 0);
+  if (m_active)
+  {
+    // check if currently focused control can have it
+    // and fallback to default control if not
+    CGUIControl* focusedControl = GetFocusedControl();
+    if (focusedControl && !focusedControl->CanFocus() &&
+        focusedControl->GetID() != m_defaultControl)
+      SET_CONTROL_FOCUS(m_defaultControl, 0);
+  }
 }
 
 void CGUIWindow::DoRender()
@@ -430,8 +433,24 @@ bool CGUIWindow::OnAction(const CAction &action)
   {
     while (focusedControl && focusedControl != this)
     {
+      // noted while the control is known to be alive, as handling the action can free it
+      const uint32_t controlsGeneration = m_controlsGeneration;
+
       if (focusedControl->OnAction(action))
         return true;
+
+      // the controls were rebuilt under us, so focusedControl is dangling and its parent
+      // cannot be read. The generation is what makes this reliable: a freed control's
+      // address can be reused by the new tree, which pointer identity cannot detect.
+      if (m_controlsGeneration != controlsGeneration)
+      {
+        CLog::Log(LOGDEBUG,
+                  "CGUIWindow::OnAction: controls of window {} were destroyed while "
+                  "handling the action, not propagating it to the parent",
+                  GetID());
+        return true;
+      }
+
       focusedControl = focusedControl->GetParentControl();
     }
   }
@@ -620,6 +639,10 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
         //tell focused control that it has lost the focus
         CGUIMessage msgLostFocus(GUI_MSG_LOSTFOCUS, GetID(), control->GetID(), control->GetID());
         control->OnMessage(msgLostFocus);
+        // the groups containing the control don't unfocus themselves as it's still their child
+        for (CGUIControl* parent = control->GetParentControl(); parent && parent != this;
+             parent = parent->GetParentControl())
+          parent->SetFocus(false);
         CLog::Log(LOGDEBUG, "Unfocus WindowID: {}, ControlID: {}", GetID(), control->GetID());
       }
       return true;
@@ -634,9 +657,13 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
         // this can happen when one control overlap the other one in the same
         // coordinates with similar sizes and the mouse pointer is over them
         // in this case only the control in the highest layer will have the focus
+        const CGUIControl* focusedChild = GetFocusedControl();
+        while (focusedChild && focusedChild->GetParentControl() != this)
+          focusedChild = focusedChild->GetParentControl();
         for (CGUIControl* control : m_children)
         {
-          if (control->GetID() != m_focusedControl)
+          // the group containing the focused control keeps its focus
+          if (control->GetID() != m_focusedControl && control != focusedChild)
             control->SetFocus(false);
         }
         return true;
@@ -816,6 +843,7 @@ void CGUIWindow::DynamicResourceAlloc(bool bOnOff)
 
 void CGUIWindow::ClearAll()
 {
+  ++m_controlsGeneration;
   OnWindowUnload();
   CGUIControlGroup::ClearAll();
   m_windowLoaded = false;

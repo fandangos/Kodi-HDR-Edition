@@ -37,14 +37,14 @@
 // because cmake uses this area in this form to perform its addon dependency
 // check.
 // clang-format off
-#define ADDON_GLOBAL_VERSION_MAIN                     "2.0.3"
+#define ADDON_GLOBAL_VERSION_MAIN                     "2.0.4"
 #define ADDON_GLOBAL_VERSION_MAIN_MIN                 "2.0.3"
 #define ADDON_GLOBAL_VERSION_MAIN_XML_ID              "kodi.binary.global.main"
 #define ADDON_GLOBAL_VERSION_MAIN_DEPENDS             "AddonBase.h" \
                                                       "addon-instance/" \
                                                       "c-api/addon_base.h"
 
-#define ADDON_GLOBAL_VERSION_GENERAL                  "1.0.5"
+#define ADDON_GLOBAL_VERSION_GENERAL                  "1.0.6"
 #define ADDON_GLOBAL_VERSION_GENERAL_MIN              "1.0.4"
 #define ADDON_GLOBAL_VERSION_GENERAL_XML_ID           "kodi.binary.global.general"
 #define ADDON_GLOBAL_VERSION_GENERAL_DEPENDS          "General.h"
@@ -97,18 +97,19 @@
 #define ADDON_INSTANCE_VERSION_AUDIOENCODER_DEPENDS   "c-api/addon-instance/audioencoder.h" \
                                                       "addon-instance/AudioEncoder.h"
 
-#define ADDON_INSTANCE_VERSION_GAME                   "6.0.0"
-#define ADDON_INSTANCE_VERSION_GAME_MIN               "6.0.0"
+#define ADDON_INSTANCE_VERSION_GAME                   "8.6.0"
+#define ADDON_INSTANCE_VERSION_GAME_MIN               "8.2.0"
 #define ADDON_INSTANCE_VERSION_GAME_XML_ID            "kodi.binary.instance.game"
-#define ADDON_INSTANCE_VERSION_GAME_DEPENDS           "addon-instance/Game.h"
+#define ADDON_INSTANCE_VERSION_GAME_DEPENDS           "c-api/addon-instance/game.h" \
+                                                      "addon-instance/Game.h"
 
-#define ADDON_INSTANCE_VERSION_IMAGEDECODER           "3.0.1"
-#define ADDON_INSTANCE_VERSION_IMAGEDECODER_MIN       "3.0.0"
+#define ADDON_INSTANCE_VERSION_IMAGEDECODER           "3.1.0"
+#define ADDON_INSTANCE_VERSION_IMAGEDECODER_MIN       "3.1.0"
 #define ADDON_INSTANCE_VERSION_IMAGEDECODER_XML_ID    "kodi.binary.instance.imagedecoder"
 #define ADDON_INSTANCE_VERSION_IMAGEDECODER_DEPENDS   "c-api/addon-instance/imagedecoder.h" \
                                                       "addon-instance/ImageDecoder.h"
 
-#define ADDON_INSTANCE_VERSION_INPUTSTREAM            "3.4.0"
+#define ADDON_INSTANCE_VERSION_INPUTSTREAM            "3.4.1"
 #define ADDON_INSTANCE_VERSION_INPUTSTREAM_MIN        "3.4.0"
 #define ADDON_INSTANCE_VERSION_INPUTSTREAM_XML_ID     "kodi.binary.instance.inputstream"
 #define ADDON_INSTANCE_VERSION_INPUTSTREAM_DEPENDS    "c-api/addon-instance/inputstream.h" \
@@ -180,7 +181,7 @@
 #define ADDON_INSTANCE_VERSION_VISUALIZATION_DEPENDS  "addon-instance/Visualization.h" \
                                                       "c-api/addon-instance/visualization.h"
 
-#define ADDON_INSTANCE_VERSION_VIDEOCODEC             "2.2.0"
+#define ADDON_INSTANCE_VERSION_VIDEOCODEC             "2.2.2"
 #define ADDON_INSTANCE_VERSION_VIDEOCODEC_MIN         "2.1.0"
 #define ADDON_INSTANCE_VERSION_VIDEOCODEC_XML_ID      "kodi.binary.instance.videocodec"
 #define ADDON_INSTANCE_VERSION_VIDEOCODEC_DEPENDS     "c-api/addon-instance/video_codec.h" \

@@ -36,6 +36,11 @@
 
 #include "DllLibCurl.h"
 #include "ShoutcastFile.h"
+#if defined(TARGET_WASM)
+#include "wasm/XhrFile.h"
+
+#include "platform/wasm/network/TizenSockets.h"
+#endif
 #include "utils/CharsetConverter.h"
 #include "utils/log.h"
 #include "utils/StringUtils.h"
@@ -75,6 +80,15 @@ extern "C" int debug_callback(CURL_HANDLE *handle, curl_infotype info, char *out
   if (!CServiceBroker::GetLogging().CanLogComponent(LOGCURL))
     return 0;
 
+  // TLS records are binary, logging their contents as text yields hundreds of
+  // unreadable lines per handshake, so only note that they went by
+  if (info == CURLINFO_SSL_DATA_IN || info == CURLINFO_SSL_DATA_OUT)
+  {
+    const char* direction = info == CURLINFO_SSL_DATA_IN ? "IN" : "OUT";
+    CLog::Log(LOGDEBUG, "Curl::Debug - SSL_DATA_{}: {} bytes", direction, size);
+    return 0;
+  }
+
   std::string strLine;
   strLine.append(output, size);
   std::vector<std::string> vecLines;
@@ -87,8 +101,6 @@ extern "C" int debug_callback(CURL_HANDLE *handle, curl_infotype info, char *out
     case CURLINFO_TEXT         : infotype = "TEXT: "; break;
     case CURLINFO_HEADER_IN    : infotype = "HEADER_IN: "; break;
     case CURLINFO_HEADER_OUT   : infotype = "HEADER_OUT: "; break;
-    case CURLINFO_SSL_DATA_IN  : infotype = "SSL_DATA_IN: "; break;
-    case CURLINFO_SSL_DATA_OUT : infotype = "SSL_DATA_OUT: "; break;
     case CURLINFO_END          : infotype = "END: "; break;
     default                    : infotype = ""; break;
   }
@@ -163,7 +175,7 @@ static bool IsTransientCurlError(CURLcode result)
 {
   return result == CURLE_OPERATION_TIMEDOUT || result == CURLE_PARTIAL_FILE ||
          result == CURLE_COULDNT_CONNECT || result == CURLE_HTTP2_STREAM ||
-         result == CURLE_RECV_ERROR;
+         result == CURLE_RECV_ERROR || result == CURLE_SEND_ERROR;
 }
 
 static CURLcode PerformWithTransientRetries(CURL_HANDLE* easyHandle,
@@ -1103,31 +1115,6 @@ void CCurlFile::Reset()
   m_state->m_cancelled = false;
 }
 
-void CCurlFile::SetProxy(const std::string &type, const std::string &host,
-  uint16_t port, const std::string &user, const std::string &password)
-{
-  m_proxytype = CCurlFile::ProxyType::HTTP;
-  if (type == "http")
-    m_proxytype = CCurlFile::ProxyType::HTTP;
-  else if (type == "https")
-    m_proxytype = CCurlFile::ProxyType::HTTPS;
-  else if (type == "socks4")
-    m_proxytype = CCurlFile::ProxyType::SOCKS4;
-  else if (type == "socks4a")
-    m_proxytype = CCurlFile::ProxyType::SOCKS4A;
-  else if (type == "socks5")
-    m_proxytype = CCurlFile::ProxyType::SOCKS5;
-  else if (type == "socks5-remote")
-    m_proxytype = CCurlFile::ProxyType::SOCKS5_REMOTE;
-  else
-    CLog::Log(LOGERROR, "CCurFile::{} - <{}> Invalid proxy type \"{}\"", __FUNCTION__,
-              CURL::GetRedacted(m_url), type);
-  m_proxyhost = host;
-  m_proxyport = port;
-  m_proxyuser = user;
-  m_proxypassword = password;
-}
-
 bool CCurlFile::Open(const CURL& url)
 {
   m_opened = true;
@@ -2001,11 +1988,6 @@ void CCurlFile::SetRequestHeader(const std::string& header, long value)
   m_requestheaders[header] = std::to_string(value);
 }
 
-std::string CCurlFile::GetRedirectURL()
-{
-  return GetInfoString(CURLINFO_REDIRECT_URL);
-}
-
 std::string CCurlFile::GetInfoString(int infoType)
 {
   char* info{};
@@ -2023,6 +2005,10 @@ std::string CCurlFile::GetInfoString(int infoType)
 /* STATIC FUNCTIONS */
 bool CCurlFile::GetHttpHeader(const CURL &url, CHttpHeader &headers)
 {
+#if defined(TARGET_WASM)
+  if (!kodi_wasm_has_sockets())
+    return CXhrFile::GetHttpHeader(url, headers);
+#endif
   try
   {
     // Apply any stored credentials (passwords.xml). CFile::Stat() does this for its callers,
@@ -2048,6 +2034,10 @@ bool CCurlFile::GetHttpHeader(const CURL &url, CHttpHeader &headers)
 
 bool CCurlFile::GetMimeType(const CURL &url, std::string &content, const std::string &useragent)
 {
+#if defined(TARGET_WASM)
+  if (!kodi_wasm_has_sockets())
+    return CXhrFile::GetMimeType(url, content, useragent);
+#endif
   CCurlFile file;
   if (!useragent.empty())
     file.SetUserAgent(useragent);
@@ -2075,6 +2065,10 @@ bool CCurlFile::GetMimeType(const CURL &url, std::string &content, const std::st
 
 bool CCurlFile::GetContentType(const CURL &url, std::string &content, const std::string &useragent)
 {
+#if defined(TARGET_WASM)
+  if (!kodi_wasm_has_sockets())
+    return CXhrFile::GetContentType(url, content, useragent);
+#endif
   CCurlFile file;
   if (!useragent.empty())
     file.SetUserAgent(useragent);
@@ -2194,6 +2188,12 @@ const std::string CCurlFile::GetProperty(XFILE::FileProperty type, const std::st
     {
       char* url = nullptr;
       g_curlInterface.easy_getinfo(m_state->m_easyHandle, CURLINFO_EFFECTIVE_URL, &url);
+      return url ? url : "";
+    }
+    case FileProperty::REDIRECT_URL:
+    {
+      char* url = nullptr;
+      g_curlInterface.easy_getinfo(m_state->m_easyHandle, CURLINFO_REDIRECT_URL, &url);
       return url ? url : "";
     }
   default:

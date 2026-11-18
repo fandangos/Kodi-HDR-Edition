@@ -21,8 +21,6 @@ CRetroPlayerVideo::CRetroPlayerVideo(CRPRenderManager& renderManager, CRPProcess
     m_processInfo(processInfo)
 {
   CLog::Log(LOGDEBUG, "RetroPlayer[VIDEO]: Initializing video");
-
-  m_renderManager.Initialize();
 }
 
 CRetroPlayerVideo::~CRetroPlayerVideo()
@@ -30,7 +28,6 @@ CRetroPlayerVideo::~CRetroPlayerVideo()
   CLog::Log(LOGDEBUG, "RetroPlayer[VIDEO]: Deinitializing video");
 
   CloseStream();
-  m_renderManager.Deinitialize();
 }
 
 bool CRetroPlayerVideo::OpenStream(const StreamProperties& properties)
@@ -73,6 +70,12 @@ bool CRetroPlayerVideo::GetStreamBuffer(unsigned int width,
 {
   VideoStreamBuffer& videoBuffer = static_cast<VideoStreamBuffer&>(buffer);
 
+  // The buffer is an optional optimisation, and acquiring one can cost more
+  // than emulating the frame. A client that is refused one draws into its own
+  // memory instead.
+  if (!m_bVideoEnabled)
+    return false;
+
   if (m_bOpen)
     return m_renderManager.GetVideoBuffer(width, height, videoBuffer);
 
@@ -83,7 +86,7 @@ void CRetroPlayerVideo::AddStreamData(const StreamPacket& packet)
 {
   const VideoStreamPacket& videoPacket = static_cast<const VideoStreamPacket&>(packet);
 
-  if (m_bOpen)
+  if (m_bOpen && m_bVideoEnabled)
   {
     unsigned int orientationDegCCW = 0;
     switch (videoPacket.rotation)
@@ -112,7 +115,6 @@ void CRetroPlayerVideo::CloseStream()
   {
     CLog::Log(LOGDEBUG, "RetroPlayer[VIDEO]: Closing video stream");
 
-    m_renderManager.Flush();
     m_bOpen = false;
   }
 }

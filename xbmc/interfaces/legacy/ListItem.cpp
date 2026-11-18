@@ -17,6 +17,8 @@
 #include "pictures/PictureInfoTag.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
+#include "utils/LangCodeExpander.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
 #include "utils/log.h"
@@ -257,7 +259,7 @@ namespace XBMCAddon
       else if (lowerKey == "specialsort")
         setSpecialSortRaw(value);
       else if (lowerKey == "fanart_image")
-        item->SetArt("fanart", value);
+        item->SetArt(KODI::ART::TYPE::FANART, value);
       else
         addPropertyRaw(lowerKey, value);
     }
@@ -298,7 +300,7 @@ namespace XBMCAddon
         value = StringUtils::Format("{:f}", GetVideoInfoTag()->GetResumePoint().timeInSeconds);
       }
       else if (lowerKey == "fanart_image")
-        value = item->GetArt("fanart");
+        value = item->GetArt(KODI::ART::TYPE::FANART);
       else
         value = item->GetProperty(lowerKey).asString();
 
@@ -364,6 +366,32 @@ namespace XBMCAddon
     {
       XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
       setContentLookupRaw(enable);
+    }
+
+    void ListItem::setFileTitle(const String& title)
+    {
+      XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+      setTitleRaw(title);
+    }
+
+    void ListItem::setCount(int count)
+    {
+      XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+      setCountRaw(count);
+    }
+
+    void ListItem::setSize(int64_t size)
+    {
+      XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+      setSizeRaw(size);
+    }
+
+    void ListItem::setOverlay(int overlay)
+    {
+      if (overlay < 0 || overlay > 8)
+        throw ListItemException("setOverlay: overlay must be in the range 0 to 8, not %d", overlay);
+      XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
+      item->SetOverlayImage(static_cast<CGUIListItem::GUIIconOverlay>(overlay));
     }
 
     String ListItem::getPath()
@@ -760,6 +788,10 @@ namespace XBMCAddon
 
     void ListItem::setAvailableFanart(const std::vector<Properties>& images)
     {
+      CLog::Log(LOGWARNING,
+                "ListItem.setAvailableFanart() is deprecated and might be removed in future Kodi "
+                "versions. Please use InfoTagVideo.setAvailableFanart().");
+
       XBMCAddonUtils::GuiLock lock(languageHook, m_offscreen);
       auto infoTag = GetVideoInfoTag();
       infoTag->m_fanart.Clear();
@@ -833,7 +865,7 @@ namespace XBMCAddon
           else if (key == "stereomode")
             video->m_strStereoMode = value;
           else if (key == "language")
-            video->m_strLanguage = value;
+            video->m_strLanguage = CLangCodeExpander::AsISO6392B(value);
         }
         xbmc::InfoTagVideo::addStreamRaw(infoTag, video);
       }
@@ -848,7 +880,7 @@ namespace XBMCAddon
           if (key == "codec")
             audio->m_strCodec = value;
           else if (key == "language")
-            audio->m_strLanguage = value;
+            audio->m_strLanguage = CLangCodeExpander::AsISO6392B(value);
           else if (key == "channels")
             audio->m_iChannels = strtol(value.c_str(), nullptr, 10);
         }
@@ -863,7 +895,7 @@ namespace XBMCAddon
           const String& value = it.second;
 
           if (key == "language")
-            subtitle->m_strLanguage = value;
+            subtitle->m_strLanguage = CLangCodeExpander::AsISO6392B(value);
         }
         xbmc::InfoTagVideo::addStreamRaw(infoTag, subtitle);
       }

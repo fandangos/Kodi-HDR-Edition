@@ -62,6 +62,8 @@ struct SStartMsg
   int player;
   double cachetime;
   double cachetotal;
+  // The worker is still starting and can send an updated timestamp.
+  bool timestampPending{false};
 };
 
 struct SStateMsg
@@ -103,6 +105,9 @@ public:
    * new one. Only honoured when the new stream is compatible with the old one.
    */
   virtual void SetKeepCodecOnClose(bool keep) {}
+  //! \brief Live content geometry state for the debug overlay; empty when a player does not
+  //! sample.
+  virtual std::string GetContentGeometryInfo() { return {}; }
 };
 
 class CDVDAudioCodec;
@@ -130,4 +135,6 @@ public:
   virtual bool IsPassthrough() const = 0;
   virtual float GetDynamicRangeAmplification() const = 0;
   virtual bool IsEOS() { return false; }
+  //! The next audio this player outputs starts a playback
+  virtual void OnPlaybackStart() {}
 };

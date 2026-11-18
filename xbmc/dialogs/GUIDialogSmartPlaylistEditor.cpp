@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2018 Team Kodi
+ *  Copyright (C) 2005-2026 Team Kodi
  *  This file is part of Kodi - https://kodi.tv
  *
  *  SPDX-License-Identifier: GPL-2.0-or-later
@@ -23,13 +23,16 @@
 #include "profiles/ProfileManager.h"
 #include "resources/LocalizeStrings.h"
 #include "resources/ResourcesComponent.h"
+#include "settings/MediaSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/ContentNames.h"
 #include "utils/SortUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 
+#include <string_view>
 #include <utility>
 
 using namespace KODI;
@@ -46,6 +49,7 @@ using namespace KODI;
 #define CONTROL_ORDER_DIRECTION 19
 #define CONTROL_GROUP_BY        23
 #define CONTROL_GROUP_MIXED     24
+constexpr int CONTROL_WATCHED_MODE = 25;
 
 #define CONTROL_OK              20
 #define CONTROL_CANCEL          21
@@ -54,19 +58,19 @@ using namespace KODI;
 typedef struct
 {
   CGUIDialogSmartPlaylistEditor::PLAYLIST_TYPE type;
-  char string[13];
+  std::string_view string;
   int localizedString;
 } translateType;
 
-static const translateType types[] = { { CGUIDialogSmartPlaylistEditor::TYPE_SONGS, "songs", 134 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_ALBUMS, "albums", 132 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_ARTISTS, "artists", 133 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_MIXED, "mixed", 20395 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_MUSICVIDEOS, "musicvideos", 20389 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_MOVIES, "movies", 20342 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_TVSHOWS, "tvshows", 20343 },
-                                       { CGUIDialogSmartPlaylistEditor::TYPE_EPISODES, "episodes", 20360 }
-                                     };
+static const translateType types[] = {
+    {CGUIDialogSmartPlaylistEditor::TYPE_SONGS, MEDIA::CONTENT::SONGS, 134},
+    {CGUIDialogSmartPlaylistEditor::TYPE_ALBUMS, MEDIA::CONTENT::ALBUMS, 132},
+    {CGUIDialogSmartPlaylistEditor::TYPE_ARTISTS, MEDIA::CONTENT::ARTISTS, 133},
+    {CGUIDialogSmartPlaylistEditor::TYPE_MIXED, MEDIA::CONTENT::MIXED, 20395},
+    {CGUIDialogSmartPlaylistEditor::TYPE_MUSICVIDEOS, MEDIA::CONTENT::MUSICVIDEOS, 20389},
+    {CGUIDialogSmartPlaylistEditor::TYPE_MOVIES, MEDIA::CONTENT::MOVIES, 20342},
+    {CGUIDialogSmartPlaylistEditor::TYPE_TVSHOWS, MEDIA::CONTENT::TVSHOWS, 20343},
+    {CGUIDialogSmartPlaylistEditor::TYPE_EPISODES, MEDIA::CONTENT::EPISODES, 20360}};
 
 CGUIDialogSmartPlaylistEditor::CGUIDialogSmartPlaylistEditor(void)
     : CGUIDialog(WINDOW_DIALOG_SMART_PLAYLIST_EDITOR, "SmartPlaylistEditor.xml")
@@ -125,6 +129,8 @@ bool CGUIDialogSmartPlaylistEditor::OnMessage(CGUIMessage& message)
         OnGroupMixed();
       else if (iControl == CONTROL_RULE_LIST && (iAction == ACTION_CONTEXT_MENU || iAction == ACTION_MOUSE_RIGHT_CLICK))
         OnPopupMenu(GetSelectedItem());
+      else if (iControl == CONTROL_WATCHED_MODE)
+        OnWatchedMode();
       else
         return CGUIDialog::OnMessage(message);
       return true;
@@ -404,6 +410,44 @@ void CGUIDialogSmartPlaylistEditor::OnGroupMixed()
   UpdateButtons();
 }
 
+void CGUIDialogSmartPlaylistEditor::OnWatchedMode()
+{
+  // only valid for video types
+  if (!m_playlist.IsVideoType())
+    return;
+
+  CGUIDialogSelect* dialog =
+      CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogSelect>(
+          WINDOW_DIALOG_SELECT);
+  dialog->Reset();
+  dialog->SetHeading(CVariant{20479}); // "Watched Mode"
+
+  // Special entry to leave the watched mode of the result alone
+  dialog->Add(CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(571)); // "Default"
+
+  // Actual watched mode values
+  for (int i = 0; i < CMediaSettings::WatchedModesCount(); i++)
+    dialog->Add(CMediaSettings::GetInstance().LocalizeWatchedMode(WatchedMode{i}));
+
+  // Dialog indexes: 0 for nullopt, index = value + 1 otherwise
+  const int currentIndex = m_playlist.GetWatchedMode().has_value()
+                               ? static_cast<int>(m_playlist.GetWatchedMode().value()) + 1
+                               : 0;
+  dialog->SetSelected(currentIndex);
+  dialog->Open();
+
+  const int newSelected = dialog->GetSelectedItem();
+  if (!dialog->IsConfirmed() || newSelected < 0 || newSelected == currentIndex)
+    return;
+
+  if (newSelected == 0)
+    m_playlist.SetWatchedMode(std::nullopt);
+  else
+    m_playlist.SetWatchedMode(WatchedMode{newSelected - 1});
+
+  UpdateButtons();
+}
+
 void CGUIDialogSmartPlaylistEditor::UpdateButtons()
 {
   CONTROL_ENABLE(CONTROL_OK); // always enabled since we can have no rules -> match everything (as we do with default partymode playlists)
@@ -495,6 +539,22 @@ void CGUIDialogSmartPlaylistEditor::UpdateButtons()
     CONTROL_ENABLE_ON_CONDITION(CONTROL_GROUP_MIXED,
                                 PLAYLIST::CSmartPlaylistRule::CanGroupMix(currentGroup));
   }
+
+  // watched mode
+  if (m_playlist.IsVideoType())
+  {
+    const std::string label =
+        m_playlist.GetWatchedMode().has_value()
+            ? CMediaSettings::GetInstance().LocalizeWatchedMode(*m_playlist.GetWatchedMode())
+            : CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(571); // "Default"
+    SET_CONTROL_LABEL2(CONTROL_WATCHED_MODE, label);
+    CONTROL_ENABLE(CONTROL_WATCHED_MODE);
+  }
+  else
+  {
+    SET_CONTROL_LABEL2(CONTROL_WATCHED_MODE, "");
+    CONTROL_DISABLE(CONTROL_WATCHED_MODE);
+  }
 }
 
 void CGUIDialogSmartPlaylistEditor::UpdateRuleControlButtons()
@@ -562,9 +622,9 @@ std::string CGUIDialogSmartPlaylistEditor::ConvertType(PLAYLIST_TYPE type)
 {
   for (const translateType& t : types)
     if (t.type == type)
-      return t.string;
+      return std::string{t.string};
   assert(false);
-  return "songs";
+  return MEDIA::CONTENT::SONGS;
 }
 
 int CGUIDialogSmartPlaylistEditor::GetSelectedItem()
@@ -668,7 +728,8 @@ bool CGUIDialogSmartPlaylistEditor::EditPlaylist(const std::string &path, const 
     if (!StringUtils::StartsWithNoCase(editor->m_mode, "party"))
       return false; // only edit normal playlists that exist
     // party mode playlists can be edited even if they don't exist
-    playlist.SetType(editor->m_mode == "partymusic" ? "songs" : "musicvideos");
+    playlist.SetType(editor->m_mode == "partymusic" ? MEDIA::CONTENT::SONGS
+                                                    : MEDIA::CONTENT::MUSICVIDEOS);
   }
 
   editor->m_playlist = playlist;

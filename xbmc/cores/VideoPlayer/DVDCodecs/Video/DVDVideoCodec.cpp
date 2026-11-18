@@ -13,6 +13,11 @@
 #include <string>
 #include <vector>
 
+extern "C"
+{
+#include <libavutil/pixdesc.h>
+}
+
 //******************************************************************************
 // VideoPicture
 //******************************************************************************
@@ -49,6 +54,7 @@ void VideoPicture::Reset()
   pict_type = 0;
 
   hdrType = StreamHdrType::HDR_TYPE_NONE;
+  doviRpu.reset();
 
   hasDisplayMetadata = false;
   hasLightMetadata = false;
@@ -78,6 +84,15 @@ VideoPicture& VideoPicture::SetParams(const VideoPicture &pic)
   return *this;
 }
 
+bool VideoPicture::IsFullRange(AVColorRange range, AVPixelFormat format)
+{
+  if (range != AVCOL_RANGE_UNSPECIFIED)
+    return range == AVCOL_RANGE_JPEG;
+
+  const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(format);
+  return desc && (desc->flags & AV_PIX_FMT_FLAG_RGB);
+}
+
 bool VideoPicture::CompareDisplayMetadata(const VideoPicture& pic) const
 {
   if (this->hasDisplayMetadata != pic.hasDisplayMetadata)
@@ -99,7 +114,12 @@ bool VideoPicture::IsSameParams(const VideoPicture& pic) const
 {
   return this->iWidth == pic.iWidth && this->iHeight == pic.iHeight &&
          this->iDisplayWidth == pic.iDisplayWidth && this->iDisplayHeight == pic.iDisplayHeight &&
-         this->stereoMode == pic.stereoMode && this->color_primaries == pic.color_primaries &&
+         IsSameParamsExceptSize(pic);
+}
+
+bool VideoPicture::IsSameParamsExceptSize(const VideoPicture& pic) const
+{
+  return this->stereoMode == pic.stereoMode && this->color_primaries == pic.color_primaries &&
          this->color_transfer == pic.color_transfer && this->hdrType == pic.hdrType &&
          CompareDisplayMetadata(pic);
 }

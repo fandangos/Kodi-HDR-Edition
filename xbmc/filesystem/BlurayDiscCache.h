@@ -12,6 +12,7 @@
 #include "FileItemList.h"
 #include "bluray/M2TSParser.h"
 #include "bluray/PlaylistStructure.h"
+#include "bluray/ProjectParser.h"
 #include "threads/CriticalSection.h"
 
 #include <cstdint>
@@ -29,10 +30,20 @@ struct Disc
   XFILE::ClipMap clipMap;
   CFileItemList itemMap;
 
-  std::map<unsigned int, XFILE::StreamMap, std::less<>> streamMap;
+  //! By the clip files the streams are read from \sa XFILE::GetStreamClipFiles
+  std::map<std::string, XFILE::StreamMap, std::less<>> streamMap;
 
   std::optional<bool> menuSupport;
   std::optional<int> mainPlaylist;
+
+  std::optional<std::string> discTitle;
+  std::optional<std::string> discId;
+
+  //! What the disc's authoring project named, where it left one behind
+  std::optional<XFILE::ProjectInformation> project;
+
+  //! Identifies the content held, so a disc replaced at the same path is noticed (see CheckDisc)
+  std::string fingerprint;
 
   //! When this disc was last used, to decide which to drop when the cache is full. Mutable as
   //! recency is not part of what the cache holds, so reading a disc's information updates it too.
@@ -60,11 +71,16 @@ public:
                const PlaylistMap& playlistmap,
                const ClipMap& clipmap,
                const CFileItemList& itemmap);
-  void SetPlaylistStreamInfo(const std::string& path,
-                             unsigned int playlist,
-                             const StreamMap& streams);
+  //! The streams read from a playlist's clip files, for each playlist playing the same files
+  //! \param clipFiles as GetStreamClipFiles() names them
+  void SetClipStreamInfo(const std::string& path,
+                         const std::string& clipFiles,
+                         const StreamMap& streams);
   void SetMenuSupport(const std::string& path, bool menuSupport);
+  void SetProject(const std::string& path, const ProjectInformation& project);
   void SetMainPlaylist(const std::string& path, int mainPlaylist);
+  void SetDiscTitle(const std::string& path, const std::string& title);
+  void SetDiscId(const std::string& path, const std::string& id);
 
   bool GetPlaylistInfo(const std::string& path,
                        unsigned int playlist,
@@ -73,9 +89,9 @@ public:
                PlaylistMap& playlistmap,
                ClipMap& clipmap,
                CFileItemList& itemmap) const;
-  bool GetPlaylistStreamInfo(const std::string& path,
-                             unsigned int playlist,
-                             StreamMap& streams) const;
+  bool GetClipStreamInfo(const std::string& path,
+                         const std::string& clipFiles,
+                         StreamMap& streams) const;
 
   /*!
    \brief Get whether this disc supports menus, if already determined.
@@ -91,8 +107,35 @@ public:
    */
   bool GetMainPlaylist(const std::string& path, int& mainPlaylist) const;
 
+  /*!
+   \brief Get the name the disc gives itself, if already read.
+   \param[out] title set only when true is returned, empty when the disc names itself nothing
+   \return true if the disc has been opened for its name before
+   */
+  bool GetDiscTitle(const std::string& path, std::string& title) const;
+
+  /*!
+   \brief Get the disc's identifier, if already read.
+   \return true if the disc has been opened for its identifier before
+   */
+  bool GetDiscId(const std::string& path, std::string& id) const;
+
+  /*!
+   \brief Get what the disc's authoring project named, if already read.
+   \param[out] project set only when true is returned
+   \return true if the disc has been examined for a project before
+   */
+  bool GetProject(const std::string& path, ProjectInformation& project) const;
+
   //! Drop everything held for a disc, as its information no longer describes what is in the drive
   void ClearDisc(const std::string& path);
+
+  /*!
+   \brief Drop everything held for a disc if it is not the disc it was read from.
+   \param fingerprint identifies the disc's content, eg. the modification time and size of its
+   index or image
+   */
+  void CheckDisc(const std::string& path, const std::string& fingerprint);
 
 private:
   /*!

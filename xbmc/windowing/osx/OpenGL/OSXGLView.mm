@@ -45,6 +45,7 @@
       NSOpenGLPFAAlphaSize, 8,
       NSOpenGLPFAColorSize, 32,
       NSOpenGLPFADepthSize, 24,
+      NSOpenGLPFAStencilSize, 8,
       NSOpenGLPFADoubleBuffer,
       NSOpenGLPFANoRecovery,
       0
@@ -214,6 +215,11 @@
 {
   assert(m_glcontext);
   return [m_glcontext CGLContextObj];
+}
+
+- (NSOpenGLContext*)getNSOpenGLContext
+{
+  return m_glcontext;
 }
 
 - (void)Update

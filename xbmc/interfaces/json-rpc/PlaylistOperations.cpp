@@ -18,14 +18,16 @@
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
 #include "messaging/ApplicationMessenger.h"
+#include "messaging/MessengerPayload.h"
 #include "pictures/PictureInfoTag.h"
 #include "pictures/SlideShowDelegator.h"
 #include "utils/Variant.h"
 
 using namespace JSONRPC;
 using namespace KODI;
+using KODI::MESSAGING::TransferToMessenger;
 
-JSONRPC_STATUS CPlaylistOperations::GetPlaylists(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::GetPlaylists(const CVariant& parameterObject, CVariant& result)
 {
   result = CVariant(CVariant::VariantTypeArray);
   CVariant playlist = CVariant(CVariant::VariantTypeObject);
@@ -45,7 +47,7 @@ JSONRPC_STATUS CPlaylistOperations::GetPlaylists(const std::string &method, ITra
   return OK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::GetProperties(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::GetProperties(const CVariant& parameterObject, CVariant& result)
 {
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
   for (unsigned int index = 0; index < parameterObject["properties"].size(); index++)
@@ -62,7 +64,7 @@ JSONRPC_STATUS CPlaylistOperations::GetProperties(const std::string &method, ITr
   return OK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::GetItems(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::GetItems(const CVariant& parameterObject, CVariant& result)
 {
   CFileItemList list;
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
@@ -109,7 +111,7 @@ bool CPlaylistOperations::CheckMediaParameter(PLAYLIST::Id playlistId, const CVa
   return true;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Add(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Add(const CVariant& parameterObject, CVariant& result)
 {
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
 
@@ -149,7 +151,7 @@ JSONRPC_STATUS CPlaylistOperations::Add(const std::string &method, ITransportLay
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Insert(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Insert(const CVariant& parameterObject, CVariant& result)
 {
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
   if (playlistId == PLAYLIST::Id::TYPE_PICTURE)
@@ -168,7 +170,7 @@ JSONRPC_STATUS CPlaylistOperations::Insert(const std::string &method, ITransport
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Remove(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Remove(const CVariant& parameterObject, CVariant& result)
 {
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
   if (playlistId == PLAYLIST::Id::TYPE_PICTURE)
@@ -185,7 +187,7 @@ JSONRPC_STATUS CPlaylistOperations::Remove(const std::string &method, ITransport
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Clear(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Clear(const CVariant& parameterObject, CVariant& result)
 {
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
   switch (playlistId)
@@ -200,8 +202,9 @@ JSONRPC_STATUS CPlaylistOperations::Clear(const std::string &method, ITransportL
     {
       CSlideShowDelegator& slideShow = CServiceBroker::GetSlideShowDelegator();
       //! @todo: Stop should be a delegator method to void GUI coupling! Same goes for other player controls.
-      CServiceBroker::GetAppMessenger()->PostMsg(TMSG_GUI_ACTION, WINDOW_SLIDESHOW, -1,
-                                                 static_cast<void*>(new CAction(ACTION_STOP)));
+      CServiceBroker::GetAppMessenger()->PostMsg(
+          TMSG_GUI_ACTION, WINDOW_SLIDESHOW, -1,
+          TransferToMessenger(std::make_unique<CAction>(ACTION_STOP)));
       slideShow.Reset();
       break;
     }
@@ -212,7 +215,7 @@ JSONRPC_STATUS CPlaylistOperations::Clear(const std::string &method, ITransportL
   return ACK;
 }
 
-JSONRPC_STATUS CPlaylistOperations::Swap(const std::string &method, ITransportLayer *transport, IClient *client, const CVariant &parameterObject, CVariant &result)
+JSONRPC_STATUS CPlaylistOperations::Swap(const CVariant& parameterObject, CVariant& result)
 {
   PLAYLIST::Id playlistId = GetPlaylist(parameterObject["playlistid"]);
   if (playlistId == PLAYLIST::Id::TYPE_PICTURE)

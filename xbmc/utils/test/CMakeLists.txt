@@ -2,42 +2,55 @@ set(SOURCES TestAlarmClock.cpp
             TestAliasShortcutUtils.cpp
             TestArchive.cpp
             TestArtUtils.cpp
+            TestAspectRatioVocabulary.cpp
             TestBase64.cpp
+            TestBitReader.cpp
+            TestBitstreamConverter.cpp
             TestBitstreamStats.cpp
             TestCharsetConverter.cpp
+            TestContentNames.cpp
             TestCPUInfo.cpp
             TestComponentContainer.cpp
+            TestContentUtils.cpp
             TestCrc32.cpp
             TestDatabaseUtils.cpp
             TestDigest.cpp
+            TestDolbyVisionRpu.cpp
             TestEndianSwap.cpp
             TestExecString.cpp
+            TestFileExtensionProvider.cpp
             TestFileOperationJob.cpp
             TestFileUtils.cpp
             TestGlobalsHandling.cpp
+            TestGroupUtils.cpp
             TestGPUInfo.cpp
+            TestHevcSei.cpp
             TestHTMLUtil.cpp
             TestHttpHeader.cpp
             TestHttpParser.cpp
             TestHttpRangeUtils.cpp
             TestHttpResponse.cpp
             TestJobManager.cpp
+            TestJobQueue.cpp
             TestJSONVariantParser.cpp
             TestJSONVariantWriter.cpp
             TestLabelFormatter.cpp
             TestLangCodeExpander.cpp
+            TestLegacyPathTranslation.cpp
             TestLocale.cpp
             Testlog.cpp
             TestMap.cpp
             TestMathUtils.cpp
             TestMime.cpp
             TestMp4ChplReader.cpp
+            TestPlaceholderPaths.cpp
             TestPOUtils.cpp
             TestRegExp.cpp
             TestRingBuffer.cpp
             TestRssReader.cpp
             TestScraperParser.cpp
             TestScraperUrl.cpp
+            TestScreenshot.cpp
             TestSet.cpp
             TestSortUtils.cpp
             TestStopwatch.cpp
@@ -45,6 +58,8 @@ set(SOURCES TestAlarmClock.cpp
             TestStreamUtils.cpp
             TestStringUtils.cpp
             TestSystemInfo.cpp
+            TestURI.cpp
+            TestURIParser.cpp
             TestURIUtils.cpp
             TestUrlOptions.cpp
             TestUrlParsing.cpp
@@ -55,6 +70,11 @@ set(SOURCES TestAlarmClock.cpp
 
 if(TARGET ${APP_NAME_LC}::Bluray)
   list(APPEND SOURCES TestBluray.cpp)
+endif()
+
+# Needs EGL to create a headless GL context; skips itself at runtime when no driver is available.
+if(TARGET ${APP_NAME_LC}::EGL AND (TARGET ${APP_NAME_LC}::OpenGl OR TARGET ${APP_NAME_LC}::OpenGLES))
+  list(APPEND SOURCES TestGLBufferObject.cpp)
 endif()
 
 set(HEADERS TestGlobalsHandlingPattern1.h)

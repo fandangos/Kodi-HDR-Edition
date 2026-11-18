@@ -12,7 +12,10 @@
 #include "ShaderFormats.h"
 #include "cores/VideoSettings.h"
 #include "guilib/Shader.h"
+#include "utils/Geometry.h"
 #include "utils/TransformMatrix.h"
+
+#include <array>
 
 extern "C" {
 #include <libavutil/mastering_display_metadata.h>
@@ -31,6 +34,8 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
                           AVColorPrimaries src,
                           bool toneMap,
                           ETONEMAPMETHOD toneMapMethod,
+                          AVColorTransferCharacteristic hueSatTransfer,
+                          bool gamma,
                           bool dither = false);
     ~BaseYUV2RGBGLSLShader() override;
     void SetField(int field) { m_field = field; }
@@ -40,6 +45,9 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
     void SetColParams(AVColorSpace colSpace, int bits, bool limited, int textureBits);
     void SetBlack(float black) { m_black = black; }
     void SetContrast(float contrast) { m_contrast = contrast; }
+    void SetHue(float hue) { m_hue = hue; }
+    void SetSaturation(float saturation) { m_saturation = saturation; }
+    void SetGamma(float exponent) { m_gammaExponent = exponent; }
     void SetConvertFullColorRange(bool convertFullRange) { m_convertFullRange = convertFullRange; }
     void SetDitherUniforms(bool enabled,
                            GLuint ditherTex,
@@ -59,6 +67,11 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
     void SetMatrices(const GLfloat *p, const GLfloat *m) { m_proj = p; m_model = m; }
     void SetAlpha(GLfloat alpha) { m_alpha = alpha; }
 
+    // Maps the vertex positions, for instance a unit quad (see KODI::UTILS::GL::QuadTransform()).
+    void SetQuadTransform(const std::array<GLfloat, 16>& transform) { m_quad = transform; }
+    // The texture coordinates of plane 0 (Y), 1 (U) or 2 (V) span rect.
+    void SetTextureRect(int plane, const CRect& rect) { m_texRects[plane] = rect; }
+
   protected:
     void OnCompiledAndLinked() override;
     bool OnEnabled() override;
@@ -76,11 +89,15 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
     bool m_toneMapping{false};
     ETONEMAPMETHOD m_toneMappingMethod{VS_TONEMAPMETHOD_OFF};
     float m_toneMappingParam{1.0};
+    AVColorTransferCharacteristic m_hueSatTransfer{AVCOL_TRC_UNSPECIFIED};
 
     bool m_colorConversion{false};
 
     float m_black;
     float m_contrast;
+    float m_hue;
+    float m_saturation;
+    float m_gammaExponent{1.0f};
 
     std::string m_defines;
 
@@ -98,6 +115,12 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
     GLint m_hToneP1{-1};
     GLint m_hCoefsDst{-1};
     GLint m_hLuminance = -1;
+    GLint m_hHsMat{-1};
+    GLint m_hHsCoefs{-1};
+    GLint m_hHsPeak{-1};
+    GLint m_hHsRange{-1};
+    GLint m_hGammaInv{-1};
+    GLint m_hGammaRange{-1};
 
     GLint m_hVertex{-1};
     GLint m_hYcoord{-1};
@@ -106,10 +129,15 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
     GLint m_hProj{-1};
     GLint m_hModel{-1};
     GLint m_hAlpha{-1};
+    GLint m_hQuad{-1};
+    std::array<GLint, 3> m_hTexRect{-1, -1, -1};
 
     const GLfloat *m_proj{nullptr};
     const GLfloat *m_model{nullptr};
     GLfloat m_alpha{1.0f};
+    std::array<GLfloat, 16> m_quad{1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+                                   0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    std::array<CRect, 3> m_texRects{CRect(0, 0, 1, 1), CRect(0, 0, 1, 1), CRect(0, 0, 1, 1)};
 
     bool m_convertFullRange;
 
@@ -133,6 +161,8 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
                              AVColorPrimaries srcPrimaries,
                              bool toneMap,
                              ETONEMAPMETHOD toneMapMethod,
+                             AVColorTransferCharacteristic hueSatTransfer,
+                             bool gamma,
                              bool dither = false);
   };
 
@@ -144,6 +174,8 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
                      AVColorPrimaries srcPrimaries,
                      bool toneMap,
                      ETONEMAPMETHOD toneMapMethod,
+                     AVColorTransferCharacteristic hueSatTransfer,
+                     bool gamma,
                      bool dither = false);
     void OnCompiledAndLinked() override;
     bool OnEnabled() override;
@@ -161,6 +193,8 @@ class BaseYUV2RGBGLSLShader : public CGLSLShaderProgram
                         AVColorPrimaries srcPrimaries,
                         bool toneMap,
                         ETONEMAPMETHOD toneMapMethod,
+                        AVColorTransferCharacteristic hueSatTransfer,
+                        bool gamma,
                         ESCALINGMETHOD method,
                         bool dither = false);
     ~YUV2RGBFilterShader() override;

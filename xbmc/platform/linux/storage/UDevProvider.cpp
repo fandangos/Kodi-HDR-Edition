@@ -8,9 +8,11 @@
 
 #include "UDevProvider.h"
 
-#include "platform/posix/PosixMountProvider.h"
-#include "utils/log.h"
+#include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "utils/log.h"
+
+#include "platform/posix/PosixMountProvider.h"
 
 extern "C" {
 #include <libudev.h>
@@ -174,6 +176,7 @@ void CUDevProvider::GetDisks(std::vector<CMediaSource>& disks, bool removable)
     CMediaSource share;
     share.strName  = label;
     share.strPath  = mountpoint;
+    share.strDevicePath = devnode;
     share.m_ignore = true;
     if (isRemovable)
     {
@@ -205,7 +208,10 @@ bool CUDevProvider::Eject(const std::string& mountpath)
 {
   // just go ahead and try to umount the disk
   // if it does umount, life is good, if not, no loss.
-  std::string cmd = "umount \"" + mountpath + "\"";
+  // Single quoted, as the mount point can be named after a volume label the shell must not expand
+  std::string quotedPath{mountpath};
+  StringUtils::Replace(quotedPath, "'", "'\\''");
+  std::string cmd = "umount '" + quotedPath + "'";
   int status = system(cmd.c_str());
 
   if (status == 0)
@@ -269,9 +275,7 @@ bool CUDevProvider::PumpDriveChangeEvents(IStorageEventsCallback *callback)
           callback->OnStorageSafelyRemoved(storageDevice);
         changed = true;
       }
-      // browse disk dialog is not wanted for blu-rays
-      const char *bd = udev_device_get_property_value(dev, "ID_CDROM_MEDIA_BD");
-      if (strcmp(action, "change") == 0 && !(bd && strcmp(bd, "1") == 0))
+      if (strcmp(action, "change") == 0)
       {
         const char *optical = udev_device_get_property_value(dev, "ID_CDROM");
         const bool isOptical = optical && (strcmp(optical, "1") == 0);
@@ -279,19 +283,26 @@ bool CUDevProvider::PumpDriveChangeEvents(IStorageEventsCallback *callback)
             isOptical ? MEDIA_DETECT::STORAGE::Type::OPTICAL : MEDIA_DETECT::STORAGE::Type::UNKNOWN;
         storageDevice.path = devnode;
 
-        if (mountpoint && isOptical)
-        {
-          CLog::Log(LOGINFO, "UDev: Changed / Added {}", mountpoint);
-          if (callback)
-            callback->OnStorageAdded(storageDevice);
+        if (isOptical)
           changed = true;
-        }
-        const char *eject_request = udev_device_get_property_value(dev, "DISK_EJECT_REQUEST");
-        if (eject_request && strcmp(eject_request, "1") == 0)
+
+        // browse disk dialog is not wanted for blu-rays
+        const char* bd = udev_device_get_property_value(dev, "ID_CDROM_MEDIA_BD");
+        if (!(bd && strcmp(bd, "1") == 0))
         {
-          if (callback)
-            callback->OnStorageSafelyRemoved(storageDevice);
-          changed = true;
+          if (mountpoint && isOptical)
+          {
+            CLog::Log(LOGINFO, "UDev: Changed / Added {}", mountpoint);
+            if (callback)
+              callback->OnStorageAdded(storageDevice);
+          }
+          const char* eject_request = udev_device_get_property_value(dev, "DISK_EJECT_REQUEST");
+          if (eject_request && strcmp(eject_request, "1") == 0)
+          {
+            if (callback)
+              callback->OnStorageSafelyRemoved(storageDevice);
+            changed = true;
+          }
         }
       }
     }

@@ -28,6 +28,7 @@ class CShaderTextureGLESRef;
 namespace RETRO
 {
 class CRenderBufferOpenGLES;
+class CRPHdrShader;
 
 class CRendererFactoryOpenGLES : public IRendererFactory
 {
@@ -55,55 +56,44 @@ public:
   SCALINGMETHOD GetDefaultScalingMethod() const override { return SCALINGMETHOD::NEAREST; }
 
   static bool SupportsScalingMethod(SCALINGMETHOD method);
+  bool SupportsHdr() const override { return !m_hdrShaderFailed; }
 
 protected:
-  struct PackedVertex
-  {
-    float x, y, z;
-    float u1, v1;
-  };
-
-  struct Svertex
-  {
-    float x;
-    float y;
-    float z;
-  };
-
   struct RenderBufferTextures
   {
     std::shared_ptr<SHADER::CShaderTextureGLESRef> sourceTexture;
     std::shared_ptr<SHADER::CShaderTextureGLES> targetTexture;
   };
 
-  // Implementation of CRPBaseRenderer
-  void RenderInternal(bool clear, uint8_t alpha) override;
-  void FlushInternal() override;
-
   /*!
-   * \brief Set the entire backbuffer to black
+   * \brief Make the texture a shader preset's last pass renders into, deeper than 8 bits in HDR
    */
-  void ClearBackBuffer();
+  std::shared_ptr<SHADER::CShaderTextureGLES> CreateTargetTexture() const;
 
   /*!
-   * \brief Draw black bars around the video quad
+   * \brief Draw the texture bound to unit 0 into the destination, for SDR or HDR
    *
-   * This is more efficient than glClear() since it only sets pixels to
-   * black that aren't going to be overwritten by the game.
+   * \param alpha The frame's opacity
+   * \param width, height Size of the texture, which the source rectangle is in
    */
-  void DrawBlackBars();
+  void DrawFrame(uint8_t alpha, float width, float height);
+
+  // Implementation of CRPBaseRenderer
+  void RenderInternal(uint8_t alpha) override;
+  void FlushInternal() override;
 
   virtual void Render(uint8_t alpha);
 
   std::map<CRenderBufferOpenGLES*, std::unique_ptr<RenderBufferTextures>> m_RBTexturesMap;
-
-  GLuint m_mainIndexVBO;
-  GLuint m_mainVertexVBO;
-
-  GLuint m_blackbarsVertexVBO;
+  bool m_lastTargetHdr{false};
 
   const GLenum m_textureTarget = GL_TEXTURE_2D;
-  float m_clearColor = 0.0f;
+
+private:
+  bool LoadHdrShader();
+
+  std::unique_ptr<CRPHdrShader> m_hdrShader;
+  bool m_hdrShaderFailed{false};
 };
 } // namespace RETRO
 } // namespace KODI

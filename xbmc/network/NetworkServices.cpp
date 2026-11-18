@@ -477,7 +477,7 @@ bool CNetworkServices::OnSettingChanging(const std::shared_ptr<const CSetting>& 
         return false;
     }
     else
-      return StopWSDiscovery();
+      return StopWSDiscovery(true);
   }
 #endif // HAS_FILESYSTEM_SMB
 
@@ -598,7 +598,7 @@ void CNetworkServices::Stop(bool bWait)
   StopJSONRPCServer(bWait);
   StopAirPlayServer(bWait);
   StopAirTunesServer(bWait);
-  StopWSDiscovery();
+  StopWSDiscovery(bWait);
 }
 
 bool CNetworkServices::StartServer(enum ESERVERS server, bool start)
@@ -895,10 +895,11 @@ bool CNetworkServices::IsJSONRPCServerRunning()
 
 bool CNetworkServices::StopJSONRPCServer(bool bWait)
 {
-  if (!IsJSONRPCServerRunning())
-    return true;
-
+  // Requests can still be running after the server thread has exited
+  const bool wasRunning = IsJSONRPCServerRunning();
   CTCPServer::StopServer(bWait);
+  if (!wasRunning)
+    return true;
 
 #ifdef HAS_ZEROCONF
   CZeroconf::GetInstance()->RemoveService("servers.jsonrpc-tcp");
@@ -1245,13 +1246,13 @@ bool CNetworkServices::IsWSDiscoveryRunning()
   return false;
 }
 
-bool CNetworkServices::StopWSDiscovery()
+bool CNetworkServices::StopWSDiscovery(bool bWait)
 {
 #if defined(HAS_FILESYSTEM_SMB)
   if (!IsWSDiscoveryRunning())
     return true;
 
-  CServiceBroker::GetWSDiscovery().StopServices();
+  CServiceBroker::GetWSDiscovery().StopServices(bWait);
 
   return true;
 #endif // HAS_FILESYSTEM_SMB

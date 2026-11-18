@@ -18,6 +18,8 @@
 
 #include <memory>
 
+class CVideoReferenceClock;
+
 namespace KODI
 {
 namespace GAME
@@ -27,7 +29,6 @@ class CGameServices;
 
 namespace RETRO
 {
-class CCheevos;
 class CGUIGameMessenger;
 class CRetroPlayerInput;
 class CRPProcessInfo;
@@ -63,8 +64,6 @@ public:
   bool SeekTimeRelative(int64_t iTime) override;
   void SetSpeed(float speed) override;
   bool OnAction(const CAction& action) override;
-  std::string GetPlayerState() override;
-  bool SetPlayerState(const std::string& state) override;
   void FrameMove() override;
   void Render(bool clear, uint32_t alpha = 255, bool gui = true) override;
   bool IsRenderingVideo() const override;
@@ -80,7 +79,6 @@ public:
   std::string CreateSavestate(bool autosave) override;
   bool UpdateSavestate(const std::string& savestatePath) override;
   bool LoadSavestate(const std::string& savestatePath) override;
-  void FreeSavestateResources(const std::string& savestatePath) override;
   void CloseOSDCallback() override;
 
   // Implementation of IPlaybackCallback
@@ -89,10 +87,32 @@ public:
 
   // Implementation of IAutoSaveCallback
   bool IsAutoSaveEnabled() const override;
-  std::string CreateAutosave() override;
+  void RequestAutosave() override;
 
 private:
+  bool Open(const CFileItem& file, const CPlayerOptions& options);
+
   void SetSpeedInternal(double speed);
+
+  /*!
+   * \brief Refuse a speed that hardcore mode withholds
+   *
+   * Rewind and slow motion are withheld, fast forward and pausing are not.
+   * Answered before anything is told the speed changed, so the game, its
+   * sound and what is shown on screen stay in step.
+   *
+   * \return True if the speed was refused
+   */
+  bool RefuseSpeedInHardcore(double speed) const;
+
+  /*!
+   * \brief Return to normal speed if hardcore started during rewind or slow
+   *        motion
+   *
+   * Hardcore can be switched on by a route that doesn't pause the game first,
+   * such as JSON-RPC once the setting is shown.
+   */
+  void LeaveSpeedRefusedInHardcore();
 
   /*!
    * \brief Called when the speed changes
@@ -129,6 +149,7 @@ private:
   GAME::CGameServices& m_gameServices;
 
   // Subsystems
+  std::unique_ptr<CVideoReferenceClock> m_displayClock;
   std::unique_ptr<CRPProcessInfo> m_processInfo;
   std::unique_ptr<CGUIGameMessenger> m_guiMessenger;
   std::unique_ptr<CRPRenderManager> m_renderManager;
@@ -137,13 +158,13 @@ private:
   std::unique_ptr<IPlayback> m_playback;
   std::unique_ptr<IPlaybackControl> m_playbackControl;
   std::unique_ptr<CRetroPlayerAutoSave> m_autoSave;
-  std::shared_ptr<CCheevos> m_cheevos;
 
   // Game parameters
   GAME::GameClientPtr m_gameClient;
 
   // Synchronization parameters
   CCriticalSection m_mutex;
+  bool m_opening{false};
 };
 } // namespace RETRO
 } // namespace KODI

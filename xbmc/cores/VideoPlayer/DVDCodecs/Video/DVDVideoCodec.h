@@ -12,15 +12,17 @@
 #include "cores/VideoPlayer/Buffers/VideoBuffer.h"
 #include "cores/VideoPlayer/Interface/DemuxPacket.h"
 #include "cores/VideoPlayer/Process/ProcessInfo.h"
+#include "utils/Geometry.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/mastering_display_metadata.h>
 }
 
-#include <vector>
-#include <string>
 #include <map>
+#include <memory>
+#include <string>
+#include <vector>
 
 class CSetting;
 
@@ -31,6 +33,14 @@ class CSetting;
 #define FRAME_TYPE_B     3
 #define FRAME_TYPE_D     4
 
+// Dolby Vision RPU for UWP/Xbox Dolby Vision renderer effect
+struct DoviRpu
+{
+  int profile = 0;
+  int compatibilityId = 0;
+  // whole RPU NAL unit (header, prefix, RPU), emulation prevention bytes removed
+  std::vector<uint8_t> data;
+};
 
 // should be entirely filled by all codecs
 struct VideoPicture
@@ -42,6 +52,18 @@ public:
   VideoPicture& SetParams(const VideoPicture &pic);
   void Reset(); // reinitialize members, videoBuffer will be released if set!
   bool IsSameParams(const VideoPicture& pic) const;
+
+  /*!
+   * \brief Whether \p pic differs from this picture in nothing IsSameParams() compares but its
+   * size and display size.
+   */
+  bool IsSameParamsExceptSize(const VideoPicture& pic) const;
+
+  /*!
+   * \brief Whether a picture of \p format is full range when its stream gives \p range. RGB with
+   * no range given is full range.
+   */
+  static bool IsFullRange(AVColorRange range, AVPixelFormat format);
 
   CVideoBuffer *videoBuffer = nullptr;
 
@@ -68,6 +90,7 @@ public:
   StreamHdrType hdrType;
   StreamHdrType hdrTypeAlt;
   std::string strDVELType;
+  std::shared_ptr<const DoviRpu> doviRpu;
 
   bool hasDisplayMetadata = false;
   AVMasteringDisplayMetadata displayMetadata;
@@ -80,6 +103,9 @@ public:
   unsigned int iHeight;
   unsigned int iDisplayWidth;           //< width of the picture without black bars
   unsigned int iDisplayHeight;          //< height of the picture without black bars
+
+  //! \brief Where the picture is inside the coded frame, empty when nothing measured it.
+  CRectInt contentRect;
 
 private:
   VideoPicture(VideoPicture const&) = default;

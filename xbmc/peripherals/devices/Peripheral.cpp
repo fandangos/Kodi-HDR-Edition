@@ -28,6 +28,7 @@
 #include "peripherals/bus/virtual/PeripheralBusAddon.h"
 #include "settings/SettingAddon.h"
 #include "settings/lib/Setting.h"
+#include "utils/DefaultArt.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/XBMCTinyXML2.h"
@@ -90,11 +91,7 @@ CPeripheral::CPeripheral(CPeripherals& manager,
 
 CPeripheral::~CPeripheral(void)
 {
-  if (m_controllerInput)
-  {
-    m_controllerInput->Deinitialize();
-    m_controllerInput.reset();
-  }
+  ReleaseControllerInput();
 
   PersistSettings(true);
 
@@ -104,6 +101,11 @@ CPeripheral::~CPeripheral(void)
 }
 
 void CPeripheral::OnDeviceRemoved(void)
+{
+  ReleaseControllerInput();
+}
+
+void CPeripheral::ReleaseControllerInput()
 {
   if (m_controllerInput)
   {
@@ -939,7 +941,7 @@ std::string CPeripheral::GetIcon() const
 
   // Fallback
   if (icon.empty())
-    icon = "DefaultAddon.png";
+    icon = ART::DEFAULT::ADDON;
 
   return icon;
 }

@@ -6,18 +6,20 @@
  *  See LICENSES/README.md for more information.
  */
 
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-
 #include "Network.h"
+
 #include "ServiceBroker.h"
+#include "SocketOptions.h"
 #include "messaging/ApplicationMessenger.h"
 #include "network/NetworkServices.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/log.h"
+
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #ifdef TARGET_WINDOWS
 #include "platform/win32/WIN32Util.h"
 #include "utils/CharsetConverter.h"
@@ -143,6 +145,7 @@ bool CNetworkBase::IsLocalHost(const std::string& hostname)
       && StringUtils::EqualsNoCase(hostname, myhostname))
     return true;
 
+  [[maybe_unused]] auto interfaceListLock = LockInterfaceList();
   std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
   std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
   while (iter != ifaces.end())
@@ -159,6 +162,7 @@ bool CNetworkBase::IsLocalHost(const std::string& hostname)
 
 CNetworkInterface* CNetworkBase::GetFirstConnectedInterface()
 {
+  [[maybe_unused]] auto interfaceListLock = LockInterfaceList();
   CNetworkInterface* fallbackInterface = nullptr;
   for (CNetworkInterface* iface : GetInterfaceList())
   {
@@ -176,28 +180,30 @@ CNetworkInterface* CNetworkBase::GetFirstConnectedInterface()
 
 bool CNetworkBase::HasInterfaceForIP(unsigned long address)
 {
-   unsigned long subnet;
-   unsigned long local;
-   std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
-   std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
-   while (iter != ifaces.end())
-   {
-      CNetworkInterface* iface = *iter;
-      if (iface && iface->IsConnected())
-      {
-         subnet = ntohl(inet_addr(iface->GetCurrentNetmask().c_str()));
-         local = ntohl(inet_addr(iface->GetCurrentIPAddress().c_str()));
-         if( (address & subnet) == (local & subnet) )
-            return true;
-      }
-      ++iter;
-   }
+  [[maybe_unused]] auto interfaceListLock = LockInterfaceList();
+  unsigned long subnet;
+  unsigned long local;
+  std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
+  std::vector<CNetworkInterface*>::const_iterator iter = ifaces.begin();
+  while (iter != ifaces.end())
+  {
+    CNetworkInterface* iface = *iter;
+    if (iface && iface->IsConnected())
+    {
+      subnet = ntohl(inet_addr(iface->GetCurrentNetmask().c_str()));
+      local = ntohl(inet_addr(iface->GetCurrentIPAddress().c_str()));
+      if ((address & subnet) == (local & subnet))
+        return true;
+    }
+    ++iter;
+  }
 
    return false;
 }
 
 bool CNetworkBase::IsAvailable(void)
 {
+  [[maybe_unused]] auto interfaceListLock = LockInterfaceList();
   const std::vector<CNetworkInterface*>& ifaces = GetInterfaceList();
   return (!ifaces.empty());
 }
@@ -404,12 +410,6 @@ bool CNetworkBase::PingHost(unsigned long ipaddr, unsigned short port, unsigned 
 //true to bind to localhost only.
 std::vector<SOCKET> CreateTCPServerSocket(const int port, const bool bindLocal, const int backlog, const char *callerName)
 {
-#ifdef WINSOCK_VERSION
-  int yes = 1;
-#else
-  unsigned int yes = 1;
-#endif
-
   std::vector<SOCKET> sockets;
   struct addrinfo* results = nullptr;
 
@@ -430,8 +430,8 @@ std::vector<SOCKET> CreateTCPServerSocket(const int port, const bool bindLocal, 
     if (sock == INVALID_SOCKET)
       continue;
 
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
-    setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&yes), sizeof(yes));
+    KODI::NETWORK::SetReusePort(sock);
+    KODI::NETWORK::SetIPv6Only(sock, 1);
 
     if (bind(sock, result->ai_addr, result->ai_addrlen) != 0)
     {

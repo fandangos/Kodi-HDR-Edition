@@ -424,10 +424,8 @@ public:
   static void FFReleaseBuffer(void *opaque, uint8_t *data);
 private:
   CVAAPIContext();
-  void Close();
   void SetVaDisplayForSystem();
   bool CreateContext();
-  void DestroyContext();
   void QueryCaps();
   bool CheckSuccess(VAStatus status, const std::string& function);
   bool IsValidDecoder(CDecoder *decoder);
@@ -435,6 +433,8 @@ private:
   static CVAAPIContext *m_context;
   static CCriticalSection m_section;
   VADisplay m_display = NULL;
+  // Diagnostics-only: nothing branches on this value (see Release()) --
+  // logged on change to make decoder-lifecycle issues visible.
   int m_refCount;
   int m_profileCount;
   VAProfile *m_profiles;
@@ -467,12 +467,16 @@ inline constexpr VaFormatEntry kVaFormatTable[] = {
     {VA_FOURCC_P016, VA_RT_FORMAT_YUV420_12, AV_PIX_FMT_P016},
     {VA_FOURCC_Y210, VA_RT_FORMAT_YUV422_10, AV_PIX_FMT_Y210},
     {VA_FOURCC_Y212, VA_RT_FORMAT_YUV422_12, AV_PIX_FMT_Y212},
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 45, 100)
     {VA_FOURCC_Y216, VA_RT_FORMAT_YUV422_12, AV_PIX_FMT_Y216},
+#endif
     {VA_FOURCC_AYUV, VA_RT_FORMAT_YUV444, AV_PIX_FMT_VUYA},
     {VA_FOURCC_XYUV, VA_RT_FORMAT_YUV444, AV_PIX_FMT_VUYX},
     {VA_FOURCC_Y410, VA_RT_FORMAT_YUV444_10, AV_PIX_FMT_XV30},
     {VA_FOURCC_Y412, VA_RT_FORMAT_YUV444_12, AV_PIX_FMT_XV36},
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 46, 100)
     {VA_FOURCC_Y416, VA_RT_FORMAT_YUV444_12, AV_PIX_FMT_XV48},
+#endif
 #endif
 };
 

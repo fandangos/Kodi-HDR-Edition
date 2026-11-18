@@ -6,20 +6,27 @@
  *  See LICENSES/README.md for more information.
  */
 
+#include "FileItem.h"
 #include "ServiceBroker.h"
 #include "cores/IPlayerCallback.h"
+#include "cores/VideoPlayer/DVDDemuxers/DVDDemux.h"
+#include "cores/VideoPlayer/DVDInputStreams/DVDInputStream.h"
+#include "cores/VideoPlayer/DVDOverlayContainer.h"
+#include "cores/VideoPlayer/Interface/InputStreamConstants.h"
 #include "cores/VideoPlayer/VideoPlayer.h"
 #include "jobs/JobManager.h"
+#include "messaging/ApplicationMessenger.h"
 #include "settings/AdvancedSettings.h"
+#include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 
+#include <memory>
 #include <stdexcept>
+#include <thread>
 
 #include <gtest/gtest.h>
 
 using namespace std::chrono_literals;
-
-class CFileItem;
 
 class CTestPlayerCallback : public IPlayerCallback
 {
@@ -43,20 +50,66 @@ public:
   explicit CTestVideoPlayer(IPlayerCallback& c) : CVideoPlayer(c) {}
   virtual ~CTestVideoPlayer() {}
 
+  bool InvokeShouldDeferSync(bool ready,
+                             bool timestampPending,
+                             double audioPts,
+                             double videoPts,
+                             std::chrono::steady_clock::time_point now)
+  {
+    m_CurrentAudio.starttime = audioPts;
+    m_CurrentVideo.starttime = videoPts;
+    m_CurrentVideo.starttimePending = timestampPending;
+    return ShouldDeferSync(ready, now);
+  }
+
   int InvokeGetPreviousBookmark(std::chrono::milliseconds ts) { return GetPreviousBookmark(ts); }
   int InvokeGetNextBookmark(std::chrono::milliseconds ts) { return GetNextBookmark(ts); }
   std::optional<std::chrono::milliseconds> InvokeGetBookmarkPos(int idx)
   {
     return GetBookmarkPos(idx);
   }
+  bool InvokeEvaluateIsStreaming() const { return EvaluateIsStreaming(); }
+  void InvokeUpdatePlayState() { UpdatePlayState(0); }
+
+  static CVideoPlayer::SpeedChangeNotifications InvokeGetSpeedChangeNotifications(int previousSpeed,
+                                                                                  int newSpeed,
+                                                                                  bool isTempo)
+  {
+    return GetSpeedChangeNotifications(previousSpeed, newSpeed, isTempo);
+  }
 
   void SetCurrentVideoId(int id) { m_CurrentVideo.id = id; }
   void SetCurrentAudioId(int id) { m_CurrentAudio.id = id; }
+
+  void AddSubtitleStream(int typeIndex, int id, int source)
+  {
+    SelectionStream s;
+    s.type = StreamType::SUBTITLE;
+    s.type_index = typeIndex;
+    s.id = id;
+    s.source = source;
+    m_SelectionStreams.m_Streams.emplace_back(s);
+  }
+  void SetCurrentSubtitle(int id, int source)
+  {
+    m_CurrentSubtitle.id = id;
+    m_CurrentSubtitle.source = source;
+    m_CurrentSubtitle.demuxerId = -1;
+  }
+  void InvokeUpdateContentState() { UpdateContentState(); }
+  void InvokeForgetSubtitleSelection() { ForgetSubtitleSelection(); }
   void SetHasVideo(bool hasVideo) { m_HasVideo = hasVideo; }
   void SetHasAudio(bool hasAudio) { m_HasAudio = hasAudio; }
   bool GetHasVideo() const { return m_HasVideo; }
   bool GetHasAudio() const { return m_HasAudio; }
   void InvokeUpdateHasVideoAudio() { UpdateHasVideoAudio(); }
+
+  void SetItem(const CFileItem& item) { m_item = item; }
+  void SetInputStream(std::shared_ptr<CDVDInputStream> inputStream)
+  {
+    m_pInputStream = inputStream;
+  }
+  void SetDemuxer(std::unique_ptr<CDVDDemux> demuxer) { m_pDemuxer = std::move(demuxer); }
 
   constexpr static SeekStep ConvertTestSeekStep(TestSeekStep step)
   {
@@ -82,8 +135,15 @@ protected:
   static void SetUpTestSuite()
   {
     CServiceBroker::RegisterJobManager(std::make_shared<CJobManager>());
+    // The player is closed on the application thread in Kodi; without that, CRenderManager
+    // waits for a message nothing in the tests processes.
+    CServiceBroker::GetAppMessenger()->SetProcessThread(std::this_thread::get_id());
   }
-  static void TearDownTestSuite() { CServiceBroker::UnregisterJobManager(); }
+  static void TearDownTestSuite()
+  {
+    CServiceBroker::GetAppMessenger()->SetProcessThread({});
+    CServiceBroker::UnregisterJobManager();
+  }
 };
 
 TEST_F(TestVideoPlayer, GetPreviousBookmark)
@@ -209,6 +269,45 @@ TEST_F(TestVideoPlayer, UpdateHasVideoAudioKeepsFlagsWhenStreamsOpen)
 
   EXPECT_TRUE(player.GetHasVideo());
   EXPECT_TRUE(player.GetHasAudio());
+}
+
+TEST_F(TestVideoPlayer, SubtitleSelectionSurvivesTheStreamBeingClosed)
+{
+  // Hiding a bitmap subtitle closes its stream while it stays the selected one;
+  // recomputing indices on the next open must not drop that selection.
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+
+  player.AddSubtitleStream(0, 7, STREAM_SOURCE_DEMUX);
+  player.AddSubtitleStream(1, 8, STREAM_SOURCE_DEMUX);
+
+  player.SetCurrentSubtitle(8, STREAM_SOURCE_DEMUX);
+  player.InvokeUpdateContentState();
+  ASSERT_EQ(1, player.GetSubtitle());
+
+  player.SetCurrentSubtitle(-1, STREAM_SOURCE_NONE);
+  player.InvokeUpdateContentState();
+
+  EXPECT_EQ(1, player.GetSubtitle());
+}
+
+TEST_F(TestVideoPlayer, SubtitleSelectionDoesNotLeakIntoTheNextPlayback)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+
+  player.AddSubtitleStream(0, 7, STREAM_SOURCE_DEMUX);
+  player.SetCurrentSubtitle(7, STREAM_SOURCE_DEMUX);
+  player.InvokeUpdateContentState();
+  ASSERT_EQ(0, player.GetSubtitle());
+
+  // a new item, whether in a new player or opened in place, has no subtitle open when its first
+  // stream opens; the previous item's selection must not be reported against it
+  player.InvokeForgetSubtitleSelection();
+  player.SetCurrentSubtitle(-1, STREAM_SOURCE_NONE);
+  player.InvokeUpdateContentState();
+
+  EXPECT_EQ(-1, player.GetSubtitle());
 }
 
 TEST_F(TestVideoPlayer, CalcTimeOrPercentSeekTargetCompat)
@@ -364,4 +463,341 @@ TEST_F(TestVideoPlayer, CalcTimeOrPercentSeekTargetSmooth)
   EXPECT_EQ(advancedSettings->m_videoTimeSeekBackward * 1000,
             CTestVideoPlayer::InvokeCalcTimeOrPercentSeekTarget(0, maxTime, Direction::BACKWARD,
                                                                 TestSeekStep::NORMAL));
+}
+
+TEST_F(TestVideoPlayer, AudioFormatHoldIsWaitingForAudioNotCaching)
+{
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+  const int delay = settings->GetInt(CSettings::SETTING_AUDIOOUTPUT_DELAYFORMATCHANGE);
+  ASSERT_TRUE(settings->SetInt(CSettings::SETTING_AUDIOOUTPUT_DELAYFORMATCHANGE, 50));
+
+  CTestPlayerCallback callback;
+  CTestVideoPlayer player(callback);
+  player.InvokeUpdatePlayState();
+  const int cacheLevel = player.GetCacheLevel();
+
+  player.HoldForAudioFormatChange();
+  player.InvokeUpdatePlayState();
+  EXPECT_TRUE(player.IsWaitingForAudio());
+  EXPECT_GT(player.GetWaitingForAudioRemaining(), 90);
+  EXPECT_LE(player.GetWaitingForAudioRemaining(), 100);
+  EXPECT_FALSE(player.IsCaching());
+  EXPECT_EQ(cacheLevel, player.GetCacheLevel());
+
+  player.ReleaseAudioFormatHold();
+  player.InvokeUpdatePlayState();
+  EXPECT_FALSE(player.IsWaitingForAudio());
+  EXPECT_EQ(0, player.GetWaitingForAudioRemaining());
+
+  settings->SetInt(CSettings::SETTING_AUDIOOUTPUT_DELAYFORMATCHANGE, delay);
+}
+
+TEST_F(TestVideoPlayer, SyncWaitOnlyForPendingTimestamp)
+{
+  CTestPlayerCallback callback;
+  CTestVideoPlayer player(callback);
+  const std::chrono::steady_clock::time_point now{};
+  EXPECT_FALSE(player.InvokeShouldDeferSync(true, false, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now));
+  EXPECT_FALSE(player.InvokeShouldDeferSync(true, true, 1000000.0, DVD_NOPTS_VALUE, now));
+  EXPECT_FALSE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, 1000000.0, now));
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now));
+}
+
+TEST_F(TestVideoPlayer, SyncWaitStartsWhenAnchorReady)
+{
+  CTestPlayerCallback callback;
+  CTestVideoPlayer player(callback);
+  const std::chrono::steady_clock::time_point now{};
+  EXPECT_FALSE(player.InvokeShouldDeferSync(false, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now));
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 5s));
+  EXPECT_TRUE(
+      player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 6999ms));
+  EXPECT_FALSE(
+      player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 7s));
+  EXPECT_TRUE(
+      player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 10s));
+}
+
+TEST_F(TestVideoPlayer, SyncWaitClearsWhenTimestampArrives)
+{
+  CTestPlayerCallback callback;
+  CTestVideoPlayer player(callback);
+  const std::chrono::steady_clock::time_point now{};
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now));
+  EXPECT_FALSE(player.InvokeShouldDeferSync(true, false, DVD_NOPTS_VALUE, 1000000.0, now + 1s));
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 5s));
+}
+
+TEST_F(TestVideoPlayer, SyncWaitClearsWhenReadinessIsLost)
+{
+  CTestPlayerCallback callback;
+  CTestVideoPlayer player(callback);
+  const std::chrono::steady_clock::time_point now{};
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now));
+  EXPECT_FALSE(
+      player.InvokeShouldDeferSync(false, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 1s));
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 5s));
+}
+
+TEST_F(TestVideoPlayer, SyncWaitEndsForOrdinaryNoptsOutput)
+{
+  CTestPlayerCallback callback;
+  CTestVideoPlayer player(callback);
+  const std::chrono::steady_clock::time_point now{};
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now));
+  EXPECT_FALSE(
+      player.InvokeShouldDeferSync(true, false, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 1s));
+  EXPECT_TRUE(player.InvokeShouldDeferSync(true, true, DVD_NOPTS_VALUE, DVD_NOPTS_VALUE, now + 5s));
+}
+
+namespace
+{
+class CTestInputStream : public CDVDInputStream
+{
+public:
+  CTestInputStream(DVDStreamType type, const CFileItem& item) : CDVDInputStream(type, item) {}
+  int Read(uint8_t* buf, int buf_size) override { return 0; }
+  int64_t Seek(int64_t offset, int whence) override { return 0; }
+  int64_t GetLength() override { return 0; }
+  bool IsEOF() override { return false; }
+};
+
+class CTestDemux : public CDVDDemux
+{
+public:
+  explicit CTestDemux(bool streaming = false) : m_isStreaming(streaming) {}
+  bool Reset() override { return true; }
+  void Flush() override {}
+  void Abort() override {}
+  DemuxPacket* Read() override { return nullptr; }
+  bool SeekTime(double time, bool backwards = false, double* startpts = nullptr) override
+  {
+    return true;
+  }
+  CDemuxStream* GetStream(int iStreamId) const override { return nullptr; }
+  std::vector<CDemuxStream*> GetStreams() const override { return {}; }
+  int GetNrOfStreams() const override { return 0; }
+  bool IsStreaming() const override { return m_isStreaming; }
+
+private:
+  bool m_isStreaming{false};
+};
+} // namespace
+
+TEST_F(TestVideoPlayer, IsStreamingLocalFileReturnsFalse)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+
+  // Local files
+  player.SetItem(CFileItem("C:\\Videos\\movie.mkv", false));
+  EXPECT_FALSE(player.InvokeEvaluateIsStreaming());
+
+  player.SetItem(CFileItem("/home/user/video.mp4", false));
+  EXPECT_FALSE(player.InvokeEvaluateIsStreaming());
+
+  // Network shares
+  player.SetItem(CFileItem("smb://192.168.1.1/movies/video.mkv", false));
+  EXPECT_FALSE(player.InvokeEvaluateIsStreaming());
+
+  // Direct HTTP file playback
+  player.SetItem(CFileItem("http://example.com/video.mp4", false));
+  EXPECT_FALSE(player.InvokeEvaluateIsStreaming());
+}
+
+TEST_F(TestVideoPlayer, IsStreamingManifestExtensionsReturnsTrue)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+
+  player.SetItem(CFileItem("http://example.com/playlist.m3u8", false));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+
+  player.SetItem(CFileItem("https://example.com/manifest.ism", false));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+
+  player.SetItem(CFileItem("https://example.com/path1/path2.ism/manifest?query=foo", false));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+
+  player.SetItem(CFileItem("http://example.com/PLAYLIST.MPD", false));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+}
+
+TEST_F(TestVideoPlayer, IsStreamingMimeTypesReturnsTrue)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+
+  CFileItem itemHls("http://example.com/stream", false);
+  itemHls.SetMimeType("application/vnd.apple.mpegurl");
+  player.SetItem(itemHls);
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+
+  CFileItem itemDash("http://example.com/stream", false);
+  itemDash.SetMimeType("application/dash+xml");
+  player.SetItem(itemDash);
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+
+  itemDash.SetMimeType("APPLICATION/DASH+XML");
+  player.SetItem(itemDash);
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+}
+
+TEST_F(TestVideoPlayer, IsStreamingItemPropertiesReturnsTrue)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+
+  CFileItem itemAddon("http://example.com/stream", false);
+  itemAddon.SetProperty(STREAM_PROPERTY_INPUTSTREAM, "inputstream.adaptive");
+  player.SetItem(itemAddon);
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+}
+
+TEST_F(TestVideoPlayer, IsStreamingInputStreamTypes)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+  CFileItem item("http://example.com/generic", false);
+  player.SetItem(item);
+
+  //! @todo should partially move into InputStream unit tests and leave the test of IsStreaming here
+
+  // File inputstream -> false
+  player.SetInputStream(std::make_shared<CTestInputStream>(DVDSTREAM_TYPE_FILE, item));
+  EXPECT_FALSE(player.InvokeEvaluateIsStreaming());
+
+  // Addon inputstream (ex. inputstream.adaptive)
+  player.SetInputStream(std::make_shared<CTestInputStream>(DVDSTREAM_TYPE_ADDON, item));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+
+  // FFmpeg inputstream
+  player.SetInputStream(std::make_shared<CTestInputStream>(DVDSTREAM_TYPE_FFMPEG, item));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+}
+
+TEST_F(TestVideoPlayer, IsStreamingDemuxerReturnsTrue)
+{
+  CTestPlayerCallback playercallback;
+  CTestVideoPlayer player(playercallback);
+  CFileItem item("http://example.com/generic", false);
+  player.SetItem(item);
+
+  player.SetDemuxer(std::make_unique<CTestDemux>(false));
+  EXPECT_FALSE(player.InvokeEvaluateIsStreaming());
+
+  player.SetDemuxer(std::make_unique<CTestDemux>(true));
+  EXPECT_TRUE(player.InvokeEvaluateIsStreaming());
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_ResumeToNormalFromPause)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      DVD_PLAYSPEED_PAUSE, DVD_PLAYSPEED_NORMAL, false);
+  EXPECT_FALSE(notifications.resumed);
+  EXPECT_FALSE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_ResumeToTempoFromPause)
+{
+  const auto notifications =
+      CTestVideoPlayer::InvokeGetSpeedChangeNotifications(DVD_PLAYSPEED_PAUSE, 1200, true);
+  EXPECT_FALSE(notifications.resumed);
+  EXPECT_FALSE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_FFFromPause)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      DVD_PLAYSPEED_PAUSE, 2 * DVD_PLAYSPEED_NORMAL, false);
+  EXPECT_TRUE(notifications.resumed);
+  EXPECT_TRUE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_RWFromPause)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      DVD_PLAYSPEED_PAUSE, -2 * DVD_PLAYSPEED_NORMAL, false);
+  EXPECT_TRUE(notifications.resumed);
+  EXPECT_TRUE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_SpeedChangeWhilePlaying)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      2 * DVD_PLAYSPEED_NORMAL, 4 * DVD_PLAYSPEED_NORMAL, false);
+  EXPECT_FALSE(notifications.resumed);
+  EXPECT_TRUE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_ReturnToNormalFromFF)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      2 * DVD_PLAYSPEED_NORMAL, DVD_PLAYSPEED_NORMAL, false);
+  EXPECT_FALSE(notifications.resumed);
+  EXPECT_TRUE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_PauseFromPlaying)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      DVD_PLAYSPEED_NORMAL, DVD_PLAYSPEED_PAUSE, false);
+  EXPECT_FALSE(notifications.resumed);
+  EXPECT_FALSE(notifications.speedChanged);
+}
+
+TEST_F(TestVideoPlayer, GetSpeedChangeNotifications_NoActualChange)
+{
+  const auto notifications = CTestVideoPlayer::InvokeGetSpeedChangeNotifications(
+      2 * DVD_PLAYSPEED_NORMAL, 2 * DVD_PLAYSPEED_NORMAL, false);
+  EXPECT_FALSE(notifications.resumed);
+  EXPECT_FALSE(notifications.speedChanged);
+}
+
+TEST(TestDVDOverlayContainer, DiscMenusHaveIndependentLifetimes)
+{
+  for (const bool forced : {false, true})
+  {
+    CDVDOverlayContainer container;
+    auto menu = std::make_shared<CDVDOverlayGroup>();
+    menu->bForced = true;
+    menu->SetDiscMenu(true);
+    menu->SetOverlayContainerFlushable(false);
+    container.ProcessAndAddOverlayIfValid(menu);
+
+    auto subtitle = std::make_shared<CDVDOverlay>(DVDOVERLAY_TYPE_IMAGE);
+    subtitle->bForced = forced;
+    subtitle->iPTSStartTime = 1000000;
+    subtitle->iPTSStopTime = 4000000;
+    container.ProcessAndAddOverlayIfValid(subtitle);
+    EXPECT_EQ(menu->iPTSStopTime, 0.0);
+
+    container.CleanUp(1500000);
+    ASSERT_EQ(container.GetSize(), 2u);
+    EXPECT_EQ(container.GetSubtitleSize(), 1u);
+    EXPECT_EQ(container.GetOverlays()->front(), subtitle);
+    EXPECT_EQ(container.GetOverlays()->back(), menu);
+
+    auto replacement = std::make_shared<CDVDOverlayGroup>();
+    replacement->bForced = true;
+    replacement->iPTSStartTime = 2000000;
+    replacement->SetDiscMenu(true);
+    replacement->SetOverlayContainerFlushable(false);
+    container.ProcessAndAddOverlayIfValid(replacement);
+    EXPECT_EQ(menu->iPTSStopTime, 2000000.0);
+    EXPECT_EQ(subtitle->iPTSStopTime, 4000000.0);
+
+    container.CleanUp(2500000);
+    ASSERT_EQ(container.GetSize(), 2u);
+    EXPECT_EQ(container.GetOverlays()->front(), subtitle);
+
+    container.ClearSubtitles();
+    ASSERT_EQ(container.GetSize(), 1u);
+    EXPECT_EQ(container.GetOverlays()->front(), replacement);
+    container.Flush();
+    ASSERT_EQ(container.GetSize(), 1u);
+    EXPECT_EQ(container.GetOverlays()->front(), replacement);
+    container.Clear();
+    EXPECT_EQ(container.GetSize(), 0u);
+  }
 }

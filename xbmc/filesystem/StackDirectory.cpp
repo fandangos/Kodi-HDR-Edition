@@ -76,6 +76,14 @@ std::string CStackDirectory::GetStackTitlePath(const std::string& strPath)
         return false;
       }()};
 
+  // A resolved bluray part is named by its disc image rather than by its playlist
+  const auto partFile{[](const CFileItem& part)
+                      {
+                        return URIUtils::IsBlurayPath(part.GetPath())
+                                   ? URIUtils::GetDiscFile(part.GetPath())
+                                   : part.GetPath();
+                      }};
+
   const std::string commonPath{URIUtils::GetParentPath(strPath)};
   std::vector<StackPart> stackParts;
   for (const auto& part : parts)
@@ -100,7 +108,7 @@ std::string CStackDirectory::GetStackTitlePath(const std::string& strPath)
     else
     {
       // File stack
-      std::string fileName{URIUtils::GetFileName(part->GetPath())};
+      std::string fileName{URIUtils::GetFileName(partFile(*part))};
 
       std::vector<CRegExp> fileRegExps =
           CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoStackRegExps;
@@ -127,10 +135,19 @@ std::string CStackDirectory::GetStackTitlePath(const std::string& strPath)
   if (!stackParts.empty() &&
       std::ranges::adjacent_find(stackParts, std::not_equal_to{}) == stackParts.end())
   {
+    // Part folders named by their part alone are inside the movie's own folder, so the title
+    // is that folder's name and the title path stays inside it
+    if (isFolderStack && stackParts[0].title.empty())
+    {
+      std::string folder{commonPath};
+      URIUtils::RemoveSlashAtEnd(folder);
+      stackParts[0].title = URIUtils::GetFileName(folder);
+    }
+
     // Create stacked title
     stackTitle = stackParts[0].title + stackParts[0].volume +
                  (isFolderStack ? (URIUtils::IsDOSPath(commonPath) ? "\\" : "/")
-                                : URIUtils::GetExtension(parts[0]->GetPath()));
+                                : URIUtils::GetExtension(partFile(*parts[0])));
 
     // Check if source path uses URL encoding
     if (!isFolderStack && URIUtils::HasEncodedFilename(CURL(commonPath)))
@@ -237,6 +254,91 @@ bool CStackDirectory::ConstructStackPath(const std::vector<std::string>& paths,
 std::string CStackDirectory::GetParentPath(const std::string& stackPath)
 {
   return GetBasePath(stackPath);
+}
+
+namespace
+{
+// Whether a path refers to a disc (bluray://, VIDEO_TS, BDMV, or disc image)
+bool IsDiscPart(const std::string& path)
+{
+  return URIUtils::IsBlurayPath(path) || URIUtils::IsBDFile(path) || URIUtils::IsDVDFile(path) ||
+         URIUtils::IsDiscImage(path);
+}
+
+} // unnamed namespace
+
+bool CStackDirectory::HasDiscPart(const std::string& stackPath)
+{
+  std::vector<std::string> paths;
+  if (!URIUtils::IsStack(stackPath) || !GetPaths(stackPath, paths))
+    return false;
+
+  return std::ranges::any_of(paths, IsDiscPart);
+}
+
+bool CStackDirectory::IsSameDiscStack(const std::string& stackPath,
+                                      const std::string& otherStackPath)
+{
+  std::vector<std::string> paths;
+  std::vector<std::string> otherPaths;
+  if (!URIUtils::IsStack(stackPath) || !URIUtils::IsStack(otherStackPath) ||
+      !GetPaths(stackPath, paths) || !GetPaths(otherStackPath, otherPaths) || paths.empty() ||
+      paths.size() != otherPaths.size())
+    return false;
+
+  for (size_t part{0}; part < paths.size(); ++part)
+  {
+    const std::string& path{paths[part]};
+    const std::string& otherPath{otherPaths[part]};
+
+    // A disc is compared as a disc and not as a path
+    if (IsDiscPart(path) && IsDiscPart(otherPath))
+    {
+      if (!URIUtils::CompareDiscPaths(path, otherPath))
+        return false;
+
+      // When both sides name a playlist it has to be the same one
+      if (URIUtils::IsBlurayPath(path) && URIUtils::IsBlurayPath(otherPath) &&
+          CURL(path).GetFileName() != CURL(otherPath).GetFileName())
+        return false;
+
+      continue;
+    }
+
+    // Neither is a disc
+    if (!URIUtils::PathEquals(path, otherPath, true, true))
+      return false;
+  }
+  return true;
+}
+
+std::vector<StackPartPlaylist> CStackDirectory::GetRelativePartPlaylists(
+    const std::string& stackPath)
+{
+  std::vector<StackPartPlaylist> parts;
+
+  std::vector<std::string> paths;
+  if (!GetPaths(stackPath, paths))
+    return parts;
+
+  const std::string base{GetBasePath(stackPath)};
+
+  for (const std::string& path : paths)
+  {
+    const int playlist{URIUtils::GetBlurayPlaylistFromPath(path)};
+    if (playlist == -1)
+      continue;
+
+    std::string discFile{URIUtils::GetDiscFile(path)};
+    if (!URIUtils::PathHasParent(discFile, base))
+      continue;
+
+    discFile.erase(0, base.size());
+    StringUtils::Replace(discFile, '\\', '/');
+
+    parts.push_back({std::move(discFile), playlist});
+  }
+  return parts;
 }
 
 std::string CStackDirectory::GetBasePath(const std::string& stackPath)

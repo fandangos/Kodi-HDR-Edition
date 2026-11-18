@@ -96,7 +96,7 @@ protected:
   virtual void FreeTextures(bool immediately = false);
   void FreeResourcesButNotAnims();
   unsigned char GetFadeLevel(unsigned int time) const;
-  std::string GetFallback(const std::string& currentName);
+  std::string GetFallback(const std::string& currentName) const;
   void ProcessState();
   void ProcessAllocation();
   void ProcessInstantTransition();
@@ -121,6 +121,7 @@ protected:
 
   bool m_isTransitioning{false};
   bool m_hasNewStagingTexture{false};
+  bool m_useCacheStaging{true};
 
   std::unique_ptr<CGUITexture> m_textureCurrent;
   std::unique_ptr<CGUITexture> m_textureNext;

@@ -1,7 +1,22 @@
-set(SOURCES TestGUIControlFactory.cpp
+set(SOURCES TestFFmpegImage.cpp
+            TestGUIColorManager.cpp
+            TestGUIControlFactory.cpp
+            TestGUIControlProfiler.cpp
+            TestGUIControlGroup.cpp
+            TestGUIControlGroupMask.cpp
+            TestGUIControlGroupMaskD3D.cpp
+            TestGUIControlGroupMaskGLES.cpp
             TestGamesGUIInfo.cpp
+            TestGUIFixedListContainer.cpp
+            TestGUIFontManager.cpp
+            TestGUIFontTTF.cpp
+            TestGUIImage.cpp
+            TestGUIPanelContainer.cpp
             TestGUILabel.cpp
+            TestGUIListItemLayout.cpp
             TestGUITextLayout.cpp
+            TestGUITexture.cpp
+            TestGUIWindowOnAction.cpp
             TestSkinMapManager.cpp
 )
 

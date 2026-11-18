@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <string_view>
+
 class CFileItem;
 
 namespace KODI::VIDEO
@@ -25,6 +27,12 @@ bool IsDVDFile(const CFileItem& item, bool bVobs = true, bool bIfos = true);
 //! \brief Checks whether item points to a protected blu-ray disc.
 bool IsProtectedBlurayDisc(const CFileItem& item);
 
+/*! \brief Check whether an item is a folder in its own right, as opposed to a movie with
+ versions or extras that a list presents as one so that it can navigate to them.
+ \sa CVideoDatabase::GetMoviesByWhere()
+ */
+bool IsBrowsableFolder(const CFileItem& item);
+
 //! \brief Check whether an item is a subtitle file.
 bool IsSubtitle(const CFileItem& item);
 
@@ -40,6 +48,12 @@ bool IsVideoAssetFile(const CFileItem& item);
 
 //! \brief Check whether an item is a video database item.
 bool IsVideoDb(const CFileItem& item);
+
+//! \brief Check whether a folder name is that of a video extras folder, eg. "Extras",
+//!        "Bonus Disc", "Bonus Content" or "Bonus Features".
+//! \param[in] name the name of the folder, without path or trailing separator
+//! \return true if it is, false otherwise
+bool IsVideoExtrasFolderName(std::string_view name);
 
 //! \brief Check whether an item is a video extras folder item.
 bool IsVideoExtrasFolder(const CFileItem& item);

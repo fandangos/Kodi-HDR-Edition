@@ -121,6 +121,10 @@ namespace XBMCAddon
       XBMC_TRACE;
 
       deallocating();
+
+      // the window manager owns the windows we create, but not the proxy of an existing one
+      if (existingWindow)
+        delete window;
     }
 
     void Window::deallocating()
@@ -277,6 +281,7 @@ namespace XBMCAddon
       switch(pGUIControl->GetControlType())
       {
       case CGUIControl::GUICONTROL_BUTTON:
+      case CGUIControl::GUICONTROL_TOGGLEBUTTON:
         pControl = new ControlButton();
 
         li = ((CGUIButtonControl *)pGUIControl)->GetLabelInfo();

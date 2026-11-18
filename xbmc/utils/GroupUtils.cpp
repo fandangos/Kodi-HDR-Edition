@@ -13,6 +13,7 @@
 #include "filesystem/MultiPathDirectory.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
+#include "video/VideoDbPaths.h"
 #include "video/VideoDbUrl.h"
 #include "video/VideoFileItemClassify.h"
 #include "video/VideoInfoTag.h"
@@ -75,9 +76,9 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
       CFileItemPtr pItem(
           new CFileItem((*set->second.begin())->GetVideoInfoTag()->m_set.GetTitle()));
       pItem->GetVideoInfoTag()->m_iDbId = set->first;
-      pItem->GetVideoInfoTag()->m_type = MediaTypeVideoCollection;
+      pItem->GetVideoInfoTag()->SetMediaType(MEDIA::TYPE::VIDEO_COLLECTION);
 
-      std::string basePath = StringUtils::Format("videodb://movies/sets/{}/", set->first);
+      std::string basePath = StringUtils::Format("{}{}/", VIDEO::DB_PATH::MOVIE_SETS, set->first);
       CVideoDbUrl videoUrl;
       if (!videoUrl.FromString(basePath))
         pItem->SetPath(basePath);
@@ -91,6 +92,7 @@ bool GroupUtils::Group(GroupBy groupBy, const std::string &baseDir, const CFileI
       CVideoInfoTag* setInfo = pItem->GetVideoInfoTag();
       setInfo->m_strPath = pItem->GetPath();
       setInfo->m_strTitle = pItem->GetLabel();
+      setInfo->m_strSortTitle = (*set->second.begin())->GetVideoInfoTag()->m_set.GetSortTitle();
       setInfo->m_strPlot = (*set->second.begin())->GetVideoInfoTag()->m_set.GetOverview();
 
       int ratings = 0;

@@ -66,6 +66,16 @@ public:
     }
   }
 
+  // The error averaged so far, before the interval of Get() is over.
+  bool GetSoFar(double& error) const
+  {
+    if (!m_count)
+      return false;
+
+    error = Get();
+    return true;
+  }
+
   double GetLastError(unsigned int &time)
   {
     time = m_timer.GetStartTime().time_since_epoch().count();
@@ -160,6 +170,7 @@ public:
   double GetMaxDelay() override;
 
   void Pause() override;
+  void Hold() override;
   void Resume() override;
   void Drain(bool wait) override;
   bool IsDraining() override;
@@ -179,6 +190,7 @@ public:
 
   unsigned int GetSampleRate() const override ;
   enum AEDataFormat GetDataFormat() const override;
+  bool HasSinkFormatChanged() const override;
 
   double GetResampleRatio() override;
   void SetResampleRatio(double ratio) override;
@@ -241,11 +253,15 @@ protected:
   double m_clockSpeed;
   enum AVMatrixEncoding m_matrixEncoding;
   enum AVAudioServiceType m_audioServiceType;
+  //! Set by CActiveAE when it reinitialises the sink under this stream.
+  std::atomic<bool> m_sinkFormatChanged{false};
   bool m_forceResampler;
   IAEClockCallback *m_pClock;
   CSyncError m_syncError;
   double m_lastSyncError;
   CAESyncInfo::AESyncState m_syncState;
+  // Whether late audio was left to the player's clock and no error was averaged since
+  bool m_lateStartHandedOver{false};
 };
 }
 

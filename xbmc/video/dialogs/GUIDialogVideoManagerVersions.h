@@ -35,15 +35,21 @@ public:
    * additional version of it.
    * \param[in] itemType content type of dbId
    * \param[in] dbId id of the movie to convert
+   * \param[in] videodb database connection to use
    * \param[in] targetDbId when >= 0, skip searching the library for a similar movie and
    * reuse this movie id as the merge target instead - used to apply a merge decision already
    * made for an earlier, related item (e.g. another bluray playlist on the same disc) without
    * re-prompting for the same target.
+   * \param[in] canBecomeDefault when false, the version is added without becoming the default one,
+   * whatever the New Versions Are Default setting says - used for the second and subsequent
+   * playlists of a bluray, which would otherwise each displace the main one as the default
    * \return a pair containing the result of the conversion and the id of the movie ends up attached to as a new version, -1 if not converted
    */
   static std::pair<VersionConversionResult, int> ProcessVideoVersion(VideoDbContentType itemType,
                                                                      int dbId,
-                                                                     int targetDbId = -1);
+                                                                     CVideoDatabase& videodb,
+                                                                     int targetDbId = -1,
+                                                                     bool canBecomeDefault = true);
 
   /*!
    * \brief Strip a trailing part/disc number from a movie's title, if present, and persist the
@@ -75,19 +81,24 @@ protected:
   void Remove() override;
 
 private:
-  enum class ReplaceExistingFile : bool
-  {
-    NO,
-    YES
-  };
-
   void SetDefaultVideoVersion(const CFileItem& version);
   /*!
    * \brief Prompt the user to select a file / movie to add as version
    * \return true if a version was added, false otherwise.
    */
   bool AddVideoVersion();
+
+  /*!
+   * \brief Set as default button handler
+   */
   void SetDefault();
+
+  /*!
+   * \brief Ungroup button handler
+   */
+  void Ungroup();
+  bool UngroupImpl();
+
   void UpdateDefaultVideoVersionSelection();
 
   enum class Mode
@@ -189,15 +200,6 @@ private:
    * \param[in] dbId item to remove from the list
    */
   static void PostProcessList(CFileItemList& list, int dbId);
-
-  /*!
-   * \brief Prompts the user to choose a playlist from the current disc
-   * \param item the current CFileItem
-   * \param replaceExistingFile whether to replace the existing playlist in the database
-   * \return true for success, false otherwise.
-   */
-  bool ChoosePlaylist(const std::shared_ptr<CFileItem>& item,
-                      ReplaceExistingFile replaceExistingFile);
 
   std::shared_ptr<CFileItem> m_defaultVideoVersion;
 };

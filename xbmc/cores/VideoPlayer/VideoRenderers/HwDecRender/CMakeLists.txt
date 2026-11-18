@@ -38,6 +38,10 @@ if(CORE_SYSTEM_NAME STREQUAL darwin_embedded)
   if(TARGET ${APP_NAME_LC}::OpenGLES)
     list(APPEND SOURCES RendererVTBGLES.cpp)
     list(APPEND HEADERS RendererVTBGLES.h)
+    if(CORE_PLATFORM_NAME_LC STREQUAL tvos)
+      list(APPEND SOURCES RendererVTBDisplayLayer.mm)
+      list(APPEND HEADERS RendererVTBDisplayLayer.h)
+    endif()
   endif()
 endif()
 
@@ -46,6 +50,13 @@ if(CORE_SYSTEM_NAME STREQUAL android)
                       RendererMediaCodecSurface.cpp)
   list(APPEND HEADERS RendererMediaCodec.h
                       RendererMediaCodecSurface.h)
+endif()
+
+if(CORE_SYSTEM_NAME STREQUAL wasm)
+  list(APPEND SOURCES RendererWasmMedia.cpp
+                      RendererWebCodecs.cpp)
+  list(APPEND HEADERS RendererWasmMedia.h
+                      RendererWebCodecs.h)
 endif()
 
 if("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_LC)
@@ -58,8 +69,10 @@ if("gbm" IN_LIST CORE_PLATFORM_NAME_LC OR "wayland" IN_LIST CORE_PLATFORM_NAME_L
 
   if(TARGET ${APP_NAME_LC}::OpenGLES)
     list(APPEND SOURCES RendererDRMPRIMEGLES.cpp
+                        DRMPRIMECaptureGLES.cpp
                         DRMPRIMEEGL.cpp)
     list(APPEND HEADERS RendererDRMPRIMEGLES.h
+                        DRMPRIMECaptureGLES.h
                         DRMPRIMEEGL.h)
   endif()
 endif()

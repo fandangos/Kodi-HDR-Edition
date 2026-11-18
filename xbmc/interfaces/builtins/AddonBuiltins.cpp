@@ -104,6 +104,9 @@ static int RunPlugin(const std::vector<std::string>& params)
   return 0;
 }
 
+template<bool OnlyApple = false>
+static int RunScript(const std::vector<std::string>& params);
+
 /*! \brief Run a script, plugin or game add-on.
  *  \param params The parameters.
  *  \details params[0] = add-on id.
@@ -115,13 +118,13 @@ static int RunPlugin(const std::vector<std::string>& params)
  */
 static int RunAddon(const std::vector<std::string>& params)
 {
+  auto& addonMgr{CServiceBroker::GetAddonMgr()};
   if (!params.empty())
   {
     const std::string& addonid = params[0];
 
     AddonPtr addon;
-    if (CServiceBroker::GetAddonMgr().GetAddon(addonid, addon, AddonType::PLUGIN,
-                                               OnlyEnabled::CHOICE_YES))
+    if (addonMgr.GetAddon(addonid, addon, AddonType::PLUGIN, OnlyEnabled::CHOICE_YES))
     {
       const auto plugin = std::dynamic_pointer_cast<CPluginSource>(addon);
       std::string urlParameters;
@@ -163,22 +166,21 @@ static int RunAddon(const std::vector<std::string>& params)
         cmd = StringUtils::Format("RunPlugin({})", StringUtils::Join(params, ","));
       CBuiltins::GetInstance().Execute(cmd);
     }
-    else if (CServiceBroker::GetAddonMgr().GetAddon(addonid, addon, AddonType::SCRIPT,
+    else if (addonMgr.GetAddon(addonid, addon, AddonType::SCRIPT,
                                                     OnlyEnabled::CHOICE_YES) ||
-             CServiceBroker::GetAddonMgr().GetAddon(addonid, addon, AddonType::SCRIPT_WEATHER,
+             addonMgr.GetAddon(addonid, addon, AddonType::SCRIPT_WEATHER,
                                                     OnlyEnabled::CHOICE_YES) ||
-             CServiceBroker::GetAddonMgr().GetAddon(addonid, addon, AddonType::SCRIPT_LYRICS,
+             addonMgr.GetAddon(addonid, addon, AddonType::SCRIPT_LYRICS,
                                                     OnlyEnabled::CHOICE_YES) ||
-             CServiceBroker::GetAddonMgr().GetAddon(addonid, addon, AddonType::SCRIPT_LIBRARY,
+             addonMgr.GetAddon(addonid, addon, AddonType::SCRIPT_LIBRARY,
                                                     OnlyEnabled::CHOICE_YES))
     {
-      // Pass the script name (addonid) and all the parameters
-      // (params[1] ... params[x]) separated by a comma to RunScript
-      CBuiltins::GetInstance().Execute(
-          StringUtils::Format("RunScript({})", StringUtils::Join(params, ",")));
+      // RunScript takes the vector as it stands. Routing it through a builtin string would
+      // re-parse it with CUtil::SplitParams, which ends a parameter at any comma not inside
+      // quotes.
+      RunScript(params);
     }
-    else if (CServiceBroker::GetAddonMgr().GetAddon(addonid, addon, AddonType::GAMEDLL,
-                                                    OnlyEnabled::CHOICE_YES))
+    else if (addonMgr.GetAddon(addonid, addon, AddonType::GAMEDLL, OnlyEnabled::CHOICE_YES))
     {
       CFileItem item;
 
@@ -221,7 +223,7 @@ static int RunAddon(const std::vector<std::string>& params)
  *           Set the OnlyApple template parameter to true to only attempt
  *           execution of applescripts.
  */
-template<bool OnlyApple=false>
+template<bool OnlyApple>
 static int RunScript(const std::vector<std::string>& params)
 {
 #if defined(TARGET_DARWIN_OSX)

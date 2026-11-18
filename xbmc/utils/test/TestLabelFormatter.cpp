@@ -7,8 +7,10 @@
  */
 
 #include "FileItem.h"
+#include "FileItemList.h"
 #include "ServiceBroker.h"
 #include "filesystem/File.h"
+#include "music/tags/MusicInfoTag.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "test/TestUtils.h"
@@ -66,4 +68,88 @@ TEST_F(TestLabelFormatter, FormatLabel2)
   formatter.FormatLabel2(item.get());
 
   EXPECT_TRUE(XBMC_DELETETEMPFILE(tmpfile));
+}
+
+TEST_F(TestLabelFormatter, AListIsLabelledByTheMasksOfEachKind)
+{
+  const auto file = std::make_shared<CFileItem>("file.mkv", false);
+  file->SetLabel("one");
+  const auto folder = std::make_shared<CFileItem>("folder/", true);
+  folder->SetLabel("two");
+  const auto preformatted = std::make_shared<CFileItem>("other.mkv", false);
+  preformatted->SetLabel("three");
+  preformatted->SetLabelPreformatted(true);
+
+  CFileItemList items;
+  items.Add(file);
+  items.Add(folder);
+  items.Add(preformatted);
+
+  CLabelFormatter::FormatItemLabels(items, LABEL_MASKS("[file %L]", "", "[folder %L]", ""));
+
+  EXPECT_EQ("file one", file->GetLabel());
+  EXPECT_EQ("folder two", folder->GetLabel());
+  EXPECT_EQ("three", preformatted->GetLabel());
+}
+
+class TestLabelFormatterHiddenExtensions : public testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+    m_showExtensions = settings->GetBool(CSettings::SETTING_FILELISTS_SHOWEXTENSIONS);
+    settings->SetBool(CSettings::SETTING_FILELISTS_SHOWEXTENSIONS, false);
+  }
+
+  void TearDown() override
+  {
+    CServiceBroker::GetSettingsComponent()->GetSettings()->SetBool(
+        CSettings::SETTING_FILELISTS_SHOWEXTENSIONS, m_showExtensions);
+  }
+
+  static std::string LabelFor(const std::string& path, const std::string& label)
+  {
+    CFileItem item;
+    item.SetPath(path);
+    item.SetLabel(label);
+    item.SetFolder(false);
+
+    CLabelFormatter formatter("%L", "");
+    formatter.FormatLabel(&item);
+    return item.GetLabel();
+  }
+
+private:
+  bool m_showExtensions{true};
+};
+
+TEST_F(TestLabelFormatterHiddenExtensions, HidesTheExtensionOfAnEscapedName)
+{
+  EXPECT_EQ("file_name", LabelFor("davs://server/files/file_name.mkv", "file_name.mkv"));
+  EXPECT_EQ("file name", LabelFor("davs://server/files/file%20name.mkv", "file name.mkv"));
+}
+
+TEST_F(TestLabelFormatterHiddenExtensions, KeepsAPlusInTheName)
+{
+  EXPECT_EQ("C++ Collection",
+            LabelFor("smb://server/share/C++ Collection.mkv", "C++ Collection.mkv"));
+}
+
+TEST_F(TestLabelFormatter, FillMusicTagReadsTheRatingAsANumber)
+{
+  CLabelFormatter formatter("%A - %R", "");
+  MUSIC_INFO::CMusicInfoTag tag;
+
+  ASSERT_TRUE(formatter.FillMusicTag("Artist - 7", &tag));
+  EXPECT_EQ(7.0f, tag.GetRating());
+}
+
+TEST_F(TestLabelFormatter, FillMusicTagReadsTheUserRatingAsANumber)
+{
+  CLabelFormatter formatter("%A - %r", "");
+  MUSIC_INFO::CMusicInfoTag tag;
+
+  ASSERT_TRUE(formatter.FillMusicTag("Artist - 7", &tag));
+  EXPECT_EQ(7, tag.GetUserrating());
 }

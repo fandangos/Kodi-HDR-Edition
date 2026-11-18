@@ -478,7 +478,7 @@ bool CAlbum::Load(const TiXmlElement *album, bool append, bool prioritise)
   // Support old style <year></year> for backwards compatibility
   if (strReleaseDate.empty())
   {
-    int year;
+    int year = 0;
     XMLUtils::GetInt(album, "year", year);
     if (year > 0)
       strReleaseDate = StringUtils::Format("{:04}", year);
@@ -577,6 +577,8 @@ bool CAlbum::Save(TiXmlNode *node, const std::string &tag, const std::string& st
 
   // we start with a <tag> tag
   TiXmlElement albumElement(tag.c_str());
+  if (tag == "album")
+    albumElement.SetAttribute("version", 0);
   TiXmlNode *album = node->InsertEndChild(albumElement);
 
   if (!album) return false;

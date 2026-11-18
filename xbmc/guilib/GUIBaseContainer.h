@@ -20,6 +20,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -123,6 +124,7 @@ protected:
   virtual void UpdateLayout(bool refreshAllItems = false);
   virtual void SetPageControlRange();
   virtual void UpdatePageControl(int offset);
+  void StartPageChangeTimer();
   virtual void CalculateLayout();
   virtual void SelectItem(int item) {}
   virtual bool SelectItemFromPoint(const CPoint& point) { return false; }
@@ -130,6 +132,27 @@ protected:
   virtual void Reset();
   virtual size_t GetNumItems() const { return m_items.size(); }
   virtual int GetCurrentPage() const;
+  /*!
+   * \brief Get the number of fully visible items in the container area.
+   * \note Use for page navigation, not for layout/rendering where partially visible items matter.
+   * \return Cached number of items fully visible in the current viewport when the screen range can
+   *         be determined. Falls back to the calculated item count, which can include partially
+   *         visible items.
+   */
+  int GetPageSize() const;
+  /*! \brief Calculate and cache the page navigation size.
+   \param force recalculate even if the visible screen range has not changed.
+   \return true if the cached page size changed, false otherwise.
+   */
+  bool CalculatePageSize(bool force = true);
+  /*! \brief Calculate and cache the visible screen range for this container. */
+  virtual bool CalculateScreenRange();
+  /*! \brief Get the visible screen range for this container's scroll orientation in skin coordinates.
+   \param screenStart start of the visible screen range.
+   \param screenEnd end of the visible screen range.
+   \return true if the cached screen range was determined, false otherwise.
+   */
+  bool GetScreenRange(float& screenStart, float& screenEnd) const;
   bool InsideLayout(const CGUIListItemLayout *layout, const CPoint &point) const;
   void OnFocus() override;
   void OnUnFocus() override;
@@ -146,11 +169,21 @@ protected:
   unsigned int m_lastHoldTime;
 
   ORIENTATION m_orientation;
-  int m_itemsPerPage;
+  int m_itemsPerPage; ///< \brief number of layout slots in the container area, including partial slots
+  int m_pageSize; ///< \brief cached number of fully visible items used for page navigation
+  int m_pageSizeCursor; ///< \brief cursor position used to calculate the cached page size
+  bool m_hasScreenRange;
+  float m_screenStart;
+  float m_screenEnd;
 
   std::vector<std::shared_ptr<CGUIListItem>> m_items;
   typedef std::vector<std::shared_ptr<CGUIListItem>>::iterator iItems;
   std::shared_ptr<CGUIListItem> m_lastItem;
+
+  // Items dropped by Reset(). The destructor releases the layouts of any that
+  // are still alive, while this container (their layouts' parent) exists.
+  std::set<std::weak_ptr<CGUIListItem>, std::owner_less<std::weak_ptr<CGUIListItem>>>
+      m_releasedItems;
 
   int m_pageControl;
   std::optional<int>
@@ -262,5 +295,3 @@ private:
   bool m_waitForScrollEnd = false;
   float m_lastScrollValue = 0.0f;
 };
-
-

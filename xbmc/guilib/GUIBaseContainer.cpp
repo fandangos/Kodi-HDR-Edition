@@ -29,6 +29,7 @@
 #include "utils/StringUtils.h"
 #include "utils/TimeUtils.h"
 #include "utils/log.h"
+#include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
 
 #include <algorithm>
@@ -70,6 +71,11 @@ CGUIBaseContainer::CGUIBaseContainer(int parentID,
   m_offset = 0;
   m_lastHoldTime = 0;
   m_itemsPerPage = 10;
+  m_pageSize = 10;
+  m_pageSizeCursor = 0;
+  m_hasScreenRange = false;
+  m_screenStart = 0.0f;
+  m_screenEnd = 0.0f;
   m_pageControl = 0;
   m_orientation = orientation;
   m_analogScrollCount = 0;
@@ -92,6 +98,11 @@ CGUIBaseContainer::CGUIBaseContainer(const CGUIBaseContainer& other)
     m_lastHoldTime(other.m_lastHoldTime),
     m_orientation(other.m_orientation),
     m_itemsPerPage(other.m_itemsPerPage),
+    m_pageSize(other.m_pageSize),
+    m_pageSizeCursor(other.m_pageSizeCursor),
+    m_hasScreenRange(other.m_hasScreenRange),
+    m_screenStart(other.m_screenStart),
+    m_screenEnd(other.m_screenEnd),
     m_pageControl(other.m_pageControl),
     m_layoutCondition(other.m_layoutCondition),
     m_focusedLayoutCondition(other.m_focusedLayoutCondition),
@@ -138,6 +149,12 @@ CGUIBaseContainer::~CGUIBaseContainer(void)
   // release the container from items
   for (const auto& item : m_items)
     item->FreeMemory();
+
+  for (const auto& weakItem : m_releasedItems)
+  {
+    if (const auto item = weakItem.lock())
+      item->FreeMemory();
+  }
 }
 
 void CGUIBaseContainer::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregions)
@@ -165,6 +182,8 @@ void CGUIBaseContainer::Process(unsigned int currentTime, CDirtyRegionList &dirt
 
   if (m_bInvalidated)
     UpdateLayout();
+  else if (CalculatePageSize(false))
+    SetPageControlRange();
 
   if (!m_layout || !m_focusedLayout) return;
 
@@ -243,6 +262,20 @@ void CGUIBaseContainer::ProcessItem(float posX,
     if (!item->GetFocusedLayout())
     {
       item->SetFocusedLayout(std::make_unique<CGUIListItemLayout>(*m_focusedLayout, this));
+    }
+    if (item != m_lastItem)
+    {
+      // the layouts don't mark the switch between them as dirty
+      const auto addLayoutRegions = [&dirtyregions](CGUIListItem& listItem)
+      {
+        if (listItem.GetLayout())
+          dirtyregions.emplace_back(listItem.GetLayout()->GetRenderRegion());
+        if (listItem.GetFocusedLayout())
+          dirtyregions.emplace_back(listItem.GetFocusedLayout()->GetRenderRegion());
+      };
+      addLayoutRegions(*item);
+      if (m_lastItem)
+        addLayoutRegions(*m_lastItem);
     }
     if (item->GetFocusedLayout())
     {
@@ -565,7 +598,7 @@ bool CGUIBaseContainer::OnMessage(CGUIMessage& message)
       if (message.GetSenderId() == m_pageControl && IsVisible())
       { // update our page if we're visible - not much point otherwise
         if (message.GetParam1() != GetOffset())
-          m_pageChangeTimer.StartZero();
+          StartPageChangeTimer();
         ScrollToOffset(message.GetParam1());
         return true;
       }
@@ -1016,6 +1049,10 @@ void CGUIBaseContainer::FreeResources(bool immediately)
   CGUIControl::FreeResources(immediately);
   if (m_listProvider)
   {
+    // Drop the items' artwork. The provider keeps its item list, so re-showing the container
+    // only has to rebuild the layouts, which ProcessItem() does on demand.
+    m_listProvider->FreeResources(immediately);
+
     if (immediately)
     {
       Reset();
@@ -1042,7 +1079,7 @@ void CGUIBaseContainer::SetPageControlRange()
 {
   if (m_pageControl)
   {
-    CGUIMessage msg(GUI_MSG_LABEL_RESET, GetID(), m_pageControl, m_itemsPerPage, GetRows());
+    CGUIMessage msg(GUI_MSG_LABEL_RESET, GetID(), m_pageControl, GetPageSize(), GetRows());
     SendWindowMessage(msg);
     m_lastPageControlOffset.reset(); // invalidate cache when range changes
   }
@@ -1056,6 +1093,11 @@ void CGUIBaseContainer::UpdatePageControl(int offset)
     SendWindowMessage(msg);
     m_lastPageControlOffset = offset;
   }
+}
+
+void CGUIBaseContainer::StartPageChangeTimer()
+{
+  m_pageChangeTimer.StartZero();
 }
 
 void CGUIBaseContainer::UpdateVisibility(const CGUIListItem *item)
@@ -1184,10 +1226,21 @@ void CGUIBaseContainer::CalculateLayout()
   if (!m_focusedLayout || !m_layout)
     return;
 
-  if (oldLayout == m_layout && oldFocusedLayout == m_focusedLayout)
-    return; // nothing has changed, so don't update stuff
+  m_layout->SetParentControl(this);
+  m_focusedLayout->SetParentControl(this);
 
-  m_itemsPerPage = std::max((int)((Size() - m_focusedLayout->Size(m_orientation)) / m_layout->Size(m_orientation)) + 1, 1);
+  const int itemsPerPage =
+      std::max(static_cast<int>((Size() - m_focusedLayout->Size(m_orientation)) /
+                                m_layout->Size(m_orientation)) +
+                   1,
+               1);
+  const bool layoutChanged = oldLayout != m_layout || oldFocusedLayout != m_focusedLayout ||
+                             m_itemsPerPage != itemsPerPage;
+  m_itemsPerPage = itemsPerPage;
+  CalculatePageSize();
+
+  if (!layoutChanged)
+    return;
 
   // Pre-allocate render items vector to avoid per-frame allocations
   m_renderItems.reserve(m_itemsPerPage + m_cacheItems * 2 + 1);
@@ -1332,6 +1385,12 @@ int CGUIBaseContainer::CorrectOffset(int offset, int cursor) const
 void CGUIBaseContainer::Reset()
 {
   m_wasReset = true;
+
+  // Static items are fetched again right away and must keep their layout state
+  // (e.g. an already applied UnFocus animation).
+  std::erase_if(m_releasedItems, [](const auto& weakItem) { return weakItem.expired(); });
+  m_releasedItems.insert(m_items.begin(), m_items.end());
+
   m_items.clear();
   m_lastItem.reset();
   ResetAutoScrolling();
@@ -1491,7 +1550,10 @@ std::string CGUIBaseContainer::GetLabel(int info) const
   switch (info)
   {
   case CONTAINER_NUM_PAGES:
-    label = std::to_string((GetRows() + m_itemsPerPage - 1) / m_itemsPerPage);
+  {
+    const int pageSize = GetPageSize();
+    label = std::to_string((GetRows() + pageSize - 1) / pageSize);
+  }
     break;
   case CONTAINER_CURRENT_PAGE:
     label = std::to_string(GetCurrentPage());
@@ -1537,9 +1599,120 @@ std::string CGUIBaseContainer::GetLabel(int info) const
 
 int CGUIBaseContainer::GetCurrentPage() const
 {
-  if (GetOffset() + m_itemsPerPage >= (int)GetRows())  // last page
-    return (GetRows() + m_itemsPerPage - 1) / m_itemsPerPage;
-  return GetOffset() / m_itemsPerPage + 1;
+  const int pageSize = GetPageSize();
+  if (GetOffset() + pageSize >= static_cast<int>(GetRows())) // last page
+    return (GetRows() + pageSize - 1) / pageSize;
+  return GetOffset() / pageSize + 1;
+}
+
+int CGUIBaseContainer::GetPageSize() const
+{
+  return m_pageSize;
+}
+
+bool CGUIBaseContainer::CalculatePageSize(bool force)
+{
+  const bool hadScreenRange = m_hasScreenRange;
+  const float previousScreenStart = m_screenStart;
+  const float previousScreenEnd = m_screenEnd;
+  const int previousPageSize = m_pageSize;
+  const int pageSizeCursor = GetCursor();
+
+  CalculateScreenRange();
+
+  if (!force && hadScreenRange == m_hasScreenRange && previousScreenStart == m_screenStart &&
+      previousScreenEnd == m_screenEnd && m_pageSizeCursor == pageSizeCursor)
+    return false;
+
+  m_pageSizeCursor = pageSizeCursor;
+
+  if (!m_layout || !m_focusedLayout)
+  {
+    m_pageSize = std::max(m_itemsPerPage, 1);
+    return previousPageSize != m_pageSize;
+  }
+
+  const float listStart = (m_orientation == HORIZONTAL) ? m_posX : m_posY;
+  const float listSize = (m_orientation == HORIZONTAL) ? m_width : m_height;
+  const float itemSize = m_layout->Size(m_orientation);
+  const float focusedItemSize = m_focusedLayout->Size(m_orientation);
+  if (itemSize <= 0.0f || focusedItemSize <= 0.0f)
+  {
+    m_pageSize = 1;
+    return previousPageSize != m_pageSize;
+  }
+
+  float screenStart = 0.0f;
+  float screenEnd = 0.0f;
+  if (!GetScreenRange(screenStart, screenEnd))
+  {
+    m_pageSize = std::max(m_itemsPerPage, 1);
+    return previousPageSize != m_pageSize;
+  }
+
+  const float visibleStart = std::max(0.0f, screenStart - listStart);
+  const float visibleEnd = std::min(listSize, screenEnd - listStart);
+
+  float itemStart = 0.0f;
+  int pageSize = 0;
+
+  for (int cursor = 0; cursor < m_itemsPerPage; ++cursor)
+  {
+    const float layoutSize = (cursor == GetCursor()) ? focusedItemSize : itemSize;
+    const float itemEnd = itemStart + layoutSize;
+
+    if (itemStart >= visibleStart && itemEnd <= visibleEnd)
+      ++pageSize;
+
+    itemStart = itemEnd;
+  }
+
+  m_pageSize = std::max(pageSize, 1);
+  return previousPageSize != m_pageSize;
+}
+
+bool CGUIBaseContainer::CalculateScreenRange()
+{
+  const CWinSystemBase* winSystem = CServiceBroker::GetWinSystem();
+  if (!winSystem)
+  {
+    m_hasScreenRange = false;
+    m_screenStart = 0.0f;
+    m_screenEnd = 0.0f;
+    return false;
+  }
+
+  const CGraphicContext& gfxContext = winSystem->GetGfxContext();
+  m_screenStart = 0.0f;
+  m_screenEnd = (m_orientation == HORIZONTAL) ? gfxContext.GetWidth() : gfxContext.GetHeight();
+
+  if (m_orientation == HORIZONTAL)
+  {
+    float y = m_posY;
+    gfxContext.InvertFinalCoords(m_screenStart, y);
+    y = m_posY + m_height;
+    gfxContext.InvertFinalCoords(m_screenEnd, y);
+  }
+  else
+  {
+    float x = m_posX;
+    gfxContext.InvertFinalCoords(x, m_screenStart);
+    x = m_posX + m_width;
+    gfxContext.InvertFinalCoords(x, m_screenEnd);
+  }
+
+  if (m_screenStart > m_screenEnd)
+    std::swap(m_screenStart, m_screenEnd);
+
+  m_hasScreenRange = true;
+  return true;
+}
+
+bool CGUIBaseContainer::GetScreenRange(float& screenStart, float& screenEnd) const
+{
+  screenStart = m_screenStart;
+  screenEnd = m_screenEnd;
+  return m_hasScreenRange;
 }
 
 void CGUIBaseContainer::GetCacheOffsets(int &cacheBefore, int &cacheAfter) const
@@ -1563,8 +1736,9 @@ void CGUIBaseContainer::GetCacheOffsets(int &cacheBefore, int &cacheAfter) const
 
 void CGUIBaseContainer::SetCursor(int cursor)
 {
+  // ProcessItem() marks the items whose focus changed
   if (m_cursor != cursor)
-    MarkDirtyRegion();
+    MarkDirtyRegion(DIRTY_STATE_CHILD);
   m_cursor = cursor;
 }
 

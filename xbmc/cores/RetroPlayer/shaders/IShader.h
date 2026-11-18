@@ -76,8 +76,9 @@ public:
    * \param pShaderTextures Intermediate textures used for all shader passes
    * \param pShaders All shader passes
    * \param frameCount Number of frames that have passed
+   * \return False if parameter preparation failed, true otherwise
    */
-  virtual void PrepareParameters(
+  virtual bool PrepareParameters(
       IShaderTexture& sourceTexture,
       const std::vector<std::unique_ptr<IShaderTexture>>& pShaderTextures,
       const std::vector<std::unique_ptr<IShader>>& pShaders,
@@ -89,5 +90,13 @@ public:
    * Should usually only be called when the viewport/window size changes.
    */
   virtual void UpdateMVP() = 0;
+
+  /*!
+   * \brief Drops the references the shader keeps to the textures it last rendered with
+   *
+   * Called when the preset releases its textures, so they're freed while the compiled shader
+   * is kept.
+   */
+  virtual void ReleaseTextureReferences() {}
 };
 } // namespace KODI::SHADER

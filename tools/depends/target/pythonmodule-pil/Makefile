@@ -37,7 +37,13 @@ ifeq (darwin, $(findstring darwin, $(HOST)))
   endif
 
   ifneq ($(OS),android)
-    LDSHARED:=$(CC) -bundle -undefined dynamic_lookup $(LDFLAGS)
+    ifeq ($(OS), darwin_embedded)
+      # AppStore Connect doesn't allow files of type bundle
+      OUTPUT_FILE_TYPE_ARG=-dynamiclib
+    else
+      OUTPUT_FILE_TYPE_ARG=-bundle
+    endif
+    LDSHARED:=$(CC) $(OUTPUT_FILE_TYPE_ARG) -undefined dynamic_lookup $(LDFLAGS)
     ZLIB_ROOT=$(SDKROOT)/usr
   endif
 endif
@@ -51,7 +57,7 @@ export ZLIB_ROOT
 
 BUILD_OPTS=--plat-name $(OS)-$(CPU) --disable-jpeg2000 --disable-webp --disable-imagequant --disable-tiff --disable-xcb --disable-lcms --disable-platform-guessing
 
-export CC CFLAGS AR RANLIB
+export CC CFLAGS CPPFLAGS AR RANLIB
 export PYTHONXINCLUDE=$(PREFIX)/include/python$(PYTHON_VERSION)
 export LDSHARED LDFLAGS PYTHONPATH
 export SETUPTOOLS_EXT_SUFFIX=.so

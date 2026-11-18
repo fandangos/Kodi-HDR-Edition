@@ -63,7 +63,7 @@ constexpr uint32_t PLAYER_CAN_SEEK                   = 51;
 constexpr uint32_t PLAYER_START_TIME                 = 52;
 // unused id 53
 constexpr uint32_t PLAYER_ISINTERNETSTREAM           = 54;
-// unused id 55
+constexpr uint32_t PLAYER_SEEKSTEPVALUE              = 55;
 constexpr uint32_t PLAYER_SEEKSTEPSIZE               = 56;
 constexpr uint32_t PLAYER_IS_CHANNEL_PREVIEW_ACTIVE  = 57;
 constexpr uint32_t PLAYER_SUPPORTS_TEMPO             = 58;
@@ -83,7 +83,9 @@ constexpr uint32_t PLAYER_SCENE_MARKERS              = 71;
 constexpr uint32_t PLAYER_HAS_SCENE_MARKERS          = 72;
 constexpr uint32_t PLAYER_BOOKMARKS                  = 73;
 constexpr uint32_t PLAYER_HAS_BOOKMARKS              = 74;
-// unused id 75 to 80
+constexpr uint32_t PLAYER_WAITING_FOR_AUDIO          = 75;
+constexpr uint32_t PLAYER_WAITING_FOR_AUDIO_REMAINING = 76;
+// unused id 77 to 80
 
 // Keep player infolabels that work with offset and position together
 constexpr uint32_t PLAYER_PATH                       = 81;
@@ -302,6 +304,13 @@ constexpr uint32_t VIDEOPLAYER_AUDIOSTREAMCOUNT      = 295;
 constexpr uint32_t VIDEOPLAYER_VIDEOVERSION_NAME     = 296;
 constexpr uint32_t VIDEOPLAYER_VIDEOSTREAMCOUNT      = 297;
 constexpr uint32_t VIDEOPLAYER_HDR_DETAIL            = 298;
+constexpr uint32_t VIDEOPLAYER_VIDEO_ASPECT_NAME     = 299;
+
+// The infolabel numbering is one flat space shared by every group.
+constexpr uint32_t VIDEOPLAYER_CONTENT_ASPECT        = 425;
+constexpr uint32_t VIDEOPLAYER_CONTENT_ASPECT_NAME   = 426;
+constexpr uint32_t VIDEOPLAYER_CONTENT_ASPECT_COUNT  = 427;
+constexpr uint32_t VIDEOPLAYER_CONTENT_ASPECT_SOURCE = 428;
 
 // Videoplayer infobools
 constexpr uint32_t VIDEOPLAYER_HASSUBTITLES          = 300;
@@ -316,6 +325,7 @@ constexpr uint32_t VIDEOPLAYER_HAS_INFO              = 308;
 constexpr uint32_t VIDEOPLAYER_HASTELETEXT           = 309;
 constexpr uint32_t VIDEOPLAYER_IS_STEREOSCOPIC       = 310;
 constexpr uint32_t VIDEOPLAYER_HAS_VIDEOVERSIONS     = 311;
+constexpr uint32_t VIDEOPLAYER_CONTENT_ASPECT_VARIES = 429;
 
 // PVR infolabels
 constexpr uint32_t VIDEOPLAYER_TITLE_EXTRAINFO       = 312;
@@ -354,6 +364,18 @@ constexpr uint32_t RETROPLAYER_GAME_CLIENT_NAME      = 1711;
 constexpr uint32_t RETROPLAYER_GAME_CLIENT_PLATFORMS = 1712;
 constexpr uint32_t RETROPLAYER_RICH_PRESENCE         = 1713;
 constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_LOGGED_IN = 1714;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_PROGRESS = 1715;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_CHALLENGE_TITLE = 1716;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_CHALLENGE_BADGE = 1717;
+constexpr uint32_t RETROPLAYER_LEADERBOARD_TRACKER = 1718;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_INDICATOR_TITLE = 1719;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_INDICATOR_BADGE = 1720;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_INDICATOR_PROGRESS = 1721;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_INDICATOR_PERCENT = 1722;
+constexpr uint32_t RETROPLAYER_HAS_CHEATS = 1723;
+constexpr uint32_t RETROPLAYER_SUPPORTS_CHEATS = 1724;
+constexpr uint32_t RETROPLAYER_ACHIEVEMENTS_HARDCORE = 1725;
+constexpr uint32_t RETROPLAYER_LEADERBOARD_TRACKER_TITLE = 1726;
 constexpr uint32_t RETROPLAYER_SUPPORTS_EJECT        = 1700;
 constexpr uint32_t RETROPLAYER_DISC_EJECTED          = 1701;
 constexpr uint32_t RETROPLAYER_DISC_LABEL            = 1702;
@@ -1065,6 +1087,22 @@ constexpr uint32_t LISTITEM_MEDIAPROVIDERS           = LISTITEM_START + 224;
 constexpr uint32_t LISTITEM_TITLE_EXTRAINFO          = LISTITEM_START + 225;
 constexpr uint32_t LISTITEM_DECODED_FILENAME_AND_PATH  = LISTITEM_START + 226;
 constexpr uint32_t LISTITEM_VIDEO_HDR_DETAIL         = LISTITEM_START + 227;
+constexpr uint32_t LISTITEM_FIRST_AUDIO_LANGUAGE   = LISTITEM_START + 228;
+constexpr uint32_t LISTITEM_FIRST_SUBTITLE_LANGUAGE = LISTITEM_START + 229;
+constexpr uint32_t LISTITEM_FIRST_AUDIO_CODEC      = LISTITEM_START + 230;
+constexpr uint32_t LISTITEM_FIRST_AUDIO_CHANNELS   = LISTITEM_START + 231;
+constexpr uint32_t LISTITEM_ISDEFAULTVIDEOVERSION_NAME = LISTITEM_START + 232;
+constexpr uint32_t LISTITEM_PLATFORM                 = LISTITEM_START + 233;
+constexpr uint32_t LISTITEM_DEVELOPER                = LISTITEM_START + 234;
+constexpr uint32_t LISTITEM_PUBLISHER                = LISTITEM_START + 235;
+constexpr uint32_t LISTITEM_PLAYERS                  = LISTITEM_START + 236;
+constexpr uint32_t LISTITEM_AGERATING                = LISTITEM_START + 237;
+constexpr uint32_t LISTITEM_VIDEO_ASPECT_NAME        = LISTITEM_START + 238;
+constexpr uint32_t LISTITEM_CONTENT_ASPECT           = LISTITEM_START + 239;
+constexpr uint32_t LISTITEM_CONTENT_ASPECT_NAME      = LISTITEM_START + 240;
+constexpr uint32_t LISTITEM_CONTENT_ASPECT_COUNT     = LISTITEM_START + 241;
+constexpr uint32_t LISTITEM_CONTENT_ASPECT_SOURCE    = LISTITEM_START + 242;
+constexpr uint32_t LISTITEM_CONTENT_ASPECT_VARIES    = LISTITEM_START + 243;
 
 constexpr int      LISTITEM_END                      = LISTITEM_START + 2500;
 

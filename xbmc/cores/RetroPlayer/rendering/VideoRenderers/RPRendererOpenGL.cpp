@@ -8,6 +8,7 @@
 
 #include "RPRendererOpenGL.h"
 
+#include "RPHdrShader.h"
 #include "cores/RetroPlayer/buffers/RenderBufferOpenGL.h"
 #include "cores/RetroPlayer/buffers/RenderBufferPoolOpenGL.h"
 #include "cores/RetroPlayer/rendering/RenderContext.h"
@@ -54,9 +55,6 @@ CRPRendererOpenGL::CRPRendererOpenGL(const CRenderSettings& renderSettings,
   // Initialize CRPBaseRenderer
   m_shaderPreset = std::make_unique<SHADER::CShaderPresetGL>(m_context);
 
-  // Initialize CRPRendererOpenGL
-  m_clearColor = m_context.UseLimitedColor() ? (16.0f / 0xff) : 0.0f;
-
   m_context.EnableGUIShader(GL_SHADER_METHOD::TEXTURE);
 
   GLint posLoc = m_context.GUIShaderGetPos();
@@ -87,55 +85,27 @@ CRPRendererOpenGL::CRPRendererOpenGL(const CRenderSettings& renderSettings,
 
   m_context.DisableGUIShader();
 
-  m_context.EnableGUIShader(GL_SHADER_METHOD::DEFAULT);
-
-  GLint blackbarsPosLoc = m_context.GUIShaderGetPos();
-
-  // Set up black bars VAO/VBO
-  glGenVertexArrays(1, &m_blackbarsVAO);
-  glBindVertexArray(m_blackbarsVAO);
-
-  glGenBuffers(1, &m_blackbarsVertexVBO);
-  glBindBuffer(GL_ARRAY_BUFFER, m_blackbarsVertexVBO);
-
-  glVertexAttribPointer(blackbarsPosLoc, 3, GL_FLOAT, GL_FALSE, sizeof(Svertex), 0);
-  glEnableVertexAttribArray(blackbarsPosLoc);
-
-  glBindVertexArray(0);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-  m_context.DisableGUIShader();
-
   m_context.ApplyStateBlock();
 }
 
 CRPRendererOpenGL::~CRPRendererOpenGL()
 {
+  glDeleteBuffers(1, &m_hdrVBO);
+  glDeleteVertexArrays(1, &m_hdrVAO);
   glDeleteBuffers(1, &m_mainIndexVBO);
   glDeleteBuffers(1, &m_mainVertexVBO);
   glDeleteVertexArrays(1, &m_mainVAO);
-
-  glDeleteBuffers(1, &m_blackbarsVertexVBO);
-  glDeleteVertexArrays(1, &m_blackbarsVAO);
 }
 
-void CRPRendererOpenGL::RenderInternal(bool clear, uint8_t alpha)
+void CRPRendererOpenGL::RenderInternal(uint8_t alpha)
 {
-  if (clear)
-  {
-    if (alpha == 255)
-      DrawBlackBars();
-    else
-      ClearBackBuffer();
-  }
-
   Render(alpha);
-
-  glEnable(GL_BLEND);
 }
 
 void CRPRendererOpenGL::FlushInternal()
 {
+  m_RBTexturesMap.clear();
+
   if (!m_bConfigured)
     return;
 
@@ -154,160 +124,50 @@ bool CRPRendererOpenGL::SupportsScalingMethod(SCALINGMETHOD method)
          method == SCALINGMETHOD::LINEAR;
 }
 
-void CRPRendererOpenGL::ClearBackBuffer()
-{
-  glClearColor(m_clearColor, m_clearColor, m_clearColor, 0.0f);
-  glClear(GL_COLOR_BUFFER_BIT);
-  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-}
-
-void CRPRendererOpenGL::DrawBlackBars()
-{
-  glDisable(GL_BLEND);
-
-  m_context.EnableGUIShader(GL_SHADER_METHOD::DEFAULT);
-
-  GLint uniColLoc = m_context.GUIShaderGetUniCol();
-
-  glUniform4f(uniColLoc, m_clearColor / 255.0f, m_clearColor / 255.0f, m_clearColor / 255.0f, 1.0f);
-
-  Svertex vertices[24];
-  GLubyte count = 0;
-
-  // top quad
-  if (m_rotatedDestCoords[0].y > 0.0f)
-  {
-    GLubyte quad = count;
-    vertices[quad].x = 0.0;
-    vertices[quad].y = 0.0;
-    vertices[quad].z = 0;
-    vertices[quad + 1].x = m_context.GetScreenWidth();
-    vertices[quad + 1].y = 0;
-    vertices[quad + 1].z = 0;
-    vertices[quad + 2].x = m_context.GetScreenWidth();
-    vertices[quad + 2].y = m_rotatedDestCoords[0].y;
-    vertices[quad + 2].z = 0;
-    vertices[quad + 3] = vertices[quad + 2];
-    vertices[quad + 4].x = 0;
-    vertices[quad + 4].y = m_rotatedDestCoords[0].y;
-    vertices[quad + 4].z = 0;
-    vertices[quad + 5] = vertices[quad];
-    count += 6;
-  }
-
-  // bottom quad
-  if (m_rotatedDestCoords[2].y < m_context.GetScreenHeight())
-  {
-    GLubyte quad = count;
-    vertices[quad].x = 0.0;
-    vertices[quad].y = m_rotatedDestCoords[2].y;
-    vertices[quad].z = 0;
-    vertices[quad + 1].x = m_context.GetScreenWidth();
-    vertices[quad + 1].y = m_rotatedDestCoords[2].y;
-    vertices[quad + 1].z = 0;
-    vertices[quad + 2].x = m_context.GetScreenWidth();
-    vertices[quad + 2].y = m_context.GetScreenHeight();
-    vertices[quad + 2].z = 0;
-    vertices[quad + 3] = vertices[quad + 2];
-    vertices[quad + 4].x = 0;
-    vertices[quad + 4].y = m_context.GetScreenHeight();
-    vertices[quad + 4].z = 0;
-    vertices[quad + 5] = vertices[quad];
-    count += 6;
-  }
-
-  // left quad
-  if (m_rotatedDestCoords[0].x > 0.0f)
-  {
-    GLubyte quad = count;
-    vertices[quad].x = 0.0;
-    vertices[quad].y = m_rotatedDestCoords[0].y;
-    vertices[quad].z = 0;
-    vertices[quad + 1].x = m_rotatedDestCoords[0].x;
-    vertices[quad + 1].y = m_rotatedDestCoords[0].y;
-    vertices[quad + 1].z = 0;
-    vertices[quad + 2].x = m_rotatedDestCoords[3].x;
-    vertices[quad + 2].y = m_rotatedDestCoords[3].y;
-    vertices[quad + 2].z = 0;
-    vertices[quad + 3] = vertices[quad + 2];
-    vertices[quad + 4].x = 0;
-    vertices[quad + 4].y = m_rotatedDestCoords[3].y;
-    vertices[quad + 4].z = 0;
-    vertices[quad + 5] = vertices[quad];
-    count += 6;
-  }
-
-  // right quad
-  if (m_rotatedDestCoords[2].x < m_context.GetScreenWidth())
-  {
-    GLubyte quad = count;
-    vertices[quad].x = m_rotatedDestCoords[1].x;
-    vertices[quad].y = m_rotatedDestCoords[1].y;
-    vertices[quad].z = 0;
-    vertices[quad + 1].x = m_context.GetScreenWidth();
-    vertices[quad + 1].y = m_rotatedDestCoords[1].y;
-    vertices[quad + 1].z = 0;
-    vertices[quad + 2].x = m_context.GetScreenWidth();
-    vertices[quad + 2].y = m_rotatedDestCoords[2].y;
-    vertices[quad + 2].z = 0;
-    vertices[quad + 3] = vertices[quad + 2];
-    vertices[quad + 4].x = m_rotatedDestCoords[1].x;
-    vertices[quad + 4].y = m_rotatedDestCoords[2].y;
-    vertices[quad + 4].z = 0;
-    vertices[quad + 5] = vertices[quad];
-    count += 6;
-  }
-
-  glBindVertexArray(m_blackbarsVAO);
-
-  glBindBuffer(GL_ARRAY_BUFFER, m_blackbarsVertexVBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(Svertex) * count, &vertices[0], GL_DYNAMIC_DRAW);
-
-  glDrawArrays(GL_TRIANGLES, 0, count);
-
-  glBindVertexArray(0);
-  glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-  m_context.DisableGUIShader();
-}
-
 void CRPRendererOpenGL::Render(uint8_t alpha)
 {
   auto renderBuffer = static_cast<CRenderBufferOpenGL*>(m_renderBuffer);
   if (renderBuffer == nullptr)
     return;
 
-  Updateshaders();
+  UpdateShaders();
 
   // Use video shader preset
   if (m_bUseShaderPreset)
   {
     RenderBufferTextures* rbTextures;
 
-    // Drop cached textures if target size is changed
-    if (m_fullDestWidth != m_lastTargetWidth || m_fullDestHeight != m_lastTargetHeight)
+    // Drop cached textures if target size or HDR state is changed
+    const bool hdr = m_hdrPeak != 0;
+    if (m_fullDestWidth != m_lastTargetWidth || m_fullDestHeight != m_lastTargetHeight ||
+        hdr != m_lastTargetHdr)
     {
       m_RBTexturesMap.clear();
       m_lastTargetWidth = m_fullDestWidth;
       m_lastTargetHeight = m_fullDestHeight;
+      m_lastTargetHdr = hdr;
     }
 
     const auto it = m_RBTexturesMap.find(renderBuffer);
-    if (it != m_RBTexturesMap.end())
+    if (it != m_RBTexturesMap.end() &&
+        it->second->sourceTexture->GetTextureID() == renderBuffer->TextureID() &&
+        it->second->sourceTexture->GetWidth() == renderBuffer->GetWidth() &&
+        it->second->sourceTexture->GetHeight() == renderBuffer->GetHeight())
     {
       rbTextures = it->second.get();
     }
     else
     {
+      if (it != m_RBTexturesMap.end())
+        m_RBTexturesMap.erase(it);
+
       rbTextures = new RenderBufferTextures{
           // Source texture
           std::make_shared<SHADER::CShaderTextureGLRef>(
               static_cast<unsigned int>(renderBuffer->GetWidth()),
               static_cast<unsigned int>(renderBuffer->GetHeight()), renderBuffer->TextureID()),
           // Target texture
-          std::make_shared<SHADER::CShaderTextureGL>(static_cast<unsigned int>(m_fullDestWidth),
-                                                     static_cast<unsigned int>(m_fullDestHeight),
-                                                     GL_UNSIGNED_BYTE, GL_RGBA8, GL_BGRA, false)};
+          CreateTargetTexture()};
       rbTextures->targetTexture->CreateTexture(); // Create new internal texture
       m_RBTexturesMap.emplace(renderBuffer, rbTextures);
     }
@@ -325,16 +185,19 @@ void CRPRendererOpenGL::Render(uint8_t alpha)
     glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    if (!m_shaderPreset->RenderUpdate(*sourceTexture, *targetTexture))
+    if (m_shaderPreset->RenderUpdate(*sourceTexture, *targetTexture))
+    {
+      glActiveTexture(GL_TEXTURE0); // GUI shader samples from texture unit 0
+      glBindTexture(m_textureTarget, targetTexture->GetTextureID());
+    }
+    else
     {
       m_bShadersNeedUpdate = false;
       m_bUseShaderPreset = false;
     }
-
-    glActiveTexture(GL_TEXTURE0); // GUI shader samples from texture unit 0
-    glBindTexture(m_textureTarget, targetTexture->GetTextureID());
   }
-  else
+
+  if (!m_bUseShaderPreset)
   {
     GLint filter = GL_NEAREST;
     if (GetRenderSettings().VideoSettings().GetScalingMethod() == SCALINGMETHOD::LINEAR)
@@ -348,6 +211,66 @@ void CRPRendererOpenGL::Render(uint8_t alpha)
     glTexParameteri(m_textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   }
 
+  DrawFrame(alpha, renderBuffer->GetWidth(), renderBuffer->GetHeight());
+}
+
+std::shared_ptr<SHADER::CShaderTextureGL> CRPRendererOpenGL::CreateTargetTexture() const
+{
+  // More than 8 bits, as the HDR shader raises the brightest values steeply
+  if (m_hdrPeak != 0)
+    return std::make_shared<SHADER::CShaderTextureGL>(static_cast<unsigned int>(m_fullDestWidth),
+                                                      static_cast<unsigned int>(m_fullDestHeight),
+                                                      GL_HALF_FLOAT, GL_RGBA16F, GL_RGBA, false);
+
+  return std::make_shared<SHADER::CShaderTextureGL>(static_cast<unsigned int>(m_fullDestWidth),
+                                                    static_cast<unsigned int>(m_fullDestHeight),
+                                                    GL_UNSIGNED_BYTE, GL_RGBA8, GL_BGRA, false);
+}
+
+bool CRPRendererOpenGL::LoadHdrShader()
+{
+  if (m_hdrShader)
+    return true;
+
+  if (m_hdrShaderFailed)
+    return false;
+
+  std::string defines;
+  if (m_context.UseLimitedColor())
+    defines += "#define KODI_LIMITED_RANGE 1\n";
+
+  auto shader = std::make_unique<CRPHdrShader>(defines);
+  if (!shader->CompileAndLink() || shader->GetPosLoc() < 0)
+  {
+    CLog::Log(LOGERROR, "RetroPlayer[RENDER]: Failed to compile the HDR shader");
+    m_hdrShaderFailed = true;
+    return false;
+  }
+
+  // A core profile draws from a vertex array. Triangle strip order: top left,
+  // top right, bottom left, bottom right.
+  static constexpr GLfloat unitQuad[4][2] = {
+      {0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f}};
+
+  glGenVertexArrays(1, &m_hdrVAO);
+  glBindVertexArray(m_hdrVAO);
+
+  glGenBuffers(1, &m_hdrVBO);
+  glBindBuffer(GL_ARRAY_BUFFER, m_hdrVBO);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(unitQuad), unitQuad, GL_STATIC_DRAW);
+
+  glVertexAttribPointer(shader->GetPosLoc(), 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+  glEnableVertexAttribArray(shader->GetPosLoc());
+
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+  m_hdrShader = std::move(shader);
+  return true;
+}
+
+void CRPRendererOpenGL::DrawFrame(uint8_t alpha, float width, float height)
+{
   if (alpha < 255)
   {
     glEnable(GL_BLEND);
@@ -356,6 +279,29 @@ void CRPRendererOpenGL::Render(uint8_t alpha)
   else
   {
     glDisable(GL_BLEND);
+  }
+
+  // Setup texture coordinates
+  CRect rect = m_sourceRect;
+  rect.x1 /= width;
+  rect.x2 /= width;
+  rect.y1 /= height;
+  rect.y2 /= height;
+
+  if (m_hdrPeak != 0 && LoadHdrShader())
+  {
+    m_hdrShader->SetLuminance(m_hdrPaperWhite, m_hdrPeak);
+    m_hdrShader->SetAlpha(alpha / 255.0f);
+    m_hdrShader->SetQuad(m_rotatedDestCoords[0], m_rotatedDestCoords[1], m_rotatedDestCoords[3],
+                         rect);
+    m_hdrShader->Enable();
+
+    glBindVertexArray(m_hdrVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+
+    m_hdrShader->Disable();
+    return;
   }
 
   // Use GUI shader
@@ -375,13 +321,6 @@ void CRPRendererOpenGL::Render(uint8_t alpha)
   glUniform4f(uniColLoc, (col[0] / 255.0f), (col[1] / 255.0f), (col[2] / 255.0f),
               (col[3] / 255.0f));
   glUniform1f(depthLoc, -1.0f);
-
-  // Setup destination rectangle
-  CRect rect = m_sourceRect;
-  rect.x1 /= renderBuffer->GetWidth();
-  rect.x2 /= renderBuffer->GetWidth();
-  rect.y1 /= renderBuffer->GetHeight();
-  rect.y2 /= renderBuffer->GetHeight();
 
   PackedVertex vertex[4];
 

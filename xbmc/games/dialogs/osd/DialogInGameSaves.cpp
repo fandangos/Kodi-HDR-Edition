@@ -13,13 +13,15 @@
 #include "XBDateTime.h"
 #include "cores/RetroPlayer/guibridge/GUIGameRenderManager.h"
 #include "cores/RetroPlayer/guibridge/GUIGameSettingsHandle.h"
-#include "cores/RetroPlayer/guicontrols/GUIGameControl.h"
 #include "cores/RetroPlayer/playback/IPlayback.h"
 #include "cores/RetroPlayer/savestates/ISavestate.h"
 #include "cores/RetroPlayer/savestates/SavestateDatabase.h"
 #include "dialogs/GUIDialogContextMenu.h"
 #include "dialogs/GUIDialogOK.h"
 #include "dialogs/GUIDialogYesNo.h"
+#include "games/GameUtils.h"
+#include "games/addons/GameClient.h"
+#include "games/addons/cheevos/GameClientCheevos.h"
 #include "games/dialogs/DialogGameDefines.h"
 #include "guilib/GUIKeyboardFactory.h"
 #include "guilib/GUIMessage.h"
@@ -28,7 +30,11 @@
 #include "resources/ResourcesComponent.h"
 #include "settings/GameSettings.h"
 #include "settings/MediaSettings.h"
+#include "utils/ArtTypes.h"
+#include "utils/DefaultArt.h"
 #include "utils/log.h"
+
+#include <algorithm>
 
 using namespace KODI;
 using namespace GAME;
@@ -41,9 +47,7 @@ CFileItemPtr CreateNewSaveItem()
   CFileItemPtr item = std::make_shared<CFileItem>(
       CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(15314)); // "Save"
 
-  // A nonexistent path ensures a gamewindow control won't render any pixels
-  item->SetPath(NO_PIXEL_DATA);
-  item->SetArt("icon", "DefaultAddSource.png");
+  item->SetArt(ART::TYPE::ICON, ART::DEFAULT::ADD_SOURCE);
   item->SetProperty(SAVESTATE_CAPTION,
                     CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(
                         15315)); // "Save progress to a new save file"
@@ -128,7 +132,8 @@ void CDialogInGameSaves::OnItemFocus(unsigned int index)
 
 unsigned int CDialogInGameSaves::GetFocusedItem() const
 {
-  return m_focusedControl;
+  // The leading "Save" item makes the savestate count the last valid index.
+  return std::min(m_focusedItemIndex, static_cast<unsigned int>(m_savestateItems.Size()));
 }
 
 void CDialogInGameSaves::OnItemRefresh(const std::string& itemPath,
@@ -285,6 +290,9 @@ void CDialogInGameSaves::OnNewSave()
   CFileItemPtr item = std::make_shared<CFileItem>();
   CSavestateDatabase::GetSavestateItem(*savestate, savestatePath, *item);
 
+  // The thumbnail is written with the savestate, so it comes with the real info
+  item->SetArt("screenshot", "");
+
   m_savestateItems.AddFront(item, 0);
 
   RefreshList();
@@ -302,6 +310,23 @@ void CDialogInGameSaves::OnLoad(CFileItem& focusedItem)
   }
   else
   {
+    // Hardcore mode explains itself with a notification, which is the whole
+    // story; an error on top of it would say the load went wrong instead
+    const GameClientPtr gameClient = CGameUtils::GetPlayingGameClient();
+    if (gameClient && gameClient->Cheevos().IsHardcoreActive())
+      return;
+
+    //! @todo Remove this when support for savestate compression is added
+    RETRO::CSavestateDatabase db;
+    std::unique_ptr<RETRO::ISavestate> savestate = RETRO::CSavestateDatabase::AllocateSavestate();
+    if (db.GetSavestate(focusedItem.GetPath(), *savestate) && savestate->IsCompressed())
+    {
+      // "Error"
+      // "This savestate is compressed and can't be loaded by this version of Kodi."
+      CGUIDialogOK::ShowAndGetInput(257, 35298);
+      return;
+    }
+
     // "Error"
     // "An unknown error has occurred."
     CGUIDialogOK::ShowAndGetInput(257, 24071);
@@ -331,7 +356,10 @@ void CDialogInGameSaves::OnOverwrite(CFileItem& focusedItem)
 
     savestate->Finalize();
 
+    // The old thumbnail stays until the new one is written with the savestate
+    const std::string thumbnail = focusedItem.GetArt("screenshot");
     CSavestateDatabase::GetSavestateItem(*savestate, savestatePath, focusedItem);
+    focusedItem.SetArt("screenshot", thumbnail);
 
     RefreshList();
   }
@@ -394,9 +422,6 @@ void CDialogInGameSaves::OnDelete(const CFileItem& focusedItem)
       m_savestateItems.Remove(&focusedItem);
 
       RefreshList();
-
-      auto gameSettings = CServiceBroker::GetGameRenderManager().RegisterGameSettingsDialog();
-      gameSettings->FreeSavestateResources(focusedItem.GetPath());
     }
     else
     {

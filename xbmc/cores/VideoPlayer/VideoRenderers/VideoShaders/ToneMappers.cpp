@@ -14,9 +14,9 @@ float CToneMappers::GetLuminanceValue(bool hasDisplayMetadata,
                                       const AVContentLightMetadata& lightMetadata)
 {
   // default for bad quality HDR-PQ sources (missing or invalid metadata)
-  const float defaultLuminance = 400.0f;
-  float lum1 = defaultLuminance;
+  constexpr float defaultLuminance = 400.0f;
 
+  float result = defaultLuminance;
   unsigned int maxLuminance = static_cast<unsigned int>(defaultLuminance);
 
   if (hasDisplayMetadata && displayMetadata.has_luminance && displayMetadata.max_luminance.den)
@@ -27,28 +27,40 @@ float CToneMappers::GetLuminanceValue(bool hasDisplayMetadata,
       maxLuminance = lum;
   }
 
-  if (hasLightMetadata)
+  if (hasLightMetadata && lightMetadata.MaxCLL)
   {
-    float lum2;
-
-    if (lightMetadata.MaxCLL >= maxLuminance)
-    {
-      lum1 = static_cast<float>(maxLuminance);
-      lum2 = static_cast<float>(lightMetadata.MaxCLL);
-    }
-    else
-    {
-      lum1 = static_cast<float>(lightMetadata.MaxCLL);
-      lum2 = static_cast<float>(maxLuminance);
-    }
+    const float lum1 = (lightMetadata.MaxCLL >= maxLuminance)
+                           ? static_cast<float>(maxLuminance)
+                           : static_cast<float>(lightMetadata.MaxCLL);
+    const float lum2 = (lightMetadata.MaxCLL >= maxLuminance)
+                           ? static_cast<float>(lightMetadata.MaxCLL)
+                           : static_cast<float>(maxLuminance);
     const float lum3 = static_cast<float>(lightMetadata.MaxFALL);
 
-    lum1 = (lum1 * 0.5f) + (lum2 * 0.2f) + (lum3 * 0.3f);
+    result = (lum1 * 0.5f) + (lum2 * 0.2f) + (lum3 * 0.3f);
   }
   else if (hasDisplayMetadata && displayMetadata.has_luminance)
   {
-    lum1 = static_cast<float>(maxLuminance);
+    result = static_cast<float>(maxLuminance);
   }
 
-  return lum1;
+  return result;
+}
+
+float CToneMappers::GetPeakLuminanceValue(bool hasDisplayMetadata,
+                                          const AVMasteringDisplayMetadata& displayMetadata,
+                                          bool hasLightMetadata,
+                                          const AVContentLightMetadata& lightMetadata)
+{
+  if (hasLightMetadata && lightMetadata.MaxCLL)
+    return static_cast<float>(lightMetadata.MaxCLL);
+
+  if (hasDisplayMetadata && displayMetadata.has_luminance && displayMetadata.max_luminance.den)
+  {
+    const float lum = static_cast<float>(av_q2d(displayMetadata.max_luminance));
+    if (lum > 0.0f)
+      return lum;
+  }
+
+  return 1000.0f;
 }

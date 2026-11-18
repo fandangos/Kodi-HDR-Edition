@@ -11,11 +11,14 @@
 #include "ServiceBroker.h"
 #include "cores/VideoPlayer/DVDDemuxers/DVDDemux.h"
 #include "cores/VideoPlayer/Interface/DemuxPacket.h"
+#include "language/LanguageTag.h"
 #include "pvr/PVRManager.h"
 #include "pvr/addons/PVRClient.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/log.h"
+
+using namespace KODI::LANGUAGE;
 
 CInputStreamPVRBase::CInputStreamPVRBase(const CFileItem& fileitem)
   : CDVDInputStream(DVDSTREAM_TYPE_PVRMANAGER, fileitem),
@@ -345,7 +348,7 @@ void CInputStreamPVRBase::UpdateStreamMap()
 
     dStream->codec = (AVCodecID)stream.iCodecId;
     dStream->uniqueId = stream.iPID;
-    dStream->language = stream.strLanguage;
+    dStream->language = CLanguageTag::Parse(stream.strLanguage);
 
     newStreamMap[stream.iPID] = dStream;
   }

@@ -16,17 +16,309 @@
 #include "utils/log.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <memory>
+#include <utility>
+
+#if defined(HAVE_LCMS2)
+#include <lcms2.h>
+#endif
 
 extern "C"
 {
-#include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
-#include <libswscale/swscale.h>
+#include <libavutil/display.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
 }
+
+namespace
+{
+// Read the frame size out of a JPEG's own header. The image demuxers leave codecpar
+// dimensions unset and avformat_find_stream_info() would decode a whole frame to fill them in,
+// which is the allocation we want to size correctly in the first place.
+bool JpegDimensions(const uint8_t* data, size_t size, unsigned int& width, unsigned int& height)
+{
+  size_t pos = 2; // past the SOI marker
+  while (pos + 4 <= size)
+  {
+    if (data[pos] != 0xFF)
+    {
+      pos++;
+      continue;
+    }
+    const uint8_t marker = data[pos + 1];
+    if (marker == 0xFF) // fill byte
+    {
+      pos++;
+      continue;
+    }
+    pos += 2;
+    // markers that carry no payload
+    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD9))
+      continue;
+    if (pos + 2 > size)
+      return false;
+    const size_t length = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+    // SOF0..SOF15, less the three codes in that range that are not frame headers
+    if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC)
+    {
+      if (pos + 7 > size)
+        return false;
+      height = (static_cast<unsigned int>(data[pos + 3]) << 8) | data[pos + 4];
+      width = (static_cast<unsigned int>(data[pos + 5]) << 8) | data[pos + 6];
+      return width > 0 && height > 0;
+    }
+    if (length < 2)
+      return false;
+    pos += length;
+  }
+  return false;
+}
+
+constexpr size_t DISPLAY_MATRIX_SIZE = 9;
+// by counter-clockwise quarter turns, unmirrored then mirrored
+constexpr unsigned int ORIENTATIONS[2][4] = {{1, 8, 3, 6}, {2, 7, 4, 5}};
+
+// EXIF orientation (1-8) of a display matrix, 0 if unknown
+unsigned int OrientationFromDisplayMatrix(const int32_t* displayMatrix)
+{
+  std::array<int32_t, DISPLAY_MATRIX_SIZE> matrix{};
+  std::copy_n(displayMatrix, matrix.size(), matrix.begin());
+
+  // a negative determinant means the image is mirrored
+  const bool flipped{static_cast<int64_t>(matrix[0]) * matrix[4] -
+                         static_cast<int64_t>(matrix[1]) * matrix[3] <
+                     0};
+  if (flipped)
+    av_display_matrix_flip(matrix.data(), 1, 0);
+
+  const double rotation{av_display_rotation_get(matrix.data())};
+  if (std::isnan(rotation))
+    return 0;
+
+  const int quarterTurns{(static_cast<int>(std::lround(rotation / 90.0)) % 4 + 4) % 4};
+  return ORIENTATIONS[flipped ? 1 : 0][quarterTurns];
+}
+
+// decodes a single-packet still with a decoder of its own
+bool DecodeStill(const AVCodecParameters* params, const AVPacket* pkt, AVFrame* frame)
+{
+  const AVCodec* codec{avcodec_find_decoder(params->codec_id)};
+  if (!codec)
+    return false;
+
+  AVCodecContext* ctx{avcodec_alloc_context3(codec)};
+  const bool decoded{ctx && avcodec_parameters_to_context(ctx, params) >= 0 &&
+                     avcodec_open2(ctx, codec, nullptr) >= 0 &&
+                     avcodec_send_packet(ctx, pkt) >= 0 && avcodec_send_packet(ctx, nullptr) >= 0 &&
+                     avcodec_receive_frame(ctx, frame) >= 0};
+  avcodec_free_context(&ctx);
+  return decoded;
+}
+
+// black frame in the tile's pixel format; image overlays (iovl) need not be
+// fully covered, and their fill colour is not applied
+AVFrame* AllocCanvas(const AVFrame* tile, int width, int height)
+{
+  AVFrame* canvas{av_frame_alloc()};
+  if (!canvas)
+    return nullptr;
+
+  canvas->format = tile->format;
+  canvas->width = width;
+  canvas->height = height;
+  canvas->color_range = tile->color_range;
+  canvas->color_primaries = tile->color_primaries;
+  canvas->color_trc = tile->color_trc;
+  canvas->colorspace = tile->colorspace;
+  canvas->chroma_location = tile->chroma_location;
+  // the first tile's ICC profile, in case the grid has none; FFmpeg exports the grid's since 8.0
+  const AVFrameSideData* tileProfile{av_frame_get_side_data(tile, AV_FRAME_DATA_ICC_PROFILE)};
+  AVFrameSideData* profile{
+      tileProfile ? av_frame_new_side_data(canvas, AV_FRAME_DATA_ICC_PROFILE, tileProfile->size)
+                  : nullptr};
+  if (profile)
+    std::memcpy(profile->data, tileProfile->data, tileProfile->size);
+  if (av_frame_get_buffer(canvas, 0) < 0)
+  {
+    av_frame_free(&canvas);
+    return nullptr;
+  }
+
+  const std::array<ptrdiff_t, 4> linesize{canvas->linesize[0], canvas->linesize[1],
+                                          canvas->linesize[2], canvas->linesize[3]};
+  av_image_fill_black(canvas->data, linesize.data(), static_cast<AVPixelFormat>(canvas->format),
+                      canvas->color_range, width, height);
+  return canvas;
+}
+
+// copies a tile to (x, y) of the canvas, clipped to the canvas
+bool CopyTile(AVFrame* canvas, const AVFrame* tile, int x, int y)
+{
+  if (x < 0 || y < 0)
+    return false;
+
+  const int width{std::min(tile->width, canvas->width - x)};
+  const int height{std::min(tile->height, canvas->height - y)};
+  if (width <= 0 || height <= 0)
+    return true;
+
+  const auto format{static_cast<AVPixelFormat>(canvas->format)};
+  const AVPixFmtDescriptor* desc{av_pix_fmt_desc_get(format)};
+  for (int plane = 0; plane < av_pix_fmt_count_planes(format); ++plane)
+  {
+    const int shiftY{plane == 1 || plane == 2 ? desc->log2_chroma_h : 0};
+    const int offset{av_image_get_linesize(format, x, plane)};
+    const int rowBytes{av_image_get_linesize(format, canvas->width, plane)};
+    const int tileBytes{av_image_get_linesize(format, width, plane)};
+    if (offset < 0 || rowBytes < 0 || tileBytes < 0)
+      return false;
+
+    // odd offsets of subsampled planes round up, so clip to the plane
+    const int top{AV_CEIL_RSHIFT(y, shiftY)};
+    const int bytes{std::min(tileBytes, rowBytes - offset)};
+    const int rows{
+        std::min(AV_CEIL_RSHIFT(height, shiftY), AV_CEIL_RSHIFT(canvas->height, shiftY) - top)};
+    if (bytes <= 0 || rows <= 0)
+      continue;
+
+    av_image_copy_plane(canvas->data[plane] + top * canvas->linesize[plane] + offset,
+                        canvas->linesize[plane], tile->data[plane], tile->linesize[plane], bytes,
+                        rows);
+  }
+  return true;
+}
+
+#if defined(HAVE_LCMS2)
+// ICC profiles come from any image Kodi loads, so huge ones aren't parsed
+constexpr size_t MAX_ICC_PROFILE_SIZE = 4 * 1024 * 1024;
+// how far colorants (XYZ) and tone curves may be from sRGB's for a profile to count as sRGB
+constexpr double SRGB_COLORANT_TOLERANCE = 0.002;
+constexpr float SRGB_CURVE_TOLERANCE = 1.0f / 255;
+constexpr int SRGB_CURVE_SAMPLES = 255;
+
+using ColorProfile = std::unique_ptr<void, decltype(&cmsCloseProfile)>;
+using ColorTransform = std::unique_ptr<void, decltype(&cmsDeleteTransform)>;
+
+void LogColorError(cmsContext, cmsUInt32Number code, const char* text)
+{
+  CLog::Log(LOGDEBUG, "CFFmpegImage: lcms2 error {}: {}", code, text);
+}
+
+// its own context, apart from the global one VideoPlayer's color management changes.
+// Never deleted: it lives as long as Kodi, so no image job can outlive it.
+cmsContext ColorContext()
+{
+  static const cmsContext context{[]
+                                  {
+                                    cmsContext ctx{cmsCreateContext(nullptr, nullptr)};
+                                    if (ctx)
+                                      cmsSetLogErrorHandlerTHR(ctx, LogColorError);
+                                    return ctx;
+                                  }()};
+  return context;
+}
+
+// sRGB's encoding of a linear value
+float EncodeSRGB(float linear)
+{
+  return linear <= 0.0031308f ? 12.92f * linear : 1.055f * std::pow(linear, 1 / 2.4f) - 0.055f;
+}
+
+// an RGB profile that converts to the profile connection space
+bool IsRGBProfile(cmsHPROFILE profile)
+{
+  const cmsProfileClassSignature deviceClass{cmsGetDeviceClass(profile)};
+  const cmsColorSpaceSignature pcs{cmsGetPCS(profile)};
+  return cmsGetColorSpace(profile) == cmsSigRgbData &&
+         (pcs == cmsSigXYZData || pcs == cmsSigLabData) &&
+         (deviceClass == cmsSigInputClass || deviceClass == cmsSigDisplayClass ||
+          deviceClass == cmsSigOutputClass || deviceClass == cmsSigColorSpaceClass);
+}
+
+// a matrix/curve profile with sRGB's colorants and tone curves, so the pixels are already sRGB.
+// Tone curves are sampled at every 8-bit code value, as v2 profiles store them as tables and v4
+// ones as parameters, and compared once encoded as sRGB, so within a code value or so.
+bool IsSRGB(cmsHPROFILE profile, cmsHPROFILE srgb)
+{
+  // lcms2 converts with the profile's LUT rather than its matrix and curves when it has one
+  if (!cmsIsMatrixShaper(profile) || cmsIsTag(profile, cmsSigDToB1Tag) ||
+      cmsIsTag(profile, cmsSigAToB1Tag) || cmsIsTag(profile, cmsSigAToB0Tag))
+    return false;
+
+  static constexpr std::array<std::pair<cmsTagSignature, cmsTagSignature>, 3> channels{
+      {{cmsSigRedColorantTag, cmsSigRedTRCTag},
+       {cmsSigGreenColorantTag, cmsSigGreenTRCTag},
+       {cmsSigBlueColorantTag, cmsSigBlueTRCTag}}};
+  for (const auto& [colorantTag, curveTag] : channels)
+  {
+    const auto* colorant{static_cast<const cmsCIEXYZ*>(cmsReadTag(profile, colorantTag))};
+    const auto* srgbColorant{static_cast<const cmsCIEXYZ*>(cmsReadTag(srgb, colorantTag))};
+    const auto* curve{static_cast<const cmsToneCurve*>(cmsReadTag(profile, curveTag))};
+    if (!colorant || !srgbColorant || !curve)
+      return false;
+
+    if (std::abs(colorant->X - srgbColorant->X) > SRGB_COLORANT_TOLERANCE ||
+        std::abs(colorant->Y - srgbColorant->Y) > SRGB_COLORANT_TOLERANCE ||
+        std::abs(colorant->Z - srgbColorant->Z) > SRGB_COLORANT_TOLERANCE)
+      return false;
+
+    for (int i = 0; i <= SRGB_CURVE_SAMPLES; ++i)
+    {
+      const float x{static_cast<float>(i) / SRGB_CURVE_SAMPLES};
+      if (std::abs(EncodeSRGB(cmsEvalToneCurveFloat(curve, x)) - x) > SRGB_CURVE_TOLERANCE)
+        return false;
+    }
+  }
+  return true;
+}
+
+// convert RGB32 pixels from the frame's ICC profile to sRGB, in place
+void ConvertToSRGB(
+    const AVFrame* frame, uint8_t* pixels, unsigned int width, unsigned int height, int linesize)
+{
+  const AVFrameSideData* sideData{av_frame_get_side_data(frame, AV_FRAME_DATA_ICC_PROFILE)};
+  if (!sideData || sideData->size == 0 || sideData->size > MAX_ICC_PROFILE_SIZE)
+    return;
+
+  const cmsContext context{ColorContext()};
+  if (!context)
+    return;
+
+  const ColorProfile profile{cmsOpenProfileFromMemTHR(context, sideData->data,
+                                                      static_cast<cmsUInt32Number>(sideData->size)),
+                             cmsCloseProfile};
+  if (!profile || !IsRGBProfile(profile.get()))
+    return;
+
+  // one per call: lcms2 caches tags inside a profile, so it can't be shared between image jobs
+  const ColorProfile srgb{cmsCreate_sRGBProfileTHR(context), cmsCloseProfile};
+  if (!srgb || IsSRGB(profile.get(), srgb.get()))
+    return;
+
+  // RGB32 is BGRA in memory on little-endian systems and ARGB on big-endian ones.
+  // Matrix/curve profiles have a single rendering, so relative colorimetric, without the black
+  // point compensation lcms2 adds to perceptual for v4 profiles.
+  constexpr cmsUInt32Number format{AV_PIX_FMT_RGB32 == AV_PIX_FMT_BGRA ? TYPE_BGRA_8 : TYPE_ARGB_8};
+  const ColorTransform transform{cmsCreateTransformTHR(context, profile.get(), format, srgb.get(),
+                                                       format, INTENT_RELATIVE_COLORIMETRIC,
+                                                       cmsFLAGS_COPY_ALPHA),
+                                 cmsDeleteTransform};
+  if (!transform)
+    return;
+
+  const auto stride{static_cast<cmsUInt32Number>(linesize)};
+  cmsDoTransformLineStride(transform.get(), pixels, pixels, width, height, stride, stride, 0, 0);
+}
+#endif
+} // namespace
 
 Frame::Frame(const Frame& src) :
   m_delay(src.m_delay),
@@ -144,6 +436,8 @@ CFFmpegImage::~CFFmpegImage()
 bool CFFmpegImage::LoadImageFromMemory(unsigned char* buffer, unsigned int bufSize,
                                       unsigned int width, unsigned int height)
 {
+  m_maxWidth = width;
+  m_maxHeight = height;
 
   if (!Initialize(buffer, bufSize))
   {
@@ -153,6 +447,19 @@ bool CFFmpegImage::LoadImageFromMemory(unsigned char* buffer, unsigned int bufSi
 
   av_frame_free(&m_pFrame);
   m_pFrame = ExtractFrame();
+
+  // The decoder refuses some JPEGs at a reduced size, such as lossless ones
+  if (!m_pFrame && m_codec_ctx && m_codec_ctx->lowres > 0)
+  {
+    avcodec_free_context(&m_codec_ctx);
+    avformat_close_input(&m_fctx);
+    FreeIOCtx(&m_ioctx);
+    m_maxWidth = 0;
+    m_maxHeight = 0;
+    if (!Initialize(buffer, bufSize))
+      return false;
+    m_pFrame = ExtractFrame();
+  }
 
   return !(m_pFrame == nullptr);
 }
@@ -261,7 +568,35 @@ bool CFFmpegImage::Initialize(unsigned char* buffer, size_t bufSize)
     FreeIOCtx(&m_ioctx);
     return false;
   }
-  AVCodecParameters* codec_params = m_fctx->streams[0]->codecpar;
+
+  // HEIF and AVIF store large pictures as a grid of separately coded tiles
+  for (unsigned int i = 0; i < m_fctx->nb_stream_groups; ++i)
+  {
+    const AVStreamGroup* group = m_fctx->stream_groups[i];
+    if (group->type == AV_STREAM_GROUP_PARAMS_TILE_GRID &&
+        (group->disposition & AV_DISPOSITION_DEFAULT))
+    {
+      m_tileGrid = group;
+      return true;
+    }
+  }
+
+  // prefer the primary picture of HEIF and AVIF, else the first video stream
+  int primary{-1};
+  int firstVideo{-1};
+  for (unsigned int i = 0; i < m_fctx->nb_streams && primary < 0; ++i)
+  {
+    const AVStream* stream = m_fctx->streams[i];
+    if (stream->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
+      continue;
+    if (firstVideo < 0)
+      firstVideo = static_cast<int>(i);
+    if (stream->disposition & AV_DISPOSITION_DEFAULT)
+      primary = static_cast<int>(i);
+  }
+  m_streamIndex = primary >= 0 ? primary : std::max(firstVideo, 0);
+
+  AVCodecParameters* codec_params = m_fctx->streams[m_streamIndex]->codecpar;
   const AVCodec* codec = avcodec_find_decoder(codec_params->codec_id);
   m_codec_ctx = avcodec_alloc_context3(codec);
   if (!m_codec_ctx)
@@ -279,6 +614,25 @@ bool CFFmpegImage::Initialize(unsigned char* buffer, size_t bufSize)
     return false;
   }
 
+  // Nothing bounds the size of the file we were handed, and decoding more pixels than the
+  // caller can use costs memory that scaling afterwards cannot give back. Decoding at a
+  // reduced size is the only point at which that cost can be avoided rather than merely
+  // hidden, and it needs the dimensions before the frame is decoded.
+  if (is_jpeg)
+    JpegDimensions(buffer, bufSize, m_sourceWidth, m_sourceHeight);
+
+  if (codec && m_maxWidth > 0 && m_maxHeight > 0 && m_sourceWidth > 0 && m_sourceHeight > 0)
+  {
+    // The caller scales the image down to fit its own maximum, so everything decoded above
+    // that size is read and thrown away. Pre-reduce by the largest power of two that stays
+    // at or above it, which costs no detail the caller would have kept.
+    const unsigned int ratio = std::max(m_sourceWidth / m_maxWidth, m_sourceHeight / m_maxHeight);
+    int lowres = 0;
+    while (lowres < codec->max_lowres && (1U << (lowres + 1)) <= ratio)
+      lowres++;
+    m_codec_ctx->lowres = lowres;
+  }
+
   if (avcodec_open2(m_codec_ctx, codec, NULL) < 0)
   {
     avformat_close_input(&m_fctx);
@@ -292,12 +646,56 @@ bool CFFmpegImage::Initialize(unsigned char* buffer, size_t bufSize)
 
 AVFrame* CFFmpegImage::ExtractFrame()
 {
-  if (!m_fctx || !m_fctx->streams[0])
+  if (!m_fctx || (!m_tileGrid && !m_fctx->streams[m_streamIndex]))
   {
     CLog::LogF(LOGERROR, "No valid format context or stream");
     return nullptr;
   }
 
+  AVFrame* frame = m_tileGrid ? ExtractTileGridFrame() : ExtractStreamFrame();
+  if (!frame)
+    return nullptr;
+
+  m_height = frame->height;
+  m_width = frame->width;
+  m_originalWidth = m_sourceWidth > 0 ? m_sourceWidth : m_width;
+  m_originalHeight = m_sourceHeight > 0 ? m_sourceHeight : m_height;
+
+  const AVPixFmtDescriptor* pixDescriptor =
+      av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame->format));
+  if (pixDescriptor &&
+      ((pixDescriptor->flags & (AV_PIX_FMT_FLAG_ALPHA | AV_PIX_FMT_FLAG_PAL)) != 0))
+    m_hasAlpha = true;
+
+  AVDictionary* dic = frame->metadata;
+  AVDictionaryEntry* entry = NULL;
+  if (dic)
+  {
+    entry = av_dict_get(dic, "Orientation", NULL, AV_DICT_MATCH_CASE);
+    if (entry && entry->value)
+    {
+      int orientation = atoi(entry->value);
+      // only values between including 0 and including 8
+      // http://sylvana.net/jpegcrop/exif_orientation.html
+      if (orientation >= 0 && orientation <= 8)
+        m_orientation = (unsigned int)orientation;
+    }
+  }
+
+  // FFmpeg 8.1 and later only report the EXIF orientation as a display matrix
+  if (m_orientation == 0)
+  {
+    const AVFrameSideData* sideData{av_frame_get_side_data(frame, AV_FRAME_DATA_DISPLAYMATRIX)};
+    if (sideData && sideData->size >= sizeof(int32_t) * DISPLAY_MATRIX_SIZE)
+      m_orientation =
+          OrientationFromDisplayMatrix(reinterpret_cast<const int32_t*>(sideData->data));
+  }
+
+  return frame;
+}
+
+AVFrame* CFFmpegImage::ExtractStreamFrame()
+{
   AVPacket pkt;
   AVFrame* frame = av_frame_alloc();
   int frame_decoded = -1;
@@ -316,6 +714,14 @@ AVFrame* CFFmpegImage::ExtractFrame()
       return nullptr;
     }
 
+    // HEIF thumbnails and auxiliary images come as further streams
+    if (pkt.stream_index != m_streamIndex)
+    {
+      av_packet_unref(&pkt);
+      ret = AVERROR(EAGAIN);
+      continue;
+    }
+
     ret = DecodeFFmpegFrame(m_codec_ctx, frame, &frame_decoded, &pkt);
   }
   if (ret < 0 || frame_decoded == 0 || !frame)
@@ -328,39 +734,122 @@ AVFrame* CFFmpegImage::ExtractFrame()
   //we need milliseconds
 
 #if LIBAVCODEC_VERSION_MAJOR < 60
-  frame->pkt_duration =
-      av_rescale_q(frame->pkt_duration, m_fctx->streams[0]->time_base, AVRational{1, 1000});
+  frame->pkt_duration = av_rescale_q(frame->pkt_duration, m_fctx->streams[m_streamIndex]->time_base,
+                                     AVRational{1, 1000});
 #else
   frame->duration =
-      av_rescale_q(frame->duration, m_fctx->streams[0]->time_base, AVRational{1, 1000});
+      av_rescale_q(frame->duration, m_fctx->streams[m_streamIndex]->time_base, AVRational{1, 1000});
 #endif
 
-  m_height = frame->height;
-  m_width = frame->width;
-  m_originalWidth = m_width;
-  m_originalHeight = m_height;
-
-  const AVPixFmtDescriptor* pixDescriptor = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame->format));
-  if (pixDescriptor && ((pixDescriptor->flags & (AV_PIX_FMT_FLAG_ALPHA | AV_PIX_FMT_FLAG_PAL)) != 0))
-    m_hasAlpha = true;
-
-  AVDictionary* dic = frame->metadata;
-  AVDictionaryEntry* entry = NULL;
-  if (dic)
-  {
-    entry = av_dict_get(dic, "Orientation", NULL, AV_DICT_MATCH_CASE);
-    if (entry && entry->value)
-    {
-      int orientation = atoi(entry->value);
-      // only values between including 0 and including 8
-      // http://sylvana.net/jpegcrop/exif_orientation.html
-      if (orientation >= 0 && orientation <= 8)
-        m_orientation = (unsigned int)orientation;
-    }
-  }
   av_packet_unref(&pkt);
 
   return frame;
+}
+
+AVFrame* CFFmpegImage::ExtractTileGridFrame()
+{
+  const AVStreamGroupTileGrid* grid = m_tileGrid->params.tile_grid;
+  CLog::LogF(LOGDEBUG, "Decoding a grid of {} tiles to {}x{}", grid->nb_tiles, grid->width,
+             grid->height);
+
+  // the demuxer does not check these against the coded size
+  if (grid->nb_tiles == 0 || grid->coded_width <= 0 || grid->coded_height <= 0 ||
+      grid->horizontal_offset < 0 || grid->vertical_offset < 0 || grid->width <= 0 ||
+      grid->height <= 0 || grid->width > grid->coded_width - grid->horizontal_offset ||
+      grid->height > grid->coded_height - grid->vertical_offset)
+  {
+    CLog::LogF(LOGERROR, "Invalid tile grid geometry");
+    return nullptr;
+  }
+
+  // FFmpeg 7.x gives a tile's number here, not its stream's, so a tile used twice runs past them
+  for (unsigned int i = 0; i < grid->nb_tiles; ++i)
+  {
+    if (grid->offsets[i].idx >= m_tileGrid->nb_streams)
+    {
+      CLog::LogF(LOGERROR, "Tile {} refers to stream {} of {}", i, grid->offsets[i].idx,
+                 m_tileGrid->nb_streams);
+      return nullptr;
+    }
+  }
+
+  AVPacket* pkt = av_packet_alloc();
+  AVFrame* tile = av_frame_alloc();
+  AVFrame* canvas = nullptr;
+  unsigned int placed = 0;
+  bool failed = !pkt || !tile;
+
+  while (!failed && placed < grid->nb_tiles && av_read_frame(m_fctx, pkt) >= 0)
+  {
+    bool decoded = false;
+    // a tile may be placed more than once
+    for (unsigned int i = 0; !failed && i < grid->nb_tiles; ++i)
+    {
+      const AVStream* stream = m_tileGrid->streams[grid->offsets[i].idx];
+      if (stream->index != pkt->stream_index)
+        continue;
+
+      if (!decoded)
+      {
+        decoded = DecodeStill(stream->codecpar, pkt, tile);
+        if (decoded && !canvas)
+          canvas = AllocCanvas(tile, grid->coded_width, grid->coded_height);
+        failed = !decoded || !canvas || tile->format != canvas->format;
+      }
+      failed =
+          failed || !CopyTile(canvas, tile, grid->offsets[i].horizontal, grid->offsets[i].vertical);
+      if (failed)
+        CLog::LogF(LOGERROR, "Could not decode or place tile stream {}", stream->index);
+      else
+        placed++;
+    }
+    av_packet_unref(pkt);
+  }
+  av_packet_free(&pkt);
+  av_frame_free(&tile);
+
+  if (failed || placed < grid->nb_tiles)
+  {
+    CLog::LogF(LOGERROR, "Could only decode {} of {} tiles", placed, grid->nb_tiles);
+    av_frame_free(&canvas);
+    return nullptr;
+  }
+
+  canvas->crop_left = grid->horizontal_offset;
+  canvas->crop_top = grid->vertical_offset;
+  canvas->crop_right = grid->coded_width - grid->width - grid->horizontal_offset;
+  canvas->crop_bottom = grid->coded_height - grid->height - grid->vertical_offset;
+  if (av_frame_apply_cropping(canvas, AV_FRAME_CROP_UNALIGNED) < 0)
+  {
+    CLog::LogF(LOGERROR, "Invalid tile grid cropping");
+    av_frame_free(&canvas);
+    return nullptr;
+  }
+
+#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(61, 9, 100)
+  // irot/imir of a grid apply to the grid, not its tiles
+  const AVPacketSideData* sideData{av_packet_side_data_get(
+      grid->coded_side_data, grid->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX)};
+  AVFrameSideData* matrix{
+      sideData ? av_frame_new_side_data(canvas, AV_FRAME_DATA_DISPLAYMATRIX, sideData->size)
+               : nullptr};
+  if (matrix)
+    std::memcpy(matrix->data, sideData->data, sideData->size);
+
+  // the grid's own ICC profile describes the picture, so it wins over the tiles'
+  const AVPacketSideData* gridProfile{av_packet_side_data_get(
+      grid->coded_side_data, grid->nb_coded_side_data, AV_PKT_DATA_ICC_PROFILE)};
+  if (gridProfile)
+  {
+    av_frame_remove_side_data(canvas, AV_FRAME_DATA_ICC_PROFILE);
+    AVFrameSideData* profile{
+        av_frame_new_side_data(canvas, AV_FRAME_DATA_ICC_PROFILE, gridProfile->size)};
+    if (profile)
+      std::memcpy(profile->data, gridProfile->data, gridProfile->size);
+  }
+#endif
+
+  return canvas;
 }
 
 AVPixelFormat CFFmpegImage::ConvertFormats(AVFrame* frame)
@@ -495,6 +984,8 @@ bool CFFmpegImage::DecodeFrame(AVFrame* frame, unsigned int width, unsigned int 
     pictureRGB->format = AV_PIX_FMT_RGB32;
     pictureRGB->width = width;
     pictureRGB->height = height;
+    // let av_frame_get_buffer choose an aligned stride instead of the one from av_image_fill_arrays
+    std::ranges::fill(pictureRGB->linesize, 0);
     // we copy the data manually later so give a chance to intrinsics (e.g. mmx, neon)
     if (av_frame_get_buffer(pictureRGB, 32) < 0)
     {
@@ -510,7 +1001,7 @@ bool CFFmpegImage::DecodeFrame(AVFrame* frame, unsigned int width, unsigned int 
   AVColorRange range = frame->color_range;
   AVPixelFormat pixFormat = ConvertFormats(frame);
 
-  SwsContext* context = sws_getContext(m_originalWidth, m_originalHeight, pixFormat, width, height,
+  SwsContext* context = sws_getContext(frame->width, frame->height, pixFormat, width, height,
                                        AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
 
   if (range == AVCOL_RANGE_JPEG)
@@ -523,9 +1014,13 @@ bool CFFmpegImage::DecodeFrame(AVFrame* frame, unsigned int width, unsigned int 
     sws_setColorspaceDetails(context, inv_table, srcRange, table, dstRange, brightness, contrast, saturation);
   }
 
-  sws_scale(context, frame->data, frame->linesize, 0, m_originalHeight,
-    pictureRGB->data, pictureRGB->linesize);
+  sws_scale(context, frame->data, frame->linesize, 0, frame->height, pictureRGB->data,
+            pictureRGB->linesize);
   sws_freeContext(context);
+
+#if defined(HAVE_LCMS2)
+  ConvertToSRGB(frame, pictureRGB->data[0], width, height, pictureRGB->linesize[0]);
+#endif
 
   if (needsCopy)
   {
@@ -706,7 +1201,9 @@ bool CFFmpegImage::CreateThumbnailFromSurface(unsigned char* bufferin, unsigned 
       break;
   }
   AVPixelFormat dstFmt = jpg_output ? AV_PIX_FMT_YUV420P : is16bit ? fmt16bit : AV_PIX_FMT_RGBA;
-  tdm.sws = sws_getContext(width, height, srcFmt, width, height, dstFmt, 0, 0, 0, 0);
+  // SWS_ACCURATE_RND skips RGB->YUV fast paths that ignore the range set below
+  tdm.sws = sws_getContext(width, height, srcFmt, width, height, dstFmt,
+                           jpg_output ? SWS_ACCURATE_RND : 0, nullptr, nullptr, nullptr);
   if (!tdm.sws)
   {
     CLog::Log(LOGERROR, "Could not setup scaling context for thumbnail: {}", destFile);

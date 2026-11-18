@@ -8,18 +8,32 @@
 
 #include "ApplicationPlayer.h"
 
+#include "HDRStatus.h"
 #include "ServiceBroker.h"
+#include "application/ApplicationComponents.h"
+#include "application/ApplicationContentGeometry.h"
 #include "cores/DataCacheCore.h"
 #include "cores/IPlayer.h"
 #include "cores/VideoPlayer/VideoPlayer.h"
 #include "cores/playercorefactory/PlayerCoreFactory.h"
+#include "dialogs/GUIDialogKaiToast.h"
+#include "guilib/GUIAudioManager.h"
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
+#include "input/actions/Action.h"
+#include "input/actions/ActionIDs.h"
+#include "resources/LocalizeStrings.h"
+#include "resources/ResourcesComponent.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/PlayerUtils.h"
+#include "utils/log.h"
 #include "video/VideoFileItemClassify.h"
+#include "windowing/WinSystem.h"
 
+#include <cstdlib>
 #include <mutex>
+#include <stdexcept>
 
 using namespace KODI;
 using namespace std::chrono_literals;
@@ -38,6 +52,7 @@ std::shared_ptr<IPlayer> CApplicationPlayer::GetInternal()
 
 void CApplicationPlayer::ClosePlayer()
 {
+  m_seekHandler.ResetAndClearSeekStepValue();
   m_nextItem.pItem.reset();
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
@@ -52,6 +67,14 @@ void CApplicationPlayer::ResetPlayer()
   // we need to do this directly on the member
   std::unique_lock lock(m_playerLock);
   m_pPlayer.reset();
+
+  // the cached stream indices describe the player that has just gone away
+  m_iAudioStream = -1;
+  m_iVideoStream = -1;
+  m_iSubtitleStream = -1;
+  m_audioStreamUpdate.SetExpired();
+  m_videoStreamUpdate.SetExpired();
+  m_subtitleStreamUpdate.SetExpired();
 }
 
 void CApplicationPlayer::CloseFile(bool reopen)
@@ -87,6 +110,8 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
                                   const CPlayerCoreFactory &factory,
                                   const std::string &playerName, IPlayerCallback& callback)
 {
+  m_seekHandler.ResetAndClearSeekStepValue();
+
   // get player type
   std::string newPlayer;
   if (!playerName.empty())
@@ -119,21 +144,15 @@ bool CApplicationPlayer::OpenFile(const CFileItem& item, const CPlayerOptions& o
 
       CloseFile();
       if (player->m_name != newPlayer)
-      {
-        std::unique_lock lock(m_playerLock);
-        m_pPlayer.reset();
-      }
+        ResetPlayer();
       return true;
     }
   }
   else if (player && player->m_name != newPlayer)
   {
     CloseFile();
-    {
-      std::unique_lock lock(m_playerLock);
-      m_pPlayer.reset();
-      player.reset();
-    }
+    ResetPlayer();
+    player.reset();
   }
 
   if (!player)
@@ -302,6 +321,15 @@ bool CApplicationPlayer::IsLiveStream() const
   return false;
 }
 
+bool CApplicationPlayer::IsStreaming() const
+{
+  std::shared_ptr<const IPlayer> player = GetInternal();
+  if (player)
+    return player->IsStreaming();
+
+  return false;
+}
+
 void CApplicationPlayer::Pause()
 {
   std::shared_ptr<IPlayer> player = GetInternal();
@@ -327,6 +355,8 @@ void CApplicationPlayer::SetVolume(float volume)
 
 void CApplicationPlayer::Seek(bool bPlus, bool bLargeStep, bool bChapterOverride)
 {
+  m_seekHandler.ResetAndClearSeekStepValue();
+
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
     player->Seek(bPlus, bLargeStep, bChapterOverride);
@@ -334,6 +364,8 @@ void CApplicationPlayer::Seek(bool bPlus, bool bLargeStep, bool bChapterOverride
 
 void CApplicationPlayer::SeekPercentage(float fPercent)
 {
+  m_seekHandler.ResetAndClearSeekStepValue();
+
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
     player->SeekPercentage(fPercent);
@@ -353,12 +385,25 @@ bool CApplicationPlayer::CanSeek() const
 
 bool CApplicationPlayer::SeekScene(Direction seekDirection)
 {
+  m_seekHandler.ResetAndClearSeekStepValue();
+
   std::shared_ptr<IPlayer> player = GetInternal();
   return (player && player->SeekScene(seekDirection));
 }
 
+void CApplicationPlayer::SeekChapterOrSceneOrBigStep(Direction direction)
+{
+  m_seekHandler.ResetAndClearSeekStepValue();
+
+  std::shared_ptr<IPlayer> player = GetInternal();
+  if (player)
+    player->SeekChapterOrSceneOrBigStep(direction);
+}
+
 void CApplicationPlayer::SeekTime(int64_t iTime)
 {
+  m_seekHandler.ResetAndClearSeekStepValue();
+
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
     player->SeekTime(iTime);
@@ -432,6 +477,18 @@ bool CApplicationPlayer::IsCaching() const
   return (player && player->IsCaching());
 }
 
+bool CApplicationPlayer::IsWaitingForAudio() const
+{
+  std::shared_ptr<const IPlayer> player = GetInternal();
+  return (player && player->IsWaitingForAudio());
+}
+
+int CApplicationPlayer::GetWaitingForAudioRemaining() const
+{
+  std::shared_ptr<const IPlayer> player = GetInternal();
+  return player ? player->GetWaitingForAudioRemaining() : 0;
+}
+
 bool CApplicationPlayer::IsInMenu() const
 {
   std::shared_ptr<const IPlayer> player = GetInternal();
@@ -479,7 +536,7 @@ int CApplicationPlayer::GetAudioStream()
     return m_iAudioStream;
   }
   else
-    return 0;
+    return -1;
 }
 
 int CApplicationPlayer::GetSubtitle()
@@ -495,7 +552,7 @@ int CApplicationPlayer::GetSubtitle()
     return m_iSubtitleStream;
   }
   else
-    return 0;
+    return -1;
 }
 
 bool CApplicationPlayer::GetSubtitleVisible() const
@@ -643,6 +700,176 @@ bool CApplicationPlayer::OnAction(const CAction &action)
   return (player && player->OnAction(action));
 }
 
+bool CApplicationPlayer::OnPlaybackAction(const CAction& action)
+{
+  if (!IsPlaying())
+    return false;
+
+  switch (action.GetID())
+  {
+    // the player knows what a channel switch means
+    case ACTION_CHANNEL_UP:
+    case ACTION_CHANNEL_DOWN:
+      OnAction(action);
+      return true;
+
+    case ACTION_PAUSE:
+    {
+      Pause();
+      // go back to normal play speed on unpause
+      if (!IsPaused() && GetPlaySpeed() != 1)
+        SetPlaySpeed(1);
+
+      CGUIComponent* gui = CServiceBroker::GetGUI();
+      if (gui)
+        gui->GetAudioManager().Enable(IsPaused());
+      return true;
+    }
+
+    // play while playing (not paused) ends a fast forward or rewind
+    case ACTION_PLAYER_PLAY:
+      if (GetPlaySpeed() != 1)
+        SetPlaySpeed(1);
+      return true;
+
+    default:
+      break;
+  }
+
+  const bool wasPaused = IsPaused();
+  // FF/RW while paused is only supported for video outside of menus
+  if (wasPaused && (!IsPlayingVideo() || IsPlayingGame() || IsInMenu()))
+    return false;
+
+  switch (action.GetID())
+  {
+    case ACTION_PLAYER_FORWARD:
+    case ACTION_PLAYER_REWIND:
+    {
+      const bool rewind = action.GetID() == ACTION_PLAYER_REWIND;
+      float playSpeed = GetPlaySpeed();
+      if (playSpeed == 0)
+        playSpeed = 1;
+
+      if (rewind && playSpeed == 1) // Enables Rewinding
+        playSpeed *= -2;
+      else if (rewind && playSpeed > 1) // goes down a notch if you're FFing
+        playSpeed /= 2;
+      else if (!rewind && playSpeed < 1) // goes up a notch if you're RWing
+        playSpeed /= 2;
+      else
+        playSpeed *= 2;
+
+      if (!rewind && playSpeed == -1) // sets the speed back to 1 if -1 (didn't plan for a -1)
+        playSpeed = 1;
+      if (playSpeed > 32 || playSpeed < -32)
+        playSpeed = 1;
+
+      SetPlaySpeed(playSpeed);
+
+      CGUIComponent* gui = CServiceBroker::GetGUI();
+      if (wasPaused && gui)
+        gui->GetAudioManager().Enable(IsPaused());
+      return true;
+    }
+
+    case ACTION_ANALOG_REWIND:
+    case ACTION_ANALOG_FORWARD:
+    {
+      if (!action.GetAmount() && GetPlaySpeed() == 1)
+        return false;
+
+      // calculate the speed based on the amount the button is held down
+      constexpr int MAX_FFWD_SPEED = 5;
+      // amount can be negative, for example rewind and forward share the same axis
+      const int power = std::abs(static_cast<int>(action.GetAmount() * MAX_FFWD_SPEED + 0.5f));
+      // 1 -> 2^MAX_FFWD_SPEED
+      int speed = 1 << power;
+      // speed 1 would unpause
+      if (speed == 1 && wasPaused)
+        return false;
+      if (speed != 1 && action.GetID() == ACTION_ANALOG_REWIND)
+        speed = -speed;
+      SetPlaySpeed(static_cast<float>(speed));
+      if (speed == 1)
+        CLog::Log(LOGDEBUG, "Resetting playspeed");
+
+      CGUIComponent* gui = CServiceBroker::GetGUI();
+      if (wasPaused && gui)
+        gui->GetAudioManager().Enable(IsPaused());
+      return true;
+    }
+
+    case ACTION_PLAYER_INCREASE_TEMPO:
+      if (wasPaused)
+        return false;
+      CPlayerUtils::AdvanceTempoStep(*this, TempoStepChange::INCREASE);
+      return true;
+
+    case ACTION_PLAYER_DECREASE_TEMPO:
+      if (wasPaused)
+        return false;
+      CPlayerUtils::AdvanceTempoStep(*this, TempoStepChange::DECREASE);
+      return true;
+
+    default:
+      return false;
+  }
+}
+
+bool CApplicationPlayer::OnVideoDisplayAction(const CAction& action)
+{
+  if (action.GetID() != ACTION_HDR_TOGGLE && action.GetID() != ACTION_CYCLE_TONEMAP_METHOD)
+    return false;
+
+  CWinSystemBase* const winSystem{CServiceBroker::GetWinSystem()};
+  auto& localizeStrings{CServiceBroker::GetResourcesComponent().GetLocalizeStrings()};
+
+  if (action.GetID() == ACTION_HDR_TOGGLE)
+  {
+    // Only enables manual HDR toggle if no video is playing or auto HDR switch is disabled
+    if (IsPlayingVideo() && winSystem->IsHDRDisplaySettingEnabled())
+      return true;
+
+    const HDR_STATUS hdrStatus = winSystem->ToggleHDR();
+    if (hdrStatus == HDR_STATUS::HDR_OFF || hdrStatus == HDR_STATUS::HDR_ON)
+      CGUIDialogKaiToast::QueueNotification(
+          CGUIDialogKaiToast::Info, localizeStrings.Get(34220),
+          localizeStrings.Get(hdrStatus == HDR_STATUS::HDR_OFF ? 34221 : 34222));
+    return true;
+  }
+
+  // Only enables tone mapping switch if display is not HDR capable or HDR is not enabled
+  if (winSystem->IsHDRDisplaySettingEnabled() || !IsPlayingVideo())
+    return true;
+
+  CVideoSettings vs = GetVideoSettings();
+  vs.m_ToneMapMethod = static_cast<ETONEMAPMETHOD>(static_cast<int>(vs.m_ToneMapMethod) + 1);
+  if (vs.m_ToneMapMethod >= VS_TONEMAPMETHOD_MAX)
+    vs.m_ToneMapMethod = static_cast<ETONEMAPMETHOD>(static_cast<int>(VS_TONEMAPMETHOD_OFF) + 1);
+
+  SetVideoSettings(vs);
+
+  int code = 0;
+  switch (vs.m_ToneMapMethod)
+  {
+    case VS_TONEMAPMETHOD_REINHARD:
+      code = 36555;
+      break;
+    case VS_TONEMAPMETHOD_ACES:
+      code = 36557;
+      break;
+    case VS_TONEMAPMETHOD_HABLE:
+      code = 36558;
+      break;
+    default:
+      throw std::logic_error("Tonemapping method not found. Did you forget to add a mapping?");
+  }
+  CGUIDialogKaiToast::QueueNotification(CGUIDialogKaiToast::Info, localizeStrings.Get(34224),
+                                        localizeStrings.Get(code), 1000, false, 500);
+  return true;
+}
+
 int CApplicationPlayer::GetAudioStreamCount() const
 {
   const std::shared_ptr<const IPlayer> player = GetInternal();
@@ -665,7 +892,7 @@ int CApplicationPlayer::GetVideoStream()
     return m_iVideoStream;
   }
   else
-    return 0;
+    return -1;
 }
 
 int CApplicationPlayer::GetVideoStreamCount() const
@@ -712,6 +939,8 @@ void CApplicationPlayer::SetSubtitleVisible(bool bVisible)
   if (player)
   {
     player->SetSubtitleVisible(bVisible);
+    // hiding a subtitle can close its stream, which changes the reported index
+    m_subtitleStreamUpdate.SetExpired();
   }
 }
 
@@ -775,6 +1004,13 @@ void CApplicationPlayer::SetDynamicRangeCompression(long drc)
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
     player->SetDynamicRangeCompression(drc);
+}
+
+void CApplicationPlayer::NotifyAudioChainReady()
+{
+  std::shared_ptr<IPlayer> player = GetInternal();
+  if (player)
+    player->NotifyAudioChainReady();
 }
 
 void CApplicationPlayer::LoadPage(int p, int sp, unsigned char* buffer)
@@ -866,6 +1102,12 @@ void CApplicationPlayer::Render(bool clear, uint32_t alpha, bool gui)
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
     player->Render(clear, alpha, gui);
+}
+
+bool CApplicationPlayer::CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result)
+{
+  const std::shared_ptr<IPlayer> player = GetInternal();
+  return !player || player->CompositeVideoCapture(result);
 }
 
 void CApplicationPlayer::FlushRenderer()
@@ -1038,7 +1280,8 @@ void CApplicationPlayer::SetVideoSettings(CVideoSettings& settings)
   std::shared_ptr<IPlayer> player = GetInternal();
   if (player)
   {
-    return player->SetVideoSettings(settings);
+    player->SetVideoSettings(settings);
+    CServiceBroker::GetAppComponents().GetComponent<CApplicationContentGeometry>()->Refresh();
   }
 }
 

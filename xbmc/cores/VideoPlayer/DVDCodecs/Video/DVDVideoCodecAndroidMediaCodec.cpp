@@ -126,8 +126,10 @@ bool CMediaCodecVideoBuffer::WaitForFrame(int millis)
 
 void CMediaCodecVideoBuffer::ReleaseOutputBuffer(bool render, int64_t displayTime, CMediaCodecVideoBufferPool* pool)
 {
-  std::shared_ptr<CJNIMediaCodec> codec(
-      static_cast<CMediaCodecVideoBufferPool*>(pool ? pool : m_pool.get())->GetMediaCodec());
+  auto* bufferPool{static_cast<CMediaCodecVideoBufferPool*>(pool ? pool : m_pool.get())};
+  std::unique_lock lock(bufferPool->GetCriticalSection());
+
+  std::shared_ptr<CJNIMediaCodec> codec(bufferPool->GetMediaCodec());
 
   if (m_bufferId < 0 || !codec)
     return;
@@ -287,6 +289,12 @@ void CMediaCodecVideoBufferPool::ReleaseMediaCodecBuffers()
     buffer->ReleaseOutputBuffer(false, 0, this);
 }
 
+void CMediaCodecVideoBufferPool::InvalidateMediaCodecBuffers()
+{
+  std::unique_lock lock(m_criticalSection);
+  for (auto buffer : m_videoBuffers)
+    buffer->InvalidateOutputBuffer();
+}
 
 /*****************************************************************************/
 /*****************************************************************************/
@@ -336,14 +344,14 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
   int profile(0);
   CJNIUUID uuid(0, 0);
 
-  m_opened = false;
-  m_needSecureDecoder = false;
   // allow only 1 instance here
   if (m_InstanceGuard.exchange(true))
   {
     CLog::Log(LOGERROR, "CDVDVideoCodecAndroidMediaCodec::Open - InstanceGuard locked");
     return false;
   }
+  m_opened = false;
+  m_needSecureDecoder = false;
 
   // mediacodec crashes with null size. Trap this...
   if (!hints.width || !hints.height)
@@ -467,7 +475,7 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
       {
         m_bitstream = std::make_unique<CBitstreamConverter>();
         if (!m_bitstream->Open(m_hints.codec, m_hints.extradata.GetData(),
-                               m_hints.extradata.GetSize(), true))
+                               m_hints.extradata.GetSize()))
         {
           m_bitstream.reset();
         }
@@ -593,7 +601,7 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
       {
         m_bitstream = std::make_unique<CBitstreamConverter>();
         if (!m_bitstream->Open(m_hints.codec, m_hints.extradata.GetData(),
-                               m_hints.extradata.GetSize(), true))
+                               m_hints.extradata.GetSize()))
         {
           m_bitstream.reset();
         }
@@ -1194,12 +1202,20 @@ void CDVDVideoCodecAndroidMediaCodec::Reset()
   {
     // now we can flush the actual MediaCodec object
     CLog::Log(LOGDEBUG, "CDVDVideoCodecAndroidMediaCodec::Reset Current state ({})", m_state);
-    m_codec->flush();
-    if (xbmc_jnienv()->ExceptionCheck())
     {
-      xbmc_jnienv()->ExceptionDescribe();
-      xbmc_jnienv()->ExceptionClear();
-      CLog::Log(LOGERROR, "CDVDVideoCodecAndroidMediaCodec::Reset: flush failed");
+      // No output buffer may be released between flush() and its invalidation
+      std::unique_lock lock(m_videoBufferPool->GetCriticalSection());
+
+      m_codec->flush();
+      if (xbmc_jnienv()->ExceptionCheck())
+      {
+        xbmc_jnienv()->ExceptionDescribe();
+        xbmc_jnienv()->ExceptionClear();
+        CLog::Log(LOGERROR, "CDVDVideoCodecAndroidMediaCodec::Reset: flush failed");
+      }
+
+      // flush() hands all output buffers back to MediaCodec, their indices are invalid now
+      m_videoBufferPool->InvalidateMediaCodecBuffers();
     }
 
     if (m_state == MEDIACODEC_STATE_ERROR)
@@ -1241,9 +1257,8 @@ void CDVDVideoCodecAndroidMediaCodec::Reset()
 
 bool CDVDVideoCodecAndroidMediaCodec::Reconfigure(CDVDStreamInfo &hints)
 {
-  constexpr int compare =
-      CDVDStreamInfo::COMPARE_ALL &
-      ~(CDVDStreamInfo::COMPARE_ID | CDVDStreamInfo::COMPARE_EXTRADATA);
+  // The codec and the bitstream converter are set up with the SPS/PPS of the extradata
+  constexpr int compare = CDVDStreamInfo::COMPARE_ALL & ~CDVDStreamInfo::COMPARE_ID;
 
   if (m_hints.Equal(hints, compare))
   {
@@ -1284,6 +1299,10 @@ bool CDVDVideoCodecAndroidMediaCodec::Reconfigure(CDVDStreamInfo &hints)
     probe.colorPrimaries = m_hints.colorPrimaries;
   if (probe.colorTransferCharacteristic == AVCOL_TRC_UNSPECIFIED)
     probe.colorTransferCharacteristic = m_hints.colorTransferCharacteristic;
+  // An unparsed clip carries no SPS/PPS at all, which says nothing about them. Real extradata
+  // that differs still forces the rebuild: the codec keeps the SPS/PPS it was set up with.
+  if (!probe.extradata)
+    probe.extradata = m_hints.extradata;
 
   if (m_hints.Equal(probe, compare))
   {
@@ -1373,7 +1392,8 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecAndroidMediaCodec::GetPicture(VideoPictur
     // try to fetch an input buffer
     if (m_indexInputBuffer < 0)
     {
-      m_indexInputBuffer = m_codec->dequeueInputBuffer(5000 /*timeout*/);
+      m_indexInputBuffer =
+          m_codec->dequeueInputBuffer((m_codecControlFlags & DVD_CODEC_CTRL_DROP) ? 0 : 5000);
       if (xbmc_jnienv()->ExceptionCheck())
       {
         xbmc_jnienv()->ExceptionDescribe();
@@ -1690,6 +1710,10 @@ int CDVDVideoCodecAndroidMediaCodec::GetOutputPicture(void)
 {
   int rtn = 0;
   int64_t timeout_us = (m_state == MEDIACODEC_STATE_WAIT_ENDOFSTREAM) ? 100000 : 10000;
+
+  if (m_codecControlFlags & DVD_CODEC_CTRL_DROP)
+    timeout_us = 0;
+
   CJNIMediaCodecBufferInfo bufferInfo;
 
   ssize_t index = m_codec->dequeueOutputBuffer(bufferInfo, timeout_us);
@@ -1869,11 +1893,11 @@ void CDVDVideoCodecAndroidMediaCodec::ConfigureOutputFormat(CJNIMediaFormat& med
 
   if (m_hints.aspect > 1.0 && !m_hints.forced_aspect)
   {
-    m_videobuffer.iDisplayWidth  = ((int)lrint(m_videobuffer.iHeight * m_hints.aspect)) & ~3;
+    m_videobuffer.iDisplayWidth = static_cast<int>(lrint(m_videobuffer.iHeight * m_hints.aspect));
     if (m_videobuffer.iDisplayWidth > m_videobuffer.iWidth)
     {
       m_videobuffer.iDisplayWidth  = m_videobuffer.iWidth;
-      m_videobuffer.iDisplayHeight = ((int)lrint(m_videobuffer.iWidth / m_hints.aspect)) & ~3;
+      m_videobuffer.iDisplayHeight = static_cast<int>(lrint(m_videobuffer.iWidth / m_hints.aspect));
     }
   }
 

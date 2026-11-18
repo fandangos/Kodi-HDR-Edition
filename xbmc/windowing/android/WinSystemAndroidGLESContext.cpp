@@ -239,44 +239,52 @@ bool CWinSystemAndroidGLESContext::SetHDR(const VideoPicture* videoPicture)
 #if EGL_EXT_gl_colorspace_bt2020_linear
   if (m_hasHDRConfig && m_hasEGL_BT2020_PQ_Colorspace_Extension && m_hasEGL_ST2086_Extension)
   {
-    HDRColorSpace = EGL_NONE;
-    // The colorspace decision is driven purely by the picture's primaries/transfer, NOT by the
-    // presence of mastering metadata. This lets a caller request a BT2020-PQ surface that carries
-    // NO SMPTE2086 metadata (the Android disc-menu GUI/overlay surface): attaching a mastering
-    // volume there would advertise an HDR envelope that conflicts with the separate video
-    // surface's own metadata, so the HDMI HDR infoframe changes whenever the overlay becomes
-    // visible (e.g. the OSD) and the TV re-syncs. Metadata is attached below only when the source
-    // actually supplies it (real video HDR passthrough), leaving that path unchanged.
-    if (videoPicture)
+    // Mastering display / content light level metadata is optional and does not describe the
+    // transfer function, so the tagging is decided from the transfer characteristic. SDR and
+    // HLG (ARIB STD-B67 or BT.2020 10-bit) are never PQ, which also covers Dolby Vision with
+    // an SDR or HLG base layer. FFmpeg can report HDR10 with an unspecified transfer, in that
+    // case use the HDR type inferred by the demuxer (see CDVDDemuxFFmpeg::DetermineHdrType).
+    //
+    // Deciding from the transfer and not from the metadata also lets a caller request a
+    // BT2020-PQ surface that carries NO SMPTE2086 metadata (the Android disc-menu GUI/overlay
+    // surface, see CRendererMediaCodecSurface::Configure): attaching a mastering volume there
+    // would advertise an HDR envelope that conflicts with the separate video surface's own
+    // metadata, so the HDMI HDR infoframe changes whenever the overlay becomes visible (e.g. the
+    // OSD) and the TV re-syncs.
+    const bool isPQ =
+        videoPicture && (videoPicture->color_transfer == AVCOL_TRC_SMPTE2084 ||
+                         (videoPicture->color_transfer == AVCOL_TRC_UNSPECIFIED &&
+                          (videoPicture->hdrType == StreamHdrType::HDR_TYPE_HDR10 ||
+                           videoPicture->hdrType == StreamHdrType::HDR_TYPE_HDR10PLUS)));
+    HDRColorSpace = isPQ ? EGL_GL_COLORSPACE_BT2020_PQ_EXT : EGL_NONE;
+
+    const bool hasDisplayMetadata = isPQ && videoPicture->hasDisplayMetadata;
+    const bool hasLightMetadata = isPQ && videoPicture->hasLightMetadata;
+    // The metadata is applied at surface creation, so a change in its presence needs a new
+    // surface just like a colourspace change does
+    const bool displayMetadataChanged = static_cast<bool>(m_displayMetadata) != hasDisplayMetadata;
+
+    if (!hasDisplayMetadata)
     {
-      switch (videoPicture->color_space)
-      {
-      case AVCOL_SPC_BT2020_NCL:
-      case AVCOL_SPC_BT2020_CL:
-      case AVCOL_SPC_BT709:
-        HDRColorSpace = EGL_GL_COLORSPACE_BT2020_PQ_EXT;
-        break;
-      default:
-        break;
-      }
+      m_displayMetadata = nullptr;
+      m_lightMetadata = nullptr;
     }
 
-    if (HDRColorSpace != m_HDRColorSpace)
+    if (HDRColorSpace != m_HDRColorSpace || displayMetadataChanged)
     {
       CLog::Log(LOGDEBUG, "CWinSystemAndroidGLESContext::SetHDR: ColorSpace: {}", HDRColorSpace);
 
       m_HDRColorSpace = HDRColorSpace;
-      m_displayMetadata =
-          (m_HDRColorSpace == EGL_NONE || !videoPicture || !videoPicture->hasDisplayMetadata)
-              ? nullptr
-              : std::make_unique<AVMasteringDisplayMetadata>(videoPicture->displayMetadata);
+      m_displayMetadata = nullptr;
+      if (hasDisplayMetadata)
+        m_displayMetadata =
+            std::make_unique<AVMasteringDisplayMetadata>(videoPicture->displayMetadata);
       // Attach content-light metadata (CTA861.3 MaxCLL/MaxFALL) too when supplied, so an HDR
       // GUI/overlay surface advertises the same envelope as the video plane and the compositor
       // has no reason to re-derive the HDMI HDR infoframe on GUI redraws.
-      m_lightMetadata =
-          (m_HDRColorSpace == EGL_NONE || !videoPicture || !videoPicture->hasLightMetadata)
-              ? nullptr
-              : std::make_unique<AVContentLightMetadata>(videoPicture->lightMetadata);
+      m_lightMetadata = nullptr;
+      if (hasLightMetadata)
+        m_lightMetadata = std::make_unique<AVContentLightMetadata>(videoPicture->lightMetadata);
       m_pGLContext.DestroySurface();
       CreateSurface();
       m_pGLContext.BindContext();
@@ -285,4 +293,21 @@ bool CWinSystemAndroidGLESContext::SetHDR(const VideoPicture* videoPicture)
 #endif
 
   return m_HDRColorSpace == HDRColorSpace;
+}
+
+int CWinSystemAndroidGLESContext::GetOutputBitDepth() const
+{
+  return m_pGLContext.GetConfigAttrib(EGL_RED_SIZE, m_HDRColorSpace != EGL_NONE);
+}
+
+KODI::UTILS::Eotf CWinSystemAndroidGLESContext::GetEotf() const
+{
+  return m_HDRColorSpace == EGL_GL_COLORSPACE_BT2020_PQ_EXT ? KODI::UTILS::Eotf::PQ
+                                                            : KODI::UTILS::Eotf::TRADITIONAL_SDR;
+}
+
+KODI::UTILS::Colorimetry CWinSystemAndroidGLESContext::GetColorimetry() const
+{
+  return m_HDRColorSpace == EGL_GL_COLORSPACE_BT2020_PQ_EXT ? KODI::UTILS::Colorimetry::BT2020_RGB
+                                                            : KODI::UTILS::Colorimetry::DEFAULT;
 }

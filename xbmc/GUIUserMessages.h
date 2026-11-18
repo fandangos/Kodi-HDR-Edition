@@ -109,6 +109,7 @@ constexpr const int GUI_MSG_UPDATE_ITEM             = GUI_MSG_USER + 29;
 // Flags for GUI_MSG_UPDATE_ITEM message
 constexpr int GUI_MSG_FLAG_UPDATE_LIST  = 0x00000001;
 constexpr int GUI_MSG_FLAG_FORCE_UPDATE = 0x00000002;
+constexpr int GUI_MSG_FLAG_KEEP_CURRENT_LABELS = 0x00000004;
 
 // Message sent to tell the GUI to change view mode
 constexpr const int GUI_MSG_CHANGE_VIEW_MODE        = GUI_MSG_USER + 30;
@@ -151,3 +152,6 @@ constexpr const int GUI_MSG_PLAYBACK_PAUSED = GUI_MSG_USER + 47;
 constexpr const int GUI_MSG_PLAYBACK_RESUMED = GUI_MSG_USER + 48;
 constexpr const int GUI_MSG_PLAYBACK_SEEKED = GUI_MSG_USER + 49;
 constexpr const int GUI_MSG_PLAYBACK_SPEED_CHANGED = GUI_MSG_USER + 50;
+
+// Sent to PVR windows to select the channel with number param1 and subchannel number param2
+constexpr const int GUI_MSG_PVR_SELECT_CHANNEL_NUMBER = GUI_MSG_USER + 51;

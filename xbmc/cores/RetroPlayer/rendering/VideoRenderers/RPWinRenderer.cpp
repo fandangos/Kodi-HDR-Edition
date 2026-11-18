@@ -267,7 +267,12 @@ bool CRPWinRenderer::ConfigureInternal()
   return true;
 }
 
-void CRPWinRenderer::RenderInternal(bool clear, uint8_t alpha)
+void CRPWinRenderer::FlushInternal()
+{
+  m_RBTexturesMap.clear();
+}
+
+void CRPWinRenderer::RenderInternal(uint8_t alpha)
 {
   CRenderSystemDX* renderingDx = static_cast<CRenderSystemDX*>(m_context.Rendering());
 
@@ -305,7 +310,7 @@ void CRPWinRenderer::Render(CD3DTexture& target, uint8_t alpha)
   if (renderBufferTarget == nullptr)
     return;
 
-  Updateshaders();
+  UpdateShaders();
 
   CD3DTexture* outputTexture = &renderBufferTarget->GetTexture();
   CRect sourceRect = m_sourceRect;

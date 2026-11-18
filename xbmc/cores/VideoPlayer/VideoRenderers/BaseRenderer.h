@@ -44,6 +44,12 @@ enum RenderMethods
 
 struct VideoPicture;
 
+namespace KODI::RENDERING::CAPTURE
+{
+struct CaptureSpec;
+struct CaptureResult;
+} // namespace KODI::RENDERING::CAPTURE
+
 class CBaseRenderer
 {
 public:
@@ -56,18 +62,42 @@ public:
   virtual void AddVideoPicture(const VideoPicture &picture, int index) = 0;
   virtual bool IsPictureHW(const VideoPicture& picture) { return false; }
   virtual void UnInit() = 0;
+  //! Called before the renderer is deleted to be replaced by a new one for the same playback.
+  virtual void PrepareForReconfigure() {}
   virtual bool Flush(bool saveBuffers) { return false; }
   virtual void SetBufferSize(int numBuffers) { }
   virtual void ReleaseBuffer(int idx) { }
   virtual bool NeedBuffer(int idx) { return false; }
   virtual bool IsGuiLayer() { return true; }
-  virtual bool HasVideoPlane() { return !IsGuiLayer(); }
+  //! True when video never reaches the framebuffer: a DRM plane, an Android
+  //! SurfaceView, the Amlogic video layer. Such a renderer must produce its
+  //! own capture frame; every other renderer is served by reading the framebuffer.
+  virtual bool VideoBypassesFramebuffer() { return !IsGuiLayer(); }
+  //! \brief Render this renderer's video frame for screencap into result.
+  //! Overridden by renderers whose VideoBypassesFramebuffer() is true.
+  //! Default: capture unavailable.
+  virtual bool CaptureVideoFrame(const KODI::RENDERING::CAPTURE::CaptureSpec& spec,
+                                 KODI::RENDERING::CAPTURE::CaptureResult& result)
+  {
+    return false;
+  }
+  //! Composite externally rendered video into a finished framebuffer capture.
+  virtual bool CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result)
+  {
+    return true;
+  }
   // Render info, can be called before configure
   virtual CRenderInfo GetRenderInfo() { return CRenderInfo(); }
   virtual void Update() = 0;
   virtual void RenderUpdate(
       int index, int index2, bool clear, unsigned int flags, unsigned int alpha) = 0;
   virtual bool ConfigChanged(const VideoPicture &picture) = 0;
+  /*!
+   * \brief Take pictures of another size from here on, keeping all else Configure() set up.
+   * The pictures the renderer holds are released.
+   * \return false if the renderer has to be configured again for them
+   */
+  virtual bool ChangePictureSize(const VideoPicture& picture) { return false; }
 
   // Feature support
   virtual bool SupportsMultiPassRendering() = 0;
@@ -86,6 +116,10 @@ public:
 
   void SetFps(float fps) { m_fps = fps; }
   void SetViewMode(int viewMode);
+
+  //! \brief Take VideoPicture::contentRect for the frame about to be drawn. Empty leaves the
+  //! stored measurement in charge.
+  void SetFrameContentRect(const CRectInt& rect) { m_frameContentRect = rect; }
 
   /*! \brief Get video rectangle and view window
   \param source is original size of the video
@@ -118,6 +152,10 @@ protected:
                             float inputFrameRatio, float zoomAmount, float verticalShift);
   void CalculateFrameAspectRatio(unsigned int desired_width, unsigned int desired_height);
   virtual void ManageRenderArea();
+
+  //! \brief The content geometry's part of ManageRenderArea(): cut to the frame's own
+  //! measurement, fit the mask opening, then honour a maintained ratio.
+  CRect ApplyContentGeometry(float& contentRatio);
   virtual void ReorderDrawPoints();
   virtual EShaderFormat GetShaderFormat();
   void MarkDirty();
@@ -143,6 +181,7 @@ protected:
   CRect m_destRect;
   CRect m_sourceRect;
   CRect m_viewRect;
+  CRectInt m_frameContentRect;
 
   // rendering flags
   unsigned m_iFlags = 0;

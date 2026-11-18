@@ -12,6 +12,7 @@
 #include "OptionalsReg.h"
 #include "ServiceBroker.h"
 #include "X11DPMSSupport.h"
+#include "application/AppParams.h"
 #include "application/ApplicationComponents.h"
 #include "application/ApplicationSkinHandling.h"
 #include "cores/RetroPlayer/process/X11/RPProcessInfoX11.h"
@@ -244,20 +245,25 @@ XVisualInfo* CWinSystemX11GLESContext::GetVisual()
     return nullptr;
   }
 
-  GLint att[] =
-  {
-    EGL_RED_SIZE, 8,
-    EGL_GREEN_SIZE, 8,
-    EGL_BLUE_SIZE, 8,
-    EGL_ALPHA_SIZE, 8,
-    EGL_BUFFER_SIZE, 32,
-    EGL_DEPTH_SIZE, 24,
-    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-    EGL_NONE
-  };
-  EGLint numConfigs;
   EGLConfig eglConfig = 0;
-  if (!eglChooseConfig(eglDisplay, att, &eglConfig, 1, &numConfigs) || numConfigs == 0)
+  for (const EGLint stencilSize : {8, 0})
+  {
+    const EGLint att[] = {EGL_RED_SIZE,     8,           EGL_GREEN_SIZE,      8,
+                          EGL_BLUE_SIZE,    8,           EGL_ALPHA_SIZE,      8,
+                          EGL_BUFFER_SIZE,  32,          EGL_DEPTH_SIZE,      24,
+                          EGL_STENCIL_SIZE, stencilSize, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                          EGL_NONE};
+    EGLint numConfigs{0};
+    if (eglChooseConfig(eglDisplay, att, &eglConfig, 1, &numConfigs) && numConfigs > 0)
+    {
+      if (stencilSize == 0)
+        CLog::Log(LOGWARNING, "EGL: no visual with eight stencil bits; rotated GUI masks will be "
+                              "hidden on framebuffers without stencil support");
+      break;
+    }
+    eglConfig = 0;
+  }
+  if (!eglConfig)
   {
     CLog::Log(LOGERROR, "Failed to choose a config {}", eglGetError());
     return nullptr;
@@ -300,11 +306,11 @@ bool CWinSystemX11GLESContext::RefreshGLContext(bool force)
   VIDEOPLAYER::CRendererFactory::ClearRenderer();
   CLinuxRendererGLES::Register();
 
-  std::string gli = (getenv("KODI_GL_INTERFACE") != nullptr) ? getenv("KODI_GL_INTERFACE") : "";
+  std::string_view gli = CServiceBroker::GetAppParams()->GetGlInterface();
 
   m_pGLContext = new CGLContextEGL(m_dpy, EGL_OPENGL_ES_API);
   success = m_pGLContext->Refresh(force, m_screen, m_glWindow, m_newGlContext);
-  if (!success && gli == "EGL_PB")
+  if (!success && gli == "egl-pb")
   {
     success = m_pGLContext->CreatePB();
     m_newGlContext = true;

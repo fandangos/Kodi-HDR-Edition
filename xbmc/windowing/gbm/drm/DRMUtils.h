@@ -27,6 +27,10 @@ namespace WINDOWING
 {
 namespace GBM
 {
+
+constexpr const char* SETTING_VIDEOSCREEN_LIMITGUISIZE = "videoscreen.limitguisize";
+constexpr const char* SETTING_VIDEOSCREEN_COLORRANGE = "videoscreen.colorrange";
+
 // https://github.com/torvalds/linux/blob/7d0a66e4bb9081d75c82ec4957c50034cb0ea449/drivers/
 // gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_crtc.c#L683-L692
 //
@@ -57,6 +61,7 @@ public:
   virtual void FlipPage(struct gbm_bo* bo, bool rendered, bool videoLayer, bool async) {}
   virtual bool SetVideoMode(const RESOLUTION_INFO& res, struct gbm_bo* bo) { return false; }
   virtual bool SetActive(bool active) { return false; }
+  virtual void RequestModeset() {}
   virtual bool InitDrm();
   virtual void DestroyDrm();
   virtual bool SupportsFencing() { return false; }
@@ -72,6 +77,9 @@ public:
   bool FindGuiPlane(uint32_t format, uint64_t modifier);
   bool FindVideoPlane(uint32_t format, uint64_t modifier);
   bool FindVideoAndGuiPlane(uint32_t format, uint64_t modifier, uint64_t width, uint64_t height);
+  // FindGuiPlane never releases a D2P video plane reservation; a caller that
+  // means "video is over" states it here before revalidating the gui plane.
+  void ReleaseVideoPlane() { m_video_plane = nullptr; }
   bool HasQuirk(int quirk) const { return m_drm_quirks & quirk; }
 
   std::vector<std::string> GetConnectedConnectorNames();

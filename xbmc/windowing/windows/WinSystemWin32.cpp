@@ -582,6 +582,8 @@ bool CWinSystemWin32::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool 
     // notify about screen change (it may require recreate rendering device)
     m_fRefreshRate = res.fRefreshRate; // use desired refresh for driver hook
     OnScreenChange(newMonitor->hMonitor);
+    UpdateStates(fullScreen);
+    state = GetState(fullScreen);
   }
 
   m_bFirstResChange = false;
@@ -721,6 +723,7 @@ void CWinSystemWin32::SetMinimized(bool minimized)
 std::vector<std::string> CWinSystemWin32::GetConnectedOutputs()
 {
   std::vector<std::string> outputs;
+  outputs.emplace_back(OUTPUT_NAME_DEFAULT);
 
   for (auto& display : m_displays)
   {
@@ -1301,9 +1304,11 @@ void CWinSystemWin32::NotifyAppFocusChange(bool bGaining)
 
 void CWinSystemWin32::UpdateStates(bool fullScreen)
 {
-  m_fullscreenState = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(CSettings::SETTING_VIDEOSCREEN_FAKEFULLSCREEN)
-    ? WINDOW_FULLSCREEN_STATE_FULLSCREEN_WINDOW
-    : WINDOW_FULLSCREEN_STATE_FULLSCREEN;
+  const bool fullscreenWindow = CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+                                    CSettings::SETTING_VIDEOSCREEN_FAKEFULLSCREEN) ||
+                                !CanUseExclusiveFullscreen();
+  m_fullscreenState = fullscreenWindow ? WINDOW_FULLSCREEN_STATE_FULLSCREEN_WINDOW
+                                       : WINDOW_FULLSCREEN_STATE_FULLSCREEN;
   m_windowState = WINDOW_WINDOW_STATE_WINDOWED; // currently only this allowed
 
   // set the appropriate window style

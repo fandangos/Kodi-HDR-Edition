@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "DisplayPacing.h"
 #include "cores/GameSettings.h"
 #include "cores/RetroPlayer/RetroPlayerTypes.h"
 #include "threads/CriticalSection.h"
@@ -137,6 +138,11 @@ public:
   CRenderBufferManager& GetBufferManager() { return *m_renderBufferManager; }
 
   /*!
+   * \brief Get when the screen takes frames and how fast the game runs to match
+   */
+  CDisplayPacing& GetDisplayPacing() { return m_displayPacing; }
+
+  /*!
    * \brief Check if a buffer pool supports the given scaling method
    */
   bool HasScalingMethod(SCALINGMETHOD scalingMethod) const;
@@ -155,6 +161,19 @@ public:
    *         unavailable
    */
   virtual HwProcedureAddress GetHwProcedureAddress(const char* symbol) { return nullptr; }
+
+  /*!
+   * \brief Whether a client can be given a framebuffer to render into
+   *
+   * Asked while a client is still negotiating, so that one which cannot be
+   * given hardware rendering is told now, and can fall back to software, rather
+   * than wiring itself up to callbacks that will never work.
+   *
+   * Answered by the buffer pools rather than the platform: a build without a
+   * pool that owns a rendering context has no way to provide one, whatever its
+   * display stack can do.
+   */
+  bool HasHardwareRendering();
   ///}
 
   /// @name Player video info
@@ -208,6 +227,7 @@ private:
   // Rendering parameters
   std::unique_ptr<CRenderContext> m_renderContext;
   SCALINGMETHOD m_defaultScalingMethod = SCALINGMETHOD::AUTO;
+  CDisplayPacing m_displayPacing;
 };
 
 } // namespace RETRO

@@ -50,10 +50,13 @@ public:
     PLAYER_OPENFILE,
     PLAYER_STARTED,                 // sent whenever a sub player has finished it's first frame after open
     PLAYER_AVCHANGE,                // signal a change in audio, video or subtitle parameters
+    PLAYER_CONTENT_GEOMETRY,        // a live content geometry reading was confirmed or withdrawn
     PLAYER_ABORT,
     PLAYER_REPORT_STATE,
     PLAYER_FRAME_ADVANCE,
     PLAYER_DISPLAY_RESET,           // report display reset event
+    PLAYER_AUDIO_FORMAT_CHANGE,     // the audio sink was reconfigured for a passthrough format
+    PLAYER_AUDIO_FORMAT_HOLD,       // hold or release the audio output for a format change
 
     // demuxer related messages
     DEMUXER_PACKET,                 // data packet

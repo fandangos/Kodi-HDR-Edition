@@ -1,0 +1,623 @@
+/*
+ *  Copyright (C) 2005-2026 Team Kodi
+ *  This file is part of Kodi - https://kodi.tv
+ *
+ *  SPDX-License-Identifier: GPL-2.0-or-later
+ *  See LICENSES/README.md for more information.
+ */
+
+#include "VideoInfoScannerArt.h"
+
+#include "FileItem.h"
+#include "FileItemList.h"
+#include "ServiceBroker.h"
+#include "TextureCache.h"
+#include "TextureCacheJob.h"
+#include "ThumbLoader.h"
+#include "Util.h"
+#include "filesystem/Directory.h"
+#include "filesystem/File.h"
+#include "imagefiles/ImageFileURL.h"
+#include "jobs/Job.h"
+#include "jobs/JobManager.h"
+#include "jobs/JobQueue.h"
+#include "settings/Settings.h"
+#include "settings/SettingsComponent.h"
+#include "utils/ArtTypes.h"
+#include "utils/ArtUtils.h"
+#include "utils/FileExtensionProvider.h"
+#include "utils/ItemProperties.h"
+#include "utils/StringUtils.h"
+#include "utils/URIUtils.h"
+#include "utils/log.h"
+#include "video/VideoInfoScanner.h"
+#include "video/VideoInfoTag.h"
+#include "video/VideoManagerTypes.h"
+#include "video/VideoThumbLoader.h"
+
+#include <algorithm>
+#include <chrono>
+#include <map>
+#include <ranges>
+#include <string>
+#include <utility>
+#include <vector>
+
+using namespace XFILE;
+using namespace ADDON;
+using KODI::MEDIA::NameOf;
+
+namespace
+{
+//! \brief How often to check on a batch of art caching jobs while waiting for it to finish
+constexpr auto ART_CACHE_JOB_POLL_INTERVAL{std::chrono::milliseconds{1000}};
+
+void CacheArtwork(const std::string& url,
+                  bool retrieveArtDuringScrape,
+                  const std::string& knownHash = "")
+{
+  if (url.empty())
+    return;
+
+  const auto& textureCache = CServiceBroker::GetTextureCache();
+  if (!retrieveArtDuringScrape)
+  {
+    textureCache->BackgroundCacheImage(url, knownHash);
+    return;
+  }
+
+  bool needsRecaching{false};
+  const std::string cachedImage{textureCache->CheckCachedImage(url, needsRecaching)};
+  // A cached copy whose file has gone is cached again. An image that is its own copy is not
+  if (!cachedImage.empty() && !needsRecaching &&
+      (cachedImage == IMAGE_FILES::ToCacheKey(url) || CFile::Exists(cachedImage)))
+    return; // already cached
+
+  // Fetch art or recache as needed
+  // This will be slow, but that is the point of the setting - to get the art during scraping
+  constexpr int MAX_SYNC_CACHE_ATTEMPTS = 3;
+  for (int attempt = 1; attempt <= MAX_SYNC_CACHE_ATTEMPTS; ++attempt)
+  {
+    if (!textureCache->CacheImage(url, knownHash).empty())
+      return; // succeeded
+  }
+
+  // Synchronous fetch failed after several attempts (network timeout, etc.)
+  // Fall back to the resilient background path.
+  textureCache->BackgroundCacheImage(url, knownHash);
+  CLog::LogF(LOGDEBUG, "Synchronous art caching for {} failed", url);
+}
+
+//! \brief Drop the empty and duplicate urls from a set of artwork. Order is not preserved.
+void DedupeArt(std::vector<KODI::VIDEO::ArtToCache>& art)
+{
+  using KODI::VIDEO::ArtToCache;
+
+  std::erase_if(art, [](const ArtToCache& a) { return a.url.empty(); });
+
+  // Where the same url appears more than once, order the copy kept below first: the one seen
+  // earliest, and of those the one with a hash already known, which saves a stat
+  std::ranges::sort(art,
+                    [](const ArtToCache& a, const ArtToCache& b)
+                    {
+                      if (a.url != b.url)
+                        return a.url < b.url;
+                      if (a.priority != b.priority)
+                        return a.priority < b.priority;
+                      return !a.hash.empty() && b.hash.empty();
+                    });
+  art.erase(std::ranges::begin(std::ranges::unique(art, {}, &ArtToCache::url)), art.end());
+}
+std::string ContentToMediaType(ContentType content, bool folder)
+{
+  switch (content)
+  {
+    using enum ContentType;
+    case MOVIES:
+      return NameOf(KODI::MEDIA::TYPE::MOVIE);
+    case MUSICVIDEOS:
+      return NameOf(KODI::MEDIA::TYPE::MUSIC_VIDEO);
+    case TVSHOWS:
+      return folder ? NameOf(KODI::MEDIA::TYPE::TV_SHOW) : NameOf(KODI::MEDIA::TYPE::EPISODE);
+    default:
+      return "";
+  }
+}
+} // unnamed namespace
+
+namespace KODI::VIDEO
+{
+
+CVideoInfoScannerArt::CVideoInfoScannerArt()
+{
+  m_artRetrievalTiming =
+      static_cast<ArtRetrievalTiming>(CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+          CSettings::SETTING_VIDEOLIBRARY_ARTRETRIEVALTIMING));
+}
+
+CVideoInfoScannerArt::~CVideoInfoScannerArt()
+{
+  FlushDeferred();
+}
+
+void CVideoInfoScannerArt::Cache(const std::string& url, const std::string& knownHash) const
+{
+  CacheArtwork(url, m_artRetrievalTiming == ArtRetrievalTiming::SYNCHRONOUS, knownHash);
+}
+
+void CVideoInfoScannerArt::Cache(const KODI::ART::Artwork& art) const
+{
+  std::vector<ArtToCache> artToCache;
+  artToCache.reserve(art.size());
+  for (const auto& [artType, url] : art)
+    artToCache.push_back({url, {}, PriorityOfArtType(artType)});
+
+  Cache(std::move(artToCache));
+}
+
+void CVideoInfoScannerArt::Cache(std::vector<ArtToCache> art) const
+{
+  DedupeArt(art);
+
+  if (m_artRetrievalTiming != ArtRetrievalTiming::SYNCHRONOUS)
+  {
+    for (auto& a : art)
+    {
+      // Get artwork that is immediately visible to the user first, and defer the rest for later
+      if (a.priority == ArtPriority::LIST)
+        CacheArtwork(a.url, false, a.hash);
+      else
+        m_deferredArt.push_back(std::move(a));
+    }
+    return;
+  }
+
+  // A single image has nothing to overlap with
+  if (art.size() < 2)
+  {
+    for (const auto& a : art)
+      CacheArtwork(a.url, true, a.hash);
+    return;
+  }
+
+  // Caching an image is mostly waiting on the source
+  CJobQueue queue{false, CJobManager::GetMaxPausableWorkers(), CJob::PRIORITY_LOW_PAUSABLE};
+  for (const auto& a : art)
+    queue.Submit([a]() { CacheArtwork(a.url, true, a.hash); });
+
+  const auto jobManager{CServiceBroker::GetJobManager()};
+  while (true)
+  {
+    // Asked before waiting, as playback may already have paused the priority these were queued
+    // at, in which case there is nothing to wait for
+    if (!jobManager->IsRunning())
+    {
+      // Shutting down - whatever is left is abandoned when the queue goes out of scope
+      CLog::LogF(LOGDEBUG, "Abandoning art caching, the job manager has been shut down");
+      break;
+    }
+
+    if (jobManager->ArePausableJobsPaused())
+    {
+      // Playback has started, so nothing still queued here will be dispatched until it stops, and
+      // waiting that long would hold up the scrape. Hand what is left to the background path
+      // instead: its queue outlives this call, so the images are still cached once playback ends.
+      CLog::LogF(LOGDEBUG, "Handing remaining art to background caching, playback has started");
+      for (const auto& a : art)
+        CacheArtwork(a.url, false, a.hash);
+      break;
+    }
+
+    if (queue.WaitForCompletion(ART_CACHE_JOB_POLL_INTERVAL))
+      break;
+  }
+}
+
+void CVideoInfoScannerArt::FlushDeferred()
+{
+  DedupeArt(m_deferredArt);
+  if (m_deferredArt.empty())
+    return;
+
+  // Fetched in the order the user is likely to view it, rather than the order it was found in
+  std::ranges::stable_sort(m_deferredArt, {}, &ArtToCache::priority);
+
+  const auto count = [this](ArtPriority priority)
+  { return std::ranges::count(m_deferredArt, priority, &ArtToCache::priority); };
+
+  // Broken down by priority, as one image looks like any other by the time it is fetched
+  CLog::LogF(LOGDEBUG,
+             "Queueing {} images found during the scan for caching "
+             "({} list, {} background, {} detail, {} actor)",
+             m_deferredArt.size(), count(ArtPriority::LIST), count(ArtPriority::BACKGROUND),
+             count(ArtPriority::DETAIL), count(ArtPriority::ACTOR));
+
+  const auto& textureCache = CServiceBroker::GetTextureCache();
+  for (const auto& art : m_deferredArt)
+    textureCache->BackgroundCacheImage(art.url, art.hash);
+
+  m_deferredArt.clear();
+}
+
+ArtPriority PriorityOfArtType(std::string_view artType)
+{
+  // A movie's set art is shown wherever the movie's own is
+  if (artType.starts_with("set."))
+    artType.remove_prefix(4);
+
+  // Numbered, where a scraper offers more than one eg. "fanart2"
+  if (artType.starts_with(ART::TYPE::FANART))
+    return ArtPriority::BACKGROUND;
+
+  if (artType == ART::TYPE::POSTER || artType == ART::TYPE::THUMB || artType == ART::TYPE::BANNER ||
+      artType == "keyart")
+    return ArtPriority::LIST;
+
+  return ArtPriority::DETAIL;
+}
+
+void CVideoInfoScannerArt::GetArtwork(CFileItem* pItem,
+                                      ContentType content,
+                                      bool bApplyToDir,
+                                      bool useLocal,
+                                      const std::string& actorArtPath,
+                                      UseRemoteArtWithLocalScraper useRemoteArt /* = yes */,
+                                      const CFileItem* mediaItem /* = nullptr */) const
+{
+  int artLevel = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_VIDEOLIBRARY_ARTWORK_LEVEL);
+  if (artLevel == CSettings::VIDEOLIBRARY_ARTWORK_LEVEL_NONE)
+    return;
+
+  CVideoInfoTag& movieDetails = *pItem->GetVideoInfoTag();
+  movieDetails.m_fanart.Unpack();
+  movieDetails.m_strPictureURL.Parse();
+
+  KODI::ART::Artwork art = pItem->GetArt();
+
+  // get and cache thumb images
+  std::string mediaType = ContentToMediaType(content, pItem->IsFolder());
+  std::vector<std::string> artTypes = CVideoThumbLoader::GetArtTypes(mediaType);
+  bool moviePartOfSet = content == ContentType::MOVIES && movieDetails.m_set.HasTitle();
+  std::vector<std::string> movieSetArtTypes;
+  if (moviePartOfSet)
+  {
+    movieSetArtTypes = CVideoThumbLoader::GetArtTypes(MEDIA::TYPE::VIDEO_COLLECTION);
+    for (const std::string& artType : movieSetArtTypes)
+      artTypes.push_back("set." + artType);
+  }
+  bool addAll = artLevel == CSettings::VIDEOLIBRARY_ARTWORK_LEVEL_ALL;
+  bool exactName = artLevel == CSettings::VIDEOLIBRARY_ARTWORK_LEVEL_BASIC;
+  // find local art
+  if (useLocal)
+  {
+    if (!pItem->SkipLocalArt())
+    {
+      bool useFolder = false;
+      if (bApplyToDir && (content == ContentType::MOVIES || content == ContentType::MUSICVIDEOS))
+      {
+        std::string filename = ART::GetLocalArtBaseFilename(*pItem, useFolder);
+        std::string directory = URIUtils::GetDirectory(filename);
+        if (filename != directory)
+          ART::AddLocalItemArtwork(art, artTypes, filename, addAll, exactName, bApplyToDir);
+      }
+
+      // Reset useFolder to false as GetLocalArtBaseFilename may modify it in
+      // the previous call.
+      useFolder = false;
+
+      std::string path;
+      bool isInFolder{bApplyToDir};
+      const int playlist{pItem->GetProperty(ITEM::PROPERTY::BLURAY_PLAYLIST).asInteger32(-1)};
+      if (content == ContentType::TVSHOWS)
+      {
+        const bool multipleEpisodes{pItem->GetProperty(MULTIPLE_EPISODES).asBoolean(false)};
+        path = ART::GetLocalArtBaseFilename(*pItem, useFolder,
+                                            multipleEpisodes
+                                                ? ART::AdditionalIdentifiers::SEASON_AND_EPISODE
+                                                : ART::AdditionalIdentifiers::NONE);
+        // The plain art beside a disc of several episodes can't say which episode it is for, but
+        // art named by the episode alone (S01E01-thumb.jpg) can, with index-S01E01- winning
+        if (multipleEpisodes && URIUtils::HasExtension(path, ".bdmv|.ifo"))
+        {
+          const CVideoInfoTag& tag{*pItem->GetVideoInfoTag()};
+          ART::AddLocalItemArtwork(
+              art, artTypes,
+              URIUtils::AddFileToFolder(URIUtils::GetDirectory(path),
+                                        StringUtils::Format("S{:02}E{:02}{}", tag.m_iSeason,
+                                                            tag.m_iEpisode,
+                                                            URIUtils::GetExtension(path))),
+              addAll, exactName, false);
+          isInFolder = false;
+        }
+      }
+      else if (content == ContentType::MOVIE_VERSIONS ||
+               (pItem->HasVideoVersions() && playlist > -1))
+      {
+        // Add playlist identifier only when there are multiple versions of the movie on the same disc
+        path =
+            ART::GetLocalArtBaseFilename(*pItem, useFolder, ART::AdditionalIdentifiers::PLAYLIST);
+        if (playlist > -1)
+        {
+          // Each pass overrides the last, so the version's own art wins over plain folder art.
+          // Only a disc folder rip (index-00800.bdmv) has a folder to itself. An extra of the
+          // movie, such as a featurette, shows only its own art, as the plain art is the movie's.
+          const std::string directory{URIUtils::GetDirectory(path)};
+          const bool isDiscFolder{URIUtils::HasExtension(path, ".bdmv")};
+          const bool isExtra{movieDetails.GetAssetInfo().GetType() == VideoAssetType::EXTRA};
+          if (!isExtra && (bApplyToDir || isDiscFolder))
+            ART::AddLocalItemArtwork(art, artTypes, directory, addAll, exactName, true);
+          if (isDiscFolder)
+            ART::AddLocalItemArtwork(
+                art, artTypes,
+                URIUtils::AddFileToFolder(directory, StringUtils::Format("{:05}.bdmv", playlist)),
+                addAll, exactName, false);
+          isInFolder = false;
+        }
+      }
+      else
+        path = ART::GetLocalArtBaseFilename(*pItem, useFolder);
+      ART::AddLocalItemArtwork(art, artTypes, path, addAll, exactName, isInFolder);
+    }
+
+    if (moviePartOfSet)
+    {
+      std::string movieSetInfoPath =
+          CVideoInfoScanner::GetMovieSetInfoFolder(movieDetails.m_set.GetTitle());
+      if (!movieSetInfoPath.empty())
+      {
+        KODI::ART::Artwork movieSetArt;
+        ART::AddLocalItemArtwork(movieSetArt, movieSetArtTypes, movieSetInfoPath, addAll, exactName,
+                                 true);
+        for (const auto& artItem : movieSetArt)
+        {
+          art["set." + artItem.first] = artItem.second;
+        }
+      }
+    }
+  }
+
+  // find embedded art
+  if (pItem->HasVideoInfoTag() && !pItem->GetVideoInfoTag()->m_coverArt.empty())
+  {
+    for (auto& it : pItem->GetVideoInfoTag()->m_coverArt)
+    {
+      if ((addAll || CVideoThumbLoader::IsArtTypeInWhitelist(it.m_type, artTypes, exactName)) &&
+          !art.contains(it.m_type))
+      {
+        std::string thumb = IMAGE_FILES::URLFromFile(pItem->GetPath(), "video_" + it.m_type);
+        art.insert(std::make_pair(it.m_type, thumb));
+      }
+    }
+  }
+
+  // add online fanart (treated separately due to it being stored in m_fanart)
+  if ((addAll || CVideoThumbLoader::IsArtTypeInWhitelist(ART::TYPE::FANART, artTypes, exactName)) &&
+      !art.contains(ART::TYPE::FANART))
+  {
+    std::string fanart = pItem->GetVideoInfoTag()->m_fanart.GetImageURL();
+    if (!fanart.empty() &&
+        !(useRemoteArt == UseRemoteArtWithLocalScraper::NO && URIUtils::IsRemote(fanart)))
+      art.insert(std::make_pair(ART::TYPE::FANART, fanart));
+  }
+
+  // add online art
+  for (const auto& url : pItem->GetVideoInfoTag()->m_strPictureURL.GetUrls())
+  {
+    if (url.m_type != CScraperUrl::UrlType::General)
+      continue;
+    std::string aspect = url.m_aspect;
+    if (aspect.empty())
+      // Backward compatibility with Kodi 11 Eden NFO files
+      aspect = mediaType == NameOf(MEDIA::TYPE::EPISODE) ? ART::TYPE::THUMB : ART::TYPE::POSTER;
+
+    if ((addAll || CVideoThumbLoader::IsArtTypeInWhitelist(aspect, artTypes, exactName)) &&
+        !art.contains(aspect))
+    {
+      std::string image = GetImage(url, pItem->GetPath());
+      if (!image.empty() &&
+          !(useRemoteArt == UseRemoteArtWithLocalScraper::NO && URIUtils::IsRemote(image)))
+        art.insert(std::make_pair(aspect, image));
+    }
+  }
+
+  if (!art.contains(ART::TYPE::THUMB) &&
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+          CSettings::SETTING_MYVIDEOS_EXTRACTTHUMB) &&
+      CVideoThumbLoader::CanExtractEmbeddedThumb(mediaItem ? *mediaItem : *pItem))
+  {
+    art[ART::TYPE::THUMB] = CVideoThumbLoader::GetEmbeddedThumbURL(mediaItem ? *mediaItem : *pItem);
+  }
+
+  std::vector<ArtToCache> artToCache;
+  for (const auto& artType : artTypes)
+    if (art.contains(artType))
+      artToCache.push_back({art.at(artType), {}, PriorityOfArtType(artType)});
+  Cache(std::move(artToCache));
+
+  pItem->SetArt(art);
+
+  // parent folder to apply the thumb to and to search for local actor thumbs - a folder item (a tv
+  // show) is its own
+  const std::string parentDir{pItem->IsFolder() ? pItem->GetPath()
+                                                : URIUtils::GetParentPath(pItem->GetPath())};
+  if (CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
+          CSettings::SETTING_VIDEOLIBRARY_ACTORTHUMBS))
+  {
+    // .actors sits alongside the nfo, so for a disc folder it is in BDMV/VIDEO_TS
+    const std::string mediaDir{URIUtils::IsOpticalMediaFile(pItem->GetPath())
+                                   ? URIUtils::GetDirectory(pItem->GetPath())
+                                   : parentDir};
+    FetchActorThumbs(movieDetails.m_cast,
+                     actorArtPath.empty() ? URIUtils::AddFileToFolder(mediaDir, ".actors")
+                                          : actorArtPath,
+                     useRemoteArt);
+  }
+  if (bApplyToDir)
+    ApplyThumbToFolder(parentDir, art[ART::TYPE::THUMB]);
+}
+
+std::string CVideoInfoScannerArt::GetImage(const CScraperUrl::SUrlEntry& image,
+                                           const std::string& itemPath)
+{
+  std::string thumb = CScraperUrl::GetThumbUrl(image);
+  if (!thumb.empty() && thumb.find('/') == std::string::npos &&
+      thumb.find('\\') == std::string::npos)
+  {
+    std::string strPath = URIUtils::GetDirectory(itemPath);
+    thumb = URIUtils::AddFileToFolder(strPath, thumb);
+  }
+  return thumb;
+}
+
+void CVideoInfoScannerArt::ApplyThumbToFolder(const std::string& folder,
+                                              const std::string& imdbThumb)
+{
+  // copy icon to folder also;
+  if (!imdbThumb.empty())
+  {
+    CFileItem folderItem(folder, true);
+    CThumbLoader loader;
+    loader.SetCachedImage(folderItem, ART::TYPE::THUMB, imdbThumb);
+  }
+}
+
+void CVideoInfoScannerArt::GetSeasonThumbs(const CVideoInfoTag& show,
+                                           KODI::ART::SeasonsArtwork& seasonArt,
+                                           const std::vector<std::string>& artTypes,
+                                           bool useLocal /* = true */,
+                                           UseRemoteArtWithLocalScraper useRemoteArt /* = yes */,
+                                           KODI::REGEXP::RegExpCache* cache /* = nullptr*/)
+{
+  int artLevel = CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+      CSettings::SETTING_VIDEOLIBRARY_ARTWORK_LEVEL);
+  bool addAll = artLevel == CSettings::VIDEOLIBRARY_ARTWORK_LEVEL_ALL;
+  bool exactName = artLevel == CSettings::VIDEOLIBRARY_ARTWORK_LEVEL_BASIC;
+  if (useLocal)
+  {
+    // find the maximum number of seasons we have local thumbs for
+    int maxSeasons = 0;
+    CFileItemList items;
+    std::string extensions = CServiceBroker::GetFileExtensionProvider().GetPictureExtensions();
+    if (!show.m_strPath.empty())
+    {
+      CDirectory::GetDirectory(show.m_strPath, items, extensions,
+                               DIR_FLAG_NO_FILE_DIRS | DIR_FLAG_READ_CACHE | DIR_FLAG_NO_FILE_INFO);
+    }
+    extensions.erase(std::remove(extensions.begin(), extensions.end(), '.'), extensions.end());
+    std::shared_ptr<CRegExp> reg;
+    const std::string pattern = "season([0-9]+)(-[a-z0-9]+)?\\.(" + extensions + ")";
+    if (!items.IsEmpty() && (reg = KODI::REGEXP::GetRegExp(pattern, cache)) != nullptr)
+    {
+      for (const auto& item : items)
+      {
+        std::string name = URIUtils::GetFileName(item->GetPath());
+        if (reg->RegFind(name) > -1)
+        {
+          int season = atoi(reg->GetMatch(1).c_str());
+          if (season > maxSeasons)
+            maxSeasons = season;
+        }
+      }
+    }
+    for (int season = -1; season <= maxSeasons; season++)
+    {
+      // Look for local art irrespective of scraper/existing art as it takes priority
+      KODI::ART::Artwork art;
+      std::string basePath;
+      if (season == -1)
+        basePath = "season-all";
+      else if (season == 0)
+        basePath = "season-specials";
+      else
+        basePath = StringUtils::Format("season{:02}", season);
+
+      ART::AddLocalItemArtwork(art, artTypes, URIUtils::AddFileToFolder(show.m_strPath, basePath),
+                               addAll, exactName, false);
+
+      seasonArt[season] = art;
+    }
+  }
+  // add online art
+  for (const auto& url : show.m_strPictureURL.GetUrls())
+  {
+    if (url.m_type != CScraperUrl::UrlType::Season)
+      continue;
+    std::string aspect = url.m_aspect;
+    if (aspect.empty())
+      aspect = ART::TYPE::THUMB;
+    KODI::ART::Artwork& art = seasonArt[url.m_season];
+    if ((addAll || CVideoThumbLoader::IsArtTypeInWhitelist(aspect, artTypes, exactName)) &&
+        !art.contains(aspect))
+    {
+      std::string image = CScraperUrl::GetThumbUrl(url);
+      if (!image.empty() &&
+          !(useRemoteArt == UseRemoteArtWithLocalScraper::NO && URIUtils::IsRemote(image)))
+        art.insert(std::make_pair(aspect, image));
+    }
+  }
+}
+
+void CVideoInfoScannerArt::FetchActorThumbs(
+    std::vector<SActorInfo>& actors,
+    const std::string& actorsDir,
+    UseRemoteArtWithLocalScraper useRemoteArt /* = YES */) const
+{
+  CFileItemList items;
+  // don't try to fetch anything local with plugin source
+  if (!URIUtils::IsPlugin(actorsDir) && CDirectory::Exists(actorsDir))
+    CDirectory::GetDirectory(actorsDir, items, ".png|.jpg|.tbn", DIR_FLAG_NO_FILE_DIRS);
+
+  // Index the thumbs by filename (without extension), and the hashes taken from the directory
+  // listing by url
+  std::map<std::string, std::string> thumbs;
+  std::map<std::string, std::string> listedHashes;
+  for (const auto& item : items)
+  {
+    if (item->IsFolder())
+      continue;
+
+    std::string name{URIUtils::GetFileName(item->GetPath())};
+    URIUtils::RemoveExtension(name);
+    thumbs.try_emplace(std::move(name), item->GetPath());
+    if (std::string hash{CTextureCacheJob::GetImageHash(*item)}; !hash.empty())
+      listedHashes.emplace(item->GetPath(), std::move(hash));
+  }
+
+  for (auto& actor : actors)
+  {
+    if (actor.thumb.empty())
+    {
+      // Must match how the name is turned into a filename when exporting (see
+      // CVideoDatabase::GetSafeFile()), or an actor whose name contains a character that is not
+      // legal in a filename (ie. a trailing '.') can never be matched to their own exported thumb
+      std::string thumbFile = actor.strName;
+      StringUtils::Replace(thumbFile, ' ', '_');
+      thumbFile = CUtil::MakeLegalFileName(std::move(thumbFile));
+      if (const auto thumb{thumbs.find(thumbFile)}; thumb != thumbs.end())
+        actor.thumb = thumb->second;
+      if (!actor.thumbUrl.GetFirstUrlByType().m_url.empty())
+      {
+        const std::string thumb{CScraperUrl::GetThumbUrl(actor.thumbUrl.GetFirstUrlByType())};
+        const bool notUsingThisRemoteArt{useRemoteArt == UseRemoteArtWithLocalScraper::NO &&
+                                         URIUtils::IsRemote(thumb)};
+        if (actor.thumb.empty() && !notUsingThisRemoteArt)
+          actor.thumb = thumb;
+        if (notUsingThisRemoteArt)
+          actor.thumbUrl.Clear();
+      }
+    }
+  }
+
+  std::vector<ArtToCache> artToCache;
+  artToCache.reserve(actors.size());
+  for (const auto& actor : actors)
+  {
+    const auto hash{listedHashes.find(actor.thumb)};
+    artToCache.push_back({actor.thumb, hash != listedHashes.end() ? hash->second : std::string{},
+                          ArtPriority::ACTOR});
+  }
+  Cache(std::move(artToCache));
+}
+
+} // namespace KODI::VIDEO

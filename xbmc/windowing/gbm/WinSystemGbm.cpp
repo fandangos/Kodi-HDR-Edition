@@ -21,6 +21,7 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "settings/lib/Setting.h"
+#include "settings/lib/SettingsManager.h"
 #include "utils/DRMHelpers.h"
 #include "utils/DisplayInfo.h"
 #include "utils/HDRUtils.h"
@@ -68,6 +69,11 @@ using namespace std::chrono_literals;
 namespace
 {
 
+constexpr const char* BROADCAST_RGB = "Broadcast RGB";
+constexpr const char* BROADCAST_RGB_AUTOMATIC = "Automatic";
+constexpr const char* BROADCAST_RGB_FULL = "Full";
+constexpr const char* BROADCAST_RGB_LIMITED = "Limited 16:235";
+
 // These map to the definitions in the linux kernel
 // drivers/gpu/drm/drm_connector.c
 
@@ -100,9 +106,18 @@ CWinSystemGbm::CWinSystemGbm()
 {
   m_dpms = std::make_shared<CGBMDPMSSupport>();
   m_libinput->Start();
+
+  // registered for the lifetime of the object: applying the setting cycles the window system,
+  // which would otherwise unregister the callback that is doing the applying
+  CServiceBroker::GetSettingsComponent()->GetSettings()->GetSettingsManager()->RegisterCallback(
+      this, {SETTING_VIDEOSCREEN_LIMITGUISIZE, SETTING_VIDEOSCREEN_COLORRANGE});
 }
 
-CWinSystemGbm::~CWinSystemGbm() = default;
+CWinSystemGbm::~CWinSystemGbm()
+{
+  CServiceBroker::GetSettingsComponent()->GetSettings()->GetSettingsManager()->UnregisterCallback(
+      this);
+}
 
 const std::string CWinSystemGbm::GetName()
 {
@@ -192,7 +207,16 @@ bool CWinSystemGbm::InitWindowSystem()
   if (!settings)
     return false;
 
-  auto setting = settings->GetSetting("videoscreen.limitguisize");
+  MigrateLimitedRangeSetting();
+  if (auto rangeSetting = settings->GetSetting(SETTING_VIDEOSCREEN_COLORRANGE))
+  {
+    m_colorRange = settings->GetInt(SETTING_VIDEOSCREEN_COLORRANGE);
+    rangeSetting->SetVisible(true);
+    if (auto legacySetting = settings->GetSetting(CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE))
+      legacySetting->SetVisible(false);
+  }
+
+  auto setting = settings->GetSetting(SETTING_VIDEOSCREEN_LIMITGUISIZE);
   if (setting)
     setting->SetVisible(true);
 
@@ -256,6 +280,175 @@ void CWinSystemGbm::UpdateResolutions()
   CDisplaySettings::GetInstance().UpdateCalibrations();
 }
 
+void CWinSystemGbm::OnSettingChanged(const std::shared_ptr<const CSetting>& setting)
+{
+  if (!setting)
+    return;
+
+  if (setting->GetId() == SETTING_VIDEOSCREEN_LIMITGUISIZE)
+  {
+    // post rather than call: this can run off the main thread (e.g. JSON-RPC), and it runs with
+    // the settings lock held, which applying the mode needs on the main thread to write back
+    // videoscreen.screenmode
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_CALLBACK, -1, -1, &m_limitGuiSizeCallback);
+  }
+  else if (setting->GetId() == SETTING_VIDEOSCREEN_COLORRANGE)
+  {
+    m_colorRange = std::static_pointer_cast<const CSettingInt>(setting)->GetValue();
+
+    if (m_migratingColorRange)
+      return;
+
+    CServiceBroker::GetAppMessenger()->PostMsg(TMSG_CALLBACK, -1, -1, &m_colorRangeCallback);
+  }
+}
+
+void CWinSystemGbm::ApplyColorRangeSetting(void* userptr)
+{
+  static_cast<CWinSystemGbm*>(userptr)->ApplyBroadcastRange();
+}
+
+ColorRange CWinSystemGbm::GetColorRange() const
+{
+  const int value = m_colorRange;
+  if (value < static_cast<int>(ColorRange::AUTO) || value > static_cast<int>(ColorRange::LIMITED))
+    return ColorRange::AUTO;
+
+  return static_cast<ColorRange>(value);
+}
+
+void CWinSystemGbm::MigrateLimitedRangeSetting()
+{
+  const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
+
+  if (!settings->GetBool(CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE))
+    return;
+
+  const auto rangeSetting = settings->GetSetting(SETTING_VIDEOSCREEN_COLORRANGE);
+  if (!rangeSetting)
+    return;
+
+  // cleared either way, or choosing Auto later would be undone by the next start
+  if (rangeSetting->IsDefault())
+  {
+    CLog::LogF(LOGINFO, "migrating \"use limited colour range\" to the colour range setting");
+    m_migratingColorRange = true;
+    settings->SetInt(SETTING_VIDEOSCREEN_COLORRANGE, static_cast<int>(ColorRange::LIMITED));
+    m_migratingColorRange = false;
+  }
+
+  settings->SetBool(CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE, false);
+}
+
+void CWinSystemGbm::ApplyBroadcastRange(bool retry)
+{
+  if (!retry)
+    m_broadcastRangeRetries = 0;
+
+  auto drm = std::dynamic_pointer_cast<CDRMAtomic>(m_DRM);
+  if (!drm)
+    return;
+
+  auto connector = drm->GetConnector();
+  if (!connector || !connector->SupportsProperty(BROADCAST_RGB))
+    return;
+
+  if (connector->IsPropertyImmutable(BROADCAST_RGB).value_or(false))
+    return;
+
+  const char* targetName = BROADCAST_RGB_AUTOMATIC;
+  switch (GetColorRange())
+  {
+    case ColorRange::FULL:
+      targetName = BROADCAST_RGB_FULL;
+      break;
+    case ColorRange::LIMITED:
+      targetName = BROADCAST_RGB_LIMITED;
+      break;
+    case ColorRange::AUTO:
+      break;
+  }
+
+  const auto target = connector->GetPropertyEnumValue(BROADCAST_RGB, targetName);
+  if (!target)
+    return;
+
+  // always queue it, to replace a pending value that is not committed yet
+  if (!drm->AddProperty(connector, BROADCAST_RGB, *target))
+    return;
+
+  m_broadcastRangeQueued = true;
+  m_broadcastRangeTarget = *target;
+
+  CLog::LogF(LOGDEBUG, "queued connector \"{}\" = \"{}\"", BROADCAST_RGB, targetName);
+
+  const auto current = connector->GetPropertyValue(BROADCAST_RGB);
+  if (!current || *current != *target)
+    drm->RequestModeset();
+}
+
+void CWinSystemGbm::RetryBroadcastRange()
+{
+  if (!m_broadcastRangeQueued)
+    return;
+
+  m_broadcastRangeQueued = false;
+
+  const CDRMConnector* connector = m_DRM ? m_DRM->GetConnector() : nullptr;
+  if (!connector || connector->GetPropertyValue(BROADCAST_RGB) == m_broadcastRangeTarget)
+    return;
+
+  // a rejected commit drops the queued property and the modeset request, so queue them again
+  if (m_broadcastRangeRetries++ >= 1)
+  {
+    CLog::LogF(LOGWARNING, "connector \"{}\" could not be committed", BROADCAST_RGB);
+    return;
+  }
+
+  ApplyBroadcastRange(true);
+}
+
+void CWinSystemGbm::UpdateDriverLimitedRange()
+{
+  bool limited = false;
+
+  if (const CDRMConnector* connector = m_DRM ? m_DRM->GetConnector() : nullptr)
+  {
+    const auto current = connector->GetPropertyValue(BROADCAST_RGB);
+    const auto limitedValue = connector->GetPropertyEnumValue(BROADCAST_RGB, BROADCAST_RGB_LIMITED);
+    limited = current && limitedValue && *current == *limitedValue;
+  }
+
+  m_driverLimitedRange = limited;
+}
+
+void CWinSystemGbm::ApplyLimitGuiSize(void* userptr)
+{
+  auto* winSystem = static_cast<CWinSystemGbm*>(userptr);
+
+  // the limit is applied as the mode list is built, so the list has to be rebuilt and the
+  // current mode re-applied for the GUI to be recreated at the new size
+  CDisplaySettings& displaySettings = CDisplaySettings::GetInstance();
+  const RESOLUTION_INFO desktop = displaySettings.GetResolutionInfo(RES_DESKTOP);
+  winSystem->UpdateResolutions();
+
+  // UpdateResolutions() makes the current mode the desktop mode, which during playback is the
+  // mode chosen for the video rather than the one to return to when it stops
+  for (size_t i = RES_CUSTOM; i < displaySettings.ResolutionInfoSize(); ++i)
+  {
+    const RESOLUTION_INFO& res = displaySettings.GetResolutionInfo(i);
+    if (res.iScreenWidth == desktop.iScreenWidth && res.iScreenHeight == desktop.iScreenHeight &&
+        res.fRefreshRate == desktop.fRefreshRate && res.dwFlags == desktop.dwFlags)
+    {
+      displaySettings.GetResolutionInfo(RES_DESKTOP) = res;
+      break;
+    }
+  }
+
+  CGraphicContext& gfx = winSystem->GetGfxContext();
+  gfx.SetVideoResolution(gfx.GetVideoResolution(), true);
+}
+
 bool CWinSystemGbm::ResizeWindow(int newWidth, int newHeight, int newLeft, int newTop)
 {
   return true;
@@ -271,6 +464,9 @@ bool CWinSystemGbm::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
     CLog::Log(LOGERROR, "CWinSystemGbm::{} - failed to set DRM mode", __FUNCTION__);
     return false;
   }
+
+  // keeps the property in the commit of the modeset, and retries it after a rejected commit
+  ApplyBroadcastRange();
 
   struct gbm_bo* bo = nullptr;
 
@@ -321,17 +517,31 @@ void CWinSystemGbm::FlipPage(bool rendered, bool videoLayer, bool async)
 
   m_DRM->FlipPage(bo, rendered, videoLayer, async);
 
-  if (m_videoLayerBridge && !videoLayer)
+  UpdateDriverLimitedRange();
+  RetryBroadcastRange();
+
+  // !videoLayer alone cannot gate teardown: FlipPage also runs with videoLayer
+  // false during a mode switch or renderer swap. use_count reaches 1 only when
+  // CRendererDRMPRIME drops its bridge reference, which happens at video stop.
+  if (m_videoLayerBridge && !videoLayer && m_videoLayerBridge.use_count() == 1)
   {
     // delete video layer bridge when video layer no longer is active
     m_videoLayerBridge.reset();
+
+    //! @todo unify D2P and single-plane teardown behind one winsystem plane API
+    m_DRM->ReleaseVideoPlane();
+    auto* gui = m_DRM->GetGuiPlane();
+    m_DRM->FindGuiPlane(gui->GetFormat(), gui->GetModifier());
   }
 }
 
 bool CWinSystemGbm::UseLimitedColor()
 {
-  return CServiceBroker::GetSettingsComponent()->GetSettings()->GetBool(
-      CSettings::SETTING_VIDEOSCREEN_LIMITEDRANGE);
+  // the driver converts while limited is committed, so don't compress a second time
+  if (m_driverLimitedRange)
+    return false;
+
+  return GetColorRange() == ColorRange::LIMITED;
 }
 
 bool CWinSystemGbm::Hide()
@@ -370,8 +580,31 @@ void CWinSystemGbm::OnLostDevice()
   m_dispReset = true;
 
   std::unique_lock lock(m_resourceSection);
-  for (auto resource : m_resources)
+  std::vector<IDispResource*> resources = m_resources;
+
+  for (auto resource : resources)
+  {
+    if (find(m_resources.begin(), m_resources.end(), resource) == m_resources.end())
+      continue;
+
     resource->OnLostDisplay();
+  }
+}
+
+void CWinSystemGbm::OnResetDisplay()
+{
+  CLog::Log(LOGDEBUG, "{} - notify display reset event", __FUNCTION__);
+
+  std::unique_lock lock(m_resourceSection);
+  std::vector<IDispResource*> resources = m_resources;
+
+  for (auto resource : resources)
+  {
+    if (find(m_resources.begin(), m_resources.end(), resource) == m_resources.end())
+      continue;
+
+    resource->OnResetDisplay();
+  }
 }
 
 std::unique_ptr<CVideoSync> CWinSystemGbm::GetVideoSync(CVideoReferenceClock* clock)
@@ -381,7 +614,13 @@ std::unique_ptr<CVideoSync> CWinSystemGbm::GetVideoSync(CVideoReferenceClock* cl
 
 std::vector<std::string> CWinSystemGbm::GetConnectedOutputs()
 {
-  return m_DRM->GetConnectedConnectorNames();
+  std::vector<std::string> outputs;
+  outputs.emplace_back(OUTPUT_NAME_DEFAULT);
+  for (const auto& name : m_DRM->GetConnectedConnectorNames())
+  {
+    outputs.emplace_back(name);
+  }
+  return outputs;
 }
 
 bool CWinSystemGbm::SetVideoOutput(const VideoPicture* videoPicture)
@@ -614,6 +853,8 @@ CHDRCapabilities CWinSystemGbm::GetDisplayHDRCapabilities() const
 
   if (m_info->SupportsEOTF(UTILS::Eotf::HLG))
     caps.SetHLG();
+
+  caps.SetMaxLuminance(m_info->GetMaxLuminance());
 
   return caps;
 }

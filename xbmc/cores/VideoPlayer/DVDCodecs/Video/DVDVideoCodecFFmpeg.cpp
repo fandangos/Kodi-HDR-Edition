@@ -23,10 +23,12 @@
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "utils/CPUInfo.h"
+#include "utils/DolbyVisionRpu.h"
 #include "utils/StringUtils.h"
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 
+#include <iterator>
 #include <memory>
 #include <mutex>
 
@@ -336,6 +338,12 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
   m_hints = hints;
   m_options = options;
 
+  const int doviProfile = hints.dovi.dv_profile;
+  m_exportDoviRpu =
+      (doviProfile == 5 || doviProfile == 7 || doviProfile == 8 || doviProfile == 10) &&
+      m_processInfo.WantsDolbyVisionRpu();
+  m_av1DoviRpus.clear();
+
   const AVCodec* pCodec = nullptr;
 
   m_iOrientation = hints.orientation;
@@ -382,6 +390,9 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options
 #if LIBAVCODEC_VERSION_MAJOR >= 60
   m_pCodecContext->flags = AV_CODEC_FLAG_COPY_OPAQUE;
 #endif
+
+  if (hints.codecOptions & CODEC_EXPORT_FILM_GRAIN)
+    m_pCodecContext->export_side_data |= AV_CODEC_EXPORT_DATA_FILM_GRAIN;
 
   // setup threading model
   if (!(hints.codecOptions & CODEC_FORCE_SOFTWARE))
@@ -618,6 +629,18 @@ bool CDVDVideoCodecFFmpeg::AddData(const DemuxPacket &packet)
   avpkt->side_data = static_cast<AVPacketSideData*>(packet.pSideData);
   avpkt->side_data_elems = packet.iSideDataElems;
 
+  // FFmpeg doesn't export the AV1 RPU, so keep it for the frame with the same pts
+  if (m_exportDoviRpu && m_hints.codec == AV_CODEC_ID_AV1 && avpkt->pts != AV_NOPTS_VALUE)
+  {
+    std::vector<uint8_t> rpu = KODI::UTILS::DOLBYVISION::ExtractAv1Rpu(packet.pData, packet.iSize);
+    if (!rpu.empty())
+    {
+      m_av1DoviRpus[avpkt->pts] = std::move(rpu);
+      if (m_av1DoviRpus.size() > 64)
+        m_av1DoviRpus.erase(m_av1DoviRpus.begin());
+    }
+  }
+
   int ret = avcodec_send_packet(m_pCodecContext, avpkt);
 
   //! @todo: properly handle avpkt side_data. this works around our improper use of the side_data
@@ -676,12 +699,17 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::GetPicture(VideoPicture* pVideoPi
     if (ret == VC_PICTURE)
     {
       if (m_pHardware->GetPicture(m_pCodecContext, pVideoPicture))
+      {
+        m_hwFailedCount = 0;
         return VC_PICTURE;
+      }
       else
         return VC_ERROR;
     }
     else if (ret == VC_BUFFER)
       ;
+    else if (ret == VC_FATAL)
+      return HandleHwFatal();
     else
       return ret;
   }
@@ -739,7 +767,10 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::GetPicture(VideoPicture* pVideoPi
       if (ret == VC_PICTURE)
       {
         if (m_pHardware->GetPicture(m_pCodecContext, pVideoPicture))
+        {
+          m_hwFailedCount = 0;
           return VC_PICTURE;
+        }
         else
           return VC_ERROR;
       }
@@ -851,13 +882,15 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::GetPicture(VideoPicture* pVideoPi
     }
     else if (ret == VC_FATAL)
     {
-      m_decoderState = STATE_HW_FAILED;
-      return VC_REOPEN;
+      return HandleHwFatal();
     }
     else if (ret == VC_PICTURE)
     {
       if (m_pHardware->GetPicture(m_pCodecContext, pVideoPicture))
+      {
+        m_hwFailedCount = 0;
         return VC_PICTURE;
+      }
       else
         return VC_ERROR;
     }
@@ -958,6 +991,8 @@ void CDVDVideoCodecFFmpeg::Reset()
   if (m_pHardware)
     m_pHardware->Reset();
 
+  m_av1DoviRpus.clear();
+
   m_filters = "";
   FilterClose();
   m_dropCtrl.Reset(false);
@@ -970,6 +1005,16 @@ void CDVDVideoCodecFFmpeg::Reopen()
   {
     Dispose();
   }
+}
+
+CDVDVideoCodec::VCReturn CDVDVideoCodecFFmpeg::HandleHwFatal()
+{
+  m_hwFailedCount++;
+  CLog::Log(LOGWARNING,
+            "CDVDVideoCodecFFmpeg::{} - hw decode failure {} (consecutive), retrying hardware",
+            __FUNCTION__, m_hwFailedCount);
+  m_decoderState = STATE_NONE;
+  return VC_REOPEN;
 }
 
 bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
@@ -1010,11 +1055,11 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
 
   /* XXX: we suppose the screen has a 1.0 pixel ratio */ // CDVDVideo will compensate it.
   pVideoPicture->iDisplayHeight = pVideoPicture->iHeight;
-  pVideoPicture->iDisplayWidth  = ((int)RINT(pVideoPicture->iHeight * aspect_ratio)) & -3;
+  pVideoPicture->iDisplayWidth = static_cast<int>(RINT(pVideoPicture->iHeight * aspect_ratio));
   if (pVideoPicture->iDisplayWidth > pVideoPicture->iWidth)
   {
     pVideoPicture->iDisplayWidth  = pVideoPicture->iWidth;
-    pVideoPicture->iDisplayHeight = ((int)RINT(pVideoPicture->iWidth / aspect_ratio)) & -3;
+    pVideoPicture->iDisplayHeight = static_cast<int>(RINT(pVideoPicture->iWidth / aspect_ratio));
   }
 
 
@@ -1039,24 +1084,36 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
     pVideoPicture->iFlags |= DVP_FLAG_DROPPED;
   }
 
+  // sw_pix_fmt is unset for a decoder that allocates its own frames, since it reaches neither
+  // place libavcodec assigns it. Fall back to the frame, which is the picture actually handed to
+  // the renderer, but never to a hardware surface, which describes no layout.
   pVideoPicture->pixelFormat = m_pCodecContext->sw_pix_fmt;
+  if (pVideoPicture->pixelFormat == AV_PIX_FMT_NONE)
+  {
+    const auto frameFormat = static_cast<AVPixelFormat>(m_pFrame->format);
+    const AVPixFmtDescriptor* frameDesc = av_pix_fmt_desc_get(frameFormat);
+    if (frameDesc && !(frameDesc->flags & AV_PIX_FMT_FLAG_HWACCEL))
+    {
+      pVideoPicture->pixelFormat = frameFormat;
+    }
+  }
 
   pVideoPicture->chroma_position = m_pCodecContext->chroma_sample_location;
   pVideoPicture->color_primaries = m_pCodecContext->color_primaries == AVCOL_PRI_UNSPECIFIED ? m_hints.colorPrimaries : m_pCodecContext->color_primaries;
   pVideoPicture->m_originalColorPrimaries = pVideoPicture->color_primaries;
   pVideoPicture->color_transfer = m_pCodecContext->color_trc == AVCOL_TRC_UNSPECIFIED ? m_hints.colorTransferCharacteristic : m_pCodecContext->color_trc;
   pVideoPicture->color_space = m_pCodecContext->colorspace == AVCOL_SPC_UNSPECIFIED ? m_hints.colorSpace : m_pCodecContext->colorspace;
-  // sw_pix_fmt always describes the actual pixel layout (pix_fmt is opaque
-  // for hwaccel paths like AV_PIX_FMT_VAAPI). libavutil api covers every
-  // codec, chroma layout, and bit depth without per-profile enumeration.
-  const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(m_pCodecContext->sw_pix_fmt);
+  const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(pVideoPicture->pixelFormat);
   pVideoPicture->colorBits = desc ? desc->comp[0].depth : 8;
 
+  AVColorRange range = m_hints.colorRange;
   if (m_pCodecContext->color_range == AVCOL_RANGE_JPEG ||
     m_pCodecContext->pix_fmt == AV_PIX_FMT_YUVJ420P)
-    pVideoPicture->color_range = 1;
-  else
-    pVideoPicture->color_range = m_hints.colorRange == AVCOL_RANGE_JPEG ? 1 : 0;
+    range = AVCOL_RANGE_JPEG;
+  else if (range == AVCOL_RANGE_UNSPECIFIED)
+    range = m_pCodecContext->color_range;
+
+  pVideoPicture->color_range = VideoPicture::IsFullRange(range, pVideoPicture->pixelFormat);
 
   //! @todo: ffmpeg doesn't seem like they know how they want to handle this.
   // av_frame_get_qp_table is deprecated but there doesn't seem to be a valid
@@ -1069,6 +1126,25 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
   pVideoPicture->qscale_type = 0;
 
   pVideoPicture->hdrType = m_hints.hdrType;
+
+#if defined(TARGET_DARWIN_TVOS)
+  // Adaptive manifests may omit HDR signaling even when the decoded HEVC
+  // picture identifies an HDR10/HLG base layer. A Dolby Vision fallback is
+  // valid only when its profile and compatibility ID say so explicitly.
+  if ((pVideoPicture->hdrType == StreamHdrType::HDR_TYPE_NONE ||
+       pVideoPicture->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION) &&
+      pVideoPicture->color_primaries == AVCOL_PRI_BT2020)
+  {
+    const bool noDolbyVision =
+        pVideoPicture->hdrType == StreamHdrType::HDR_TYPE_NONE && m_hints.dovi.dv_profile == 0;
+    if (pVideoPicture->color_transfer == AVCOL_TRC_SMPTE2084 &&
+        (noDolbyVision || m_hints.HasHDR10DolbyVisionBaseLayer()))
+      pVideoPicture->hdrType = StreamHdrType::HDR_TYPE_HDR10;
+    else if (pVideoPicture->color_transfer == AVCOL_TRC_ARIB_STD_B67 &&
+             (noDolbyVision || m_hints.HasHLGDolbyVisionBaseLayer()))
+      pVideoPicture->hdrType = StreamHdrType::HDR_TYPE_HLG;
+  }
+#endif
 
   AVFrameSideData* sd;
 
@@ -1121,6 +1197,31 @@ bool CDVDVideoCodecFFmpeg::GetPictureCommon(VideoPicture* pVideoPicture)
   {
     pVideoPicture->lightMetadata = *m_hints.contentLightMetadata.get();
     pVideoPicture->hasLightMetadata = true;
+  }
+
+  pVideoPicture->doviRpu.reset();
+  if (m_exportDoviRpu)
+  {
+    std::vector<uint8_t> rpu;
+    if (m_hints.codec == AV_CODEC_ID_AV1)
+    {
+      const auto it = m_av1DoviRpus.find(m_pFrame->pts);
+      if (it != m_av1DoviRpus.end())
+      {
+        rpu = std::move(it->second);
+        m_av1DoviRpus.erase(m_av1DoviRpus.begin(), std::next(it));
+      }
+    }
+    else
+    {
+      sd = av_frame_get_side_data(m_pFrame, AV_FRAME_DATA_DOVI_RPU_BUFFER);
+      if (sd && sd->size > 0)
+        rpu = KODI::UTILS::DOLBYVISION::HevcRpuToNal(sd->data, sd->size);
+    }
+
+    if (!rpu.empty())
+      pVideoPicture->doviRpu = std::make_shared<DoviRpu>(DoviRpu{
+          m_hints.dovi.dv_profile, m_hints.dovi.dv_bl_signal_compatibility_id, std::move(rpu)});
   }
 
   if (pVideoPicture->hdrType == StreamHdrType::HDR_TYPE_DOLBYVISION)
@@ -1229,6 +1330,9 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string& filters, bool scale)
     CLog::Log(LOGERROR, "CDVDVideoCodecFFmpeg::FilterOpen - unable to alloc filter graph");
     return -1;
   }
+
+  if (m_decoderState == STATE_SW_SINGLE)
+    m_pFilterGraph->nb_threads = 1;
 
   const AVFilter* srcFilter = avfilter_get_by_name("buffer");
   const AVFilter* outFilter = avfilter_get_by_name("buffersink"); // should be last filter in the graph for now

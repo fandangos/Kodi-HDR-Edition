@@ -8,6 +8,9 @@
 
 #include "ConversionMatrix.h"
 
+#include <algorithm>
+#include <cmath>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 
@@ -35,6 +38,8 @@ constexpr ConvYCbCr BT601YCbCr = {0.299, 0.114};
 constexpr ConvYCbCr BT2020YCbCr = {0.2627, 0.0593};
 constexpr ConvYCbCr ST240YCbCr = {0.212, 0.087};
 
+constexpr std::array<std::array<float, 3>, 3> GBRToRGB = {{{0, 0, 1}, {1, 0, 0}, {0, 1, 0}}};
+
 constexpr Primaries PrimariesBT709 = {{{0.640, 0.330}, {0.300, 0.600}, {0.150, 0.060}},
                                       {0.3127, 0.3290}};
 constexpr Primaries PrimariesBT610_525 = {{{0.640, 0.340}, {0.310, 0.595}, {0.155, 0.070}},
@@ -43,6 +48,15 @@ constexpr Primaries PrimariesBT610_625 = {{{0.640, 0.330}, {0.290, 0.600}, {0.15
                                           {0.3127, 0.3290}};
 constexpr Primaries PrimariesBT2020 = {{{0.708, 0.292}, {0.170, 0.797}, {0.131, 0.046}},
                                        {0.3127, 0.3290}};
+
+// rotate and scale the centred chroma plane, same convention as the DXVA ProcAmp
+std::array<std::array<float, 3>, 3> HueSaturation(float hue, float saturation)
+{
+  const float angle = hue * std::numbers::pi_v<float> / 180.0f;
+  const float hueCos = saturation * std::cos(angle);
+  const float hueSin = saturation * std::sin(angle);
+  return {{{1.0f, 0.0f, 0.0f}, {0.0f, hueCos, hueSin}, {0.0f, -hueSin, hueCos}}};
+}
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -352,6 +366,15 @@ CConvertMatrix& CConvertMatrix::SetSourceColorSpace(AVColorSpace colorSpace)
   return *this;
 }
 
+CConvertMatrix& CConvertMatrix::SetSourceRGB(bool rgb)
+{
+  if (m_rgbSrc != rgb)
+    m_mat.reset();
+
+  m_rgbSrc = rgb;
+  return *this;
+}
+
 CConvertMatrix& CConvertMatrix::SetSourceBitDepth(int bits)
 {
   if (m_srcBits != bits)
@@ -406,6 +429,24 @@ CConvertMatrix& CConvertMatrix::SetDestinationContrast(float contrast)
 CConvertMatrix& CConvertMatrix::SetDestinationBlack(float black)
 {
   m_black = black;
+  return *this;
+}
+
+CConvertMatrix& CConvertMatrix::SetDestinationHue(float hue)
+{
+  if (m_hue != hue)
+    m_mat.reset();
+
+  m_hue = hue;
+  return *this;
+}
+
+CConvertMatrix& CConvertMatrix::SetDestinationSaturation(float saturation)
+{
+  if (m_saturation != saturation)
+    m_mat.reset();
+
+  m_saturation = saturation;
   return *this;
 }
 
@@ -505,35 +546,33 @@ const CGlMatrix& CConvertMatrix::GenMat()
       break;
   }
 
-  ConversionToRGB mConvRGB(convYCbCr.Kr, convYCbCr.Kb);
-  CGlMatrix mat(mConvRGB);
-
-  CTranslate trans(0, -0.5, -0.5);
-  mat *= trans;
+  const ConversionToRGB toRGB(convYCbCr.Kr, convYCbCr.Kb);
+  CGlMatrix mat(toRGB);
+  mat *= CGlMatrix(HueSaturation(m_hue, m_saturation));
+  if (m_rgbSrc)
+  {
+    // hue and saturation act on chroma, so RGB goes through YCbCr first
+    Matrix3 toYCbCr(toRGB.Get());
+    toYCbCr.Invert();
+    mat *= CGlMatrix(toYCbCr * GBRToRGB);
+  }
+  else
+  {
+    mat *= CTranslate(0, -0.5, -0.5);
+  }
 
   if (m_limitedSrc)
   {
-    if (m_srcBits >= 12)
-    {
-      CScale scale(4095.0f / (3760 - 256), 4095.0f / (3840 - 256), 4095.0f / (3840 - 256));
-      CTranslate trans(-256.0f / 4095.0f, -256.0f / 4095.0f, -256.0f / 4095.0f);
-      mat *= scale;
-      mat *= trans;
-    }
-    else if (m_srcBits == 10)
-    {
-      CScale scale(1023.0f / (940 - 64), 1023.0f / (960 - 64), 1023.0f / (960 - 64));
-      CTranslate trans(-64.0f / 1023.0f, -64.0f / 1023.0f, -64.0f / 1023.0f);
-      mat *= scale;
-      mat *= trans;
-    }
-    else
-    {
-      CScale scale(255.0f / (235 - 16), 255.0f / (240 - 16), 255.0f / (240 - 16));
-      CTranslate trans(- 16.0f / 255, - 16.0f / 255, - 16.0f / 255);
-      mat *= scale;
-      mat *= trans;
-    }
+    // the limited range is 16 to 235, or to 240 for chroma, times the step of an 8 bit code
+    const int bits = std::max(m_srcBits, 8);
+    const float step = static_cast<float>(1 << (bits - 8));
+    const float peak = static_cast<float>((1 << bits) - 1);
+    const float luma = peak / (219 * step);
+    const float chroma = m_rgbSrc ? luma : peak / (224 * step);
+    const float black = -16 * step / peak;
+
+    mat *= CScale(luma, chroma, chroma);
+    mat *= CTranslate(black, black, black);
   }
 
   if (m_srcTextureBits > 8)
@@ -607,6 +646,30 @@ float CConvertMatrix::GetGammaSrc()
 float CConvertMatrix::GetGammaDst()
 {
   return m_gammaDst;
+}
+
+Matrix3 CConvertMatrix::GetLinearHueSatMat(AVColorSpace colspace, float hue, float saturation)
+{
+  const Matrix3x1 coefs = GetRGBYuvCoefs(colspace);
+  const ConversionToRGB toRGB(coefs[0], coefs[2]);
+  Matrix3 toYCbCr(toRGB.Get());
+  toYCbCr.Invert();
+
+  const Matrix3 mat = Matrix3(toRGB.Get()) * HueSaturation(hue, saturation) * toYCbCr.Get();
+
+  Matrix3 dst;
+
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      dst[i][j] = mat[j][i];
+
+  return dst;
+}
+
+float CConvertMatrix::GetGammaExponent(float gamma)
+{
+  // 0.5 to 2.0, equal steps either side of neutral
+  return std::exp2((gamma - 50.0f) / 50.0f);
 }
 
 Matrix3x1 CConvertMatrix::GetRGBYuvCoefs(AVColorSpace colspace)

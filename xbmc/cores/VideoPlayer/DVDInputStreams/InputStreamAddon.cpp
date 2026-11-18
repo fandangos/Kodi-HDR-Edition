@@ -19,6 +19,7 @@
 #include "cores/VideoPlayer/Interface/InputStreamConstants.h"
 #include "cores/VideoPlayer/Interface/TimingConstants.h"
 #include "filesystem/SpecialProtocol.h"
+#include "language/LanguageTag.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -51,6 +52,7 @@ void CInputStreamProvider::GetAddonInstance(InstanceType instance_type,
 /*****************************************************************************************************************/
 
 using namespace ADDON;
+using namespace KODI::LANGUAGE;
 
 CInputStreamAddon::CInputStreamAddon(const AddonInfoPtr& addonInfo,
                                      IVideoPlayer* player,
@@ -509,7 +511,9 @@ KODI_HANDLE CInputStreamAddon::cb_get_stream_transfer(KODI_HANDLE handle,
       videoStream->dovi.bl_present_flag = stream->m_dvccMetadata->m_blPresentFlag;
       videoStream->dovi.dv_bl_signal_compatibility_id =
           stream->m_dvccMetadata->m_dvBlSignalCompatibilityId;
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 30, 100)
       videoStream->dovi.dv_md_compression = stream->m_dvccMetadata->m_dvMdCompression;
+#endif
     }
     //@}
 
@@ -554,7 +558,7 @@ KODI_HANDLE CInputStreamAddon::cb_get_stream_transfer(KODI_HANDLE handle,
   demuxStream->codecName = stream->m_codecInternalName;
   demuxStream->uniqueId = streamId;
   demuxStream->flags = static_cast<StreamFlags>(stream->m_flags);
-  demuxStream->language = stream->m_language;
+  demuxStream->language = CLanguageTag::Parse(stream->m_language);
 
   if (thisClass->GetAddonInfo()->DependencyVersion(ADDON_INSTANCE_VERSION_INPUTSTREAM_XML_ID) >=
       CAddonVersion("2.0.8"))
@@ -589,12 +593,13 @@ KODI_HANDLE CInputStreamAddon::cb_get_stream_transfer(KODI_HANDLE handle,
   return demuxStream;
 }
 
-void CInputStreamAddon::EnableStream(int streamId, bool enable)
+bool CInputStreamAddon::EnableStream(int streamId, bool enable)
 {
   if (!m_ifc.inputstream->toAddon->enable_stream)
-    return;
+    return false;
 
   m_ifc.inputstream->toAddon->enable_stream(m_ifc.inputstream, streamId, enable);
+  return true;
 }
 
 bool CInputStreamAddon::OpenStream(int streamId)

@@ -13,7 +13,7 @@
 
 #include "PackerMAT.h"
 
-#include "utils/BitstreamReader.h"
+#include "utils/BitReader.h"
 #include "utils/log.h"
 
 #include <array>
@@ -81,7 +81,7 @@ TrueHDMajorSyncInfo ParseTrueHDMajorSyncHeaders(const uint8_t* p, int buffsize)
   if (majorSyncSize > buffsize)
     return {};
 
-  CBitstreamReader bs(p + 4, buffsize - 4);
+  CBitReader bs({p + 4, static_cast<size_t>(buffsize - 4)});
 
   bs.SkipBits(32); // format_sync
 
@@ -279,11 +279,12 @@ bool CPackerMAT::PackTrueHD(const uint8_t* data, int size)
   {
     WriteHeader();
 
-    // initial header, don't count it for the frame size
+    // initial header: the IEC burst header is not part of the first frame, but the
+    // MAT start code is
     if (m_state.init == false)
     {
       m_state.init = true;
-      m_state.matFramesize = 0;
+      m_state.matFramesize = mat_start_code.size();
     }
   }
 

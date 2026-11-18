@@ -8,6 +8,7 @@
 
 #include "ApplicationMessageHandling.h"
 
+#include "FileItem.h"
 #include "FileItemList.h"
 #include "GUIInfoManager.h"
 #include "GUIUserMessages.h"
@@ -16,6 +17,7 @@
 #include "ServiceBroker.h"
 #include "ServiceManager.h"
 #include "Util.h"
+#include "addons/Skin.h"
 #include "application/AppInboundProtocol.h"
 #include "application/Application.h"
 #include "application/ApplicationEnums.h"
@@ -47,6 +49,7 @@
 #include "pictures/SlideShowDelegator.h"
 #include "playlists/PlayList.h"
 #include "playlists/PlayListFileItemClassify.h"
+#include "playlists/PlayListTypes.h"
 #include "powermanagement/PowerManager.h"
 #include "profiles/Profile.h"
 #include "profiles/ProfileManager.h"
@@ -59,9 +62,14 @@
 #include "settings/SettingsComponent.h"
 #include "utils/ContentUtils.h"
 #include "utils/FileExtensionProvider.h"
+#include "utils/ItemProperties.h"
 #include "utils/URIUtils.h"
 #include "video/VideoFileItemClassify.h"
+#include "windowing/GraphicContext.h"
 #include "windowing/WinSystem.h"
+
+#include <chrono>
+#include <memory>
 
 #ifdef TARGET_ANDROID
 #include "platform/android/activity/XBMCApp.h"
@@ -84,7 +92,7 @@ public:
 
   bool HandlePlaycountIncremented() const
   {
-    return m_item.GetProperty("playcount_incremented").asBoolean(false) &&
+    return m_item.GetProperty(ITEM::PROPERTY::PLAYCOUNT_INCREMENTED).asBoolean(false) &&
            m_item.IsPVRRecording() &&
            CServiceBroker::GetPVRManager().Get<PVR::GUI::Recordings>().ProcessDeleteAfterWatch(
                m_item);
@@ -93,16 +101,94 @@ public:
 private:
   const CFileItem m_item;
 };
+
+// Windows kept in memory keep the skin coordinates of the aspect ratio they
+// were loaded for. Leave video playback alone, its refresh rate switches may
+// use other aspect ratios for a while, and the calibration window, which
+// switches resolutions itself.
+bool IsSkinReloadNeeded()
+{
+  // the deferred check may run while Kodi is shutting down
+  const auto gui = CServiceBroker::GetGUI();
+  if (!gui)
+    return false;
+
+  const auto skin = gui->GetSkinInfo();
+  return skin && skin->IsResolutionChanged() &&
+         !CServiceBroker::GetAppComponents().GetComponent<CApplicationPlayer>()->IsPlayingVideo() &&
+         !CServiceBroker::GetWinSystem()->GetGfxContext().IsCalibrating();
+}
+
+// Add-ons fill their windows and dialogs from code, and a skin reload would
+// leave them empty.
+bool IsAddonWindowOpen()
+{
+  const auto& windowManager = CServiceBroker::GetGUI()->GetWindowManager();
+  for (const int id : {windowManager.GetActiveWindow(), windowManager.GetActiveWindowOrDialog()})
+  {
+    if (windowManager.IsPythonWindow(id) || windowManager.IsAddonWindow(id))
+      return true;
+  }
+  return false;
+}
+
+// resizing a window sends a resize for every step, reload once it settles
+constexpr auto SKIN_RELOAD_DELAY = std::chrono::milliseconds(500);
 } // unnamed namespace
 
 CApplicationMessageHandling::CApplicationMessageHandling(CApplication& app)
   : CAppInboundProtocol(app),
-    m_app(app)
+    m_app(app),
+    m_reloadSkinCallback(std::make_unique<MESSAGING::ThreadMessageCallback>(
+        MESSAGING::ThreadMessageCallback{ReloadSkinIfNeeded, this})),
+    m_skinReloadTimer(
+        [this]
+        {
+          if (const auto messenger = CServiceBroker::GetAppMessenger())
+            messenger->PostMsg(TMSG_CALLBACK, -1, -1, m_reloadSkinCallback.get());
+        })
 {
+}
+
+CApplicationMessageHandling::~CApplicationMessageHandling() = default;
+
+void CApplicationMessageHandling::ReloadSkinIfNeeded(void* data)
+{
+  if (!IsSkinReloadNeeded())
+    return;
+
+  // ReloadSkin() drops requests while Kodi is starting, and a reload would empty
+  // add-on windows, so try again later
+  auto* handling = static_cast<CApplicationMessageHandling*>(data);
+  if (!handling->m_app.IsInitialized() || IsAddonWindowOpen())
+  {
+    handling->ScheduleSkinReload();
+    return;
+  }
+
+  CServiceBroker::GetAppComponents().GetComponent<CApplicationSkinHandling>()->ReloadSkin();
+}
+
+void CApplicationMessageHandling::ScheduleSkinReload()
+{
+  // the timer callback checks again whether the reload is needed
+  if (m_skinReloadTimer.IsRunning())
+    m_skinReloadTimer.RestartAsync(SKIN_RELOAD_DELAY);
+  else
+    m_skinReloadTimer.Start(SKIN_RELOAD_DELAY);
+}
+
+void CApplicationMessageHandling::ScheduleSkinReloadAfterPlayback()
+{
+  // pick up a window resized during playback, in full screen only video modes
+  // change and the GUI resolution is restored when playback stops
+  if (!CServiceBroker::GetWinSystem()->GetGfxContext().IsFullScreenRoot())
+    ScheduleSkinReload();
 }
 
 void CApplicationMessageHandling::OnApplicationMessage(MESSAGING::ThreadMessage* pMsg)
 {
+  CWinSystemBase* const winSystem{CServiceBroker::GetWinSystem()};
   uint32_t msg = pMsg->dwMessage;
   if (msg == TMSG_SYSTEM_POWERDOWN)
   {
@@ -180,12 +266,12 @@ void CApplicationMessageHandling::OnApplicationMessage(MESSAGING::ThreadMessage*
     case TMSG_DISPLAY_SETUP:
       // We might come from a refresh rate switch destroying the native window; use the context resolution
       *static_cast<bool*>(pMsg->lpVoid) =
-          m_app.InitWindow(CServiceBroker::GetWinSystem()->GetGfxContext().GetVideoResolution());
+          m_app.InitWindow(winSystem->GetGfxContext().GetVideoResolution());
       m_app.GetComponent<CApplicationPowerHandling>()->SetRenderGUI(true);
       break;
 
     case TMSG_DISPLAY_DESTROY:
-      *static_cast<bool*>(pMsg->lpVoid) = CServiceBroker::GetWinSystem()->DestroyWindow();
+      *static_cast<bool*>(pMsg->lpVoid) = winSystem->DestroyWindow();
       m_app.GetComponent<CApplicationPowerHandling>()->SetRenderGUI(false);
       break;
 
@@ -245,21 +331,21 @@ void CApplicationMessageHandling::OnApplicationMessage(MESSAGING::ThreadMessage*
     break;
 
     case TMSG_SETVIDEORESOLUTION:
-      CServiceBroker::GetWinSystem()->GetGfxContext().SetVideoResolution(
+      winSystem->GetGfxContext().SetVideoResolution(
           static_cast<RESOLUTION>(pMsg->param1), pMsg->param2 == 1);
       break;
 
     case TMSG_TOGGLEFULLSCREEN:
-      CServiceBroker::GetWinSystem()->GetGfxContext().ToggleFullScreen();
+      winSystem->GetGfxContext().ToggleFullScreen();
       appPlayer->TriggerUpdateResolution();
       break;
 
     case TMSG_MOVETOSCREEN:
-      CServiceBroker::GetWinSystem()->MoveToScreen(pMsg->param1);
+      winSystem->MoveToScreen(pMsg->param1);
       break;
 
     case TMSG_MINIMIZE:
-      CServiceBroker::GetWinSystem()->Minimize();
+      winSystem->Minimize();
       break;
 
     case TMSG_EXECUTE_OS:
@@ -402,7 +488,7 @@ void CApplicationMessageHandling::OnApplicationMessage(MESSAGING::ThreadMessage*
     case TMSG_UPDATE_PLAYER_ITEM:
     {
       std::unique_ptr<CFileItem> item{static_cast<CFileItem*>(pMsg->lpVoid)};
-      if (item)
+      if (item && m_app.CurrentFileItem().IsSamePath(item.get()))
       {
         m_app.CurrentFileItem().UpdateInfo(*item);
         CServiceBroker::GetGUI()->GetInfoManager().UpdateCurrentItem(m_app.CurrentFileItem());
@@ -432,6 +518,14 @@ void CApplicationMessageHandling::OnApplicationMessage(MESSAGING::ThreadMessage*
       break;
     }
 
+    case TMSG_APPLICATION_PLAY_MEDIA:
+    {
+      const std::unique_ptr<CFileItem> item{static_cast<CFileItem*>(pMsg->lpVoid)};
+      const auto playlistId = static_cast<PLAYLIST::Id>(pMsg->param1);
+      m_app.PlayMedia(*item, pMsg->strParam, playlistId);
+      break;
+    }
+
     default:
       CLog::LogF(LOGERROR, "Unhandled threadmessage sent, {}", msg);
       break;
@@ -440,6 +534,8 @@ void CApplicationMessageHandling::OnApplicationMessage(MESSAGING::ThreadMessage*
 
 bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
 {
+  auto& pvrManager{CServiceBroker::GetPVRManager()};
+
   switch (message.GetMessage())
   {
     case GUI_MSG_NOTIFY_ALL:
@@ -476,13 +572,19 @@ bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
         if (message.GetSenderId() == WINDOW_SETTINGS_PROFILES)
           m_app.GetComponent<CApplicationSkinHandling>()->ReloadSkin(false);
       }
+      else if (message.GetParam1() == GUI_MSG_WINDOW_RESIZE)
+      {
+        if (IsSkinReloadNeeded())
+          ScheduleSkinReload();
+      }
       else if (message.GetParam1() == GUI_MSG_UPDATE_ITEM && message.GetItem())
       {
         CFileItemPtr item = std::static_pointer_cast<CFileItem>(message.GetItem());
         if (m_app.CurrentFileItem().IsSamePath(item.get()))
         {
-          m_app.CurrentFileItem().UpdateInfo(*item);
-          CServiceBroker::GetGUI()->GetInfoManager().UpdateCurrentItem(*item);
+          const bool replaceLabels = !(message.GetParam2() & GUI_MSG_FLAG_KEEP_CURRENT_LABELS);
+          m_app.CurrentFileItem().UpdateInfo(*item, replaceLabels);
+          CServiceBroker::GetGUI()->GetInfoManager().UpdateCurrentItem(*item, replaceLabels);
         }
       }
     }
@@ -498,7 +600,7 @@ bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
           std::make_shared<CFileItem>(*std::static_pointer_cast<CFileItem>(message.GetItem())));
       m_app.ResetPlayerEvent();
 
-      CServiceBroker::GetPVRManager().OnPlaybackStarted(m_app.CurrentFileItem());
+      pvrManager.OnPlaybackStarted(m_app.CurrentFileItem());
 
       PLAYLIST::CPlayList playList = CServiceBroker::GetPlaylistPlayer().GetPlaylist(
           CServiceBroker::GetPlaylistPlayer().GetCurrentPlaylist());
@@ -637,7 +739,9 @@ bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
 
     case GUI_MSG_PLAYBACK_STOPPED:
     {
-      CServiceBroker::GetPVRManager().OnPlaybackStopped(m_app.CurrentFileItem());
+      ScheduleSkinReloadAfterPlayback();
+
+      pvrManager.OnPlaybackStopped(m_app.CurrentFileItem());
       CServiceBroker::GetFavouritesService().OnPlaybackStopped(m_app.CurrentFileItem());
 
       CVariant data(CVariant::VariantTypeObject);
@@ -661,7 +765,9 @@ bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
 
     case GUI_MSG_PLAYBACK_ENDED:
     {
-      CServiceBroker::GetPVRManager().OnPlaybackEnded(m_app.CurrentFileItem());
+      ScheduleSkinReloadAfterPlayback();
+
+      pvrManager.OnPlaybackEnded(m_app.CurrentFileItem());
       CServiceBroker::GetFavouritesService().OnPlaybackEnded(m_app.CurrentFileItem());
 
       CVariant data(CVariant::VariantTypeObject);
@@ -807,7 +913,9 @@ bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
     }
 
     case GUI_MSG_PLAYBACK_ERROR:
-      MESSAGING::HELPERS::ShowOKDialogText(CVariant{16026}, CVariant{16027});
+      // The slideshow skips a video that won't play
+      if (!CServiceBroker::GetGUI()->GetWindowManager().IsWindowActive(WINDOW_SLIDESHOW))
+        MESSAGING::HELPERS::ShowOKDialogText(CVariant{16026}, CVariant{16027});
       return true;
 
     case GUI_MSG_PLAYLISTPLAYER_STARTED:

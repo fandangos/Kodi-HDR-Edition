@@ -8,8 +8,10 @@
 
 #pragma once
 
+#include "media/MediaSection.h"
 #include "threads/CriticalSection.h"
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <optional>
@@ -29,7 +31,7 @@ class CFileExtensionProvider
 {
 public:
   CFileExtensionProvider() = default;
-  ~CFileExtensionProvider() = default;
+  ~CFileExtensionProvider();
 
   void Initialize(ADDON::CAddonMgr& addonManager);
   void Deinitialize();
@@ -48,6 +50,12 @@ public:
    * @brief Returns a list of video extensions
    */
   std::string GetVideoExtensions() const;
+
+  /*!
+   * @brief The extensions of the media \p section holds: video, music or pictures. Empty,
+   * meaning every file, for the other sections.
+   */
+  std::string GetMediaExtensions(KODI::MEDIA::MediaSection section) const;
 
   /*!
    * @brief Returns a list of subtitle extensions
@@ -109,7 +117,17 @@ private:
 
   void OnAdvancedSettingsLoaded();
 
+  /*!
+   * \brief Release the cached lists built from the advanced settings.
+   */
+  void ReleaseSettingsDerivedLists();
+
   // Construction properties
+
+  /*!
+   * \brief Initialization status of the class, guards against access while uninitialized.
+   */
+  std::atomic<bool> m_initialized{false};
   std::shared_ptr<CAdvancedSettings> m_advancedSettings;
   ADDON::CAddonMgr* m_addonManager{nullptr};
   std::optional<int> m_callbackId;

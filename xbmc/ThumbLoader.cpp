@@ -11,6 +11,7 @@
 #include "FileItem.h"
 #include "ServiceBroker.h"
 #include "TextureCache.h"
+#include "utils/ArtTypes.h"
 #include "utils/ArtUtils.h"
 #include "utils/FileUtils.h"
 
@@ -52,6 +53,15 @@ void CThumbLoader::SetCachedImage(const CFileItem &item, const std::string &type
   }
 }
 
+void CThumbLoader::ClearCachedImagePath(const CFileItem& item, const std::string& type)
+{
+  if (!item.GetPath().empty() && m_textureDatabase->Open())
+  {
+    m_textureDatabase->ClearTextureForPath(item.GetPath(), type);
+    m_textureDatabase->Close();
+  }
+}
+
 CProgramThumbLoader::CProgramThumbLoader() = default;
 
 CProgramThumbLoader::~CProgramThumbLoader() = default;
@@ -80,23 +90,23 @@ bool CProgramThumbLoader::LoadItemLookup(CFileItem *pItem)
 bool CProgramThumbLoader::FillThumb(CFileItem &item)
 {
   // no need to do anything if we already have a thumb set
-  std::string thumb = item.GetArt("thumb");
+  std::string thumb = item.GetArt(ART::TYPE::THUMB);
 
   if (thumb.empty())
   { // see whether we have a cached image for this item
-    thumb = GetCachedImage(item, "thumb");
+    thumb = GetCachedImage(item, ART::TYPE::THUMB);
     if (thumb.empty())
     {
       thumb = GetLocalThumb(item);
       if (!thumb.empty())
-        SetCachedImage(item, "thumb", thumb);
+        SetCachedImage(item, ART::TYPE::THUMB, thumb);
     }
   }
 
   if (!thumb.empty())
   {
     CServiceBroker::GetTextureCache()->BackgroundCacheImage(thumb);
-    item.SetArt("thumb", thumb);
+    item.SetArt(ART::TYPE::THUMB, thumb);
   }
   return true;
 }

@@ -51,6 +51,7 @@ public:
   bool Configure(AVPixelFormat format);
   void FrameMove();
   void SetBuffer(IRenderBuffer* buffer);
+  void SetSpeed(double speed);
   void RenderFrame(bool clear, uint8_t alpha);
 
   // Feature support
@@ -69,16 +70,49 @@ public:
   void SetStretchMode(STRETCHMODE stretchMode);
   void SetRenderRotation(unsigned int rotationDegCCW);
   void SetShaderPreset(const std::string& presetPath);
-  void SetPixels(const std::string& pixelPath);
+
+  /*!
+   * \brief True if the renderer can draw frames for an HDR10 output
+   */
+  virtual bool SupportsHdr() const { return false; }
+
+  /*!
+   * \brief Draw for an HDR10 output, at the given luminance in nits
+   *
+   * \param paperWhite, peak The luminance of ordinary colours and of the
+   *        brightest light, or 0 to draw for SDR
+   */
+  void SetHdrLuminance(unsigned int paperWhite, unsigned int peak)
+  {
+    m_hdrPaperWhite = paperWhite;
+    m_hdrPeak = peak;
+  }
 
   // Rendering properties
   bool IsVisible() const;
   IRenderBuffer* GetRenderBuffer() const;
 
+  /*!
+   * \brief Record that the renderer was asked for in the current frame
+   */
+  void SetUsed();
+
+  /*!
+   * \brief Check if the renderer wasn't asked for in the last frame, so its
+   * textures can be released
+   */
+  bool IsUnused() const;
+
+  /*!
+   * \brief Release the frame and textures of a renderer that isn't being drawn,
+   * keeping its compiled shaders for when it's drawn again
+   */
+  void ReleaseTextures();
+
 protected:
   // Protected renderer interface
   virtual bool ConfigureInternal() { return true; }
-  virtual void RenderInternal(bool clear, uint8_t alpha) = 0;
+  virtual void RenderInternal(uint8_t alpha) = 0;
   virtual void FlushInternal() {}
 
   // Construction parameters
@@ -100,9 +134,11 @@ protected:
   float m_lastTargetWidth{0.0f};
   float m_lastTargetHeight{0.0f};
   ViewportCoordinates m_rotatedDestCoords{};
+  unsigned int m_hdrPaperWhite{0};
+  unsigned int m_hdrPeak{0}; // 0 for SDR
 
   // Video shaders
-  void Updateshaders();
+  void UpdateShaders();
   std::unique_ptr<SHADER::IShaderPreset> m_shaderPreset;
 
   bool m_bShadersNeedUpdate = true;
@@ -131,6 +167,8 @@ private:
 
   uint64_t m_renderFrameCount = 0;
   uint64_t m_lastRender = 0;
+  uint64_t m_lastUse = 0;
+  bool m_texturesReleased = false;
 };
 } // namespace RETRO
 } // namespace KODI

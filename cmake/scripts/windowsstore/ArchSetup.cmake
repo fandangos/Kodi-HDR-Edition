@@ -99,7 +99,7 @@ if(DEFINED ENV{MAXTHREADS})
 else()
   set(MP_FLAG "/MP")
 endif()
-set(CMAKE_CXX_FLAGS "${MP_FLAG} ${CMAKE_CXX_FLAGS} /EHsc /await /permissive-")
+set(CMAKE_CXX_FLAGS "${MP_FLAG} ${CMAKE_CXX_FLAGS} /EHsc /permissive-")
 # Google Test needs to use shared version of runtime libraries
 set(gtest_force_shared_crt ON CACHE STRING "" FORCE)
 
@@ -111,7 +111,7 @@ set(gtest_force_shared_crt ON CACHE STRING "" FORCE)
 link_directories(${MINGW_LIBS_DIR}/lib
                  ${DEPENDS_PATH}/lib)
 
-list(APPEND DEPLIBS bcrypt d3d11.lib ws2_32 dxguid.lib dloadhelper.lib WindowsApp.lib)
+list(APPEND DEPLIBS bcrypt d3d11.lib mfuuid.lib ws2_32 dxguid.lib dloadhelper.lib WindowsApp.lib)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /WINMD:NO")
 set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} /NODEFAULTLIB:msvcrt /DEBUG:FASTLINK /OPT:NOREF /OPT:NOICF")

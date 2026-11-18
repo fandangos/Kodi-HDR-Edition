@@ -63,9 +63,8 @@ float CGUIListItemLayout::Size(ORIENTATION orientation) const
 
 void CGUIListItemLayout::Process(CGUIListItem *item, int parentID, unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
-  if (m_invalidated)
+  if (m_invalidated.exchange(false))
   { // need to update our item
-    m_invalidated = false;
     // could use a dynamic cast here if RTTI was enabled.  As it's not,
     // let's use a static cast with a virtual base function
     CFileItem *fileItem = item->IsFileItem() ? static_cast<CFileItem*>(item) : new CFileItem(*item);
@@ -114,6 +113,8 @@ void CGUIListItemLayout::SetWidth(float width)
     m_group.EnlargeWidth(width - m_width);
     m_width = width;
     SetInvalid();
+    if (m_sizeChangeOwner)
+      m_sizeChangeOwner->SetInvalid();
   }
 }
 
@@ -124,6 +125,8 @@ void CGUIListItemLayout::SetHeight(float height)
     m_group.EnlargeHeight(height - m_height);
     m_height = height;
     SetInvalid();
+    if (m_sizeChangeOwner)
+      m_sizeChangeOwner->SetInvalid();
   }
 }
 

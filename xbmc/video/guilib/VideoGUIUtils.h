@@ -11,6 +11,7 @@
 #include "utils/ContentUtils.h"
 
 #include <memory>
+#include <string>
 
 class CFileItem;
 class CFileItemList;
@@ -82,5 +83,21 @@ std::string GetResumeString(const CFileItem& item);
  \return The resume string.
  */
 std::string GetResumeString(int64_t startOffset, unsigned int partNumber);
+
+/*!
+ \brief Prompt the user to choose a playlist from a disc, using the simple menu. The item can be a
+ disc image, a BDMV folder or an already resolved bluray:// playlist, in which case a different
+ playlist can be picked. The choice is to be stored, so the disc's menu is not offered.
+ \param item [in,out] The disc item, pointed at the chosen playlist on success
+ \return True if a playlist was chosen, false if the user cancelled or none could be offered
+ */
+bool ChooseDiscPlaylist(CFileItem& item);
+
+/*!
+ \brief Tell any open window and playlist that an item's path has changed, so that they update the
+ item.
+ \param oldFileId [in] The library file id the item had before, when the change gave it a new one
+ */
+void NotifyItemPathChanged(const CFileItem& item, const std::string& oldPath, int oldFileId = -1);
 
 } // namespace KODI::VIDEO::UTILS

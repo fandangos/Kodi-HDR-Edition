@@ -9,6 +9,7 @@
 #pragma once
 
 #include "IAnnouncer.h"
+#include "threads/Condition.h"
 #include "threads/CriticalSection.h"
 #include "threads/Event.h"
 #include "threads/Thread.h"
@@ -44,6 +45,14 @@ namespace ANNOUNCEMENT
     void Announce(AnnouncementFlag flag,
                   const std::string& message,
                   const std::shared_ptr<const CFileItem>& item,
+                  const CVariant& data);
+    /*!
+     \brief Announces \p item as it is now, copying it once for the announcement, so that it may
+     change, or go, as soon as this returns
+     */
+    void Announce(AnnouncementFlag flag,
+                  const std::string& message,
+                  const CFileItem& item,
                   const CVariant& data);
 
     void Announce(AnnouncementFlag flag, const std::string& sender, const std::string& message);
@@ -89,8 +98,19 @@ namespace ANNOUNCEMENT
     CAnnouncementManager(const CAnnouncementManager&) = delete;
     CAnnouncementManager const& operator=(CAnnouncementManager const&) = delete;
 
+    //! \brief Queues an announcement for the announcement thread, with the copy of its item, if any
+    void Queue(AnnouncementFlag flag,
+               const std::string& sender,
+               const std::string& message,
+               std::shared_ptr<CFileItem> item,
+               const CVariant& data);
+
     CCriticalSection m_announcersCritSection;
     CCriticalSection m_queueCritSection;
     std::unordered_map<IAnnouncer*, int> m_announcers;
+
+    //! The announcer being called by DoAnnounce(), which runs without m_announcersCritSection.
+    IAnnouncer* m_announcing{nullptr};
+    XbmcThreads::ConditionVariable m_announced;
   };
 }

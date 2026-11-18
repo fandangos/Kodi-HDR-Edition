@@ -14,8 +14,12 @@
 #include "cores/FFmpeg.h"
 #include "filesystem/File.h"
 #include "filesystem/StackDirectory.h"
+#include "utils/ArtTypes.h"
 #include "utils/StringUtils.h"
 #include "video/VideoInfoTag.h"
+
+#include <charconv>
+#include <string_view>
 
 using namespace XFILE;
 
@@ -40,11 +44,11 @@ int64_t vfs_file_seek(void* h, int64_t pos, int whence)
 std::string filenameToType(std::string_view filename)
 {
   if (filename == "fanart.png" || filename == "fanart.jpg")
-    return "fanart";
+    return KODI::ART::TYPE::FANART;
   else if (filename == "cover.png" || filename == "cover.jpg")
-    return "poster";
+    return KODI::ART::TYPE::POSTER;
   else if (filename == "small_cover.png" || filename == "small_cover.jpg")
-    return "thumb";
+    return KODI::ART::TYPE::THUMB;
   return {};
 }
 
@@ -53,8 +57,8 @@ std::string filenameToType(std::string_view filename)
 CVideoTagLoaderFFmpeg::CVideoTagLoaderFFmpeg(const CFileItem& item,
                                              const ADDON::ScraperPtr& info,
                                              bool lookInFolder)
-  : IVideoInfoTagLoader(item, info, lookInFolder)
-  , m_info(info)
+  : IVideoInfoTagLoader(item, info, lookInFolder),
+    m_info(info)
 {
   std::string filename =
       item.IsStack() ? CStackDirectory::GetFirstStackedFile(item.GetPath()) : item.GetPath();
@@ -71,9 +75,8 @@ CVideoTagLoaderFFmpeg::CVideoTagLoaderFFmpeg(const CFileItem& item,
   int blockSize = m_file->GetChunkSize();
   int bufferSize = blockSize > 1 ? blockSize : 4096;
   uint8_t* buffer = (uint8_t*)av_malloc(bufferSize);
-  m_ioctx = avio_alloc_context(buffer, bufferSize, 0,
-                               m_file, vfs_file_read, nullptr,
-                               vfs_file_seek);
+  m_ioctx =
+      avio_alloc_context(buffer, bufferSize, 0, m_file, vfs_file_read, nullptr, vfs_file_seek);
 
   m_fctx = avformat_alloc_context();
   m_fctx->pb = m_ioctx;
@@ -111,12 +114,12 @@ bool CVideoTagLoaderFFmpeg::HasInfo() const
   {
     const AVDictionaryEntry* avtag =
         av_dict_get(m_fctx->streams[i]->metadata, "filename", nullptr, AV_DICT_IGNORE_SUFFIX);
-    if (avtag && strcmp(avtag->value,"kodi-metadata") == 0)
+    if (avtag && strcmp(avtag->value, "kodi-metadata") == 0)
     {
       m_metadata_stream = i;
       return true;
     }
-    else if (avtag && strcmp(avtag->value,"kodi-override-metadata") == 0)
+    else if (avtag && strcmp(avtag->value, "kodi-override-metadata") == 0)
     {
       m_metadata_stream = i;
       m_override_data = true;
@@ -129,7 +132,8 @@ bool CVideoTagLoaderFFmpeg::HasInfo() const
     return av_dict_get(m_fctx->metadata, "IMDBURL", nullptr, AV_DICT_IGNORE_SUFFIX) ||
            av_dict_get(m_fctx->metadata, "TMDBURL", nullptr, AV_DICT_IGNORE_SUFFIX) ||
            av_dict_get(m_fctx->metadata, "TITLE", nullptr, AV_DICT_IGNORE_SUFFIX);
-  } else if (m_item.IsType(".mp4") || m_item.IsType(".avi"))
+  }
+  else if (m_item.IsType(".mp4") || m_item.IsType(".avi"))
     return av_dict_get(m_fctx->metadata, "title", nullptr, AV_DICT_IGNORE_SUFFIX);
   else
     return false;
@@ -204,7 +208,7 @@ CInfoScanner::InfoType CVideoTagLoaderFFmpeg::LoadMKV(CVideoInfoTag& tag,
   }
 
   AVDictionaryEntry* avtag = nullptr;
-  bool hastag = false;
+  bool hasTitle = false;
   while ((avtag = av_dict_get(m_fctx->metadata, "", avtag, AV_DICT_IGNORE_SUFFIX)))
   {
     if (StringUtils::CompareNoCase(avtag->key, "imdburl") == 0 ||
@@ -212,22 +216,25 @@ CInfoScanner::InfoType CVideoTagLoaderFFmpeg::LoadMKV(CVideoInfoTag& tag,
     {
       CNfoFile nfo;
       nfo.Create(avtag->value, m_info);
-      m_url = nfo.ScraperUrl();
-      return CInfoScanner::InfoType::URL;
+      // Try other tags if the scraper wont use the url:
+      if (nfo.ScraperUrl().HasUrls())
+      {
+        m_url = nfo.ScraperUrl();
+        return CInfoScanner::InfoType::URL;
+      }
     }
     else if (StringUtils::CompareNoCase(avtag->key, "title") == 0)
-      tag.SetTitle(avtag->value);
-    else if (StringUtils::CompareNoCase(avtag->key, "director") == 0)
     {
-      std::vector<std::string> dirs = StringUtils::Split(avtag->value, " / ");
-      tag.SetDirector(dirs);
+      tag.SetTitle(avtag->value);
+      hasTitle = true;
     }
+    else if (StringUtils::CompareNoCase(avtag->key, "director") == 0)
+      tag.SetDirector(StringUtils::Split(avtag->value, " / "));
     else if (StringUtils::CompareNoCase(avtag->key, "date_released") == 0)
       tag.SetYear(atoi(avtag->value));
-    hastag = true;
   }
 
-  return hastag ? CInfoScanner::InfoType::TITLE : CInfoScanner::InfoType::NONE;
+  return hasTitle ? CInfoScanner::InfoType::TITLE : CInfoScanner::InfoType::NONE;
 }
 
 // https://wiki.multimedia.cx/index.php/FFmpeg_Metadata
@@ -245,7 +252,7 @@ CInfoScanner::InfoType CVideoTagLoaderFFmpeg::LoadMP4(CVideoInfoTag& tag,
       tag.SetWritingCredits(StringUtils::Split(avtag->value, " / "));
     else if (strcmp(avtag->key, "genre") == 0)
       tag.SetGenre(StringUtils::Split(avtag->value, " / "));
-    else if (strcmp(avtag->key,"date") == 0)
+    else if (strcmp(avtag->key, "date") == 0)
       tag.SetYear(atoi(avtag->value));
     else if (strcmp(avtag->key, "description") == 0)
     {
@@ -258,7 +265,13 @@ CInfoScanner::InfoType CVideoTagLoaderFFmpeg::LoadMP4(CVideoInfoTag& tag,
       hasfull = true;
     }
     else if (strcmp(avtag->key, "track") == 0)
-      tag.m_iTrack = std::stoi(avtag->value);
+    {
+      // A number, possibly followed by the total ("3/12")
+      const std::string_view value{avtag->value};
+      if (int track{0};
+          std::from_chars(value.data(), value.data() + value.size(), track).ec == std::errc{})
+        tag.m_iTrack = track;
+    }
     else if (strcmp(avtag->key, "album") == 0)
       tag.SetAlbum(avtag->value);
     else if (strcmp(avtag->key, "artist") == 0)
@@ -271,7 +284,7 @@ CInfoScanner::InfoType CVideoTagLoaderFFmpeg::LoadMP4(CVideoInfoTag& tag,
       continue;
 
     const size_t size = m_fctx->streams[i]->attached_pic.size;
-    const std::string type = "poster";
+    const std::string type = KODI::ART::TYPE::POSTER;
     if (art)
       art->emplace_back(m_fctx->streams[i]->attached_pic.data, size, "image/png", type);
     else
@@ -290,7 +303,7 @@ CInfoScanner::InfoType CVideoTagLoaderFFmpeg::LoadAVI(CVideoInfoTag& tag,
   {
     if (strcmp(avtag->key, "title") == 0)
       tag.SetTitle(avtag->value);
-    else if (strcmp(avtag->key,"date") == 0)
+    else if (strcmp(avtag->key, "date") == 0)
       tag.SetYear(atoi(avtag->value));
   }
 

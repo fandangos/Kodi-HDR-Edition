@@ -7,7 +7,14 @@ DEPS = ../../Makefile.include Makefile PYTHON3-VERSION ../../download-files.incl
                                  11-android-ctypes.patch \
                                  13-wasm-em-config-clang.patch \
                                  14-wasm-build-wasm-default.patch \
-                                 15-wasm-static-hacl.patch
+                                 15-wasm-static-hacl.patch \
+                                 16-ios-static-nonframework.patch \
+                                 19-tvos-disable-fork-exec.patch \
+                                 20-wasm-runtime-deps.patch \
+                                 21-wasm-em-js-deps.patch \
+                                 22-wasm-trampoline-static.patch \
+                                 23-wasm-static-linking.patch \
+                                 24-wasm-optional-reference-types.patch
 
 ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
   ifeq ($(OS), darwin_embedded)
@@ -23,10 +30,15 @@ ifeq ($(findstring apple-darwin, $(HOST)), apple-darwin)
     export SDKROOT
   endif
   ifeq ($(OS), osx)
+    EXTRA_CONFIGURE+= ac_cv_func_dup3=no ac_cv_func_pipe2=no
     export SDKROOT
   endif
   # required for _localemodule
   EXTRA_CONFIGURE+= ac_cv_lib_intl_textdomain=yes
+
+  # Python already handles older OSs correctly internally
+  # config.site appends a CFLAGS given here after the platform's, so it overrides them
+  EXTRA_CONFIGURE+= CFLAGS=-Wno-error=unguarded-availability-new
 endif
 
 ifeq ($(OS), linux)
@@ -46,6 +58,19 @@ ifeq ($(OS),wasm)
   EXTRA_CONFIGURE+= ax_cv_c_float_words_bigendian=no \
                     ac_cv_func_forkpty=no ac_cv_lib_util_forkpty=no \
                     ac_cv_func_memfd_create=no
+
+  # libpython is linked statically into the Kodi binary, so there is no dlopen()
+  # for extension modules; MODULE_BUILDTYPE=static builds them all into the
+  # archive. Saying so keeps configure from picking dynload_shlib.o, whose
+  # dlopen() emcc provides but which can never succeed here.
+  EXTRA_CONFIGURE+= --disable-wasm-dynamic-linking
+
+  # WebAssembly's indirect calls check the full signature, so the fpcasts
+  # CPython and its modules rely on trap without the call trampoline.
+  CFLAGS+= -DPY_CALL_TRAMPOLINE
+  # Chromium 85 on Samsung TVs does not support WASM reference types.
+  CFLAGS+= -mno-reference-types
+  export CFLAGS
 endif
 
 # Disabled c extension modules for all platforms
@@ -79,6 +104,16 @@ PY_MODULES+= py_cv_module__decimal=n/a \
 ifeq ($(OS), darwin_embedded)
   PY_MODULES+= py_cv_module__posixsubprocess=n/a \
                py_cv_module__scproxy=n/a
+
+  # A real iOS triplet, not the tree's darwin one: CPython derives ac_sys_system,
+  # the deployment target and the simulator split from it.
+  ifeq ($(findstring iphone,$(TARGET_PLATFORM)),iphone)
+    PYTHON_HOST=$(subst -darwin,-ios$(APPLE_DEPLOYMENT_TARGET),$(HOST))
+    ifeq ($(TARGET_PLATFORM),iphonesimulator)
+      PYTHON_HOST:=$(PYTHON_HOST)-simulator
+    endif
+    EXTRA_CONFIGURE+= --host=$(PYTHON_HOST)
+  endif
 endif
 
 # configuration settings
@@ -118,6 +153,22 @@ ifeq ($(OS),wasm)
 	cd $(PLATFORM); patch -p1 -i ../13-wasm-em-config-clang.patch
 	cd $(PLATFORM); patch -p1 -i ../14-wasm-build-wasm-default.patch
 	cd $(PLATFORM); patch -p1 -i ../15-wasm-static-hacl.patch
+# Merged upstream: python/cpython#156335 (3.15; adapted here, as 3.14 does not
+# use stringToNewUTF8 yet), #156798 and #157238 (3.16).
+	cd $(PLATFORM); patch -p1 -i ../20-wasm-runtime-deps.patch
+	cd $(PLATFORM); patch -p1 -i ../21-wasm-em-js-deps.patch
+	cd $(PLATFORM); patch -p1 -i ../22-wasm-trampoline-static.patch
+# Pending upstream review (python/cpython#156781).
+	cd $(PLATFORM); patch -p1 -i ../23-wasm-static-linking.patch
+	cd $(PLATFORM); patch -p1 -i ../24-wasm-optional-reference-types.patch
+endif
+ifeq ($(findstring iphone,$(TARGET_PLATFORM)),iphone)
+# Merged upstream (python/cpython#156110); drop it when we bump python past 3.16.
+	cd $(PLATFORM); patch -p1 -i ../16-ios-static-nonframework.patch
+endif
+ifeq ($(findstring appletv,$(TARGET_PLATFORM)),appletv)
+	# TODO: drop once tvOS is built as a real Python platform
+	cd $(PLATFORM); patch -p1 -i ../19-tvos-disable-fork-exec.patch
 endif
 	cd $(PLATFORM); $(AUTORECONF)
 	cd $(PLATFORM); $(CONFIGURE)

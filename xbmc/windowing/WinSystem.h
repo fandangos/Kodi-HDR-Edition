@@ -19,9 +19,12 @@
 #include "utils/DisplayInfo.h"
 #include "utils/HDRCapabilities.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
+
+inline constexpr const char* OUTPUT_NAME_DEFAULT = "Default";
 
 struct RESOLUTION_WHR
 {
@@ -122,6 +125,15 @@ public:
    * averaged from past frames and their presentation times
    */
   virtual float GetFrameLatencyAdjustment() { return 0.0; }
+
+  /*!
+   * \brief Prefer the shortest time to the screen over render throughput
+   *
+   * Set while a game is shown full screen, where the delay between a press and
+   * its picture is felt. A window system that queues frames ahead of the
+   * display stops doing so while this is set.
+   */
+  void SetLowLatencyPresentation(bool lowLatency) { m_lowLatencyPresentation = lowLatency; }
 
   virtual bool Minimize() { return false; }
   virtual bool Restore() { return false; }
@@ -242,6 +254,7 @@ public:
    *
    */
   virtual bool SetHDR(const VideoPicture* videoPicture) { return false; }
+  // UWP refreshes cached HDR state on the UI thread when this is queried.
   virtual bool IsHDRDisplay() { return false; }
   virtual HDR_STATUS ToggleHDR() { return HDR_STATUS::HDR_UNSUPPORTED; }
   virtual HDR_STATUS GetOSHDRStatus() { return HDR_STATUS::HDR_UNSUPPORTED; }
@@ -275,8 +288,8 @@ public:
   // True when GUI is rendered to an FBO that is then color-transformed
   // (sRGB -> PQ/HLG) and composited against HDR video in that non-linear
   // space. Alpha blending assumes linear light; blending non-linear values
-  // yields wrong transparency. When true, GUI draws select a compensated
-  // alpha blend (see CGUIFontTTFGLES::FirstBegin).
+  // yields wrong transparency. The composite shader compensates by squaring
+  // the GUI coverage (see gles_gui_composite.frag).
   virtual bool IsHdrComposite() const { return false; }
 
   /*!
@@ -286,6 +299,23 @@ public:
   virtual DEBUG_INFO_RENDER GetDebugInfo() { return {}; }
 
   virtual std::vector<std::string> GetConnectedOutputs() { return {}; }
+
+  /*!
+    * \brief Returns the number of physical monitors/outputs.
+    *
+    * Every backend's GetConnectedOutputs() includes OUTPUT_NAME_DEFAULT as
+    * the first entry; this is a placeholder (not a physical display) that
+    * means "let the system choose". This method excludes that placeholder
+    * from the count.
+    *
+    * \return Number of physical monitors/outputs.
+    */
+  virtual size_t GetPhysicalOutputCount()
+  {
+    const auto outputs = GetConnectedOutputs();
+    return (!outputs.empty() && outputs[0] == OUTPUT_NAME_DEFAULT) ? outputs.size() - 1
+                                                                   : outputs.size();
+  }
 
   /*!
    * \brief Return true when HDR display is available and enabled in settings
@@ -357,4 +387,5 @@ protected:
   std::unique_ptr<IWinEvents> m_winEvents;
   std::unique_ptr<CGraphicContext> m_gfxContext;
   std::shared_ptr<CDPMSSupport> m_dpms;
+  std::atomic<bool> m_lowLatencyPresentation{false};
 };

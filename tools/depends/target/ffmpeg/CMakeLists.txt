@@ -23,6 +23,10 @@ if(CROSSCOMPILING)
                           --ar=${CMAKE_AR}
                           --ranlib=${CMAKE_RANLIB}
                           --strip=${CMAKE_STRIP}
+                          --host-cc=${CC_FOR_BUILD}
+                          --host-ld=${CC_FOR_BUILD}
+                          "--host-cflags=${CFLAGS_FOR_BUILD}"
+                          "--host-ldflags=${LDFLAGS_FOR_BUILD}"
               )
 
   message(STATUS "CROSS: ${ffmpeg_conf}")
@@ -36,6 +40,8 @@ list(APPEND ffmpeg_conf --disable-doc
                         --disable-sdl2
                         --disable-vulkan
                         --enable-gpl
+                        --enable-version3
+                        --enable-openssl
                         --enable-runtime-cpudetect
                         --enable-pthreads
                         --extra-version="Kodi"
@@ -113,11 +119,6 @@ elseif(CPU MATCHES mips)
   list(APPEND ffmpeg_conf --disable-mips32r2 --disable-mipsdsp --disable-mipsdspr2)
 endif()
 
-find_package(GnuTLS)
-if(GNUTLS_FOUND)
-  list(APPEND ffmpeg_conf --enable-gnutls)
-endif()
-
 if(CPU MATCHES x86 OR CPU MATCHES x86_64)
   find_package(NASM REQUIRED)
   list(APPEND ffmpeg_conf --x86asmexe=${NASM_EXECUTABLE})
@@ -132,6 +133,11 @@ if(ENABLE_DAV1D)
   list(APPEND env_vars "PKG_CONFIG_PATH=${PKG_CONFIG_PATH}")
 else()
   list(APPEND ffmpeg_conf --disable-libdav1d)
+endif()
+
+if(ENABLE_LIBOPUS)
+  list(APPEND ffmpeg_conf --enable-libopus)
+  list(APPEND env_vars "PKG_CONFIG_PATH=${PKG_CONFIG_PATH}")
 endif()
 
 if(EXTRA_FLAGS)
@@ -158,6 +164,8 @@ if(NOT DISABLE_FFMPEG_SOURCE_PLUGINS)
 else()
   set(sourceplugin_patch PATCH_COMMAND patch -p1 -i <SOURCE_DIR>/002-ffmpeg-libavutil-common-h-cpp11-constant-macros.patch)
 endif()
+list(APPEND sourceplugin_patch COMMAND patch -p1 -i <SOURCE_DIR>/008-ffmpeg-all-pgssubdec-use-caller-colorspace.patch)
+list(APPEND sourceplugin_patch COMMAND patch -p1 -i <SOURCE_DIR>/009-ffmpeg-all-swscale-yuv2rgb-odd-width.patch)
 
 include(ExternalProject)
 externalproject_add(ffmpeg
